@@ -1,0 +1,24 @@
+{
+  "versao": "2.0.0",
+  "build": 1770220512062,
+  "data": "2026-02-04",
+  "hora": "15:55:12",
+  "commit": "integração-estoque-kanban",
+  "features": [
+    "Integração Estoque Real ↔ Kanban Corte",
+    "Dedução automática de peso ao iniciar corte",
+    "KPIs em tempo real",
+    "Sincronização entre módulos",
+    "Widget de consumo no Kanban",
+    "Widget de consumo no Estoque"
+  ],
+  "modulos": [
+    "Dashboard",
+    "Obras",
+    "Estoque Real",
+    "Kanban Corte",
+    "Kanban Produção",
+    "Expedição",
+    "Romaneios"
+  ]
+}

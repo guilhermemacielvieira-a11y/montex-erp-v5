@@ -1,0 +1,42 @@
+# Dependências
+node_modules/
+
+# Build
+dist/
+release/
+build_test/
+
+# Variáveis de ambiente (NUNCA commitar!)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vercel
+.vercel/
+
+# Arquivos desnecessários para deploy web
+MONTEX-ERP-INSTALACAO.zip
+*.zip
+Montex/
+package-lock 2.json
+*.backup_*
+*.command
+montex-erp-integrado.html
+montex-v65.html
+base44-app@0.0.0

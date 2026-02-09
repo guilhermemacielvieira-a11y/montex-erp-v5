@@ -1,0 +1,105 @@
+# MONTEX ERP - Electron Builder Configuration
+# Configuração para build de aplicativo desktop
+
+appId: com.grupomontex.erp
+productName: MONTEX ERP
+copyright: Copyright © 2024 Grupo Montex
+
+# Diretórios
+directories:
+  buildResources: build
+  output: release
+
+# Arquivos a incluir
+files:
+  - dist/**/*
+  - electron/**/*
+  - public/**/*
+  - package.json
+
+# Configuração macOS
+mac:
+  category: public.app-category.business
+  icon: build/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+    - target: zip
+      arch:
+        - x64
+        - arm64
+
+# DMG para macOS
+dmg:
+  artifactName: MONTEX-ERP-${version}-${arch}.dmg
+  title: MONTEX ERP ${version}
+  icon: build/icon.icns
+  iconSize: 100
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
+  window:
+    width: 540
+    height: 400
+
+# Configuração Windows (opcional para cross-compile)
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
+
+# Instalador Windows NSIS
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  installerHeaderIcon: build/icon.ico
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: MONTEX ERP
+
+# Configuração Linux (opcional)
+linux:
+  icon: build/icons
+  category: Office
+  target:
+    - target: AppImage
+      arch:
+        - x64
+    - target: deb
+      arch:
+        - x64
+
+# Auto-update (opcional)
+publish:
+  provider: github
+  owner: grupomontex
+  repo: erp
+  releaseType: release
+
+# Hooks de build
+afterSign: scripts/notarize.js
+
+# Protocolo de URL customizado
+protocols:
+  - name: MONTEX ERP
+    schemes:
+      - montex-erp

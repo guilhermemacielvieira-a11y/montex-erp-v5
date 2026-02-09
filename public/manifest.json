@@ -1,0 +1,16 @@
+{
+  "name": "GRUPO MONTEX - Sistema de Produção",
+  "short_name": "MONTEX",
+  "description": "Sistema integrado de gestão de produção para estruturas metálicas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#10b981",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

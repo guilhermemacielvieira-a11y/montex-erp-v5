@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MONTEX - Fluxo Completo de Produção</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+            color: #f8fafc;
+            padding: 40px;
+        }
+        .container { max-width: 1600px; margin: 0 auto; }
+
+        h1 {
+            text-align: center;
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(90deg, #f97316, #f59e0b);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #94a3b8;
+            margin-bottom: 40px;
+            font-size: 1.1rem;
+        }
+
+        /* Seções */
+        .flow-section {
+            background: rgba(30, 41, 59, 0.8);
+            border-radius: 20px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        .section-title {
+            font-size: 1.4rem;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .section-title .icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        /* Fases do Processo */
+        .phase-container {
+            display: flex;
+            flex-direction: column;
+            gap: 30px;
+        }
+        .phase {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 16px;
+            padding: 25px;
+            border-left: 5px solid;
+        }
+        .phase-header {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        .phase-number {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+        }
+        .phase-info h3 {
+            font-size: 1.2rem;
+            margin-bottom: 5px;
+        }
+        .phase-info p {
+            color: #94a3b8;
+            font-size: 0.9rem;
+        }
+
+        /* Fluxo Horizontal dentro da fase */
+        .flow-horizontal {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            overflow-x: auto;
+            padding: 15px 0;
+        }
+        .flow-step {
+            flex-shrink: 0;
+            min-width: 140px;
+            background: rgba(15, 23, 42, 0.9);
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            border: 2px solid;
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        .flow-step:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(0,0,0,0.3);
+        }
+        .flow-step .emoji { font-size: 2rem; margin-bottom: 8px; }
+        .flow-step .name { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+        .flow-step .desc { font-size: 0.75rem; color: #94a3b8; }
+
+        .arrow {
+            font-size: 1.3rem;
+            color: #64748b;
+            flex-shrink: 0;
+        }
+        .arrow-down {
+            text-align: center;
+            font-size: 2rem;
+            color: #64748b;
+            margin: 10px 0;
+        }
+
+        /* Cores das fases */
+        .phase-comercial { border-left-color: #22c55e; }
+        .phase-comercial .phase-number { background: linear-gradient(135deg, #22c55e, #16a34a); }
+
+        .phase-engenharia { border-left-color: #6366f1; }
+        .phase-engenharia .phase-number { background: linear-gradient(135deg, #6366f1, #4f46e5); }
+
+        .phase-suprimentos { border-left-color: #f59e0b; }
+        .phase-suprimentos .phase-number { background: linear-gradient(135deg, #f59e0b, #d97706); }
+
+        .phase-producao { border-left-color: #3b82f6; }
+        .phase-producao .phase-number { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+
+        .phase-logistica { border-left-color: #06b6d4; }
+        .phase-logistica .phase-number { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+
+        /* Cores dos steps */
+        .step-orcamento { border-color: #22c55e; background: linear-gradient(135deg, rgba(34,197,94,0.15), rgba(34,197,94,0.05)); }
+        .step-aprovado { border-color: #10b981; background: linear-gradient(135deg, rgba(16,185,129,0.15), rgba(16,185,129,0.05)); }
+        .step-projeto { border-color: #6366f1; background: linear-gradient(135deg, rgba(99,102,241,0.15), rgba(99,102,241,0.05)); }
+        .step-listas { border-color: #8b5cf6; background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05)); }
+        .step-compras { border-color: #f59e0b; background: linear-gradient(135deg, rgba(245,158,11,0.15), rgba(245,158,11,0.05)); }
+        .step-estoque { border-color: #eab308; background: linear-gradient(135deg, rgba(234,179,8,0.15), rgba(234,179,8,0.05)); }
+        .step-corte { border-color: #ef4444; background: linear-gradient(135deg, rgba(239,68,68,0.15), rgba(239,68,68,0.05)); }
+        .step-fabricacao { border-color: #3b82f6; background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(59,130,246,0.05)); }
+        .step-solda { border-color: #8b5cf6; background: linear-gradient(135deg, rgba(139,92,246,0.15), rgba(139,92,246,0.05)); }
+        .step-pintura { border-color: #ec4899; background: linear-gradient(135deg, rgba(236,72,153,0.15), rgba(236,72,153,0.05)); }
+        .step-expedicao { border-color: #06b6d4; background: linear-gradient(135deg, rgba(6,182,212,0.15), rgba(6,182,212,0.05)); }
+        .step-montagem { border-color: #14b8a6; background: linear-gradient(135deg, rgba(20,184,166,0.15), rgba(20,184,166,0.05)); }
+
+        /* Fluxo Visual Completo */
+        .full-flow {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 30px;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 16px;
+            margin-bottom: 30px;
+        }
+        .full-flow .flow-step {
+            min-width: 100px;
+            padding: 12px 15px;
+        }
+        .full-flow .flow-step .emoji { font-size: 1.5rem; }
+        .full-flow .flow-step .name { font-size: 0.8rem; }
+        .flow-divider {
+            height: 40px;
+            width: 3px;
+            background: linear-gradient(to bottom, transparent, #64748b, transparent);
+            margin: 0 5px;
+        }
+
+        /* Estatísticas */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(59,130,246,0.05));
+            border-radius: 12px;
+            padding: 18px;
+            text-align: center;
+            border: 1px solid rgba(59,130,246,0.3);
+        }
+        .stat-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            background: linear-gradient(90deg, #3b82f6, #06b6d4);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .stat-label { color: #94a3b8; font-size: 0.85rem; margin-top: 5px; }
+
+        /* Grid de Detalhes */
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .detail-card {
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 12px;
+            padding: 20px;
+            border-left: 4px solid;
+        }
+        .detail-card h3 {
+            font-size: 1rem;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .detail-card ul {
+            list-style: none;
+            font-size: 0.85rem;
+        }
+        .detail-card li {
+            padding: 5px 0;
+            color: #cbd5e1;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        .detail-card li::before {
+            content: "→";
+            color: #64748b;
+        }
+
+        /* Módulos ERP */
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        .module-card {
+            background: rgba(15, 23, 42, 0.8);
+            border-radius: 12px;
+            padding: 18px;
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .module-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+        .module-info h4 { font-size: 0.95rem; margin-bottom: 3px; }
+        .module-info p { font-size: 0.8rem; color: #94a3b8; }
+
+        /* Tabela de Materiais */
+        .materials-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 0.85rem;
+        }
+        .materials-table th {
+            background: rgba(59, 130, 246, 0.2);
+            padding: 10px;
+            text-align: left;
+            border-bottom: 2px solid #3b82f6;
+        }
+        .materials-table td {
+            padding: 8px 10px;
+            border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+        }
+        .materials-table tr:hover td {
+            background: rgba(59, 130, 246, 0.1);
+        }
+        .material-code {
+            font-family: 'Consolas', monospace;
+            background: rgba(245, 158, 11, 0.2);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+        }
+
+        /* Legenda */
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid rgba(148, 163, 184, 0.2);
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        .legend-color {
+            width: 14px;
+            height: 14px;
+            border-radius: 4px;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            body { padding: 20px; }
+            h1 { font-size: 1.8rem; }
+            .flow-step { min-width: 110px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏭 MONTEX ERP Premium</h1>
+        <p class="subtitle">Fluxo Completo: Do Orçamento à Montagem em Campo</p>
+
+        <!-- Fluxo Visual Completo -->
+        <div class="full-flow">
+            <div class="flow-step step-orcamento">
+                <div class="emoji">💰</div>
+                <div class="name">ORÇAMENTO</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-aprovado">
+                <div class="emoji">✅</div>
+                <div class="name">APROVADO</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-projeto">
+                <div class="emoji">📐</div>
+                <div class="name">PROJETO</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-listas">
+                <div class="emoji">📋</div>
+                <div class="name">LISTAS</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-compras">
+                <div class="emoji">🛒</div>
+                <div class="name">COMPRAS</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-estoque">
+                <div class="emoji">📦</div>
+                <div class="name">ESTOQUE</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-corte">
+                <div class="emoji">✂️</div>
+                <div class="name">CORTE</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-fabricacao">
+                <div class="emoji">🔧</div>
+                <div class="name">FABRICAÇÃO</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-solda">
+                <div class="emoji">⚡</div>
+                <div class="name">SOLDA</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-pintura">
+                <div class="emoji">🎨</div>
+                <div class="name">PINTURA</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-expedicao">
+                <div class="emoji">🚚</div>
+                <div class="name">EXPEDIÇÃO</div>
+            </div>
+            <div class="arrow">→</div>
+            <div class="flow-step step-montagem">
+                <div class="emoji">🏗️</div>
+                <div class="name">MONTAGEM</div>
+            </div>
+        </div>
+
+        <!-- Estatísticas -->
+        <div class="flow-section">
+            <div class="section-title">
+                <div class="icon" style="background: linear-gradient(135deg, #3b82f6, #06b6d4);">📊</div>
+                <span>Exemplo: Obra BELO VALE - Supermercados Superluna</span>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">107.715</div>
+                    <div class="stat-label">Peso Total (kg)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">6.574</div>
+                    <div class="stat-label">Área Pintura (m²)</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">860</div>
+                    <div class="stat-label">Peças para Corte</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">22</div>
+                    <div class="stat-label">Tipos de Peças</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">5.938</div>
+                    <div class="stat-label">Parafusos</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fases Detalhadas -->
+        <div class="flow-section">
+            <div class="section-title">
+                <div class="icon" style="background: linear-gradient(135deg, #f97316, #f59e0b);">🔄</div>
+                <span>Fases do Processo</span>
+            </div>
+
+            <div class="phase-container">
+                <!-- FASE 1: COMERCIAL -->
+                <div class="phase phase-comercial">
+                    <div class="phase-header">
+                        <div class="phase-number">1</div>
+                        <div class="phase-info">
+                            <h3>FASE COMERCIAL</h3>
+                            <p>Proposta, negociação e aprovação do cliente</p>
+                        </div>
+                    </div>
+                    <div class="flow-horizontal">
+                        <div class="flow-step step-orcamento">
+                            <div class="emoji">💰</div>
+                            <div class="name">ORÇAMENTO</div>
+                            <div class="desc">Proposta comercial</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step" style="border-color: #64748b;">
+                            <div class="emoji">📧</div>
+                            <div class="name">NEGOCIAÇÃO</div>
+                            <div class="desc">Ajustes e revisões</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-aprovado">
+                            <div class="emoji">✅</div>
+                            <div class="name">APROVADO</div>
+                            <div class="desc">Contrato assinado</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="arrow-down">⬇️</div>
+
+                <!-- FASE 2: ENGENHARIA -->
+                <div class="phase phase-engenharia">
+                    <div class="phase-header">
+                        <div class="phase-number">2</div>
+                        <div class="phase-info">
+                            <h3>FASE DE ENGENHARIA</h3>
+                            <p>Projeto estrutural e geração de listas</p>
+                        </div>
+                    </div>
+                    <div class="flow-horizontal">
+                        <div class="flow-step step-projeto">
+                            <div class="emoji">📐</div>
+                            <div class="name">PROJETO 3D</div>
+                            <div class="desc">Modelagem estrutural</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-projeto">
+                            <div class="emoji">📝</div>
+                            <div class="name">DETALHAMENTO</div>
+                            <div class="desc">Desenhos técnicos</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-listas">
+                            <div class="emoji">📋</div>
+                            <div class="name">LISTAS</div>
+                            <div class="desc">Materiais e corte</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-listas">
+                            <div class="emoji">📊</div>
+                            <div class="name">QUANTITATIVOS</div>
+                            <div class="desc">Pintura, parafusos</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="arrow-down">⬇️</div>
+
+                <!-- FASE 3: SUPRIMENTOS -->
+                <div class="phase phase-suprimentos">
+                    <div class="phase-header">
+                        <div class="phase-number">3</div>
+                        <div class="phase-info">
+                            <h3>FASE DE SUPRIMENTOS</h3>
+                            <p>Cotação, compra e recebimento de materiais</p>
+                        </div>
+                    </div>
+                    <div class="flow-horizontal">
+                        <div class="flow-step step-compras">
+                            <div class="emoji">📝</div>
+                            <div class="name">COTAÇÃO</div>
+                            <div class="desc">Orçamento fornecedores</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-compras">
+                            <div class="emoji">🛒</div>
+                            <div class="name">COMPRA</div>
+                            <div class="desc">Pedido de compra</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-estoque">
+                            <div class="emoji">🚛</div>
+                            <div class="name">RECEBIMENTO</div>
+                            <div class="desc">Entrada na fábrica</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-estoque">
+                            <div class="emoji">📦</div>
+                            <div class="name">ESTOQUE</div>
+                            <div class="desc">Gestão de materiais</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="arrow-down">⬇️</div>
+
+                <!-- FASE 4: PRODUÇÃO -->
+                <div class="phase phase-producao">
+                    <div class="phase-header">
+                        <div class="phase-number">4</div>
+                        <div class="phase-info">
+                            <h3>FASE DE PRODUÇÃO (FÁBRICA)</h3>
+                            <p>Corte, fabricação, solda e pintura</p>
+                        </div>
+                    </div>
+                    <div class="flow-horizontal">
+                        <div class="flow-step step-corte">
+                            <div class="emoji">✂️</div>
+                            <div class="name">CORTE</div>
+                            <div class="desc">CNC, Plasma, Serra</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-fabricacao">
+                            <div class="emoji">🔧</div>
+                            <div class="name">FABRICAÇÃO</div>
+                            <div class="desc">Montagem MARCAS</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-solda">
+                            <div class="emoji">⚡</div>
+                            <div class="name">SOLDA</div>
+                            <div class="desc">MIG, TIG, Eletrodo</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-pintura">
+                            <div class="emoji">💨</div>
+                            <div class="name">JATEAMENTO</div>
+                            <div class="desc">Limpeza superfície</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-pintura">
+                            <div class="emoji">🎨</div>
+                            <div class="name">PINTURA</div>
+                            <div class="desc">Primer + acabamento</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="arrow-down">⬇️</div>
+
+                <!-- FASE 5: LOGÍSTICA E OBRA -->
+                <div class="phase phase-logistica">
+                    <div class="phase-header">
+                        <div class="phase-number">5</div>
+                        <div class="phase-info">
+                            <h3>FASE DE LOGÍSTICA E OBRA (CAMPO)</h3>
+                            <p>Expedição, transporte e montagem no canteiro</p>
+                        </div>
+                    </div>
+                    <div class="flow-horizontal">
+                        <div class="flow-step step-expedicao">
+                            <div class="emoji">📦</div>
+                            <div class="name">ROMANEIO</div>
+                            <div class="desc">Lista de embarque</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-expedicao">
+                            <div class="emoji">🚚</div>
+                            <div class="name">EXPEDIÇÃO</div>
+                            <div class="desc">Carregamento</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-expedicao">
+                            <div class="emoji">🛣️</div>
+                            <div class="name">TRANSPORTE</div>
+                            <div class="desc">Em trânsito</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-montagem">
+                            <div class="emoji">📍</div>
+                            <div class="name">RECEBIMENTO</div>
+                            <div class="desc">Chegada na obra</div>
+                        </div>
+                        <div class="arrow">→</div>
+                        <div class="flow-step step-montagem">
+                            <div class="emoji">🏗️</div>
+                            <div class="name">MONTAGEM</div>
+                            <div class="desc">Instalação final</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Módulos do ERP -->
+        <div class="flow-section">
+            <div class="section-title">
+                <div class="icon" style="background: linear-gradient(135deg, #8b5cf6, #a855f7);">💻</div>
+                <span>Módulos do ERP por Fase</span>
+            </div>
+
+            <div class="modules-grid">
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #22c55e, #16a34a);">💰</div>
+                    <div class="module-info">
+                        <h4>Orçamentos</h4>
+                        <p>Propostas, versões, aprovações</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #6366f1, #4f46e5);">📐</div>
+                    <div class="module-info">
+                        <h4>Projetos</h4>
+                        <p>Cadastro de obras e projetos</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">📋</div>
+                    <div class="module-info">
+                        <h4>Import Listas</h4>
+                        <p>Importação Excel GADE</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">🛒</div>
+                    <div class="module-info">
+                        <h4>Compras</h4>
+                        <p>Cotações e pedidos</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #eab308, #ca8a04);">📦</div>
+                    <div class="module-info">
+                        <h4>Estoque</h4>
+                        <p>Gestão de materiais</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #ef4444, #dc2626);">✂️</div>
+                    <div class="module-info">
+                        <h4>Kanban Corte</h4>
+                        <p>Programação de corte</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">🔧</div>
+                    <div class="module-info">
+                        <h4>Produção Kanban</h4>
+                        <p>Fab → Solda → Pintura</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #ec4899, #db2777);">📊</div>
+                    <div class="module-info">
+                        <h4>Medição Automática</h4>
+                        <p>R$/kg por etapa</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #06b6d4, #0891b2);">🚚</div>
+                    <div class="module-info">
+                        <h4>Expedição</h4>
+                        <p>Romaneio e envios</p>
+                    </div>
+                </div>
+                <div class="module-card">
+                    <div class="module-icon" style="background: linear-gradient(135deg, #14b8a6, #0d9488);">🏗️</div>
+                    <div class="module-info">
+                        <h4>Diário de Obra</h4>
+                        <p>Acompanhamento campo</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Listas Geradas -->
+        <div class="flow-section">
+            <div class="section-title">
+                <div class="icon" style="background: linear-gradient(135deg, #f59e0b, #f97316);">📄</div>
+                <span>Listas Exportadas pelo Projeto (GADE)</span>
+            </div>
+
+            <div class="details-grid">
+                <div class="detail-card" style="border-left-color: #8b5cf6;">
+                    <h3>📊 Resumo de Material</h3>
+                    <ul>
+                        <li>Visão geral de todos os perfis</li>
+                        <li>Total em metros e kg por tipo</li>
+                        <li><strong>Uso:</strong> Cotação e compras</li>
+                    </ul>
+                </div>
+
+                <div class="detail-card" style="border-left-color: #ef4444;">
+                    <h3>✂️ Materiais para Corte</h3>
+                    <ul>
+                        <li>Cada peça: MARCA + Perfil + Comp.</li>
+                        <li>Detalhamento individual</li>
+                        <li><strong>Uso:</strong> Programação CNC</li>
+                    </ul>
+                </div>
+
+                <div class="detail-card" style="border-left-color: #eab308;">
+                    <h3>📏 Área das Chapas</h3>
+                    <ul>
+                        <li>Por espessura (2 a 22.4mm)</li>
+                        <li>Área total em m²</li>
+                        <li><strong>Uso:</strong> Compra de chapas</li>
+                    </ul>
+                </div>
+
+                <div class="detail-card" style="border-left-color: #ec4899;">
+                    <h3>🎨 Área de Pintura</h3>
+                    <ul>
+                        <li>Área pintável por perfil</li>
+                        <li>Total em m²</li>
+                        <li><strong>Uso:</strong> Orçamento de tinta</li>
+                    </ul>
+                </div>
+
+                <div class="detail-card" style="border-left-color: #10b981;">
+                    <h3>🔩 Resumo de Parafusos</h3>
+                    <ul>
+                        <li>Por diâmetro e comprimento</li>
+                        <li>Porcas e arruelas</li>
+                        <li><strong>Uso:</strong> Kit de montagem</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- Conceito de MARCA -->
+        <div class="flow-section">
+            <div class="section-title">
+                <div class="icon" style="background: linear-gradient(135deg, #10b981, #06b6d4);">🏷️</div>
+                <span>Conceito de MARCA (Peça Fabricada)</span>
+            </div>
+
+            <div style="background: rgba(16,185,129,0.1); border-radius: 12px; padding: 25px; border: 1px solid rgba(16,185,129,0.3);">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 30px;">
+                    <div>
+                        <h3 style="color: #10b981; margin-bottom: 15px;">O que é MARCA?</h3>
+                        <p style="color: #cbd5e1; line-height: 1.8;">
+                            <strong>MARCA</strong> é o identificador único de cada peça fabricada no projeto.
+                            A MARCA segue o fluxo completo: CORTE → FABRICAÇÃO → SOLDA → PINTURA → EXPEDIÇÃO.
+                        </p>
+                        <p style="color: #cbd5e1; line-height: 1.8; margin-top: 10px;">
+                            Na <strong>FABRICAÇÃO</strong>, peças cortadas são unidas formando a MARCA completa
+                            (ex: coluna + chapas de base + enrijecedores).
+                        </p>
+                    </div>
+                    <div style="background: rgba(0,0,0,0.3); padding: 15px; border-radius: 8px; font-family: monospace; font-size: 0.85rem;">
+                        <div style="color: #f59e0b; margin-bottom: 10px;">Exemplo: COLUNA MARCA 5</div>
+                        <div style="color: #94a3b8;">
+                            PEÇA: COLUNA<br>
+                            MARCA: 5<br>
+                            QTD: 1<br>
+                            PERFIL: W410X53<br>
+                            COMP: 8397mm<br>
+                            MATERIAL: A572-GR.50<br>
+                            PESO: 450.9 kg
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Legenda -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: #22c55e;"></div>
+                <span>Comercial</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #6366f1;"></div>
+                <span>Engenharia</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #f59e0b;"></div>
+                <span>Suprimentos</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ef4444;"></div>
+                <span>Corte</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #3b82f6;"></div>
+                <span>Fabricação</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #8b5cf6;"></div>
+                <span>Solda</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #ec4899;"></div>
+                <span>Pintura</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #06b6d4;"></div>
+                <span>Expedição</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: #14b8a6;"></div>
+                <span>Montagem</span>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
