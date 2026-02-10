@@ -69,6 +69,24 @@ function transformArray(records) {
 }
 
 // ========================================
+// TRANSFORMADOR: camelCase → snake_case
+// ========================================
+function camelToSnake(str) {
+  return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
+}
+
+function reverseTransformRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  const result = {};
+  for (const [key, value] of Object.entries(record)) {
+    // Ignorar campos internos que não devem ir para o DB
+    if (key.startsWith('_')) continue;
+    result[camelToSnake(key)] = value;
+  }
+  return result;
+}
+
+// ========================================
 // TIPOS DE AÇÕES
 // ========================================
 
@@ -335,6 +353,12 @@ function erpReducer(state, action) {
       return {
         ...state,
         pecas: [...state.pecas, ...action.payload]
+      };
+
+    case 'RELOAD_PECAS':
+      return {
+        ...state,
+        pecas: action.payload
       };
 
     // ===== EXPEDIÇÃO =====
@@ -717,8 +741,26 @@ export function ERPProvider({ children }) {
   }, []);
 
   // ===== AÇÕES - PRODUÇÃO =====
-  const moverPecaEtapa = useCallback((pecaId, novaEtapa, funcionarioId) => {
+  const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId) => {
     dispatch({ type: ACTIONS.MOVER_PECA_ETAPA, payload: { pecaId, novaEtapa, funcionarioId } });
+
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const now = new Date().toISOString();
+        const updateData = {
+          etapa: novaEtapa,
+          [`data_${novaEtapa}`]: now,
+        };
+        if (funcionarioId) {
+          updateData[`funcionario_${novaEtapa}`] = funcionarioId;
+        }
+        await pecasApi.update(pecaId, updateData);
+        console.log(`✅ Peça ${pecaId} → ${novaEtapa} salva no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao salvar etapa no Supabase:', err.message);
+      }
+    }
 
     // Atualiza progresso da obra automaticamente
     const peca = state.pecas.find(p => p.id === pecaId);
@@ -758,10 +800,26 @@ export function ERPProvider({ children }) {
         });
       }
     }
-  }, [state.pecas]);
+  }, [state.pecas, dataSource]);
 
-  const updateStatusCorte = useCallback((pecaId, novoStatus, maquinaId, funcionarioId) => {
+  const updateStatusCorte = useCallback(async (pecaId, novoStatus, maquinaId, funcionarioId) => {
     dispatch({ type: ACTIONS.UPDATE_STATUS_CORTE, payload: { pecaId, novoStatus, maquinaId, funcionarioId } });
+
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const updateData = { status_corte: novoStatus };
+        if (maquinaId) updateData.maquina_corte = maquinaId;
+        if (funcionarioId) updateData.funcionario_corte = funcionarioId;
+        if (novoStatus === STATUS_CORTE.LIBERADO) {
+          updateData.data_corte = new Date().toISOString().split('T')[0];
+        }
+        await pecasApi.update(pecaId, updateData);
+        console.log(`✅ Status corte ${pecaId} → ${novoStatus} salvo no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao salvar status corte no Supabase:', err.message);
+      }
+    }
 
     // Add notification for cutting status change
     if (window.__notificationDispatch && novoStatus === STATUS_CORTE.LIBERADO) {
@@ -772,11 +830,55 @@ export function ERPProvider({ children }) {
         icon: 'Scissors'
       });
     }
-  }, []);
+  }, [dataSource]);
 
-  const addPecas = useCallback((pecas) => {
+  const addPecas = useCallback(async (pecas) => {
     dispatch({ type: ACTIONS.ADD_PECAS, payload: pecas });
-  }, []);
+
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const records = pecas.map(p => reverseTransformRecord(p));
+        await pecasApi.createMany(records);
+        console.log(`✅ ${pecas.length} peças adicionadas no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao adicionar peças no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  // Atualizar uma peça (com persistência no Supabase)
+  const updatePeca = useCallback(async (pecaId, data) => {
+    dispatch({ type: ACTIONS.UPDATE_PECA, payload: { id: pecaId, data } });
+
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        // Remover campos que não devem ser atualizados
+        delete snakeData.id;
+        delete snakeData.created_at;
+        await pecasApi.update(pecaId, snakeData);
+        console.log(`✅ Peça ${pecaId} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar peça no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  // Recarregar peças do Supabase
+  const reloadPecas = useCallback(async () => {
+    if (dataSource !== 'supabase') return;
+    try {
+      const pecasData = await pecasApi.getAll('id', true);
+      const pecasTransformadas = transformArray(pecasData);
+      dispatch({ type: ACTIONS.ADD_PECAS, payload: [] }); // clear
+      dispatch({ type: 'RELOAD_PECAS', payload: pecasTransformadas });
+      console.log(`🔄 ${pecasTransformadas.length} peças recarregadas do Supabase`);
+    } catch (err) {
+      console.error('❌ Erro ao recarregar peças:', err.message);
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - EXPEDIÇÃO =====
   const addExpedicao = useCallback((expedicao) => {
@@ -1003,6 +1105,8 @@ export function ERPProvider({ children }) {
     moverPecaEtapa,
     updateStatusCorte,
     addPecas,
+    updatePeca,
+    reloadPecas,
 
     // Ações - Expedição
     addExpedicao,
@@ -1058,6 +1162,8 @@ export function ERPProvider({ children }) {
     moverPecaEtapa,
     updateStatusCorte,
     addPecas,
+    updatePeca,
+    reloadPecas,
     addExpedicao,
     updateExpedicao,
     addCompra,
@@ -1103,8 +1209,8 @@ export function useEstoque() {
 }
 
 export function useProducao() {
-  const { pecas, pecasObraAtual, maquinas, moverPecaEtapa, updateStatusCorte, addPecas, updateMaquina } = useERP();
-  return { pecas, pecasObraAtual, maquinas, moverPecaEtapa, updateStatusCorte, addPecas, updateMaquina };
+  const { pecas, pecasObraAtual, maquinas, moverPecaEtapa, updateStatusCorte, addPecas, updatePeca, reloadPecas, updateMaquina } = useERP();
+  return { pecas, pecasObraAtual, maquinas, moverPecaEtapa, updateStatusCorte, addPecas, updatePeca, reloadPecas, updateMaquina };
 }
 
 export function useExpedicao() {

@@ -60,6 +60,8 @@ import {
 
 // Importar ERPContext - dados reais
 import { useObras, useProducao } from '../contexts/ERPContext';
+// Importar API Supabase para persistência
+import { pecasApi } from '@/api/supabaseClient';
 
 // Importar configuração de produção e enums
 import { ETAPAS_PRODUCAO } from '../data/database';
@@ -351,7 +353,7 @@ const KanbanItem = forwardRef(function KanbanItem({ item, obras, onDragStart, on
 export default function ProducaoPage() {
   // Dados do ERPContext
   const { obras } = useObras();
-  const { pecas, moverPecaEtapa } = useProducao();
+  const { pecas, moverPecaEtapa, updatePeca, reloadPecas, addPecas } = useProducao();
 
   // Estados locais
   const [search, setSearch] = useState('');
@@ -506,8 +508,14 @@ export default function ProducaoPage() {
     toast.success('Exportação iniciada. O arquivo será baixado em breve.');
   };
 
-  const handleAtualizar = () => {
-    toast.success('Dados atualizados com sucesso!');
+  const handleAtualizar = async () => {
+    try {
+      await reloadPecas();
+      toast.success('Dados atualizados com sucesso!');
+    } catch (err) {
+      console.error('Erro ao atualizar:', err);
+      toast.error('Erro ao atualizar dados.');
+    }
   };
 
   const handleAddItem = () => {
@@ -518,11 +526,41 @@ export default function ProducaoPage() {
     openReportModal(item);
   };
 
-  const handleSaveItem = () => {
-    if (modalMode === 'create') {
-      toast.success('Peça adicionada com sucesso!');
-    } else if (modalMode === 'edit' && selectedItem) {
-      toast.success('Peça atualizada com sucesso!');
+  const handleSaveItem = async () => {
+    try {
+      if (modalMode === 'create') {
+        // Criar nova peça
+        const novaPeca = {
+          id: `PEC-${Date.now()}`,
+          marca: formData.marca,
+          tipo: formData.tipo || '',
+          perfil: formData.perfil || '',
+          material: formData.material || '',
+          quantidade: Number(formData.quantidade) || 1,
+          peso: Number(formData.peso) || 0,
+          obraId: formData.obraId || '',
+          etapa: 'aguardando',
+          statusCorte: 'pendente',
+          createdAt: new Date().toISOString(),
+        };
+        await addPecas([novaPeca]);
+        toast.success('Peça adicionada com sucesso!');
+      } else if (modalMode === 'edit' && selectedItem) {
+        // Atualizar peça existente
+        const dadosAtualizados = {
+          marca: formData.marca,
+          tipo: formData.tipo,
+          perfil: formData.perfil,
+          material: formData.material,
+          quantidade: Number(formData.quantidade) || 1,
+          peso: Number(formData.peso) || 0,
+        };
+        await updatePeca(selectedItem.id, dadosAtualizados);
+        toast.success('Peça atualizada com sucesso!');
+      }
+    } catch (err) {
+      console.error('Erro ao salvar peça:', err);
+      toast.error('Erro ao salvar peça. Tente novamente.');
     }
     closeModal();
   };

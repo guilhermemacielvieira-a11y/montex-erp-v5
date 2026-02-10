@@ -31,7 +31,7 @@ import {
 } from 'recharts';
 
 // Contexto ERP e Database
-import { useObras } from '@/contexts/ERPContext';
+import { useObras, useProducao } from '@/contexts/ERPContext';
 import { listasMaterial, obras as obrasDB, pecasProducao } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
 import { getEMByConjunto, getEMInfoByConjunto, getTipoByConjunto, ETAPAS_PRODUCAO_DETALHADAS } from '@/data/producaoMapping';
@@ -85,6 +85,7 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
   const { obras } = useObras();
+  const { moverPecaEtapa: moverPecaEtapaContext } = useProducao();
 
   // ========================================
   // BASE DE DADOS DE PRODUÇÃO INDEPENDENTE
@@ -297,6 +298,7 @@ export default function KanbanProducaoIntegrado() {
   // ========================================
 
   const moverConjunto = (conjuntoId, novoStatus) => {
+    // Atualizar estado local
     setProducaoFabrica(prev => prev.map(c => {
       if (c.id === conjuntoId) {
         const agora = new Date().toISOString();
@@ -319,6 +321,13 @@ export default function KanbanProducaoIntegrado() {
       }
       return c;
     }));
+
+    // Persistir no Supabase via ERPContext
+    try {
+      moverPecaEtapaContext(conjuntoId, novoStatus, null);
+    } catch (err) {
+      console.error('Erro ao persistir no Supabase:', err);
+    }
   };
 
   // Agrupar conjuntos por coluna
