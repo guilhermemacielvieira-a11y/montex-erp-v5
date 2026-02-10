@@ -143,6 +143,68 @@ export const detalhamentosApi = createCrud('detalhamentos', 'numero');
 export const expedicoesApi = createCrud('expedicoes', 'created_at');
 export const configMedicaoApi = createCrud('config_medicao', 'id');
 export const tarefasApi = createCrud('tarefas', 'created_at');
+export const userProfilesApi = createCrud('user_profiles', 'created_at');
+
+// ============================================
+// FUNÇÕES DE GESTÃO DE USUÁRIOS
+// ============================================
+
+// Listar todos os perfis de usuários
+export async function getAllUserProfiles() {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .select('*')
+    .order('role', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+// Atualizar perfil do usuário (nome, cargo, role, ativo)
+export async function updateUserProfile(id, updates) {
+  const { data, error } = await supabase
+    .from('user_profiles')
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+// Criar novo usuário (auth + profile)
+export async function createNewUser({ email, password, nome, role, cargo }) {
+  // 1. Criar usuário no Supabase Auth
+  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { nome, role }
+  });
+
+  if (authError) throw authError;
+
+  // 2. Criar perfil na tabela user_profiles
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .insert([{
+      auth_id: authData.user.id,
+      email,
+      nome,
+      role,
+      cargo,
+      ativo: true
+    }])
+    .select()
+    .single();
+
+  if (profileError) throw profileError;
+  return profile;
+}
+
+// Desativar/Ativar usuário
+export async function toggleUserActive(id, ativo) {
+  return updateUserProfile(id, { ativo });
+}
 
 // ============================================
 // FUNÇÕES ESPECÍFICAS DO NEGÓCIO

@@ -218,6 +218,16 @@ const navigationCategories = [
       { name: 'Chatbot', href: 'Chatbot', icon: MessageSquare },
     ]
   },
+  {
+    id: 'sistema',
+    name: 'Sistema',
+    icon: Settings,
+    color: 'text-slate-400',
+    bgHover: 'hover:bg-slate-500/10',
+    items: [
+      { name: 'Usuários', href: 'UsuariosPage', icon: Users, badge: 'ADMIN' },
+    ]
+  },
 ];
 
 // Componente de Categoria Acordeão - suporta modo colapsado

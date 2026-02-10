@@ -116,6 +116,8 @@ import ComprasPage from './pages/ComprasPage';
 import EstoquePageV2 from './pages/EstoquePageV2';
 import KanbanCorteIntegrado from './pages/KanbanCorteIntegrado';
 import KanbanProducaoIntegrado from './pages/KanbanProducaoIntegrado';
+// Gestão de Usuários
+import UsuariosPage from './pages/UsuariosPage';
 import __Layout from './Layout.jsx';
 
 
@@ -189,6 +191,8 @@ export const PAGES = {
     "EstoquePageV2": EstoquePageV2,
     "KanbanCorteIntegrado": KanbanCorteIntegrado,
     "KanbanProducaoIntegrado": KanbanProducaoIntegrado,
+    // Gestão de Usuários
+    "UsuariosPage": UsuariosPage,
 }
 
 export const pagesConfig = {
