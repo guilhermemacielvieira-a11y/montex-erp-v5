@@ -68,6 +68,25 @@ function transformArray(records) {
   return (records || []).map(transformRecord);
 }
 
+// Transformar peças com aliases (peso_total → peso para compatibilidade com mock)
+function transformPecaRecord(record) {
+  const base = transformRecord(record);
+  if (base) {
+    // Aliases para compatibilidade com código que usa nomes do mock
+    if (base.pesoTotal !== undefined && base.peso === undefined) {
+      base.peso = base.pesoTotal;
+    }
+    if (base.pesoUnitario !== undefined && base.pesoUnit === undefined) {
+      base.pesoUnit = base.pesoUnitario;
+    }
+  }
+  return base;
+}
+
+function transformPecaArray(records) {
+  return (records || []).map(transformPecaRecord);
+}
+
 // ========================================
 // TRANSFORMADOR: camelCase → snake_case
 // ========================================
@@ -75,11 +94,53 @@ function camelToSnake(str) {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
 
+// Mapeamento especial de campos do código → colunas reais do Supabase
+const PECAS_FIELD_MAP = {
+  peso: 'peso_total',
+  pesoUnit: 'peso_unitario',
+  pesoTotal: 'peso_total',
+  pesoUnitario: 'peso_unitario',
+  obraId: 'obra_id',
+  obraNome: 'obra_nome',
+  statusCorte: 'status_corte',
+  percentualConclusao: 'percentual_conclusao',
+  quantidadeProduzida: 'quantidade_produzida',
+  equipeId: 'equipe_id',
+  dataInicio: 'data_inicio',
+  dataFimPrevista: 'data_fim_prevista',
+  dataFimReal: 'data_fim_real',
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+};
+
+// Colunas válidas na tabela pecas_producao
+const PECAS_VALID_COLUMNS = new Set([
+  'id', 'nome', 'obra_id', 'obra_nome', 'marca', 'tipo', 'perfil',
+  'comprimento', 'quantidade', 'material', 'peso_total', 'peso_unitario',
+  'etapa', 'status_corte', 'status', 'percentual_conclusao',
+  'quantidade_produzida', 'responsavel', 'equipe_id', 'codigo',
+  'data_inicio', 'data_fim_prevista', 'data_fim_real', 'observacoes'
+]);
+
+function pecaToSupabase(record) {
+  if (!record || typeof record !== 'object') return record;
+  const result = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (key.startsWith('_')) continue;
+    // Usar mapeamento especial ou fallback para camelToSnake genérico
+    const snakeKey = PECAS_FIELD_MAP[key] || camelToSnake(key);
+    // Só incluir colunas que existem na tabela
+    if (PECAS_VALID_COLUMNS.has(snakeKey)) {
+      result[snakeKey] = value;
+    }
+  }
+  return result;
+}
+
 function reverseTransformRecord(record) {
   if (!record || typeof record !== 'object') return record;
   const result = {};
   for (const [key, value] of Object.entries(record)) {
-    // Ignorar campos internos que não devem ir para o DB
     if (key.startsWith('_')) continue;
     result[camelToSnake(key)] = value;
   }
@@ -643,7 +704,7 @@ export function ERPProvider({ children }) {
             orcamentos: transformArray(orcamentosData),
             listas: transformArray(listasData),
             estoque: transformArray(estoqueData),
-            pecas: transformArray(pecasData),
+            pecas: transformPecaArray(pecasData),
             funcionarios: transformArray(funcionariosData),
             equipes: transformArray(equipesData),
             compras: transformArray(comprasData),
@@ -747,13 +808,12 @@ export function ERPProvider({ children }) {
     // Persistir no Supabase
     if (dataSource === 'supabase') {
       try {
-        const now = new Date().toISOString();
-        const updateData = {
-          etapa: novaEtapa,
-          [`data_${novaEtapa}`]: now,
-        };
-        if (funcionarioId) {
-          updateData[`funcionario_${novaEtapa}`] = funcionarioId;
+        const updateData = { etapa: novaEtapa };
+        // Mapear etapa final para status
+        if (novaEtapa === 'expedido') {
+          updateData.status = 'concluido';
+        } else if (novaEtapa !== 'aguardando') {
+          updateData.status = 'em_producao';
         }
         await pecasApi.update(pecaId, updateData);
         console.log(`✅ Peça ${pecaId} → ${novaEtapa} salva no Supabase`);
@@ -805,15 +865,10 @@ export function ERPProvider({ children }) {
   const updateStatusCorte = useCallback(async (pecaId, novoStatus, maquinaId, funcionarioId) => {
     dispatch({ type: ACTIONS.UPDATE_STATUS_CORTE, payload: { pecaId, novoStatus, maquinaId, funcionarioId } });
 
-    // Persistir no Supabase
+    // Persistir no Supabase (apenas colunas válidas)
     if (dataSource === 'supabase') {
       try {
         const updateData = { status_corte: novoStatus };
-        if (maquinaId) updateData.maquina_corte = maquinaId;
-        if (funcionarioId) updateData.funcionario_corte = funcionarioId;
-        if (novoStatus === STATUS_CORTE.LIBERADO) {
-          updateData.data_corte = new Date().toISOString().split('T')[0];
-        }
         await pecasApi.update(pecaId, updateData);
         console.log(`✅ Status corte ${pecaId} → ${novoStatus} salvo no Supabase`);
       } catch (err) {
@@ -838,7 +893,14 @@ export function ERPProvider({ children }) {
     // Persistir no Supabase
     if (dataSource === 'supabase') {
       try {
-        const records = pecas.map(p => reverseTransformRecord(p));
+        const records = pecas.map(p => {
+          const rec = pecaToSupabase(p);
+          // Garantir campo nome obrigatório
+          if (!rec.nome) {
+            rec.nome = `${rec.tipo || 'PEÇA'} ${rec.marca || ''}`.trim();
+          }
+          return rec;
+        });
         await pecasApi.createMany(records);
         console.log(`✅ ${pecas.length} peças adicionadas no Supabase`);
       } catch (err) {
@@ -854,12 +916,13 @@ export function ERPProvider({ children }) {
     // Persistir no Supabase
     if (dataSource === 'supabase') {
       try {
-        const snakeData = reverseTransformRecord(data);
+        const snakeData = pecaToSupabase(data);
         // Remover campos que não devem ser atualizados
         delete snakeData.id;
         delete snakeData.created_at;
+        delete snakeData.updated_at;
         await pecasApi.update(pecaId, snakeData);
-        console.log(`✅ Peça ${pecaId} atualizada no Supabase`);
+        console.log(`✅ Peça ${pecaId} atualizada no Supabase`, snakeData);
       } catch (err) {
         console.error('❌ Erro ao atualizar peça no Supabase:', err.message);
       }
@@ -871,8 +934,7 @@ export function ERPProvider({ children }) {
     if (dataSource !== 'supabase') return;
     try {
       const pecasData = await pecasApi.getAll('id', true);
-      const pecasTransformadas = transformArray(pecasData);
-      dispatch({ type: ACTIONS.ADD_PECAS, payload: [] }); // clear
+      const pecasTransformadas = transformPecaArray(pecasData);
       dispatch({ type: 'RELOAD_PECAS', payload: pecasTransformadas });
       console.log(`🔄 ${pecasTransformadas.length} peças recarregadas do Supabase`);
     } catch (err) {

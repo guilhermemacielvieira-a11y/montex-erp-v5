@@ -533,15 +533,17 @@ export default function ProducaoPage() {
         const novaPeca = {
           id: `PEC-${Date.now()}`,
           marca: formData.marca,
+          nome: `${formData.tipo || 'PEÇA'} ${formData.marca || ''}`.trim(),
           tipo: formData.tipo || '',
           perfil: formData.perfil || '',
           material: formData.material || '',
           quantidade: Number(formData.quantidade) || 1,
           peso: Number(formData.peso) || 0,
+          pesoTotal: Number(formData.peso) || 0,
           obraId: formData.obraId || '',
           etapa: 'aguardando',
-          statusCorte: 'pendente',
-          createdAt: new Date().toISOString(),
+          statusCorte: 'aguardando',
+          status: 'pendente',
         };
         await addPecas([novaPeca]);
         toast.success('Peça adicionada com sucesso!');
@@ -549,11 +551,13 @@ export default function ProducaoPage() {
         // Atualizar peça existente
         const dadosAtualizados = {
           marca: formData.marca,
+          nome: `${formData.tipo || 'PEÇA'} ${formData.marca || ''}`.trim(),
           tipo: formData.tipo,
           perfil: formData.perfil,
           material: formData.material,
           quantidade: Number(formData.quantidade) || 1,
           peso: Number(formData.peso) || 0,
+          pesoTotal: Number(formData.peso) || 0,
         };
         await updatePeca(selectedItem.id, dadosAtualizados);
         toast.success('Peça atualizada com sucesso!');
