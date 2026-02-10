@@ -6,12 +6,18 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('⚠️ Supabase não configurado. Usando modo offline.');
+  console.error('❌ CRITICAL: Variáveis de ambiente Supabase não encontradas!');
+  console.error('VITE_SUPABASE_URL:', supabaseUrl || '[AUSENTE]');
+  console.error('VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '[OK]' : '[AUSENTE]');
 }
 
+// URL fixa hardcoded como fallback de segurança — NUNCA usar placeholder
+const SUPABASE_URL = supabaseUrl || 'https://trxbohjcwsogthabairh.supabase.co';
+const SUPABASE_ANON_KEY = supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNzU1MTAsImV4cCI6MjA4NTY1MTUxMH0.QzEK1K0vQRpTBOWqNib-Mo1EEbTP6j21J1jWb07urxg';
+
 export const supabase = createClient(
-  supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
+  SUPABASE_URL,
+  SUPABASE_ANON_KEY,
   {
     auth: {
       // Desabilitar navigator.locks para evitar deadlock
@@ -21,6 +27,18 @@ export const supabase = createClient(
       },
       persistSession: true,
       autoRefreshToken: true,
+      detectSessionInUrl: false,
+    },
+    global: {
+      // Adicionar timeout a TODAS as requisições fetch do Supabase
+      fetch: (url, options = {}) => {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+        return fetch(url, {
+          ...options,
+          signal: controller.signal,
+        }).finally(() => clearTimeout(timeoutId));
+      }
     }
   }
 );

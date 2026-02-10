@@ -189,6 +189,20 @@ export const AuthProvider = ({ children }) => {
   // Guard para evitar múltiplas execuções de initAuth
   const initAuthRunning = useRef(false);
 
+  // Helper: limpar sessão corrompida do localStorage
+  const clearStaleSession = useCallback(async () => {
+    console.warn('[Auth] Limpando sessão corrompida do localStorage...');
+    try {
+      await supabase.auth.signOut({ scope: 'local' });
+    } catch (_) {
+      // Se signOut falhar, limpar manualmente
+      try {
+        const storageKey = `sb-trxbohjcwsogthabairh-auth-token`;
+        localStorage.removeItem(storageKey);
+      } catch (_2) {}
+    }
+  }, []);
+
   // Inicializar autenticação
   useEffect(() => {
     let mounted = true;
@@ -209,16 +223,50 @@ export const AuthProvider = ({ children }) => {
       console.log('[Auth] initAuth: iniciando...');
 
       try {
-        // Verificar se há sessão ativa
-        console.log('[Auth] Chamando getSession...');
-        const { data: { session }, error } = await supabase.auth.getSession();
+        // Verificar se há sessão ativa com TIMEOUT para evitar travamento
+        console.log('[Auth] Chamando getSession com timeout de 10s...');
+
+        const getSessionWithTimeout = () => {
+          return Promise.race([
+            supabase.auth.getSession(),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('SESSION_TIMEOUT')), 10000)
+            )
+          ]);
+        };
+
+        let session = null;
+        let error = null;
+
+        try {
+          const result = await getSessionWithTimeout();
+          session = result.data?.session;
+          error = result.error;
+        } catch (timeoutOrFetchErr) {
+          console.error('[Auth] getSession falhou (timeout ou rede):', timeoutOrFetchErr.message);
+          // Sessão corrompida ou rede com problema — limpar e ir para login
+          await clearStaleSession();
+          if (mounted) {
+            setIsLoadingAuth(false);
+            setIsAuthenticated(false);
+            setAuthError({ type: 'auth_required' });
+          }
+          initAuthRunning.current = false;
+          return;
+        }
+
         console.log('[Auth] getSession retornou:', { hasSession: !!session, error: error?.message });
 
         if (error) {
           console.error('[Auth] Erro ao verificar sessão:', error);
-          setIsLoadingAuth(false);
-          setIsAuthenticated(false);
-          setAuthError({ type: 'auth_required' });
+          // Limpar sessão corrompida
+          await clearStaleSession();
+          if (mounted) {
+            setIsLoadingAuth(false);
+            setIsAuthenticated(false);
+            setAuthError({ type: 'auth_required' });
+          }
+          initAuthRunning.current = false;
           return;
         }
 
@@ -227,31 +275,41 @@ export const AuthProvider = ({ children }) => {
           const userProfile = await fetchProfile(session.user);
           console.log('[Auth] fetchProfile retornou:', userProfile ? userProfile.email : 'null');
 
-          if (userProfile) {
-            setUser(userProfile);
-            setProfile(userProfile);
-            setIsAuthenticated(true);
-            setAuthError(null);
-            console.log(`✅ Logado como: ${userProfile.name} (${userProfile.role})`);
-          } else {
-            // Usuário autenticado mas sem perfil
-            setAuthError({ type: 'user_not_registered' });
-            setIsAuthenticated(false);
+          if (mounted) {
+            if (userProfile) {
+              setUser(userProfile);
+              setProfile(userProfile);
+              setIsAuthenticated(true);
+              setAuthError(null);
+              console.log(`✅ Logado como: ${userProfile.name} (${userProfile.role})`);
+            } else {
+              // Usuário autenticado mas sem perfil
+              setAuthError({ type: 'user_not_registered' });
+              setIsAuthenticated(false);
+            }
           }
         } else {
           // Sem sessão — redirecionar para login
           console.log('[Auth] Sem sessão ativa, mostrando login');
-          setIsAuthenticated(false);
-          setAuthError({ type: 'auth_required' });
+          if (mounted) {
+            setIsAuthenticated(false);
+            setAuthError({ type: 'auth_required' });
+          }
         }
       } catch (err) {
         console.error('[Auth] Erro na inicialização auth:', err);
-        setIsAuthenticated(false);
-        setAuthError({ type: 'auth_required' });
+        // Limpar sessão potencialmente corrompida
+        await clearStaleSession();
+        if (mounted) {
+          setIsAuthenticated(false);
+          setAuthError({ type: 'auth_required' });
+        }
       } finally {
         // SEMPRE desliga o loading, mesmo se componente desmontou
         console.log('[Auth] finally: setIsLoadingAuth(false), mounted=', mounted);
-        setIsLoadingAuth(false);
+        if (mounted) {
+          setIsLoadingAuth(false);
+        }
         initAuthRunning.current = false;
       }
     };
@@ -262,10 +320,11 @@ export const AuthProvider = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (!mounted) return;
+        console.log('[Auth] onAuthStateChange:', event);
 
         if (event === 'SIGNED_IN' && session?.user) {
           const userProfile = await fetchProfile(session.user);
-          if (userProfile) {
+          if (userProfile && mounted) {
             setUser(userProfile);
             setProfile(userProfile);
             setIsAuthenticated(true);
@@ -276,15 +335,38 @@ export const AuthProvider = ({ children }) => {
           setProfile(null);
           setIsAuthenticated(false);
           setAuthError({ type: 'auth_required' });
+        } else if (event === 'TOKEN_REFRESHED' && session?.user) {
+          console.log('[Auth] Token renovado com sucesso');
         }
       }
     );
 
+    // Capturar erros globais de refresh token do Supabase
+    const handleUnhandledRejection = (event) => {
+      const msg = event?.reason?.message || String(event?.reason || '');
+      if (msg.includes('Failed to fetch') || msg.includes('refresh_token') || msg.includes('NetworkError')) {
+        console.warn('[Auth] Erro global de refresh token capturado:', msg);
+        event.preventDefault(); // Evitar log no console
+        // Limpar sessão corrompida e forçar re-login
+        clearStaleSession().then(() => {
+          if (mounted) {
+            setUser(null);
+            setProfile(null);
+            setIsAuthenticated(false);
+            setAuthError({ type: 'auth_required' });
+            setIsLoadingAuth(false);
+          }
+        });
+      }
+    };
+    window.addEventListener('unhandledrejection', handleUnhandledRejection);
+
     return () => {
       mounted = false;
       subscription?.unsubscribe();
+      window.removeEventListener('unhandledrejection', handleUnhandledRejection);
     };
-  }, [fetchProfile]);
+  }, [fetchProfile, clearStaleSession]);
 
   // Login com email e senha
   const login = useCallback(async (email, password) => {
