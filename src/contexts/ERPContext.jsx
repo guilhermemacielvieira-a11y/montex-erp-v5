@@ -899,11 +899,21 @@ export function ERPProvider({ children }) {
     if (dataSource === 'supabase') {
       try {
         const updateData = { etapa: novaEtapa };
+        const agora = new Date().toISOString();
         // Mapear etapa final para status
         if (novaEtapa === 'expedido') {
           updateData.status = 'concluido';
+          updateData.data_fim_real = agora;
         } else if (novaEtapa !== 'aguardando') {
           updateData.status = 'em_producao';
+          // Registrar data de início na primeira vez que entra em produção
+          const pecaAtual = state.pecas.find(p => p.id === pecaId);
+          if (pecaAtual && !pecaAtual.dataInicio) {
+            updateData.data_inicio = agora;
+          }
+        }
+        if (funcionarioId) {
+          updateData.responsavel = funcionarioId;
         }
         await pecasApi.update(pecaId, updateData);
         console.log(`✅ Peça ${pecaId} → ${novaEtapa} salva no Supabase`);

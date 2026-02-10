@@ -6,7 +6,7 @@
  * Importação de LISTA DE CONJUNTOS
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { exportToExcel } from '@/utils/exportUtils';
@@ -32,7 +32,7 @@ import {
 
 // Contexto ERP e Database
 import { useObras, useProducao } from '@/contexts/ERPContext';
-import { listasMaterial, obras as obrasDB, pecasProducao } from '@/data/database';
+import { listasMaterial, obras as obrasDB } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
 import { getEMByConjunto, getEMInfoByConjunto, getTipoByConjunto, ETAPAS_PRODUCAO_DETALHADAS } from '@/data/producaoMapping';
 import { getBOMByConjunto, getTotalPecasByConjunto } from '@/data/conjuntoBOM';
@@ -85,13 +85,14 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
   const { obras } = useObras();
-  const { moverPecaEtapa: moverPecaEtapaContext } = useProducao();
+  const { moverPecaEtapa: moverPecaEtapaContext, pecas: pecasSupabase, updatePeca, addPecas: addPecasContext } = useProducao();
 
   // ========================================
   // BASE DE DADOS DE PRODUÇÃO INDEPENDENTE
   // ========================================
   const [producaoFabrica, setProducaoFabrica] = useState([]);
   const [ordemProducaoAtual, setOrdemProducaoAtual] = useState(null);
+  const initialLoadDone = useRef(false);
 
   // Estados de filtro
   const [obraFiltro, setObraFiltro] = useState('todas');
@@ -124,73 +125,78 @@ export default function KanbanProducaoIntegrado() {
   const [ordenacao, setOrdenacao] = useState({ campo: 'conjunto', direcao: 'asc' });
 
   // ========================================
-  // AUTO-CARREGAR dados de pecasProducao no mount
+  // AUTO-CARREGAR dados do SUPABASE (via ERPContext) no mount
+  // Antes usava pecasProducao (arquivo estático) — agora usa pecasSupabase
   // ========================================
   useEffect(() => {
-    if (producaoFabrica.length === 0 && pecasProducao && pecasProducao.length > 0) {
-      // Mapear etapa do database → status do kanban
-      const mapEtapaToStatus = (etapa) => {
-        switch (etapa) {
-          case 'aguardando': return 'fabricacao'; // Aguardando entra como fabricação
-          case 'corte': return 'fabricacao';       // Corte → fabricação (croquis já cortados)
-          case 'fabricacao': return 'fabricacao';
-          case 'solda': return 'solda';
-          case 'pintura': return 'pintura';
-          case 'expedido': return 'expedido';
-          default: return 'fabricacao';
+    // Só carrega na primeira vez que pecasSupabase chegar com dados
+    if (initialLoadDone.current) return;
+    if (!pecasSupabase || pecasSupabase.length === 0) return;
+
+    initialLoadDone.current = true;
+    console.log(`[Kanban] Carregando ${pecasSupabase.length} peças do Supabase...`);
+
+    // Mapear etapa do Supabase → status do kanban
+    const mapEtapaToStatus = (etapa) => {
+      switch (etapa) {
+        case 'aguardando': return 'fabricacao';
+        case 'corte': return 'fabricacao';
+        case 'fabricacao': return 'fabricacao';
+        case 'solda': return 'solda';
+        case 'pintura': return 'pintura';
+        case 'expedido': return 'expedido';
+        default: return 'fabricacao';
+      }
+    };
+
+    const conjuntosConvertidos = pecasSupabase.map((peca) => {
+      const status = mapEtapaToStatus(peca.etapa);
+      return {
+        id: peca.id,
+        conjunto: peca.marca || peca.nome || '',
+        tipo: peca.tipo || '',
+        descricao: `${peca.tipo || ''} - ${peca.perfil || peca.material || ''}`,
+        pecas: 1,
+        quantidade: peca.quantidade || 1,
+        pesoTotal: peca.pesoTotal || peca.peso || 0,
+        pesoUnitario: peca.quantidade > 0 ? (peca.pesoTotal || peca.peso || 0) / peca.quantidade : 0,
+        material: peca.material || peca.perfil || '',
+        prioridade: peca.prioridade || 'normal',
+        status,
+        progresso: peca.percentualConclusao || 0,
+        obraId: peca.obraId || 'obra-001',
+        obraNome: peca.obraNome || 'SUPER LUNA - BELO VALE',
+        dataImportacao: peca.createdAt || new Date().toISOString(),
+        statusProducao: {
+          fabricado: ['solda', 'pintura', 'expedido'].includes(status),
+          soldado: ['pintura', 'expedido'].includes(status),
+          pintado: status === 'expedido',
+          expedido: status === 'expedido',
+          dataFabricacao: peca.dataInicio || null,
+          dataSolda: null,
+          dataPintura: null,
+          dataExpedicao: peca.dataFimReal || null,
+          equipe: peca.equipeId || null,
+          observacoes: peca.observacoes || ''
         }
       };
+    });
 
-      const conjuntosConvertidos = pecasProducao.map((peca) => {
-        const status = mapEtapaToStatus(peca.etapa);
-        const obraRef = obrasDB?.find(o => o.id === peca.obraId);
-        return {
-          id: peca.id,
-          conjunto: peca.marca,
-          tipo: peca.tipo,
-          descricao: `${peca.tipo} - ${peca.perfil || peca.material}`,
-          pecas: 1,
-          quantidade: peca.quantidade || 1,
-          pesoTotal: peca.peso || 0,
-          pesoUnitario: peca.quantidade > 0 ? (peca.peso || 0) / peca.quantidade : 0,
-          material: peca.material || peca.perfil || '',
-          prioridade: peca.prioridade || 'normal',
-          status,
-          progresso: 0,
-          obraId: peca.obraId || 'OBR001',
-          obraNome: obraRef?.nome || 'SUPER LUNA - BELO VALE',
-          dataImportacao: new Date().toISOString(),
-          statusProducao: {
-            fabricado: ['solda', 'pintura', 'expedido'].includes(status),
-            soldado: ['pintura', 'expedido'].includes(status),
-            pintado: status === 'expedido',
-            expedido: status === 'expedido',
-            dataFabricacao: null,
-            dataSolda: null,
-            dataPintura: null,
-            dataExpedicao: null,
-            equipe: null,
-            observacoes: ''
-          }
-        };
-      });
+    console.log(`[Kanban] ✅ ${conjuntosConvertidos.length} peças carregadas do Supabase`);
+    setProducaoFabrica(conjuntosConvertidos);
+  }, [pecasSupabase]);
 
-      setProducaoFabrica(conjuntosConvertidos);
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Obter obras disponíveis
+  // Obter obras disponíveis (priorizar Supabase/Context)
   const obrasDisponiveis = useMemo(() => {
-    const obrasFromDB = obrasDB || [];
     const obrasFromContext = obras || [];
-    const todasObras = [...obrasFromDB];
-
-    obrasFromContext.forEach(o => {
+    const obrasFromDB = obrasDB || [];
+    // Supabase first, then static as fallback
+    const todasObras = [...obrasFromContext];
+    obrasFromDB.forEach(o => {
       if (!todasObras.find(ob => ob.id === o.id)) {
         todasObras.push(o);
       }
     });
-
     return todasObras;
   }, [obras]);
 
@@ -264,8 +270,8 @@ export default function KanbanProducaoIntegrado() {
     setEtapaModal(3);
   };
 
-  // Confirmar importação
-  const confirmarImportacao = () => {
+  // Confirmar importação — agora persiste no Supabase via ERPContext.addPecas
+  const confirmarImportacao = async () => {
     const totalConjuntos = itensImportados.length;
     const totalPecas = itensImportados.reduce((sum, item) => sum + item.pecas * item.quantidade, 0);
     const pesoTotal = itensImportados.reduce((sum, item) => sum + item.pesoTotal, 0);
@@ -283,8 +289,33 @@ export default function KanbanProducaoIntegrado() {
       itens: itensImportados
     };
 
+    // Atualizar estado local
     setProducaoFabrica(prev => [...prev, ...itensImportados]);
     setOrdemProducaoAtual(novaOrdem);
+
+    // Persistir no Supabase via ERPContext.addPecas
+    try {
+      const pecasParaSupabase = itensImportados.map(item => ({
+        id: item.id,
+        marca: item.conjunto,
+        tipo: item.tipo,
+        nome: `${item.tipo} ${item.conjunto}`.trim(),
+        material: item.material,
+        pesoTotal: item.pesoTotal,
+        pesoUnitario: item.pesoUnitario,
+        quantidade: item.quantidade,
+        etapa: 'fabricacao',
+        status: 'em_producao',
+        obraId: item.obraId,
+        obraNome: item.obraNome,
+      }));
+      await addPecasContext(pecasParaSupabase);
+      console.log(`[Kanban] ✅ ${pecasParaSupabase.length} peças importadas e salvas no Supabase`);
+      toast.success(`${pecasParaSupabase.length} peças importadas com sucesso!`);
+    } catch (err) {
+      console.error('[Kanban] ❌ Erro ao persistir importação:', err);
+      toast.error('Erro ao salvar importação no banco de dados');
+    }
 
     setModalNovaOrdem(false);
     setEtapaModal(1);
@@ -297,7 +328,7 @@ export default function KanbanProducaoIntegrado() {
   // GESTÃO DE PRODUÇÃO
   // ========================================
 
-  const moverConjunto = (conjuntoId, novoStatus) => {
+  const moverConjunto = async (conjuntoId, novoStatus) => {
     // Atualizar estado local
     setProducaoFabrica(prev => prev.map(c => {
       if (c.id === conjuntoId) {
@@ -324,9 +355,11 @@ export default function KanbanProducaoIntegrado() {
 
     // Persistir no Supabase via ERPContext
     try {
-      moverPecaEtapaContext(conjuntoId, novoStatus, null);
+      await moverPecaEtapaContext(conjuntoId, novoStatus, null);
+      console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} salva no Supabase`);
     } catch (err) {
-      console.error('Erro ao persistir no Supabase:', err);
+      console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
+      toast.error('Erro ao salvar movimentação');
     }
   };
 
