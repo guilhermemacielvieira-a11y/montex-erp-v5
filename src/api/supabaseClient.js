@@ -11,7 +11,18 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key'
+  supabaseAnonKey || 'placeholder-key',
+  {
+    auth: {
+      // Desabilitar navigator.locks para evitar deadlock
+      // quando múltiplos useEffect chamam getSession() concorrentemente
+      lock: async (_name, _acquireTimeout, fn) => {
+        return await fn();
+      },
+      persistSession: true,
+      autoRefreshToken: true,
+    }
+  }
 );
 
 // ============================================

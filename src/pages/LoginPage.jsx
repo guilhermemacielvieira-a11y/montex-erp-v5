@@ -38,8 +38,9 @@ export default function LoginPage() {
         setError(msg);
       }
     } else {
-      // Login OK — redirecionar
-      window.location.href = '/';
+      // Login OK — React state já foi atualizado pelo AuthContext
+      // Não precisa de redirect, o componente re-renderiza automaticamente
+      console.log('✅ Login bem-sucedido! Dashboard carregando...');
     }
   };
 

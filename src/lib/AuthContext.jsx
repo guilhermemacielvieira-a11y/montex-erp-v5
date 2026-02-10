@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
+import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/api/supabaseClient';
 
 const AuthContext = createContext();
@@ -186,6 +186,9 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
+  // Guard para evitar múltiplas execuções de initAuth
+  const initAuthRunning = useRef(false);
+
   // Inicializar autenticação
   useEffect(() => {
     let mounted = true;
@@ -196,6 +199,12 @@ export const AuthProvider = ({ children }) => {
         setIsLoadingAuth(false);
         return;
       }
+      // Evitar execuções concorrentes (React StrictMode/re-renders)
+      if (initAuthRunning.current) {
+        console.log('[Auth] initAuth já em execução, pulando...');
+        return;
+      }
+      initAuthRunning.current = true;
       setIsLoadingAuth(true);
       console.log('[Auth] initAuth: iniciando...');
 
@@ -243,6 +252,7 @@ export const AuthProvider = ({ children }) => {
         // SEMPRE desliga o loading, mesmo se componente desmontou
         console.log('[Auth] finally: setIsLoadingAuth(false), mounted=', mounted);
         setIsLoadingAuth(false);
+        initAuthRunning.current = false;
       }
     };
 
