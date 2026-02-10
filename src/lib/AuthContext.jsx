@@ -352,6 +352,12 @@ export const AuthProvider = ({ children }) => {
     // Mantido para compatibilidade
   }, []);
 
+  // Expor funções no window para debug/testing
+  useEffect(() => {
+    window.__montexLogin = login;
+    window.__montexLogout = logout;
+  }, [login, logout]);
+
   return (
     <AuthContext.Provider value={{
       user,
