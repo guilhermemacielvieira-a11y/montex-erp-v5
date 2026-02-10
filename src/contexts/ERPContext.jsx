@@ -788,6 +788,7 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  // Progresso é computado a partir das peças — não precisa persistir separadamente
   const updateProgressoObra = useCallback((obraId, progresso) => {
     dispatch({ type: ACTIONS.UPDATE_PROGRESSO_OBRA, payload: { obraId, progresso } });
   }, []);
@@ -1155,9 +1156,18 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
-  const updateConfigMedicao = useCallback((tipo, etapa, config) => {
+  const updateConfigMedicao = useCallback(async (tipo, etapa, config) => {
     dispatch({ type: ACTIONS.UPDATE_CONFIG_MEDICAO, payload: { tipo, etapa, config } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const record = { tipo, etapa, config: JSON.stringify(config) };
+        await configMedicaoApi.create(record);
+        console.log(`✅ Config medição ${tipo}/${etapa} salva no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao salvar config medição:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - EQUIPES =====
   const alocarEquipe = useCallback(async (equipeId, obraId) => {
@@ -1188,14 +1198,27 @@ export function ERPProvider({ children }) {
   }, [dataSource]);
 
   // ===== AÇÕES - LISTAS =====
-  const importarLista = useCallback((lista) => {
+  const importarLista = useCallback(async (lista) => {
     dispatch({ type: ACTIONS.IMPORTAR_LISTA, payload: lista });
     dispatch({
       type: ACTIONS.ADD_NOTIFICACAO,
       payload: { tipo: 'sucesso', mensagem: `Lista ${lista.tipo} importada com sucesso!` }
     });
 
-    // Add persistent notification
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(lista);
+        if (record.itens && typeof record.itens !== 'string') {
+          record.itens = JSON.stringify(record.itens);
+        }
+        await listasApi.create(record);
+        console.log(`✅ Lista ${lista.tipo} salva no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao salvar lista no Supabase:', err.message);
+      }
+    }
+
     if (window.__notificationDispatch) {
       window.__notificationDispatch({
         type: 'success',
@@ -1204,10 +1227,10 @@ export function ERPProvider({ children }) {
         icon: 'Package'
       });
     }
-  }, []);
+  }, [dataSource]);
 
   // ===== AÇÕES - MATERIAIS (Controle de Estoque em Peso KG) =====
-  const importarMateriais = useCallback((materiais) => {
+  const importarMateriais = useCallback(async (materiais) => {
     dispatch({ type: ACTIONS.IMPORTAR_MATERIAIS, payload: materiais });
     const pesoTotal = materiais.reduce((acc, m) => acc + (m.pesoPedido || 0), 0);
     dispatch({
@@ -1215,7 +1238,19 @@ export function ERPProvider({ children }) {
       payload: { tipo: 'sucesso', mensagem: `${materiais.length} materiais importados (${pesoTotal.toLocaleString()} kg)` }
     });
 
-    // Add persistent notification
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const records = materiais.map(m => reverseTransformRecord(m));
+        for (const rec of records) {
+          await pedidosMaterialApi.create(rec);
+        }
+        console.log(`✅ ${materiais.length} materiais salvos no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao salvar materiais no Supabase:', err.message);
+      }
+    }
+
     if (window.__notificationDispatch) {
       window.__notificationDispatch({
         type: 'info',
@@ -1224,16 +1259,31 @@ export function ERPProvider({ children }) {
         icon: 'Package'
       });
     }
-  }, []);
+  }, [dataSource]);
 
-  const registrarEntregaMaterial = useCallback((materialId, entrega) => {
+  const registrarEntregaMaterial = useCallback(async (materialId, entrega) => {
     dispatch({ type: ACTIONS.REGISTRAR_ENTREGA_MATERIAL, payload: { materialId, entrega } });
     dispatch({
       type: ACTIONS.ADD_NOTIFICACAO,
       payload: { tipo: 'sucesso', mensagem: `Entrega de ${entrega.pesoKg.toLocaleString()} kg registrada!` }
     });
 
-    // Add persistent notification
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const entregaData = reverseTransformRecord(entrega);
+        entregaData.material_id = materialId;
+        await pedidosMaterialApi.update(materialId, {
+          peso_entregue: entrega.pesoKg,
+          data_entrega: entrega.data || new Date().toISOString(),
+          status: 'entregue'
+        });
+        console.log(`✅ Entrega material ${materialId} salva no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao salvar entrega no Supabase:', err.message);
+      }
+    }
+
     if (window.__notificationDispatch) {
       window.__notificationDispatch({
         type: 'success',
@@ -1242,11 +1292,21 @@ export function ERPProvider({ children }) {
         icon: 'CheckCircle'
       });
     }
-  }, []);
+  }, [dataSource]);
 
-  const updateMaterial = useCallback((id, data) => {
+  const updateMaterial = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_MATERIAL, payload: { id, data } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        await pedidosMaterialApi.update(id, snakeData);
+        console.log(`✅ Material ${id} atualizado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar material no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - UI =====
   const setFiltros = useCallback((filtros) => {
