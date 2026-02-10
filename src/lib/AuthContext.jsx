@@ -3,36 +3,110 @@ import { supabase } from '@/api/supabaseClient';
 
 const AuthContext = createContext();
 
-// Roles e permissões
+// ============================================================
+// SISTEMA DE ROLES E PERMISSÕES - MONTEX ERP PREMIUM V5
+// 6 Níveis de acesso hierárquicos
+// ============================================================
+
 export const ROLES = {
   ADMIN: 'admin',
-  PRODUCAO: 'producao',
-  VIEWER: 'viewer'
+  GERENTE: 'gerente',
+  SUPERVISOR: 'supervisor',
+  OPERADOR: 'operador',
+  FINANCEIRO: 'financeiro',
+  VIEWER: 'viewer',
+  // Legacy - mapeamento retrocompatível
+  PRODUCAO: 'supervisor'
 };
 
 export const ROLE_LABELS = {
   admin: 'Administrador',
-  producao: 'Produção',
+  gerente: 'Gerente',
+  supervisor: 'Supervisor',
+  operador: 'Operador',
+  financeiro: 'Financeiro',
   viewer: 'Visualização'
 };
 
-// Permissões por role
+export const ROLE_COLORS = {
+  admin: 'bg-gradient-to-br from-orange-600 to-amber-700',
+  gerente: 'bg-gradient-to-br from-purple-600 to-violet-700',
+  supervisor: 'bg-gradient-to-br from-blue-600 to-cyan-700',
+  operador: 'bg-gradient-to-br from-green-600 to-emerald-700',
+  financeiro: 'bg-gradient-to-br from-yellow-600 to-orange-700',
+  viewer: 'bg-gradient-to-br from-slate-600 to-slate-700'
+};
+
+// Permissões detalhadas por role
 const PERMISSIONS = {
-  admin: ['*'], // Acesso total
-  producao: [
+  // ADMIN — Acesso total irrestrito
+  admin: ['*'],
+
+  // GERENTE — Gerencia produção, equipes, financeiro, comercial
+  gerente: [
+    'dashboard.view', 'dashboard.export',
+    'projetos.view', 'projetos.edit', 'projetos.create',
+    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'producao.aprovar',
+    'estoque.view', 'estoque.edit', 'estoque.movimentar',
+    'compras.view', 'compras.edit', 'compras.aprovar',
+    'expedicao.view', 'expedicao.edit', 'expedicao.aprovar',
+    'medicao.view', 'medicao.edit', 'medicao.aprovar',
+    'equipes.view', 'equipes.edit', 'equipes.escalar',
+    'kanban.view', 'kanban.edit',
+    'materiais.view', 'materiais.edit',
+    'nfs.view', 'nfs.edit',
+    'financeiro.view', 'financeiro.edit',
+    'orcamentos.view', 'orcamentos.edit', 'orcamentos.aprovar',
+    'clientes.view', 'clientes.edit',
+    'relatorios.view', 'relatorios.export',
+    'bi.view',
+    'usuarios.view',
+  ],
+
+  // SUPERVISOR — Gerencia operações diárias de fábrica
+  supervisor: [
     'dashboard.view',
+    'projetos.view',
     'producao.view', 'producao.edit', 'producao.lancar_avanco',
-    'estoque.view', 'estoque.edit',
+    'estoque.view', 'estoque.edit', 'estoque.movimentar',
     'compras.view',
     'expedicao.view', 'expedicao.edit',
     'medicao.view', 'medicao.edit',
-    'equipes.view',
+    'equipes.view', 'equipes.edit', 'equipes.escalar',
     'kanban.view', 'kanban.edit',
     'materiais.view', 'materiais.edit',
     'nfs.view',
+    'relatorios.view',
   ],
+
+  // OPERADOR — Input de dados de produção
+  operador: [
+    'dashboard.view',
+    'producao.view', 'producao.lancar_avanco',
+    'estoque.view',
+    'kanban.view', 'kanban.edit',
+    'equipes.view',
+    'materiais.view',
+  ],
+
+  // FINANCEIRO — Módulos financeiros e comerciais
+  financeiro: [
+    'dashboard.view', 'dashboard.export',
+    'projetos.view',
+    'financeiro.view', 'financeiro.edit', 'financeiro.aprovar',
+    'compras.view', 'compras.edit',
+    'nfs.view', 'nfs.edit',
+    'orcamentos.view', 'orcamentos.edit',
+    'clientes.view', 'clientes.edit',
+    'medicao.view', 'medicao.edit',
+    'relatorios.view', 'relatorios.export',
+    'bi.view',
+  ],
+
+  // VIEWER — Somente visualização
   viewer: [
     'dashboard.view',
+    'projetos.view',
     'producao.view',
     'estoque.view',
     'compras.view',
@@ -43,12 +117,13 @@ const PERMISSIONS = {
     'materiais.view',
     'nfs.view',
     'bi.view',
+    'relatorios.view',
   ]
 };
 
 export const AuthProvider = ({ children }) => {
-  // DEV_BYPASS: Desabilitar auth para conferência
-  const DEV_BYPASS = true;
+  // DEV_BYPASS: false = modo produção com login obrigatório
+  const DEV_BYPASS = false;
   const DEV_USER = {
     id: 'dev-admin',
     authId: 'dev-admin',
@@ -295,7 +370,8 @@ export const AuthProvider = ({ children }) => {
       hasPermission,
       isAdmin,
       ROLES,
-      ROLE_LABELS
+      ROLE_LABELS,
+      ROLE_COLORS
     }}>
       {children}
     </AuthContext.Provider>

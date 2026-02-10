@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from './utils';
-import { useAuth } from '@/lib/AuthContext';
+import { useAuth, ROLE_COLORS, ROLE_LABELS } from '@/lib/AuthContext';
 import {
   LayoutDashboard,
   Calculator,
@@ -612,8 +612,7 @@ function LayoutContent({ children, currentPageName }) {
               {sidebarCollapsed && !mobileOpen ? (
                 <div className="flex flex-col items-center gap-2">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center cursor-pointer ${
-                    user.role === 'admin' ? 'bg-gradient-to-br from-orange-600 to-amber-700' :
-                    'bg-gradient-to-br from-slate-600 to-slate-700'
+                    ROLE_COLORS[user.role] || 'bg-gradient-to-br from-slate-600 to-slate-700'
                   }`} title={user.name || user.email}>
                     <span className="text-white font-bold text-sm">
                       {user.name?.charAt(0) || user.email?.charAt(0) || 'U'}
@@ -630,9 +629,7 @@ function LayoutContent({ children, currentPageName }) {
               ) : (
                 <div className="flex items-center gap-3">
                   <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${
-                    user.role === 'admin' ? 'bg-gradient-to-br from-orange-600 to-amber-700' :
-                    user.role === 'producao' ? 'bg-gradient-to-br from-blue-600 to-cyan-700' :
-                    'bg-gradient-to-br from-slate-600 to-slate-700'
+                    ROLE_COLORS[user.role] || 'bg-gradient-to-br from-slate-600 to-slate-700'
                   }`}>
                     <span className="text-white font-bold text-sm">
                       {user.name?.charAt(0) || user.email?.charAt(0) || 'U'}
@@ -645,10 +642,13 @@ function LayoutContent({ children, currentPageName }) {
                     <div className="flex items-center gap-2">
                       <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
                         user.role === 'admin' ? 'bg-orange-500/20 text-orange-300' :
-                        user.role === 'producao' ? 'bg-blue-500/20 text-blue-300' :
+                        user.role === 'gerente' ? 'bg-purple-500/20 text-purple-300' :
+                        user.role === 'supervisor' ? 'bg-blue-500/20 text-blue-300' :
+                        user.role === 'operador' ? 'bg-green-500/20 text-green-300' :
+                        user.role === 'financeiro' ? 'bg-yellow-500/20 text-yellow-300' :
                         'bg-slate-500/20 text-slate-400'
                       }`}>
-                        {(user.role || 'viewer').toUpperCase()}
+                        {ROLE_LABELS[user.role] || (user.role || 'viewer').toUpperCase()}
                       </span>
                       <p className="text-slate-500 text-xs truncate">{user.email}</p>
                     </div>
