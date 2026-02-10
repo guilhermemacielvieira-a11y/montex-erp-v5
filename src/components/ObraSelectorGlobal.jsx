@@ -41,7 +41,7 @@ export default function ObraSelectorGlobal({
   const projetos = obras;
 
   const projetosAtivos = projetos.filter(p =>
-    ['aprovado', 'em_fabricacao', 'em_montagem'].includes(p.status)
+    ['ativo', 'aprovado', 'em_fabricacao', 'em_montagem'].includes(p.status)
   );
 
   const projetosFiltrados = projetosAtivos.filter(p =>
@@ -51,6 +51,7 @@ export default function ObraSelectorGlobal({
 
   const getStatusColor = (status) => {
     const colors = {
+      ativo: 'bg-green-500',
       aprovado: 'bg-blue-500',
       em_fabricacao: 'bg-orange-500',
       em_montagem: 'bg-emerald-500',
@@ -60,6 +61,7 @@ export default function ObraSelectorGlobal({
 
   const getStatusLabel = (status) => {
     const labels = {
+      ativo: 'Ativo',
       aprovado: 'Aprovado',
       em_fabricacao: 'Fabricação',
       em_montagem: 'Montagem',
@@ -167,6 +169,7 @@ export default function ObraSelectorGlobal({
                         variant="outline"
                         className={cn(
                           "text-xs border-0",
+                          projeto.status === 'ativo' && "bg-green-500/20 text-green-400",
                           projeto.status === 'aprovado' && "bg-blue-500/20 text-blue-400",
                           projeto.status === 'em_fabricacao' && "bg-orange-500/20 text-orange-400",
                           projeto.status === 'em_montagem' && "bg-emerald-500/20 text-emerald-400",

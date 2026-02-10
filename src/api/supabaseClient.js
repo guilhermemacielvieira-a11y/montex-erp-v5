@@ -112,11 +112,11 @@ function createCrud(tableName, defaultOrder = 'created_at') {
 // CRUD POR TABELA
 // ============================================
 
-export const clientesApi = createCrud('clientes', 'razao_social');
+export const clientesApi = createCrud('clientes', 'nome');
 export const obrasApi = createCrud('obras', 'created_at');
 export const orcamentosApi = createCrud('orcamentos', 'created_at');
 export const listasApi = createCrud('listas_material', 'created_at');
-export const estoqueApi = createCrud('estoque', 'material');
+export const estoqueApi = createCrud('estoque', 'descricao');
 export const pecasApi = createCrud('pecas_producao', 'id');
 export const funcionariosApi = createCrud('funcionarios', 'nome');
 export const equipesApi = createCrud('equipes', 'nome');
@@ -159,7 +159,7 @@ export async function getObraCompleta(obraId) {
     movEstoqueApi.getByField('obra_id', obraId),
     lancamentosApi.getByField('obra_id', obraId),
     listasApi.getByField('obra_id', obraId),
-    equipesApi.getByField('obra_atual', obraId),
+    equipesApi.getByField('obra_atual_id', obraId),
     medicoesApi.getByField('obra_id', obraId)
   ]);
 
@@ -211,10 +211,13 @@ export async function getDashboardStats() {
     pesoTotalKg: obrasAtivas.reduce((acc, o) => acc + (parseFloat(o.peso_total) || 0), 0),
     valorTotalContratos: obrasAtivas.reduce((acc, o) => acc + (parseFloat(o.valor_contrato) || 0), 0),
     totalPecas: pecasData.length,
-    funcionariosAtivos: funcionariosData.filter(f => f.status === 'ativo').length,
-    equipesAtivas: equipesData.filter(e => e.obra_atual).length,
+    funcionariosAtivos: funcionariosData.filter(f => f.ativo === true || f.status === 'ativo').length,
+    equipesAtivas: equipesData.filter(e => e.obra_atual_id || e.obra_atual).length,
     itensEstoque: estoqueData.length,
-    alertasEstoque: estoqueData.filter(e => e.status === 'sem_estoque' || e.status === 'estoque_minimo').length
+    alertasEstoque: estoqueData.filter(e =>
+      e.status === 'sem_estoque' || e.status === 'estoque_minimo' ||
+      (parseFloat(e.quantidade) || 0) <= (parseFloat(e.minimo) || 0)
+    ).length
   };
 }
 
