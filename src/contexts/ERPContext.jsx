@@ -243,7 +243,7 @@ const initialState = {
   movimentacoesEstoque: [],
 
   // Estado da UI
-  obraAtual: 'OBR001', // Obra selecionada por padrão
+  obraAtual: null, // Será auto-detectado ao carregar do Supabase
   filtros: {
     obra: 'todas',
     periodo: 'mes_atual',
@@ -722,6 +722,11 @@ export function ERPProvider({ children }) {
             payload.configMedicao = transformRecord(configMedData[0]);
           }
 
+          // Auto-detectar obraAtual da primeira obra no Supabase
+          if (obrasData.length > 0) {
+            payload.obraAtual = obrasData[0].id;
+          }
+
           dispatch({ type: ACTIONS.INIT_FROM_SUPABASE, payload });
           setDataSource('supabase');
 
@@ -733,7 +738,8 @@ export function ERPProvider({ children }) {
             funcionarios: funcionariosData.length,
             pedidosMaterial: pedidosMatData.length,
             lancamentos: lancamentosData.length,
-            notasFiscais: notasFiscaisData.length
+            notasFiscais: notasFiscaisData.length,
+            obraAtual: payload.obraAtual || 'nenhuma'
           });
         } else {
           console.log('📦 Supabase vazio — usando dados mock');
@@ -753,25 +759,59 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.SET_OBRA_ATUAL, payload: obraId });
   }, []);
 
-  const updateObra = useCallback((id, data) => {
+  const updateObra = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_OBRA, payload: { id, data } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        delete snakeData.created_at;
+        delete snakeData.updated_at;
+        await obrasApi.update(id, snakeData);
+        console.log(`✅ Obra ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar obra no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
-  const addObra = useCallback((obra) => {
+  const addObra = useCallback(async (obra) => {
     dispatch({ type: ACTIONS.ADD_OBRA, payload: obra });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(obra);
+        await obrasApi.create(record);
+        console.log(`✅ Obra ${obra.id} criada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar obra no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   const updateProgressoObra = useCallback((obraId, progresso) => {
     dispatch({ type: ACTIONS.UPDATE_PROGRESSO_OBRA, payload: { obraId, progresso } });
   }, []);
 
   // ===== AÇÕES - ORÇAMENTOS =====
-  const aprovarOrcamento = useCallback((orcamentoId, obraId) => {
+  const aprovarOrcamento = useCallback(async (orcamentoId, obraId) => {
     dispatch({ type: ACTIONS.APROVAR_ORCAMENTO, payload: { orcamentoId, obraId } });
     dispatch({
       type: ACTIONS.ADD_NOTIFICACAO,
       payload: { tipo: 'sucesso', mensagem: 'Orçamento aprovado! Obra iniciada.' }
     });
+
+    if (dataSource === 'supabase') {
+      try {
+        await orcamentosApi.update(orcamentoId, {
+          status: 'aprovado',
+          data_aprovacao: new Date().toISOString().split('T')[0]
+        });
+        await obrasApi.update(obraId, { status: 'aprovada' });
+        console.log(`✅ Orçamento ${orcamentoId} aprovado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao aprovar orçamento no Supabase:', err.message);
+      }
+    }
 
     // Add persistent notification
     if (window.__notificationDispatch) {
@@ -782,24 +822,74 @@ export function ERPProvider({ children }) {
         icon: 'CheckCircle'
       });
     }
-  }, []);
+  }, [dataSource]);
 
-  const addOrcamento = useCallback((orcamento) => {
+  const addOrcamento = useCallback(async (orcamento) => {
     dispatch({ type: ACTIONS.ADD_ORCAMENTO, payload: orcamento });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(orcamento);
+        await orcamentosApi.create(record);
+        console.log(`✅ Orçamento ${orcamento.id} criado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar orçamento no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - ESTOQUE =====
-  const consumirEstoque = useCallback((itemId, quantidade, obraId) => {
+  const consumirEstoque = useCallback(async (itemId, quantidade, obraId) => {
     dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade, obraId } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const item = state.estoque.find(e => e.id === itemId);
+        if (item) {
+          await estoqueApi.update(itemId, {
+            quantidade: (item.quantidade || 0) - quantidade,
+            reservado: Math.max(0, (item.reservado || 0) - quantidade)
+          });
+          console.log(`✅ Estoque ${itemId} consumido no Supabase`);
+        }
+      } catch (err) {
+        console.error('❌ Erro ao consumir estoque no Supabase:', err.message);
+      }
+    }
+  }, [dataSource, state.estoque]);
 
-  const adicionarEstoque = useCallback((itemId, quantidade, compraId) => {
+  const adicionarEstoque = useCallback(async (itemId, quantidade, compraId) => {
     dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade, compraId } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const item = state.estoque.find(e => e.id === itemId);
+        if (item) {
+          await estoqueApi.update(itemId, {
+            quantidade: (item.quantidade || 0) + quantidade
+          });
+          console.log(`✅ Estoque ${itemId} adicionado no Supabase`);
+        }
+      } catch (err) {
+        console.error('❌ Erro ao adicionar estoque no Supabase:', err.message);
+      }
+    }
+  }, [dataSource, state.estoque]);
 
-  const reservarEstoque = useCallback((itemId, quantidade, obraId) => {
+  const reservarEstoque = useCallback(async (itemId, quantidade, obraId) => {
     dispatch({ type: ACTIONS.RESERVAR_ESTOQUE, payload: { itemId, quantidade, obraId } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const item = state.estoque.find(e => e.id === itemId);
+        if (item) {
+          await estoqueApi.update(itemId, {
+            reservado: (item.reservado || 0) + quantidade,
+            obra_reservada: obraId
+          });
+          console.log(`✅ Estoque ${itemId} reservado no Supabase`);
+        }
+      } catch (err) {
+        console.error('❌ Erro ao reservar estoque no Supabase:', err.message);
+      }
+    }
+  }, [dataSource, state.estoque]);
 
   // ===== AÇÕES - PRODUÇÃO =====
   const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId) => {
@@ -943,7 +1033,7 @@ export function ERPProvider({ children }) {
   }, [dataSource]);
 
   // ===== AÇÕES - EXPEDIÇÃO =====
-  const addExpedicao = useCallback((expedicao) => {
+  const addExpedicao = useCallback(async (expedicao) => {
     dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });
 
     // Atualiza etapa das peças para EXPEDIDO
@@ -953,6 +1043,21 @@ export function ERPProvider({ children }) {
         payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.EXPEDIDO } }
       });
     });
+
+    // Persistir no Supabase
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(expedicao);
+        await expedicoesApi.create(record);
+        // Atualizar etapa das peças no Supabase
+        for (const pecaId of (expedicao.pecas || [])) {
+          await pecasApi.update(pecaId, { etapa: 'expedido', status: 'concluido' }).catch(() => {});
+        }
+        console.log(`✅ Expedição ${expedicao.id} criada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar expedição no Supabase:', err.message);
+      }
+    }
 
     // Add notification for shipment
     if (window.__notificationDispatch) {
@@ -964,23 +1069,54 @@ export function ERPProvider({ children }) {
         icon: 'Truck'
       });
     }
-  }, []);
+  }, [dataSource]);
 
-  const updateExpedicao = useCallback((id, data) => {
+  const updateExpedicao = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        await expedicoesApi.update(id, snakeData);
+        console.log(`✅ Expedição ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - COMPRAS =====
-  const addCompra = useCallback((compra) => {
+  const addCompra = useCallback(async (compra) => {
     dispatch({ type: ACTIONS.ADD_COMPRA, payload: compra });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(compra);
+        await comprasApi.create(record);
+        console.log(`✅ Compra ${compra.id} criada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar compra no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
-  const receberCompra = useCallback((compraId, itensRecebidos) => {
+  const receberCompra = useCallback(async (compraId, itensRecebidos) => {
     dispatch({ type: ACTIONS.RECEBER_COMPRA, payload: { compraId, itensRecebidos } });
     dispatch({
       type: ACTIONS.ADD_NOTIFICACAO,
       payload: { tipo: 'sucesso', mensagem: 'Compra recebida! Estoque atualizado.' }
     });
+
+    if (dataSource === 'supabase') {
+      try {
+        await comprasApi.update(compraId, {
+          status: 'entregue',
+          data_entrega: new Date().toISOString().split('T')[0]
+        });
+        console.log(`✅ Compra ${compraId} recebida no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao receber compra no Supabase:', err.message);
+      }
+    }
 
     // Add persistent notification
     if (window.__notificationDispatch) {
@@ -993,26 +1129,53 @@ export function ERPProvider({ children }) {
         icon: 'Package'
       });
     }
-  }, []);
+  }, [dataSource]);
 
   // ===== AÇÕES - MEDIÇÕES =====
-  const addMedicao = useCallback((medicao) => {
+  const addMedicao = useCallback(async (medicao) => {
     dispatch({ type: ACTIONS.ADD_MEDICAO, payload: medicao });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(medicao);
+        await medicoesApi.create(record);
+        console.log(`✅ Medição ${medicao.id} criada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar medição no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   const updateConfigMedicao = useCallback((tipo, etapa, config) => {
     dispatch({ type: ACTIONS.UPDATE_CONFIG_MEDICAO, payload: { tipo, etapa, config } });
   }, []);
 
   // ===== AÇÕES - EQUIPES =====
-  const alocarEquipe = useCallback((equipeId, obraId) => {
+  const alocarEquipe = useCallback(async (equipeId, obraId) => {
     dispatch({ type: ACTIONS.ALOCAR_EQUIPE, payload: { equipeId, obraId } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        await equipesApi.update(equipeId, { obra_atual_id: obraId });
+        console.log(`✅ Equipe ${equipeId} alocada à obra ${obraId} no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao alocar equipe no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - MÁQUINAS =====
-  const updateMaquina = useCallback((id, data) => {
+  const updateMaquina = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_MAQUINA, payload: { id, data } });
-  }, []);
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        await maquinasApi.update(id, snakeData);
+        console.log(`✅ Máquina ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar máquina no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
 
   // ===== AÇÕES - LISTAS =====
   const importarLista = useCallback((lista) => {
@@ -1094,28 +1257,37 @@ export function ERPProvider({ children }) {
 
   // ===== SELETORES =====
   const obraAtualData = useMemo(() => {
-    return state.obras.find(o => o.id === state.obraAtual);
+    if (!state.obraAtual) return state.obras[0] || null;
+    return state.obras.find(o => o.id === state.obraAtual) || state.obras[0] || null;
   }, [state.obras, state.obraAtual]);
 
+  // Se obraAtual for null, usar a primeira obra disponível para filtros
+  const obraIdAtiva = state.obraAtual || (state.obras[0]?.id) || null;
+
   const pecasObraAtual = useMemo(() => {
-    return state.pecas.filter(p => p.obraId === state.obraAtual);
-  }, [state.pecas, state.obraAtual]);
+    if (!obraIdAtiva) return state.pecas; // Sem obra selecionada → mostrar todas
+    return state.pecas.filter(p => p.obraId === obraIdAtiva);
+  }, [state.pecas, obraIdAtiva]);
 
   const estoqueObraAtual = useMemo(() => {
-    return state.estoque.filter(e => e.obraReservada === state.obraAtual || !e.obraReservada);
-  }, [state.estoque, state.obraAtual]);
+    if (!obraIdAtiva) return state.estoque;
+    return state.estoque.filter(e => e.obraReservada === obraIdAtiva || !e.obraReservada);
+  }, [state.estoque, obraIdAtiva]);
 
   const expedicoesObraAtual = useMemo(() => {
-    return state.expedicoes.filter(e => e.obraId === state.obraAtual);
-  }, [state.expedicoes, state.obraAtual]);
+    if (!obraIdAtiva) return state.expedicoes;
+    return state.expedicoes.filter(e => e.obraId === obraIdAtiva);
+  }, [state.expedicoes, obraIdAtiva]);
 
   const comprasObraAtual = useMemo(() => {
-    return state.compras.filter(c => c.obraId === state.obraAtual);
-  }, [state.compras, state.obraAtual]);
+    if (!obraIdAtiva) return state.compras;
+    return state.compras.filter(c => c.obraId === obraIdAtiva);
+  }, [state.compras, obraIdAtiva]);
 
   const medicoesObraAtual = useMemo(() => {
-    return state.medicoes.filter(m => m.obraId === state.obraAtual);
-  }, [state.medicoes, state.obraAtual]);
+    if (!obraIdAtiva) return state.medicoes;
+    return state.medicoes.filter(m => m.obraId === obraIdAtiva);
+  }, [state.medicoes, obraIdAtiva]);
 
   const estatisticasGerais = useMemo(() => {
     return getEstatisticasGerais();
@@ -1205,6 +1377,7 @@ export function ERPProvider({ children }) {
     supabaseConnected,
     dataSource,
     obraAtualData,
+    obraIdAtiva,
     pecasObraAtual,
     estoqueObraAtual,
     expedicoesObraAtual,

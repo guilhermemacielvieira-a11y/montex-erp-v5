@@ -6,8 +6,9 @@ dist/
 release/
 build_test/
 
-# Variáveis de ambiente (NUNCA commitar!)
-.env
+# Variáveis de ambiente sensíveis
+# .env contém APENAS chaves públicas (anon key) - OK para commitar
+# .env.local e .env.*.local são ignorados (podem conter service_role_key)
 .env.local
 .env.*.local
 
