@@ -271,7 +271,41 @@ export const AuthProvider = ({ children }) => {
         }
 
         if (session?.user) {
-          console.log('[Auth] Sessão encontrada, buscando perfil para:', session.user.email);
+          // Verificar se access_token está expirado e tentar refresh manual
+          const expiresAt = session.expires_at;
+          const now = Math.floor(Date.now() / 1000);
+          if (expiresAt && now >= expiresAt) {
+            console.log('[Auth] Token expirado, tentando refresh manual...');
+            try {
+              const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession();
+              if (refreshError || !refreshData?.session) {
+                console.warn('[Auth] Refresh manual falhou:', refreshError?.message);
+                await clearStaleSession();
+                if (mounted) {
+                  setIsLoadingAuth(false);
+                  setIsAuthenticated(false);
+                  setAuthError({ type: 'auth_required' });
+                }
+                initAuthRunning.current = false;
+                return;
+              }
+              // Usar a nova sessão refreshed
+              session = refreshData.session;
+              console.log('[Auth] Token renovado com sucesso via refresh manual');
+            } catch (refreshErr) {
+              console.error('[Auth] Erro no refresh manual:', refreshErr);
+              await clearStaleSession();
+              if (mounted) {
+                setIsLoadingAuth(false);
+                setIsAuthenticated(false);
+                setAuthError({ type: 'auth_required' });
+              }
+              initAuthRunning.current = false;
+              return;
+            }
+          }
+
+          console.log('[Auth] Sessão válida, buscando perfil para:', session.user.email);
           const userProfile = await fetchProfile(session.user);
           console.log('[Auth] fetchProfile retornou:', userProfile ? userProfile.email : 'null');
 

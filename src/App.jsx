@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
@@ -20,15 +21,54 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   : <>{children}</>;
 
 const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, isAuthenticated } = useAuth();
+  const { isLoadingAuth, isLoadingPublicSettings, authError, isAuthenticated, logout } = useAuth();
   const location = useLocation();
+
+  // SAFETY NET: Se loading demorar mais de 8 segundos, forçar login
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  useEffect(() => {
+    if (isLoadingAuth || isLoadingPublicSettings) {
+      const timer = setTimeout(() => {
+        console.error('[App] Loading timeout de 8s atingido! Forçando tela de login...');
+        setLoadingTimedOut(true);
+      }, 8000);
+      return () => clearTimeout(timer);
+    } else {
+      setLoadingTimedOut(false);
+    }
+  }, [isLoadingAuth, isLoadingPublicSettings]);
 
   // Rota de login é pública
   if (location.pathname === '/login') {
     return <LoginPage />;
   }
 
-  // Show loading spinner while checking auth
+  // Se loading deu timeout, limpar sessão e mostrar login
+  if (loadingTimedOut) {
+    // Limpar localStorage do Supabase para evitar loop
+    try {
+      localStorage.removeItem('sb-trxbohjcwsogthabairh-auth-token');
+    } catch (_) {}
+    return (
+      <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
+        <div className="text-center max-w-md">
+          <div className="text-4xl mb-4">⚠️</div>
+          <h2 className="text-white text-lg font-semibold mb-2">Sessão expirada</h2>
+          <p className="text-blue-200 text-sm mb-4">
+            Sua sessão anterior expirou. Faça login novamente.
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-medium transition-colors"
+          >
+            Ir para Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading spinner while checking auth (máximo 8 segundos)
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">

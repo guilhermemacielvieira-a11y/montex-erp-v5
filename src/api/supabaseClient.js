@@ -2,18 +2,43 @@
 // Todas as tabelas com CRUD + funções auxiliares
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// URL e chave fixas — anon key é pública por design do Supabase
+const SUPABASE_URL = 'https://trxbohjcwsogthabairh.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNzU1MTAsImV4cCI6MjA4NTY1MTUxMH0.QzEK1K0vQRpTBOWqNib-Mo1EEbTP6j21J1jWb07urxg';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error('❌ CRITICAL: Variáveis de ambiente Supabase não encontradas!');
-  console.error('VITE_SUPABASE_URL:', supabaseUrl || '[AUSENTE]');
-  console.error('VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? '[OK]' : '[AUSENTE]');
+// ============================================
+// LIMPEZA DE SESSÃO CORROMPIDA (ANTES do createClient)
+// O createClient com autoRefreshToken lê o localStorage imediatamente.
+// Se houver tokens velhos/corrompidos, ele tenta refresh e falha.
+// Solução: limpar ANTES de criar o client.
+// ============================================
+try {
+  const STORAGE_KEY = 'sb-trxbohjcwsogthabairh-auth-token';
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    try {
+      const parsed = JSON.parse(stored);
+      const expiresAt = parsed?.expires_at;
+      const now = Math.floor(Date.now() / 1000);
+      // Se token expirou há mais de 1 hora, é sessão velha — limpar
+      if (expiresAt && (now - expiresAt) > 3600) {
+        console.warn('[Supabase] Sessão expirada há mais de 1h detectada. Limpando localStorage...');
+        localStorage.removeItem(STORAGE_KEY);
+      }
+      // Se não tem expires_at ou refresh_token, sessão corrompida
+      if (!expiresAt || !parsed?.refresh_token) {
+        console.warn('[Supabase] Sessão sem expires_at/refresh_token. Limpando...');
+        localStorage.removeItem(STORAGE_KEY);
+      }
+    } catch (parseErr) {
+      // JSON inválido — limpar
+      console.warn('[Supabase] Sessão com JSON inválido. Limpando...');
+      localStorage.removeItem(STORAGE_KEY);
+    }
+  }
+} catch (_) {
+  // localStorage não disponível (SSR, incognito, etc)
 }
-
-// URL fixa hardcoded como fallback de segurança — NUNCA usar placeholder
-const SUPABASE_URL = supabaseUrl || 'https://trxbohjcwsogthabairh.supabase.co';
-const SUPABASE_ANON_KEY = supabaseAnonKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNzU1MTAsImV4cCI6MjA4NTY1MTUxMH0.QzEK1K0vQRpTBOWqNib-Mo1EEbTP6j21J1jWb07urxg';
 
 export const supabase = createClient(
   SUPABASE_URL,
@@ -21,19 +46,20 @@ export const supabase = createClient(
   {
     auth: {
       // Desabilitar navigator.locks para evitar deadlock
-      // quando múltiplos useEffect chamam getSession() concorrentemente
       lock: async (_name, _acquireTimeout, fn) => {
         return await fn();
       },
       persistSession: true,
-      autoRefreshToken: true,
+      // DESABILITADO: autoRefreshToken causava "Failed to fetch" em background
+      // quando refresh_token era inválido. Refresh é feito manualmente no AuthContext.
+      autoRefreshToken: false,
       detectSessionInUrl: false,
     },
     global: {
-      // Adicionar timeout a TODAS as requisições fetch do Supabase
+      // Timeout de 15s em todas as requisições fetch do Supabase
       fetch: (url, options = {}) => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
         return fetch(url, {
           ...options,
           signal: controller.signal,
