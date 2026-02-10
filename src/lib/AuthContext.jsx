@@ -197,54 +197,52 @@ export const AuthProvider = ({ children }) => {
         return;
       }
       setIsLoadingAuth(true);
+      console.log('[Auth] initAuth: iniciando...');
 
       try {
         // Verificar se há sessão ativa
+        console.log('[Auth] Chamando getSession...');
         const { data: { session }, error } = await supabase.auth.getSession();
+        console.log('[Auth] getSession retornou:', { hasSession: !!session, error: error?.message });
 
         if (error) {
-          console.error('Erro ao verificar sessão:', error);
-          if (mounted) {
-            setIsLoadingAuth(false);
-            setIsAuthenticated(false);
-            setAuthError({ type: 'auth_required' });
-          }
+          console.error('[Auth] Erro ao verificar sessão:', error);
+          setIsLoadingAuth(false);
+          setIsAuthenticated(false);
+          setAuthError({ type: 'auth_required' });
           return;
         }
 
         if (session?.user) {
+          console.log('[Auth] Sessão encontrada, buscando perfil para:', session.user.email);
           const userProfile = await fetchProfile(session.user);
+          console.log('[Auth] fetchProfile retornou:', userProfile ? userProfile.email : 'null');
 
-          if (mounted) {
-            if (userProfile) {
-              setUser(userProfile);
-              setProfile(userProfile);
-              setIsAuthenticated(true);
-              setAuthError(null);
-              console.log(`✅ Logado como: ${userProfile.name} (${userProfile.role})`);
-            } else {
-              // Usuário autenticado mas sem perfil
-              setAuthError({ type: 'user_not_registered' });
-              setIsAuthenticated(false);
-            }
+          if (userProfile) {
+            setUser(userProfile);
+            setProfile(userProfile);
+            setIsAuthenticated(true);
+            setAuthError(null);
+            console.log(`✅ Logado como: ${userProfile.name} (${userProfile.role})`);
+          } else {
+            // Usuário autenticado mas sem perfil
+            setAuthError({ type: 'user_not_registered' });
+            setIsAuthenticated(false);
           }
         } else {
           // Sem sessão — redirecionar para login
-          if (mounted) {
-            setIsAuthenticated(false);
-            setAuthError({ type: 'auth_required' });
-          }
-        }
-      } catch (err) {
-        console.error('Erro na inicialização auth:', err);
-        if (mounted) {
+          console.log('[Auth] Sem sessão ativa, mostrando login');
           setIsAuthenticated(false);
           setAuthError({ type: 'auth_required' });
         }
+      } catch (err) {
+        console.error('[Auth] Erro na inicialização auth:', err);
+        setIsAuthenticated(false);
+        setAuthError({ type: 'auth_required' });
       } finally {
-        if (mounted) {
-          setIsLoadingAuth(false);
-        }
+        // SEMPRE desliga o loading, mesmo se componente desmontou
+        console.log('[Auth] finally: setIsLoadingAuth(false), mounted=', mounted);
+        setIsLoadingAuth(false);
       }
     };
 
