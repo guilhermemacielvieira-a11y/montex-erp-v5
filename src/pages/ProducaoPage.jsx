@@ -62,6 +62,10 @@ import {
 import { useObras, useProducao } from '../contexts/ERPContext';
 // Importar API Supabase para persistência
 import { pecasApi } from '@/api/supabaseClient';
+// Importar hook de paginação inteligente
+import { useSmartPagination } from '@/hooks/useSmartPagination';
+// Importar controles de paginação
+import PaginationControls from '@/components/ui/PaginationControls';
 
 // Importar configuração de produção e enums
 import { ETAPAS_PRODUCAO } from '../data/database';
@@ -362,6 +366,26 @@ export default function ProducaoPage() {
   const [draggedItem, setDraggedItem] = useState(null);
   const [activeTab, setActiveTab] = useState('kanban');
 
+  // Filtro customizado para prioridade
+  const customFilter = useMemo(() => {
+    return (item) => {
+      if (filtroPrioridade === 'todas') return true;
+      if (filtroPrioridade === 'alta') return item.statusCorte === 'urgente';
+      return true;
+    };
+  }, [filtroPrioridade]);
+
+  // Hook de paginação inteligente (server-side ou client-side)
+  const pagination = useSmartPagination('pecas_producao', pecas, {
+    pageSize: 50,
+    orderBy: 'created_at',
+    ascending: false,
+    filters: filtroObra !== 'todas' ? { obra_id: filtroObra } : {},
+    search: search,
+    searchColumn: 'marca',
+    customFilter,
+  });
+
   // Modal states
   const [showModal, setShowModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
@@ -377,6 +401,8 @@ export default function ProducaoPage() {
   });
 
   // Filtrar itens - usando pecas do ERPContext
+  // OBS: Para Kanban, precisamos de TODOS os itens filtrados
+  // Para Lista, usaremos pagination.data que já vem paginado
   const itensFiltrados = useMemo(() => {
     let itens = [...pecas];
 
@@ -402,6 +428,9 @@ export default function ProducaoPage() {
 
     return itens;
   }, [pecas, filtroObra, filtroPrioridade, search]);
+
+  // Para calcular estatísticas globais, usar todos os itens filtrados
+  // Mas a lista tabular usará pagination.data
 
   // Agrupar por etapa de produção
   const itensPorColuna = useMemo(() => {
@@ -858,7 +887,7 @@ export default function ProducaoPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {itensFiltrados.map((item, index) => {
+                    {pagination.data.map((item, index) => {
                       const obra = obras.find(o => o.id === item.obraId);
                       const coluna = colunasKanban.find(c => c.id === item.etapa);
 
@@ -961,6 +990,18 @@ export default function ProducaoPage() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              <PaginationControls
+                page={pagination.page}
+                totalPages={pagination.totalPages}
+                totalCount={pagination.totalCount}
+                onPrev={pagination.prevPage}
+                onNext={pagination.nextPage}
+                onGoToPage={pagination.goToPage}
+                pageSize={pagination.pageSize}
+                loading={pagination.loading}
+              />
             </div>
           </TabsContent>
         </Tabs>

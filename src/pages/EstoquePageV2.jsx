@@ -27,6 +27,10 @@ import {
 // Importa o contexto ERP
 import { useERP, useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
+// Importar hook de paginação inteligente
+import { useSmartPagination } from '@/hooks/useSmartPagination';
+// Importar controles de paginação
+import PaginationControls from '@/components/ui/PaginationControls';
 
 // Status de estoque
 const STATUS_ESTOQUE = {
@@ -211,6 +215,26 @@ export default function EstoquePageV2() {
 
     return items;
   }, [estoque, estoqueObraAtual, filtroCategoria, filtroStatus, filtroObra, busca]);
+
+  // Hook de paginação inteligente para a tab de itens
+  const paginationItens = useSmartPagination('estoque', estoqueFiltrado, {
+    pageSize: 30,
+    orderBy: 'created_at',
+    ascending: false,
+    filters: {},
+    search: '',
+    searchColumn: 'codigo',
+  });
+
+  // Hook de paginação inteligente para itens vinculados à obra
+  const paginationVinculados = useSmartPagination('estoque', estoqueObraAtual, {
+    pageSize: 30,
+    orderBy: 'created_at',
+    ascending: false,
+    filters: {},
+    search: '',
+    searchColumn: 'codigo',
+  });
 
   // Estatísticas
   const estatisticas = useMemo(() => {
@@ -511,24 +535,40 @@ export default function EstoquePageV2() {
             </div>
 
             {/* Grid de Itens */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-              {estoqueFiltrado.map(item => (
-                <ItemEstoque
-                  key={item.id}
-                  item={item}
-                  onEdit={handleEdit}
-                  onVerMais={handleVerMais}
-                  obraAtual={obraAtualData}
-                />
-              ))}
-            </div>
-
-            {estoqueFiltrado.length === 0 && (
-              <div className="text-center py-12">
-                <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                <p className="text-slate-400">Nenhum item encontrado com os filtros aplicados</p>
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {paginationItens.data.map(item => (
+                  <ItemEstoque
+                    key={item.id}
+                    item={item}
+                    onEdit={handleEdit}
+                    onVerMais={handleVerMais}
+                    obraAtual={obraAtualData}
+                  />
+                ))}
               </div>
-            )}
+
+              {paginationItens.totalCount === 0 && (
+                <div className="text-center py-12">
+                  <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400">Nenhum item encontrado com os filtros aplicados</p>
+                </div>
+              )}
+
+              {/* Pagination Controls */}
+              {paginationItens.totalPages > 1 && (
+                <PaginationControls
+                  page={paginationItens.page}
+                  totalPages={paginationItens.totalPages}
+                  totalCount={paginationItens.totalCount}
+                  onPrev={paginationItens.prevPage}
+                  onNext={paginationItens.nextPage}
+                  onGoToPage={paginationItens.goToPage}
+                  pageSize={paginationItens.pageSize}
+                  loading={paginationItens.loading}
+                />
+              )}
+            </div>
           </Tabs.Content>
 
           {/* Movimentações */}
@@ -552,24 +592,40 @@ export default function EstoquePageV2() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                {estoqueObraAtual.map(item => (
-                  <ItemEstoque
-                    key={item.id}
-                    item={item}
-                    onEdit={handleEdit}
-                    onVerMais={handleVerMais}
-                    obraAtual={obraAtualData}
-                  />
-                ))}
-              </div>
-
-              {estoqueObraAtual.length === 0 && (
-                <div className="text-center py-12">
-                  <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                  <p className="text-slate-400">Nenhum material reservado para esta obra</p>
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {paginationVinculados.data.map(item => (
+                    <ItemEstoque
+                      key={item.id}
+                      item={item}
+                      onEdit={handleEdit}
+                      onVerMais={handleVerMais}
+                      obraAtual={obraAtualData}
+                    />
+                  ))}
                 </div>
-              )}
+
+                {paginationVinculados.totalCount === 0 && (
+                  <div className="text-center py-12">
+                    <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                    <p className="text-slate-400">Nenhum material reservado para esta obra</p>
+                  </div>
+                )}
+
+                {/* Pagination Controls */}
+                {paginationVinculados.totalPages > 1 && (
+                  <PaginationControls
+                    page={paginationVinculados.page}
+                    totalPages={paginationVinculados.totalPages}
+                    totalCount={paginationVinculados.totalCount}
+                    onPrev={paginationVinculados.prevPage}
+                    onNext={paginationVinculados.nextPage}
+                    onGoToPage={paginationVinculados.goToPage}
+                    pageSize={paginationVinculados.pageSize}
+                    loading={paginationVinculados.loading}
+                  />
+                )}
+              </div>
             </div>
           </Tabs.Content>
         </div>
