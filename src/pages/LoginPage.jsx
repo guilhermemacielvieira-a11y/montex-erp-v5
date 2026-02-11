@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -139,6 +140,12 @@ export default function LoginPage() {
                 'Entrar'
               )}
             </Button>
+
+            <div className="text-center mt-3">
+              <Link to="/forgot-password" className="text-blue-400 hover:text-blue-300 text-sm transition-colors">
+                Esqueceu a senha?
+              </Link>
+            </div>
           </form>
 
           {/* Footer */}

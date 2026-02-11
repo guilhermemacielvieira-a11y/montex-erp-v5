@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { useAuth, ROLE_COLORS, ROLE_LABELS } from '@/lib/AuthContext';
@@ -230,6 +230,22 @@ const navigationCategories = [
   },
 ];
 
+// ====== PERMISSÕES POR CATEGORIA ======
+const CATEGORY_PERMISSIONS = {
+  'dashboard': 'dashboard.view',
+  'comercial': 'orcamentos.view',
+  'suprimentos': 'estoque.view',
+  'producao': 'producao.view',
+  'expedicao': 'expedicao.view',
+  'obras': 'producao.view',
+  'medicao': 'medicao.view',
+  'financeiro': 'financeiro.view',
+  'bi': 'bi.view',
+  'command': 'dashboard.view',
+  'colaboracao': 'dashboard.view',
+  'sistema': null, // null = admin only
+};
+
 // Componente de Categoria Acordeão - suporta modo colapsado
 function AccordionCategory({ category, isOpen, onToggle, currentPageName, onNavigate, collapsed }) {
   const hasActiveItem = category.items.some(item => currentPageName === item.href);
@@ -376,7 +392,16 @@ function LayoutContent({ children, currentPageName }) {
   });
   const location = useLocation();
   const { displaySettings, screenInfo, preferences, animationSettings } = useDisplay();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
+
+  const filteredCategoriesByRole = useMemo(() => {
+    return navigationCategories.filter(cat => {
+      const requiredPerm = CATEGORY_PERMISSIONS[cat.id];
+      if (requiredPerm === null) return user?.role === 'admin';
+      if (!requiredPerm) return true;
+      return hasPermission(requiredPerm);
+    });
+  }, [user, hasPermission]);
 
   // Persiste estado da sidebar
   useEffect(() => {
@@ -436,13 +461,13 @@ function LayoutContent({ children, currentPageName }) {
   };
 
   const filteredCategories = searchQuery
-    ? navigationCategories.map(cat => ({
+    ? filteredCategoriesByRole.map(cat => ({
         ...cat,
         items: cat.items.filter(item =>
           item.name.toLowerCase().includes(searchQuery.toLowerCase())
         )
       })).filter(cat => cat.items.length > 0)
-    : navigationCategories;
+    : filteredCategoriesByRole;
 
   return (
     <>
@@ -693,7 +718,7 @@ function LayoutContent({ children, currentPageName }) {
               </button>
             )}
             <h2 className="text-white font-medium">
-              {navigationCategories.flatMap(c => c.items).find(i => i.href === currentPageName)?.name || 'Dashboard'}
+              {filteredCategoriesByRole.flatMap(c => c.items).find(i => i.href === currentPageName)?.name || 'Dashboard'}
             </h2>
             {obraAtualData && (
               <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-lg">

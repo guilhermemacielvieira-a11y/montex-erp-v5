@@ -12,6 +12,8 @@ import ErrorBoundary from '@/components/ErrorBoundary';
 import { DisplayProvider } from './contexts/DisplayContext';
 import { EstoqueRealProvider } from './contexts/EstoqueRealContext';
 import LoginPage from './pages/LoginPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -40,7 +42,13 @@ const AuthenticatedApp = () => {
     }
   }, [isLoadingAuth, isLoadingPublicSettings]);
 
-  // Rota de login é pública
+  // Rotas públicas
+  if (location.pathname === '/forgot-password') {
+    return <ForgotPasswordPage />;
+  }
+  if (location.pathname === '/reset-password') {
+    return <ResetPasswordPage />;
+  }
   if (location.pathname === '/login') {
     return <LoginPage />;
   }

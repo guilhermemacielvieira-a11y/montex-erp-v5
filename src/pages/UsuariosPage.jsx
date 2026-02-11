@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
 import { getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive } from '@/api/supabaseClient';
+import InviteUserModal from '@/components/admin/InviteUserModal';
 
 // ============================================================
 // PÁGINA DE GESTÃO DE USUÁRIOS - MONTEX ERP PREMIUM V5
@@ -233,6 +234,7 @@ export default function UsuariosPage() {
   const [error, setError] = useState(null);
   const [editingUser, setEditingUser] = useState(null);
   const [showNewUserModal, setShowNewUserModal] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
   const [successMsg, setSuccessMsg] = useState('');
 
   // Carregar usuários
@@ -334,15 +336,27 @@ export default function UsuariosPage() {
         </div>
 
         {canEdit && (
-          <button
-            onClick={() => setShowNewUserModal(true)}
-            className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl font-medium shadow-lg shadow-emerald-200 transition-all flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            Novo Usuário
-          </button>
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowInviteModal(true)}
+              className="px-5 py-2.5 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl font-medium shadow-lg shadow-blue-200 transition-all flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8a4 4 0 014-4h10a4 4 0 014 4v8a4 4 0 01-4 4H7a4 4 0 01-4-4V8z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Convidar Usuário
+            </button>
+            <button
+              onClick={() => setShowNewUserModal(true)}
+              className="px-5 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-700 hover:to-emerald-800 text-white rounded-xl font-medium shadow-lg shadow-emerald-200 transition-all flex items-center gap-2"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+              </svg>
+              Novo Usuário
+            </button>
+          </div>
         )}
       </div>
 
@@ -574,6 +588,15 @@ export default function UsuariosPage() {
           saving={saving}
         />
       )}
+      <InviteUserModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        onSuccess={() => {
+          setSuccessMsg('Usuário convidado com sucesso!');
+          setTimeout(() => setSuccessMsg(''), 3000);
+          loadUsers();
+        }}
+      />
     </div>
   );
 }

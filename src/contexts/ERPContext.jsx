@@ -219,10 +219,40 @@ const ACTIONS = {
 };
 
 // ========================================
+// PRODUÇÃO: ESTADO VAZIO (sem mock data)
+// Em produção, dados vêm exclusivamente do Supabase
+// ========================================
+const IS_PRODUCTION = import.meta.env.PROD || import.meta.env.VITE_SUPABASE_URL?.includes('supabase.co');
+
+const emptyState = {
+  clientes: [],
+  obras: [],
+  orcamentos: [],
+  listas: [],
+  estoque: [],
+  pecas: [],
+  expedicoes: [],
+  funcionarios: [],
+  equipes: [],
+  medicoes: [],
+  compras: [],
+  configMedicao: {},
+  maquinas: [],
+  materiaisEstoque: [],
+  lancamentosDespesas: [],
+  notasFiscais: [],
+  movimentacoesEstoque: [],
+  obraAtual: null,
+  filtros: { obra: 'todas', periodo: 'mes_atual', setor: 'todos' },
+  loading: false,
+  notificacoes: []
+};
+
+// ========================================
 // ESTADO INICIAL
 // ========================================
 
-const initialState = {
+const initialState = IS_PRODUCTION ? emptyState : {
   // Dados principais
   clientes: clientesIniciais,
   obras: obrasIniciais,
