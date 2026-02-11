@@ -157,6 +157,193 @@ const UltraStatCard = ({ title, value, subtitle, icon: Icon, color = '#22d3ee', 
   </HolographicCard>
 );
 
+// ===== HUD MODE COMPONENTS (NEW) =====
+
+const HexagonIndicator = ({ value = 85, title = '', color = '#22c55e', size = 120 }) => {
+  const normalizedValue = Math.min(Math.max(value, 0), 100);
+  const getColor = (val) => {
+    if (val >= 80) return '#22c55e';
+    if (val >= 60) return '#eab308';
+    return '#ef4444';
+  };
+
+  const indicatorColor = getColor(normalizedValue);
+  const hexPoints = Array.from({ length: 6 }, (_, i) => {
+    const angle = (i * 60 - 90) * (Math.PI / 180);
+    const x = (size / 2) * Math.cos(angle);
+    const y = (size / 2) * Math.sin(angle);
+    return `${size / 2 + x},${size / 2 + y}`;
+  }).join(' ');
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <svg width={size} height={size} className="drop-shadow-lg">
+        <defs>
+          <linearGradient id="hexGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor={indicatorColor} stopOpacity="0.1" />
+            <stop offset="100%" stopColor={indicatorColor} stopOpacity="0.3" />
+          </linearGradient>
+        </defs>
+        <polygon points={hexPoints} fill="url(#hexGrad)" stroke={indicatorColor} strokeWidth="2" />
+        <motion.polygon
+          points={hexPoints}
+          fill="none"
+          stroke={indicatorColor}
+          strokeWidth="1.5"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: [0.3, 0.8, 0.3] }}
+          transition={{ duration: 2, repeat: Infinity }}
+        />
+        <text
+          x={size / 2}
+          y={size / 2}
+          textAnchor="middle"
+          dy="0.3em"
+          className="text-xs font-bold"
+          fill={indicatorColor}
+          fontSize="24"
+        >
+          {normalizedValue.toFixed(0)}%
+        </text>
+      </svg>
+      {title && <span className="text-xs font-bold text-slate-300">{title}</span>}
+    </div>
+  );
+};
+
+const DataStream = ({ data = [], color = '#22c55e', height = 80, width = '100%' }) => {
+  const [offset, setOffset] = React.useState(0);
+
+  React.useEffect(() => {
+    const interval = setInterval(() => {
+      setOffset(prev => (prev + 2) % 360);
+    }, 50);
+    return () => clearInterval(interval);
+  }, []);
+
+  const points = data.length > 0
+    ? data.map((v, i) => `${(i / Math.max(data.length - 1, 1)) * (typeof width === 'number' ? width : 300)},${height - (v / 100) * (height * 0.8)}`).join(' ')
+    : `0,${height / 2} 50,${height / 3} 100,${height / 2}`;
+
+  const svgWidth = typeof width === 'number' ? width : 300;
+
+  return (
+    <svg width="100%" height={height} className="overflow-hidden">
+      <defs>
+        <linearGradient id="streamGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.4" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+        <linearGradient id="streamLine" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor={color} stopOpacity="0" />
+          <stop offset="50%" stopColor={color} stopOpacity="1" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <polygon points={`0,${height} ${points} ${svgWidth},${height}`} fill="url(#streamGrad)" />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" />
+      <motion.circle
+        cx={data.length > 0 ? `${(data.length - 1) / Math.max(data.length - 1, 1) * 100}%` : '50%'}
+        cy={data.length > 0 ? height - (data[data.length - 1] / 100) * (height * 0.8) : height / 2}
+        r="4"
+        fill={color}
+        animate={{ r: [4, 6, 4], opacity: [1, 0.6, 1] }}
+        transition={{ duration: 1.5, repeat: Infinity }}
+      />
+    </svg>
+  );
+};
+
+const EnergyGauge = ({ value = 847, maxValue = 1000, color = '#22c55e', title = 'Consumo Energia' }) => {
+  const percentage = Math.min((value / maxValue) * 100, 100);
+  const gaugeColor = percentage > 80 ? '#ef4444' : percentage > 60 ? '#eab308' : '#22c55e';
+
+  return (
+    <HolographicCard color={gaugeColor} className="p-4 bg-slate-900/80 backdrop-blur-xl">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-xs font-bold text-white">{title}</span>
+        <span className="text-xl font-bold" style={{ color: gaugeColor }}>{value} kWh</span>
+      </div>
+      <svg width="100%" height="80" viewBox="0 0 200 100">
+        <defs>
+          <linearGradient id="gaugeGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#22c55e" />
+            <stop offset="50%" stopColor="#eab308" />
+            <stop offset="100%" stopColor="#ef4444" />
+          </linearGradient>
+        </defs>
+        <path d="M 20 80 A 80 80 0 0 1 180 80" fill="none" stroke="#334155" strokeWidth="8" />
+        <path
+          d="M 20 80 A 80 80 0 0 1 180 80"
+          fill="none"
+          stroke="url(#gaugeGrad)"
+          strokeWidth="8"
+          strokeDasharray={`${(percentage / 100) * 251}, 251`}
+          strokeLinecap="round"
+        />
+        <motion.circle
+          cx={20 + (160 * percentage / 100)}
+          cy={80}
+          r="6"
+          fill={gaugeColor}
+          animate={{ r: [6, 8, 6] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        />
+        <text x="100" y="95" textAnchor="middle" className="text-xs font-bold" fill={gaugeColor} fontSize="16">
+          {percentage.toFixed(0)}%
+        </text>
+      </svg>
+    </HolographicCard>
+  );
+};
+
+const CircularProgress3D = ({ value = 85, label = '', color = '#22c55e', size = 100 }) => {
+  const circumference = 2 * Math.PI * (size / 2 - 10);
+  const offset = circumference - (value / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <svg width={size} height={size}>
+        <defs>
+          <filter id="glow">
+            <feGaussianBlur stdDeviation="2" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <circle cx={size / 2} cy={size / 2} r={size / 2 - 10} fill="none" stroke="#334155" strokeWidth="3" />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={size / 2 - 10}
+          fill="none"
+          stroke={color}
+          strokeWidth="3"
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          filter="url(#glow)"
+          animate={{ strokeDashoffset: offset }}
+          transition={{ duration: 0.5 }}
+        />
+        <text
+          x={size / 2}
+          y={size / 2}
+          textAnchor="middle"
+          dy="0.3em"
+          className="text-sm font-bold"
+          fill={color}
+          fontSize="18"
+        >
+          {value.toFixed(0)}%
+        </text>
+      </svg>
+      {label && <span className="text-xs text-slate-400">{label}</span>}
+    </div>
+  );
+};
 
 const COLORS = ['#22d3ee', '#34d399', '#c084fc', '#fbbf24', '#f87171', '#60a5fa', '#f472b6', '#a3e635'];
 
@@ -269,6 +456,15 @@ export default function DashboardPremium() {
       percentual: Object.values(obra.progresso)[0] || 0,
     })),
   }), [metrics, obrasEmAndamento]);
+
+  // Quality metrics for HUD mode
+  const qualityMetrics = useMemo(() => ({
+    taxaAprovacao: metrics.performance?.qualidade || 94.2,
+    precisaoDimensional: 99.1,
+    retrabalho: metrics.performance?.retrabalho || 3.2,
+    refugo: metrics.performance?.refugo || 1.8,
+    energiaKwh: 847,
+  }), [metrics.performance]);
 
   // HUD theme colors
   const hudColors = hudTheme
@@ -473,15 +669,24 @@ export default function DashboardPremium() {
               trend={metrics.projetos.trend}
               sparkData={[3, 5, 4, 6, 5, 7, 6, 8]}
             />
-            <UltraStatCard
-              title="OEE GERAL"
-              value={metrics.producao.progressoGeral}
-              subtitle="Eficiência Global do Equipamento"
-              icon={Gauge}
-              color="#34d399"
-              trend={2.3}
-              sparkData={[82, 84, 83, 85, 87, 86, 88, 87]}
-            />
+            {hudTheme ? (
+              <HolographicCard color="#22c55e" className="p-4 bg-slate-900/80 backdrop-blur-xl">
+                <div className="flex flex-col items-center justify-center gap-3">
+                  <HexagonIndicator value={metrics.producao.progressoGeral} title="OEE GERAL" color="#22c55e" size={100} />
+                  <p className="text-[10px] text-slate-500 text-center">Eficiência Global do Equipamento</p>
+                </div>
+              </HolographicCard>
+            ) : (
+              <UltraStatCard
+                title="OEE GERAL"
+                value={metrics.producao.progressoGeral}
+                subtitle="Eficiência Global do Equipamento"
+                icon={Gauge}
+                color="#34d399"
+                trend={2.3}
+                sparkData={[82, 84, 83, 85, 87, 86, 88, 87]}
+              />
+            )}
             <UltraStatCard
               title="FATURAMENTO"
               value={metrics.financeiro.valorMilhoes}
@@ -491,7 +696,8 @@ export default function DashboardPremium() {
               trend={8}
               sparkData={[12, 14, 13, 16, 15, 18, 17, 19]}
             />
-            <MachineStatusGrid machines={metrics.maquinas.lista} />
+            {hudTheme && <MachineStatusGrid machines={metrics.maquinas.lista} />}
+            {!hudTheme && <MachineStatusGrid machines={metrics.maquinas.lista} />}
           </div>
 
           {/* Center Column - Charts */}
@@ -535,6 +741,25 @@ export default function DashboardPremium() {
               </ResponsiveContainer>
             </HolographicCard>
 
+            {/* DataStream - Only in HUD mode */}
+            {hudTheme && (
+              <HolographicCard color="#22c55e" className="p-4 bg-slate-900/80 backdrop-blur-xl">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Radio className="w-4 h-4 text-green-400" />
+                    <span className="text-xs font-bold text-white">UNIDADES PRODUZIDAS / DIA</span>
+                    <PulseIndicator status="online" size={3} />
+                  </div>
+                  <span className="text-sm font-bold text-green-400">{metrics.producao.totalPecas} unidades</span>
+                </div>
+                <DataStream
+                  data={metrics.chartData.productionTrend.map(d => (d.fabricado / Math.max(...metrics.chartData.productionTrend.map(x => x.fabricado || 1))) * 100)}
+                  color="#22c55e"
+                  height={60}
+                />
+              </HolographicCard>
+            )}
+
             {/* Financial Chart */}
             <HolographicCard color="#34d399" className="p-4 bg-slate-900/80 backdrop-blur-xl">
               <div className="flex items-center justify-between mb-4">
@@ -573,16 +798,19 @@ export default function DashboardPremium() {
 
           {/* Right Column */}
           <div className={`${dynamicSizes.rightColSpan} space-y-${dynamicSizes.gap}`} style={{ gap: `${dynamicSizes.gap * 4}px` }}>
-            {/* 3D Globe */}
-            <HolographicCard color="#60a5fa" className="p-4 bg-slate-900/80 backdrop-blur-xl">
-              <div className="flex items-center gap-2 mb-3">
-                <Globe className="w-4 h-4 text-blue-400" />
-                <span className="text-xs font-bold text-white">OPERAÇÕES GLOBAIS</span>
-              </div>
-              <div className="flex justify-center">
-                <Globe3D size={dynamicSizes.globeSize} color="#60a5fa" />
-              </div>
-            </HolographicCard>
+            {hudTheme ? (
+              <EnergyGauge value={qualityMetrics.energiaKwh} maxValue={1000} color="#22c55e" title="CONSUMO ENERGIA" />
+            ) : (
+              <HolographicCard color="#60a5fa" className="p-4 bg-slate-900/80 backdrop-blur-xl">
+                <div className="flex items-center gap-2 mb-3">
+                  <Globe className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-bold text-white">OPERAÇÕES GLOBAIS</span>
+                </div>
+                <div className="flex justify-center">
+                  <Globe3D size={dynamicSizes.globeSize} color="#60a5fa" />
+                </div>
+              </HolographicCard>
+            )}
 
             {/* Alerts - Using shared component */}
             <AlertsWidget alerts={metrics.raw.alertasInteligentes || []} />
@@ -653,6 +881,50 @@ export default function DashboardPremium() {
               </div>
             )}
           </div>
+        )}
+
+        {/* ===== HUD MODE: QUALITY KPIs SECTION ===== */}
+        {hudTheme && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="grid grid-cols-12 gap-4"
+          >
+            <div className="col-span-12">
+              <HolographicCard color="#22c55e" className="p-4 bg-slate-900/80 backdrop-blur-xl">
+                <div className="flex items-center gap-2 mb-6">
+                  <Target className="w-5 h-5 text-green-400" />
+                  <span className="text-sm font-bold text-white">QUALIDADE - INDICADORES CRÍTICOS</span>
+                  <PulseIndicator status="online" size={4} />
+                </div>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  {/* Taxa de Aprovação */}
+                  <div className="flex flex-col items-center">
+                    <CircularProgress3D value={qualityMetrics.taxaAprovacao} label="Taxa Aprovação" color="#22c55e" size={90} />
+                    <span className="text-xs text-slate-500 mt-2">{qualityMetrics.taxaAprovacao.toFixed(1)}%</span>
+                  </div>
+
+                  {/* Precisão Dimensional */}
+                  <div className="flex flex-col items-center">
+                    <CircularProgress3D value={qualityMetrics.precisaoDimensional} label="Precisão Dimensional" color="#10b981" size={90} />
+                    <span className="text-xs text-slate-500 mt-2">{qualityMetrics.precisaoDimensional.toFixed(1)}%</span>
+                  </div>
+
+                  {/* Taxa de Retrabalho */}
+                  <div className="flex flex-col items-center">
+                    <CircularProgress3D value={100 - qualityMetrics.retrabalho} label="Sem Retrabalho" color="#f59e0b" size={90} />
+                    <span className="text-xs text-slate-500 mt-2">{qualityMetrics.retrabalho.toFixed(1)}%</span>
+                  </div>
+
+                  {/* Taxa de Refugo */}
+                  <div className="flex flex-col items-center">
+                    <CircularProgress3D value={100 - qualityMetrics.refugo} label="Sem Refugo" color="#ef4444" size={90} />
+                    <span className="text-xs text-slate-500 mt-2">{qualityMetrics.refugo.toFixed(1)}%</span>
+                  </div>
+                </div>
+              </HolographicCard>
+            </div>
+          </motion.div>
         )}
 
         {/* ===== NOVOS WIDGETS (4 Features) ===== */}
