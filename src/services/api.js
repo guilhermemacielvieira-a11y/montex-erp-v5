@@ -1,17 +1,27 @@
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
 
-// Importações de dados locais para fallback
-import {
-  OBRA_MODELO,
-  LANCAMENTOS_DESPESAS,
-  MEDICOES_RECEITAS,
-  COMPOSICAO_CONTRATO,
-  PEDIDOS_PRE_APROVADOS
-} from '@/data/obraFinanceiraDatabase';
-import {
-  funcionarios as localFuncionarios,
-  equipes as localEquipes
-} from '@/data/database';
+// Mock data removido de produção. Fallback apenas em dev.
+// Em produção, se Supabase não estiver configurado, lança erro claro.
+let _mockFinanceiro = null;
+let _mockDatabase = null;
+async function getMockFinanceiro() {
+  if (!_mockFinanceiro && !import.meta.env.PROD) {
+    _mockFinanceiro = await import('@/data/obraFinanceiraDatabase');
+  }
+  return _mockFinanceiro;
+}
+async function getMockDatabase() {
+  if (!_mockDatabase && !import.meta.env.PROD) {
+    _mockDatabase = await import('@/data/database');
+  }
+  return _mockDatabase;
+}
+
+function throwIfProduction(serviceName) {
+  if (import.meta.env.PROD) {
+    throw new Error(`[${serviceName}] Supabase não configurado em produção. Configure VITE_SUPABASE_URL.`);
+  }
+}
 
 // ========== OBRAS ==========
 
@@ -35,7 +45,9 @@ export const obrasService = {
    */
   async getAll() {
     if (!isSupabaseConfigured()) {
-      return [OBRA_MODELO];
+      throwIfProduction('obrasService.getAll');
+      const mock = await getMockFinanceiro();
+      return mock ? [mock.OBRA_MODELO] : [];
     }
     const { data, error } = await supabase.from('obras').select('*');
     if (error) throw error;
@@ -53,7 +65,9 @@ export const obrasService = {
    */
   async getById(id) {
     if (!isSupabaseConfigured()) {
-      return OBRA_MODELO;
+      throwIfProduction('obrasService.getById');
+      const mock = await getMockFinanceiro();
+      return mock ? mock.OBRA_MODELO : null;
     }
     const { data, error } = await supabase
       .from('obras')
@@ -117,7 +131,9 @@ export const funcionariosService = {
    */
   async getAll() {
     if (!isSupabaseConfigured()) {
-      return localFuncionarios;
+      throwIfProduction('funcionariosService.getAll');
+      const mock = await getMockDatabase();
+      return mock?.localFuncionarios || [];
     }
     const { data, error } = await supabase
       .from('funcionarios')
@@ -138,7 +154,9 @@ export const funcionariosService = {
    */
   async getById(id) {
     if (!isSupabaseConfigured()) {
-      return localFuncionarios.find(f => f.id === id);
+      throwIfProduction('funcionariosService.getById');
+      const mock = await getMockDatabase();
+      return mock?.localFuncionarios?.find(f => f.id === id) || null;
     }
     const { data, error } = await supabase
       .from('funcionarios')
@@ -237,7 +255,9 @@ export const funcionariosService = {
    */
   async getAtivos() {
     if (!isSupabaseConfigured()) {
-      return localFuncionarios.filter(f => f.ativo);
+      throwIfProduction('funcionariosService.getAtivos');
+      const mock = await getMockDatabase();
+      return mock?.localFuncionarios?.filter(f => f.ativo) || [];
     }
     const { data, error } = await supabase
       .from('funcionarios')
@@ -269,7 +289,9 @@ export const equipesService = {
    */
   async getAll() {
     if (!isSupabaseConfigured()) {
-      return localEquipes;
+      throwIfProduction('equipesService.getAll');
+      const mock = await getMockDatabase();
+      return mock?.localEquipes || [];
     }
     const { data, error } = await supabase
       .from('equipes')
@@ -289,7 +311,9 @@ export const equipesService = {
    */
   async getById(id) {
     if (!isSupabaseConfigured()) {
-      return localEquipes.find(e => e.id === id);
+      throwIfProduction('equipesService.getById');
+      const mock = await getMockDatabase();
+      return mock?.localEquipes?.find(e => e.id === id) || null;
     }
     const { data, error } = await supabase
       .from('equipes')
@@ -327,7 +351,10 @@ export const lancamentosService = {
    */
   async getAll(obraId) {
     if (!isSupabaseConfigured()) {
-      return LANCAMENTOS_DESPESAS.filter(l => !obraId || l.obraId === obraId);
+      throwIfProduction('lancamentosService.getAll');
+      const mock = await getMockFinanceiro();
+      const data = mock?.LANCAMENTOS_DESPESAS || [];
+      return data.filter(l => !obraId || l.obraId === obraId);
     }
     let query = supabase
       .from('lancamentos_despesas')
@@ -410,7 +437,10 @@ export const lancamentosService = {
    */
   async getPagos(obraId) {
     if (!isSupabaseConfigured()) {
-      return LANCAMENTOS_DESPESAS.filter(
+      throwIfProduction('lancamentosService.getPagos');
+      const mock = await getMockFinanceiro();
+      const data = mock?.LANCAMENTOS_DESPESAS || [];
+      return data.filter(
         l => l.status === 'pago' && (!obraId || l.obraId === obraId)
       );
     }
@@ -435,7 +465,10 @@ export const lancamentosService = {
    */
   async getTotalPago(obraId) {
     if (!isSupabaseConfigured()) {
-      return LANCAMENTOS_DESPESAS.filter(
+      throwIfProduction('lancamentosService.getTotalPago');
+      const mock = await getMockFinanceiro();
+      const data = mock?.LANCAMENTOS_DESPESAS || [];
+      return data.filter(
         l => l.status === 'pago' && l.obraId === obraId
       ).reduce((sum, l) => sum + l.valor, 0);
     }
@@ -470,7 +503,10 @@ export const medicoesService = {
    */
   async getAll(obraId) {
     if (!isSupabaseConfigured()) {
-      return MEDICOES_RECEITAS.filter(m => !obraId || m.obraId === obraId);
+      throwIfProduction('medicoesService.getAll');
+      const mock = await getMockFinanceiro();
+      const data = mock?.MEDICOES_RECEITAS || [];
+      return data.filter(m => !obraId || m.obraId === obraId);
     }
     let query = supabase
       .from('medicoes_receitas')
@@ -540,7 +576,9 @@ export const composicaoService = {
    */
   async get(obraId) {
     if (!isSupabaseConfigured()) {
-      return COMPOSICAO_CONTRATO;
+      throwIfProduction('composicaoService.get');
+      const mock = await getMockFinanceiro();
+      return mock?.COMPOSICAO_CONTRATO || {};
     }
     const { data, error } = await supabase
       .from('composicao_contrato')
@@ -578,7 +616,10 @@ export const pedidosService = {
    */
   async getAll(obraId) {
     if (!isSupabaseConfigured()) {
-      return PEDIDOS_PRE_APROVADOS.filter(
+      throwIfProduction('pedidosService.getAll');
+      const mock = await getMockFinanceiro();
+      const data = mock?.PEDIDOS_PRE_APROVADOS || [];
+      return data.filter(
         p => !obraId || p.obraId === obraId
       );
     }
@@ -685,16 +726,23 @@ export const dashboardService = {
    */
   async getResumo(obraId) {
     if (!isSupabaseConfigured()) {
-      const despesasPagas = LANCAMENTOS_DESPESAS.filter(
+      throwIfProduction('dashboardService.getResumo');
+      const mockFinanceiro = await getMockFinanceiro();
+      const mockDatabase = await getMockDatabase();
+      const lancamentos = mockFinanceiro?.LANCAMENTOS_DESPESAS || [];
+      const obras = mockFinanceiro?.OBRA_MODELO || null;
+      const funcionarios = mockDatabase?.localFuncionarios || [];
+      const equipes = mockDatabase?.localEquipes || [];
+      const despesasPagas = lancamentos.filter(
         l => l.status === 'pago' && l.obraId === obraId
       ).reduce((sum, l) => sum + l.valor, 0);
       return {
-        valorContrato: OBRA_MODELO.contrato.valorTotal,
+        valorContrato: obras?.contrato?.valorTotal || 0,
         despesasPagas,
-        saldoRestante: OBRA_MODELO.contrato.valorTotal - despesasPagas,
-        totalLancamentos: LANCAMENTOS_DESPESAS.length,
-        funcionariosAtivos: localFuncionarios.filter(f => f.ativo).length,
-        equipesAtivas: localEquipes.length
+        saldoRestante: (obras?.contrato?.valorTotal || 0) - despesasPagas,
+        totalLancamentos: lancamentos.length,
+        funcionariosAtivos: funcionarios.filter(f => f.ativo).length,
+        equipesAtivas: equipes.length
       };
     }
     const { data, error } = await supabase.rpc('get_dashboard_resumo', {

@@ -2,7 +2,7 @@
 // Substituição do mock por integração real com Supabase
 // Mantém a mesma interface para compatibilidade com todos os 67+ componentes
 
-import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
 
 const mockUser = {
   id: 'local-user-001',

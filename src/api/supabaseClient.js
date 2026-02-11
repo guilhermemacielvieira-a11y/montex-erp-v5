@@ -342,4 +342,10 @@ export async function checkConnection() {
   }
 }
 
+/**
+ * Verifica se o Supabase foi configurado corretamente
+ * @returns {boolean} true se Supabase está configurado, false caso contrário
+ */
+export const isSupabaseConfigured = () => !!(SUPABASE_URL && SUPABASE_ANON_KEY);
+
 export default supabase;

@@ -238,13 +238,28 @@ export const AuthProvider = ({ children }) => {
         let session = null;
         let error = null;
 
-        try {
-          const result = await getSessionWithTimeout();
-          session = result.data?.session;
-          error = result.error;
-        } catch (timeoutOrFetchErr) {
-          console.error('[Auth] getSession falhou (timeout ou rede):', timeoutOrFetchErr.message);
-          // Sessão corrompida ou rede com problema — limpar e ir para login
+        // Retry até 3 vezes antes de desistir (conexões instáveis)
+        const MAX_RETRIES = 3;
+        let lastErr = null;
+        for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+          try {
+            const result = await getSessionWithTimeout();
+            session = result.data?.session;
+            error = result.error;
+            lastErr = null;
+            break; // Sucesso — sair do loop
+          } catch (timeoutOrFetchErr) {
+            lastErr = timeoutOrFetchErr;
+            console.warn(`[Auth] getSession tentativa ${attempt}/${MAX_RETRIES} falhou:`, timeoutOrFetchErr.message);
+            if (attempt < MAX_RETRIES) {
+              // Esperar antes de retry (backoff: 2s, 4s)
+              await new Promise(r => setTimeout(r, attempt * 2000));
+            }
+          }
+        }
+
+        if (lastErr) {
+          console.error('[Auth] getSession falhou após 3 tentativas:', lastErr.message);
           await clearStaleSession();
           if (mounted) {
             setIsLoadingAuth(false);

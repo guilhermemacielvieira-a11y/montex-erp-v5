@@ -1,31 +1,42 @@
 /**
  * MONTEX ERP Premium - Context Global
  *
- * Gerencia todo o estado da aplicação com interligação entre módulos
- * Carrega dados do Supabase quando disponível, fallback para mock data
+ * Gerencia todo o estado da aplicação com interligação entre módulos.
+ * Em PRODUÇÃO: dados vêm exclusivamente do Supabase. Sem fallback para mock data.
+ * Em DESENVOLVIMENTO: mock data carregado apenas se Supabase não estiver configurado.
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
+
+// Constantes de negócio (sempre importadas - não são mock data)
 import {
-  clientes as clientesIniciais,
-  obras as obrasIniciais,
-  orcamentos as orcamentosIniciais,
-  listasMaterial as listasIniciais,
-  estoque as estoqueInicial,
-  pecasProducao as pecasIniciais,
-  expedicoes as expedicoesIniciais,
-  funcionarios as funcionariosIniciais,
-  equipes as equipesIniciais,
-  medicoes as medicoesIniciais,
-  compras as comprasIniciais,
-  configMedicao as configMedicaoInicial,
-  maquinas as maquinasIniciais,
   STATUS_OBRA,
   ETAPAS_PRODUCAO,
   STATUS_CORTE,
   STATUS_EXPEDICAO,
   getEstatisticasGerais
 } from '../data/database';
+
+// Tipos de ações, transformadores e reducer combinado
+import { ACTIONS } from './actions';
+import {
+  transformRecord,
+  transformArray,
+  transformPecaArray,
+  transformPecaRecord,
+  pecaToSupabase,
+  reverseTransformRecord
+} from './transforms';
+import { erpReducer } from './reducers';
+
+// Mock data importado APENAS em desenvolvimento via lazy import
+let mockDataModule = null;
+async function loadMockData() {
+  if (!mockDataModule && !import.meta.env.PROD) {
+    mockDataModule = await import('../data/database');
+  }
+  return mockDataModule;
+}
 
 import {
   clientesApi,
@@ -48,175 +59,6 @@ import {
   checkConnection
 } from '@/api/supabaseClient';
 
-// ========================================
-// TRANSFORMADOR: snake_case → camelCase
-// ========================================
-function snakeToCamel(str) {
-  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-}
-
-function transformRecord(record) {
-  if (!record || typeof record !== 'object') return record;
-  const result = {};
-  for (const [key, value] of Object.entries(record)) {
-    result[snakeToCamel(key)] = value;
-  }
-  return result;
-}
-
-function transformArray(records) {
-  return (records || []).map(transformRecord);
-}
-
-// Transformar peças com aliases (peso_total → peso para compatibilidade com mock)
-function transformPecaRecord(record) {
-  const base = transformRecord(record);
-  if (base) {
-    // Aliases para compatibilidade com código que usa nomes do mock
-    if (base.pesoTotal !== undefined && base.peso === undefined) {
-      base.peso = base.pesoTotal;
-    }
-    if (base.pesoUnitario !== undefined && base.pesoUnit === undefined) {
-      base.pesoUnit = base.pesoUnitario;
-    }
-  }
-  return base;
-}
-
-function transformPecaArray(records) {
-  return (records || []).map(transformPecaRecord);
-}
-
-// ========================================
-// TRANSFORMADOR: camelCase → snake_case
-// ========================================
-function camelToSnake(str) {
-  return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
-}
-
-// Mapeamento especial de campos do código → colunas reais do Supabase
-const PECAS_FIELD_MAP = {
-  peso: 'peso_total',
-  pesoUnit: 'peso_unitario',
-  pesoTotal: 'peso_total',
-  pesoUnitario: 'peso_unitario',
-  obraId: 'obra_id',
-  obraNome: 'obra_nome',
-  statusCorte: 'status_corte',
-  percentualConclusao: 'percentual_conclusao',
-  quantidadeProduzida: 'quantidade_produzida',
-  equipeId: 'equipe_id',
-  dataInicio: 'data_inicio',
-  dataFimPrevista: 'data_fim_prevista',
-  dataFimReal: 'data_fim_real',
-  createdAt: 'created_at',
-  updatedAt: 'updated_at',
-};
-
-// Colunas válidas na tabela pecas_producao
-const PECAS_VALID_COLUMNS = new Set([
-  'id', 'nome', 'obra_id', 'obra_nome', 'marca', 'tipo', 'perfil',
-  'comprimento', 'quantidade', 'material', 'peso_total', 'peso_unitario',
-  'etapa', 'status_corte', 'status', 'percentual_conclusao',
-  'quantidade_produzida', 'responsavel', 'equipe_id', 'codigo',
-  'data_inicio', 'data_fim_prevista', 'data_fim_real', 'observacoes'
-]);
-
-function pecaToSupabase(record) {
-  if (!record || typeof record !== 'object') return record;
-  const result = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (key.startsWith('_')) continue;
-    // Usar mapeamento especial ou fallback para camelToSnake genérico
-    const snakeKey = PECAS_FIELD_MAP[key] || camelToSnake(key);
-    // Só incluir colunas que existem na tabela
-    if (PECAS_VALID_COLUMNS.has(snakeKey)) {
-      result[snakeKey] = value;
-    }
-  }
-  return result;
-}
-
-function reverseTransformRecord(record) {
-  if (!record || typeof record !== 'object') return record;
-  const result = {};
-  for (const [key, value] of Object.entries(record)) {
-    if (key.startsWith('_')) continue;
-    result[camelToSnake(key)] = value;
-  }
-  return result;
-}
-
-// ========================================
-// TIPOS DE AÇÕES
-// ========================================
-
-const ACTIONS = {
-  // Obras
-  SET_OBRA_ATUAL: 'SET_OBRA_ATUAL',
-  UPDATE_OBRA: 'UPDATE_OBRA',
-  ADD_OBRA: 'ADD_OBRA',
-  UPDATE_PROGRESSO_OBRA: 'UPDATE_PROGRESSO_OBRA',
-
-  // Orçamentos
-  UPDATE_ORCAMENTO: 'UPDATE_ORCAMENTO',
-  ADD_ORCAMENTO: 'ADD_ORCAMENTO',
-  APROVAR_ORCAMENTO: 'APROVAR_ORCAMENTO',
-
-  // Estoque
-  UPDATE_ESTOQUE: 'UPDATE_ESTOQUE',
-  CONSUMIR_ESTOQUE: 'CONSUMIR_ESTOQUE',
-  ADICIONAR_ESTOQUE: 'ADICIONAR_ESTOQUE',
-  RESERVAR_ESTOQUE: 'RESERVAR_ESTOQUE',
-
-  // Peças/Produção
-  UPDATE_PECA: 'UPDATE_PECA',
-  MOVER_PECA_ETAPA: 'MOVER_PECA_ETAPA',
-  UPDATE_STATUS_CORTE: 'UPDATE_STATUS_CORTE',
-  ADD_PECAS: 'ADD_PECAS',
-
-  // Expedição
-  ADD_EXPEDICAO: 'ADD_EXPEDICAO',
-  UPDATE_EXPEDICAO: 'UPDATE_EXPEDICAO',
-
-  // Compras
-  ADD_COMPRA: 'ADD_COMPRA',
-  UPDATE_COMPRA: 'UPDATE_COMPRA',
-  RECEBER_COMPRA: 'RECEBER_COMPRA',
-
-  // Medições
-  ADD_MEDICAO: 'ADD_MEDICAO',
-  UPDATE_CONFIG_MEDICAO: 'UPDATE_CONFIG_MEDICAO',
-
-  // Lançamentos / Despesas
-  ADD_LANCAMENTO: 'ADD_LANCAMENTO',
-  UPDATE_LANCAMENTO: 'UPDATE_LANCAMENTO',
-
-  // Funcionários e Equipes
-  UPDATE_FUNCIONARIO: 'UPDATE_FUNCIONARIO',
-  UPDATE_EQUIPE: 'UPDATE_EQUIPE',
-  ALOCAR_EQUIPE: 'ALOCAR_EQUIPE',
-
-  // Máquinas
-  UPDATE_MAQUINA: 'UPDATE_MAQUINA',
-
-  // Listas
-  IMPORTAR_LISTA: 'IMPORTAR_LISTA',
-
-  // Materiais (Controle de Estoque em Peso KG)
-  IMPORTAR_MATERIAIS: 'IMPORTAR_MATERIAIS',
-  REGISTRAR_ENTREGA_MATERIAL: 'REGISTRAR_ENTREGA_MATERIAL',
-  UPDATE_MATERIAL: 'UPDATE_MATERIAL',
-
-  // Inicialização Supabase
-  INIT_FROM_SUPABASE: 'INIT_FROM_SUPABASE',
-
-  // UI
-  SET_FILTROS: 'SET_FILTROS',
-  SET_LOADING: 'SET_LOADING',
-  ADD_NOTIFICACAO: 'ADD_NOTIFICACAO',
-  REMOVE_NOTIFICACAO: 'REMOVE_NOTIFICACAO'
-};
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -249,428 +91,12 @@ const emptyState = {
 };
 
 // ========================================
-// ESTADO INICIAL
+// ESTADO INICIAL - Sempre vazio. Dados carregados do Supabase via useEffect.
+// Mock data só é carregado em dev se Supabase não estiver configurado.
 // ========================================
 
-const initialState = IS_PRODUCTION ? emptyState : {
-  // Dados principais
-  clientes: clientesIniciais,
-  obras: obrasIniciais,
-  orcamentos: orcamentosIniciais,
-  listas: listasIniciais,
-  estoque: estoqueInicial,
-  pecas: pecasIniciais,
-  expedicoes: expedicoesIniciais,
-  funcionarios: funcionariosIniciais,
-  equipes: equipesIniciais,
-  medicoes: medicoesIniciais,
-  compras: comprasIniciais,
-  configMedicao: configMedicaoInicial,
-  maquinas: maquinasIniciais,
+const initialState = emptyState;
 
-  // Materiais importados (controle de estoque em peso KG)
-  materiaisEstoque: [],
-
-  // Dados financeiros e NFs
-  lancamentosDespesas: [],
-  notasFiscais: [],
-  movimentacoesEstoque: [],
-
-  // Estado da UI
-  obraAtual: null, // Será auto-detectado ao carregar do Supabase
-  filtros: {
-    obra: 'todas',
-    periodo: 'mes_atual',
-    setor: 'todos'
-  },
-  loading: false,
-  notificacoes: []
-};
-
-// ========================================
-// REDUCER
-// ========================================
-
-function erpReducer(state, action) {
-  switch (action.type) {
-    // ===== OBRA ATUAL =====
-    case ACTIONS.SET_OBRA_ATUAL:
-      return { ...state, obraAtual: action.payload };
-
-    case ACTIONS.UPDATE_OBRA:
-      return {
-        ...state,
-        obras: state.obras.map(o =>
-          o.id === action.payload.id ? { ...o, ...action.payload.data } : o
-        )
-      };
-
-    case ACTIONS.ADD_OBRA:
-      return {
-        ...state,
-        obras: [...state.obras, action.payload]
-      };
-
-    case ACTIONS.UPDATE_PROGRESSO_OBRA:
-      return {
-        ...state,
-        obras: state.obras.map(o =>
-          o.id === action.payload.obraId
-            ? { ...o, progresso: { ...o.progresso, ...action.payload.progresso } }
-            : o
-        )
-      };
-
-    // ===== ORÇAMENTOS =====
-    case ACTIONS.UPDATE_ORCAMENTO:
-      return {
-        ...state,
-        orcamentos: state.orcamentos.map(o =>
-          o.id === action.payload.id ? { ...o, ...action.payload.data } : o
-        )
-      };
-
-    case ACTIONS.ADD_ORCAMENTO:
-      return {
-        ...state,
-        orcamentos: [...state.orcamentos, action.payload]
-      };
-
-    case ACTIONS.APROVAR_ORCAMENTO: {
-      const { orcamentoId, obraId } = action.payload;
-      return {
-        ...state,
-        orcamentos: state.orcamentos.map(o =>
-          o.id === orcamentoId
-            ? { ...o, status: 'aprovado', dataAprovacao: new Date().toISOString().split('T')[0] }
-            : o
-        ),
-        obras: state.obras.map(o =>
-          o.id === obraId ? { ...o, status: STATUS_OBRA.APROVADA } : o
-        )
-      };
-    }
-
-    // ===== ESTOQUE =====
-    case ACTIONS.UPDATE_ESTOQUE:
-      return {
-        ...state,
-        estoque: state.estoque.map(e =>
-          e.id === action.payload.id ? { ...e, ...action.payload.data } : e
-        )
-      };
-
-    case ACTIONS.CONSUMIR_ESTOQUE: {
-      const { itemId, quantidade, obraId } = action.payload;
-      return {
-        ...state,
-        estoque: state.estoque.map(e =>
-          e.id === itemId
-            ? {
-                ...e,
-                quantidade: e.quantidade - quantidade,
-                reservado: Math.max(0, (e.reservado || 0) - quantidade)
-              }
-            : e
-        )
-      };
-    }
-
-    case ACTIONS.ADICIONAR_ESTOQUE: {
-      const { itemId, quantidade, compraId } = action.payload;
-      return {
-        ...state,
-        estoque: state.estoque.map(e =>
-          e.id === itemId ? { ...e, quantidade: e.quantidade + quantidade } : e
-        )
-      };
-    }
-
-    case ACTIONS.RESERVAR_ESTOQUE: {
-      const { itemId, quantidade, obraId } = action.payload;
-      return {
-        ...state,
-        estoque: state.estoque.map(e =>
-          e.id === itemId
-            ? { ...e, reservado: (e.reservado || 0) + quantidade, obraReservada: obraId }
-            : e
-        )
-      };
-    }
-
-    // ===== PEÇAS/PRODUÇÃO =====
-    case ACTIONS.UPDATE_PECA:
-      return {
-        ...state,
-        pecas: state.pecas.map(p =>
-          p.id === action.payload.id ? { ...p, ...action.payload.data } : p
-        )
-      };
-
-    case ACTIONS.MOVER_PECA_ETAPA: {
-      const { pecaId, novaEtapa, funcionarioId } = action.payload;
-      const now = new Date().toISOString();
-
-      return {
-        ...state,
-        pecas: state.pecas.map(p =>
-          p.id === pecaId
-            ? {
-                ...p,
-                etapa: novaEtapa,
-                [`data${novaEtapa.charAt(0).toUpperCase() + novaEtapa.slice(1)}`]: now,
-                [`funcionario${novaEtapa.charAt(0).toUpperCase() + novaEtapa.slice(1)}`]: funcionarioId
-              }
-            : p
-        )
-      };
-    }
-
-    case ACTIONS.UPDATE_STATUS_CORTE: {
-      const { pecaId, novoStatus, maquinaId, funcionarioId } = action.payload;
-      return {
-        ...state,
-        pecas: state.pecas.map(p =>
-          p.id === pecaId
-            ? {
-                ...p,
-                statusCorte: novoStatus,
-                maquinaCorte: maquinaId || p.maquinaCorte,
-                funcionarioCorte: funcionarioId || p.funcionarioCorte,
-                dataCorte: novoStatus === STATUS_CORTE.LIBERADO ? new Date().toISOString().split('T')[0] : p.dataCorte
-              }
-            : p
-        )
-      };
-    }
-
-    case ACTIONS.ADD_PECAS:
-      return {
-        ...state,
-        pecas: [...state.pecas, ...action.payload]
-      };
-
-    case 'RELOAD_PECAS':
-      return {
-        ...state,
-        pecas: action.payload
-      };
-
-    // ===== EXPEDIÇÃO =====
-    case ACTIONS.ADD_EXPEDICAO:
-      return {
-        ...state,
-        expedicoes: [...state.expedicoes, action.payload]
-      };
-
-    case ACTIONS.UPDATE_EXPEDICAO:
-      return {
-        ...state,
-        expedicoes: state.expedicoes.map(e =>
-          e.id === action.payload.id ? { ...e, ...action.payload.data } : e
-        )
-      };
-
-    // ===== COMPRAS =====
-    case ACTIONS.ADD_COMPRA:
-      return {
-        ...state,
-        compras: [...state.compras, action.payload]
-      };
-
-    case ACTIONS.UPDATE_COMPRA:
-      return {
-        ...state,
-        compras: state.compras.map(c =>
-          c.id === action.payload.id ? { ...c, ...action.payload.data } : c
-        )
-      };
-
-    case ACTIONS.RECEBER_COMPRA: {
-      const { compraId, itensRecebidos } = action.payload;
-      let novoEstoque = [...state.estoque];
-
-      // Atualiza estoque com itens recebidos
-      itensRecebidos.forEach(item => {
-        const idx = novoEstoque.findIndex(e => e.codigo === item.material);
-        if (idx >= 0) {
-          novoEstoque[idx] = {
-            ...novoEstoque[idx],
-            quantidade: novoEstoque[idx].quantidade + item.quantidade
-          };
-        }
-      });
-
-      return {
-        ...state,
-        compras: state.compras.map(c =>
-          c.id === compraId
-            ? { ...c, status: 'entregue', dataEntrega: new Date().toISOString().split('T')[0] }
-            : c
-        ),
-        estoque: novoEstoque
-      };
-    }
-
-    // ===== MEDIÇÕES =====
-    case ACTIONS.ADD_MEDICAO:
-      return {
-        ...state,
-        medicoes: [...state.medicoes, action.payload]
-      };
-
-    case ACTIONS.UPDATE_CONFIG_MEDICAO:
-      return {
-        ...state,
-        configMedicao: {
-          ...state.configMedicao,
-          [action.payload.tipo]: {
-            ...state.configMedicao[action.payload.tipo],
-            [action.payload.etapa]: action.payload.config
-          }
-        }
-      };
-
-    // ===== LANÇAMENTOS / DESPESAS =====
-    case ACTIONS.ADD_LANCAMENTO:
-      return {
-        ...state,
-        lancamentosDespesas: [...state.lancamentosDespesas, action.payload]
-      };
-
-    case ACTIONS.UPDATE_LANCAMENTO:
-      return {
-        ...state,
-        lancamentosDespesas: state.lancamentosDespesas.map(l =>
-          l.id === action.payload.id ? { ...l, ...action.payload.data } : l
-        )
-      };
-
-    // ===== FUNCIONÁRIOS E EQUIPES =====
-    case ACTIONS.UPDATE_FUNCIONARIO:
-      return {
-        ...state,
-        funcionarios: state.funcionarios.map(f =>
-          f.id === action.payload.id ? { ...f, ...action.payload.data } : f
-        )
-      };
-
-    case ACTIONS.UPDATE_EQUIPE:
-      return {
-        ...state,
-        equipes: state.equipes.map(e =>
-          e.id === action.payload.id ? { ...e, ...action.payload.data } : e
-        )
-      };
-
-    case ACTIONS.ALOCAR_EQUIPE: {
-      const { equipeId, obraId } = action.payload;
-      return {
-        ...state,
-        equipes: state.equipes.map(e =>
-          e.id === equipeId ? { ...e, obraAtual: obraId } : e
-        )
-      };
-    }
-
-    // ===== MÁQUINAS =====
-    case ACTIONS.UPDATE_MAQUINA:
-      return {
-        ...state,
-        maquinas: state.maquinas.map(m =>
-          m.id === action.payload.id ? { ...m, ...action.payload.data } : m
-        )
-      };
-
-    // ===== LISTAS =====
-    case ACTIONS.IMPORTAR_LISTA:
-      return {
-        ...state,
-        listas: [...state.listas, action.payload]
-      };
-
-    // ===== MATERIAIS (Controle de Estoque em Peso KG) =====
-    case ACTIONS.IMPORTAR_MATERIAIS:
-      return {
-        ...state,
-        materiaisEstoque: [...state.materiaisEstoque, ...action.payload]
-      };
-
-    case ACTIONS.REGISTRAR_ENTREGA_MATERIAL: {
-      const { materialId, entrega } = action.payload;
-      return {
-        ...state,
-        materiaisEstoque: state.materiaisEstoque.map(mat => {
-          if (mat.id === materialId) {
-            const novoPesoRecebido = mat.pesoRecebido + entrega.pesoKg;
-            const novoPesoFalta = Math.max(0, mat.pesoPedido - novoPesoRecebido);
-            const novoPercentual = Math.min(100, Math.round((novoPesoRecebido / mat.pesoPedido) * 100));
-            const novoStatus = novoPesoRecebido >= mat.pesoPedido
-              ? 'completo'
-              : novoPesoRecebido > 0
-                ? 'parcial'
-                : 'pendente';
-
-            return {
-              ...mat,
-              pesoRecebido: novoPesoRecebido,
-              pesoFalta: novoPesoFalta,
-              percentualRecebido: novoPercentual,
-              status: novoStatus,
-              entregas: [...mat.entregas, {
-                id: `ENT-${Date.now()}`,
-                ...entrega,
-                registradoEm: new Date().toISOString()
-              }]
-            };
-          }
-          return mat;
-        })
-      };
-    }
-
-    case ACTIONS.UPDATE_MATERIAL:
-      return {
-        ...state,
-        materiaisEstoque: state.materiaisEstoque.map(m =>
-          m.id === action.payload.id ? { ...m, ...action.payload.data } : m
-        )
-      };
-
-    // ===== UI =====
-    case ACTIONS.SET_FILTROS:
-      return {
-        ...state,
-        filtros: { ...state.filtros, ...action.payload }
-      };
-
-    case ACTIONS.SET_LOADING:
-      return { ...state, loading: action.payload };
-
-    case ACTIONS.ADD_NOTIFICACAO:
-      return {
-        ...state,
-        notificacoes: [...state.notificacoes, { id: Date.now(), ...action.payload }]
-      };
-
-    case ACTIONS.REMOVE_NOTIFICACAO:
-      return {
-        ...state,
-        notificacoes: state.notificacoes.filter(n => n.id !== action.payload)
-      };
-
-    // ===== INICIALIZAÇÃO DO SUPABASE =====
-    case ACTIONS.INIT_FROM_SUPABASE:
-      return {
-        ...state,
-        ...action.payload,
-        loading: false
-      };
-
-    default:
-      return state;
-  }
-}
 
 // ========================================
 // CONTEXTO
@@ -681,14 +107,47 @@ const ERPContext = createContext(null);
 export function ERPProvider({ children }) {
   const [state, dispatch] = useReducer(erpReducer, initialState);
   const [supabaseConnected, setSupabaseConnected] = useState(false);
-  const [dataSource, setDataSource] = useState('mock'); // 'mock' | 'supabase'
+  const [dataSource, setDataSource] = useState('loading'); // 'loading' | 'supabase' | 'mock_dev' | 'error'
+  const [connectionError, setConnectionError] = useState(null);
 
   // ===== CARREGAR DADOS DO SUPABASE =====
   useEffect(() => {
     async function loadFromSupabase() {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+
+      // Em PRODUÇÃO: Supabase é obrigatório
       if (!supabaseUrl || supabaseUrl.includes('placeholder')) {
-        console.log('📦 Supabase não configurado — usando dados mock');
+        if (import.meta.env.PROD) {
+          console.error('❌ ERRO CRÍTICO: Supabase não configurado em produção!');
+          setConnectionError('Supabase não configurado. Configure VITE_SUPABASE_URL nas variáveis de ambiente.');
+          setDataSource('error');
+          return;
+        }
+        // Em dev: carregar mock data via lazy import
+        console.log('📦 [DEV] Supabase não configurado — carregando mock data');
+        const mockData = await loadMockData();
+        if (mockData) {
+          dispatch({ type: ACTIONS.INIT_FROM_SUPABASE, payload: {
+            clientes: mockData.clientes || [],
+            obras: mockData.obras || [],
+            orcamentos: mockData.orcamentos || [],
+            listas: mockData.listasMaterial || [],
+            estoque: mockData.estoque || [],
+            pecas: mockData.pecasProducao || [],
+            expedicoes: mockData.expedicoes || [],
+            funcionarios: mockData.funcionarios || [],
+            equipes: mockData.equipes || [],
+            medicoes: mockData.medicoes || [],
+            compras: mockData.compras || [],
+            configMedicao: mockData.configMedicao || {},
+            maquinas: mockData.maquinas || [],
+            materiaisEstoque: [],
+            lancamentosDespesas: [],
+            notasFiscais: [],
+            movimentacoesEstoque: []
+          }});
+          setDataSource('mock_dev');
+        }
         return;
       }
 
@@ -699,7 +158,14 @@ export function ERPProvider({ children }) {
         console.log('[ERP] Verificando conexão com Supabase...');
         const conn = await checkConnection();
         if (!conn.connected) {
-          console.warn('⚠️ Supabase indisponível:', conn.error, '— usando dados mock');
+          if (import.meta.env.PROD) {
+            console.error('❌ Supabase indisponível em produção:', conn.error);
+            setConnectionError(`Não foi possível conectar ao banco de dados: ${conn.error}`);
+            setDataSource('error');
+          } else {
+            console.warn('⚠️ [DEV] Supabase indisponível:', conn.error);
+            setDataSource('mock_dev');
+          }
           dispatch({ type: ACTIONS.SET_LOADING, payload: false });
           return;
         }
@@ -793,11 +259,16 @@ export function ERPProvider({ children }) {
             obraAtual: payload.obraAtual || 'nenhuma'
           });
         } else {
-          console.log('📦 Supabase vazio — usando dados mock');
+          console.log('📦 Supabase conectado mas sem dados.');
+          setDataSource('supabase');
           dispatch({ type: ACTIONS.SET_LOADING, payload: false });
         }
       } catch (err) {
         console.error('❌ Erro ao carregar do Supabase:', err.message);
+        if (import.meta.env.PROD) {
+          setConnectionError(`Erro ao carregar dados: ${err.message}`);
+          setDataSource('error');
+        }
         dispatch({ type: ACTIONS.SET_LOADING, payload: false });
       }
     }
@@ -1458,6 +929,7 @@ export function ERPProvider({ children }) {
     // Conexão
     supabaseConnected,
     dataSource,
+    connectionError,
 
     // Seletores computados
     obraAtualData,
@@ -1529,6 +1001,7 @@ export function ERPProvider({ children }) {
     state,
     supabaseConnected,
     dataSource,
+    connectionError,
     obraAtualData,
     obraIdAtiva,
     pecasObraAtual,

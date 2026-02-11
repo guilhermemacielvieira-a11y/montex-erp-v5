@@ -16,9 +16,29 @@ class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, errorInfo) {
     this.setState({ errorInfo });
-    // Log para debug - em produção, enviar para serviço de monitoramento
-    console.error('[ErrorBoundary] Erro capturado:', error);
-    console.error('[ErrorBoundary] Info:', errorInfo?.componentStack);
+
+    // Estruturar o erro para facilitar debug e monitoramento
+    const errorReport = {
+      message: error?.message || 'Unknown error',
+      stack: error?.stack?.slice(0, 1000),
+      componentStack: errorInfo?.componentStack?.slice(0, 500),
+      url: window.location.href,
+      timestamp: new Date().toISOString(),
+      userAgent: navigator.userAgent,
+      appVersion: 'montex-erp-v5'
+    };
+
+    console.error('[ErrorBoundary] Erro capturado:', errorReport);
+
+    // Enviar para serviço de monitoramento se configurado
+    // Para integrar com Sentry, LogRocket, etc., descomente e configure:
+    // if (window.__ERROR_REPORTER__) window.__ERROR_REPORTER__(errorReport);
+    try {
+      const storedErrors = JSON.parse(sessionStorage.getItem('montex-error-log') || '[]');
+      storedErrors.push(errorReport);
+      // Manter apenas os últimos 10 erros
+      sessionStorage.setItem('montex-error-log', JSON.stringify(storedErrors.slice(-10)));
+    } catch (_) {}
   }
 
   handleReload = () => {
