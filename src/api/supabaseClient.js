@@ -2,38 +2,49 @@
 // Todas as tabelas com CRUD + funções auxiliares
 import { createClient } from '@supabase/supabase-js';
 
-// URL e chave fixas — anon key é pública por design do Supabase
-const SUPABASE_URL = 'https://trxbohjcwsogthabairh.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNzU1MTAsImV4cCI6MjA4NTY1MTUxMH0.QzEK1K0vQRpTBOWqNib-Mo1EEbTP6j21J1jWb07urxg';
+// ============================================
+// CONFIGURAÇÃO VIA VARIÁVEIS DE AMBIENTE
+// Nunca hardcode chaves no código-fonte!
+// ============================================
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+// Validação de configuração
+if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  console.error(
+    '❌ ERRO: Variáveis de ambiente do Supabase não configuradas!\n' +
+    'Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no .env\n' +
+    'ou nas variáveis de ambiente da Vercel.'
+  );
+}
 
 // ============================================
 // LIMPEZA DE SESSÃO CORROMPIDA (ANTES do createClient)
-// O createClient com autoRefreshToken lê o localStorage imediatamente.
-// Se houver tokens velhos/corrompidos, ele tenta refresh e falha.
-// Solução: limpar ANTES de criar o client.
 // ============================================
 try {
-  const STORAGE_KEY = 'sb-trxbohjcwsogthabairh-auth-token';
-  const stored = localStorage.getItem(STORAGE_KEY);
-  if (stored) {
-    try {
-      const parsed = JSON.parse(stored);
-      const expiresAt = parsed?.expires_at;
-      const now = Math.floor(Date.now() / 1000);
-      // Se token expirou há mais de 1 hora, é sessão velha — limpar
-      if (expiresAt && (now - expiresAt) > 3600) {
-        console.warn('[Supabase] Sessão expirada há mais de 1h detectada. Limpando localStorage...');
+  if (SUPABASE_URL) {
+    const projectRef = SUPABASE_URL.split('//')[1]?.split('.')[0] || '';
+    const STORAGE_KEY = `sb-${projectRef}-auth-token`;
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const expiresAt = parsed?.expires_at;
+        const now = Math.floor(Date.now() / 1000);
+        // Se token expirou há mais de 1 hora, é sessão velha — limpar
+        if (expiresAt && (now - expiresAt) > 3600) {
+          console.warn('[Supabase] Sessão expirada há mais de 1h. Limpando localStorage...');
+          localStorage.removeItem(STORAGE_KEY);
+        }
+        // Se não tem expires_at ou refresh_token, sessão corrompida
+        if (!expiresAt || !parsed?.refresh_token) {
+          console.warn('[Supabase] Sessão sem expires_at/refresh_token. Limpando...');
+          localStorage.removeItem(STORAGE_KEY);
+        }
+      } catch (parseErr) {
+        console.warn('[Supabase] Sessão com JSON inválido. Limpando...');
         localStorage.removeItem(STORAGE_KEY);
       }
-      // Se não tem expires_at ou refresh_token, sessão corrompida
-      if (!expiresAt || !parsed?.refresh_token) {
-        console.warn('[Supabase] Sessão sem expires_at/refresh_token. Limpando...');
-        localStorage.removeItem(STORAGE_KEY);
-      }
-    } catch (parseErr) {
-      // JSON inválido — limpar
-      console.warn('[Supabase] Sessão com JSON inválido. Limpando...');
-      localStorage.removeItem(STORAGE_KEY);
     }
   }
 } catch (_) {
@@ -41,8 +52,8 @@ try {
 }
 
 export const supabase = createClient(
-  SUPABASE_URL,
-  SUPABASE_ANON_KEY,
+  SUPABASE_URL || 'https://placeholder.supabase.co',
+  SUPABASE_ANON_KEY || 'placeholder',
   {
     auth: {
       // Desabilitar navigator.locks para evitar deadlock
@@ -50,16 +61,17 @@ export const supabase = createClient(
         return await fn();
       },
       persistSession: true,
-      // DESABILITADO: autoRefreshToken causava "Failed to fetch" em background
-      // quando refresh_token era inválido. Refresh é feito manualmente no AuthContext.
-      autoRefreshToken: false,
+      // CORRIGIDO: Reabilitar autoRefreshToken para manter sessões vivas
+      // O refresh manual no AuthContext serve como fallback
+      autoRefreshToken: true,
       detectSessionInUrl: false,
     },
     global: {
-      // Timeout de 15s em todas as requisições fetch do Supabase
+      // Timeout de 20s em todas as requisições fetch do Supabase
+      // (aumentado de 15s para evitar falsos timeouts em conexões lentas)
       fetch: (url, options = {}) => {
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        const timeoutId = setTimeout(() => controller.abort(), 20000);
         return fetch(url, {
           ...options,
           signal: controller.signal,
@@ -193,7 +205,6 @@ export const userProfilesApi = createCrud('user_profiles', 'created_at');
 // FUNÇÕES DE GESTÃO DE USUÁRIOS
 // ============================================
 
-// Listar todos os perfis de usuários
 export async function getAllUserProfiles() {
   const { data, error } = await supabase
     .from('user_profiles')
@@ -203,7 +214,6 @@ export async function getAllUserProfiles() {
   return data || [];
 }
 
-// Atualizar perfil do usuário (nome, cargo, role, ativo)
 export async function updateUserProfile(id, updates) {
   const { data, error } = await supabase
     .from('user_profiles')
@@ -215,9 +225,7 @@ export async function updateUserProfile(id, updates) {
   return data;
 }
 
-// Criar novo usuário (auth + profile)
 export async function createNewUser({ email, password, nome, role, cargo }) {
-  // 1. Criar usuário no Supabase Auth
   const { data: authData, error: authError } = await supabase.auth.admin.createUser({
     email,
     password,
@@ -227,7 +235,6 @@ export async function createNewUser({ email, password, nome, role, cargo }) {
 
   if (authError) throw authError;
 
-  // 2. Criar perfil na tabela user_profiles
   const { data: profile, error: profileError } = await supabase
     .from('user_profiles')
     .insert([{
@@ -245,7 +252,6 @@ export async function createNewUser({ email, password, nome, role, cargo }) {
   return profile;
 }
 
-// Desativar/Ativar usuário
 export async function toggleUserActive(id, ativo) {
   return updateUserProfile(id, { ativo });
 }
@@ -254,19 +260,11 @@ export async function toggleUserActive(id, ativo) {
 // FUNÇÕES ESPECÍFICAS DO NEGÓCIO
 // ============================================
 
-// Buscar tudo de uma obra
 export async function getObraCompleta(obraId) {
   const [
-    obra,
-    pecas,
-    estoqueItems,
-    comprasList,
-    nfs,
-    movEstoque,
-    lancamentos,
-    listas,
-    equipesList,
-    medicoesList
+    obra, pecas, estoqueItems, comprasList,
+    nfs, movEstoque, lancamentos, listas,
+    equipesList, medicoesList
   ] = await Promise.all([
     obrasApi.getById(obraId),
     pecasApi.getByField('obra_id', obraId),
@@ -282,19 +280,13 @@ export async function getObraCompleta(obraId) {
 
   return {
     ...obra,
-    pecas,
-    estoque: estoqueItems,
-    compras: comprasList,
-    notasFiscais: nfs,
-    movimentacoesEstoque: movEstoque,
-    lancamentosDespesas: lancamentos,
-    listas,
-    equipes: equipesList,
-    medicoes: medicoesList
+    pecas, estoque: estoqueItems, compras: comprasList,
+    notasFiscais: nfs, movimentacoesEstoque: movEstoque,
+    lancamentosDespesas: lancamentos, listas,
+    equipes: equipesList, medicoes: medicoesList
   };
 }
 
-// Calcular saldo da obra
 export async function calcularSaldoObra(obraId) {
   const obra = await obrasApi.getById(obraId);
   const lancamentos = await lancamentosApi.getByField('obra_id', obraId);
@@ -310,7 +302,6 @@ export async function calcularSaldoObra(obraId) {
   };
 }
 
-// Estatísticas do dashboard
 export async function getDashboardStats() {
   const [obrasData, pecasData, estoqueData, funcionariosData, equipesData] = await Promise.all([
     obrasApi.getAll(),
@@ -338,9 +329,11 @@ export async function getDashboardStats() {
   };
 }
 
-// Verificar conexão
 export async function checkConnection() {
   try {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      return { connected: false, error: 'Variáveis de ambiente não configuradas' };
+    }
     const { data, error } = await supabase.from('obras').select('id').limit(1);
     if (error) return { connected: false, error: error.message };
     return { connected: true, data };

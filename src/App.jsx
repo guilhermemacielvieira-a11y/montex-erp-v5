@@ -8,6 +8,7 @@ import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-route
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { DisplayProvider } from './contexts/DisplayContext';
 import { EstoqueRealProvider } from './contexts/EstoqueRealContext';
 import LoginPage from './pages/LoginPage';
@@ -24,14 +25,15 @@ const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, isAuthenticated, logout } = useAuth();
   const location = useLocation();
 
-  // SAFETY NET: Se loading demorar mais de 8 segundos, forçar login
+  // SAFETY NET: Se loading demorar mais de 15 segundos, forçar login
+  // (aumentado de 8s para evitar falsos positivos em conexões lentas)
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   useEffect(() => {
     if (isLoadingAuth || isLoadingPublicSettings) {
       const timer = setTimeout(() => {
-        console.error('[App] Loading timeout de 8s atingido! Forçando tela de login...');
+        console.error('[App] Loading timeout de 15s atingido! Forçando tela de login...');
         setLoadingTimedOut(true);
-      }, 8000);
+      }, 15000);
       return () => clearTimeout(timer);
     } else {
       setLoadingTimedOut(false);
@@ -45,17 +47,22 @@ const AuthenticatedApp = () => {
 
   // Se loading deu timeout, limpar sessão e mostrar login
   if (loadingTimedOut) {
-    // Limpar localStorage do Supabase para evitar loop
     try {
-      localStorage.removeItem('sb-trxbohjcwsogthabairh-auth-token');
+      // Limpar localStorage do Supabase de forma dinâmica
+      const keys = Object.keys(localStorage);
+      keys.forEach(key => {
+        if (key.startsWith('sb-') && key.endsWith('-auth-token')) {
+          localStorage.removeItem(key);
+        }
+      });
     } catch (_) {}
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
         <div className="text-center max-w-md">
-          <div className="text-4xl mb-4">⚠️</div>
-          <h2 className="text-white text-lg font-semibold mb-2">Sessão expirada</h2>
+          <div className="text-4xl mb-4">&#x26A0;&#xFE0F;</div>
+          <h2 className="text-white text-lg font-semibold mb-2">Sessao expirada</h2>
           <p className="text-blue-200 text-sm mb-4">
-            Sua sessão anterior expirou. Faça login novamente.
+            Sua sessao anterior expirou ou a conexao esta lenta. Faca login novamente.
           </p>
           <button
             onClick={() => window.location.reload()}
@@ -68,7 +75,7 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Show loading spinner while checking auth (máximo 8 segundos)
+  // Show loading spinner while checking auth
   if (isLoadingPublicSettings || isLoadingAuth) {
     return (
       <div className="fixed inset-0 flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
@@ -89,7 +96,7 @@ const AuthenticatedApp = () => {
     }
   }
 
-  // Se não está autenticado, mostrar login
+  // Se nao esta autenticado, mostrar login
   if (!isAuthenticated) {
     return <LoginPage />;
   }
@@ -123,19 +130,21 @@ const AuthenticatedApp = () => {
 function App() {
 
   return (
-    <AuthProvider>
-      <DisplayProvider>
-        <EstoqueRealProvider>
-          <QueryClientProvider client={queryClientInstance}>
-            <Router>
-              <NavigationTracker />
-              <AuthenticatedApp />
-            </Router>
-            <Toaster />
-          </QueryClientProvider>
-        </EstoqueRealProvider>
-      </DisplayProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <DisplayProvider>
+          <EstoqueRealProvider>
+            <QueryClientProvider client={queryClientInstance}>
+              <Router>
+                <NavigationTracker />
+                <AuthenticatedApp />
+              </Router>
+              <Toaster />
+            </QueryClientProvider>
+          </EstoqueRealProvider>
+        </DisplayProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 

@@ -6,11 +6,14 @@ dist/
 release/
 build_test/
 
-# Variáveis de ambiente sensíveis
-# .env contém APENAS chaves públicas (anon key) - OK para commitar
-# .env.local e .env.*.local são ignorados (podem conter service_role_key)
+# ===========================================
+# VARIÁVEIS DE AMBIENTE - NUNCA COMMITAR
+# ===========================================
+.env
 .env.local
 .env.*.local
+.env.production
+.env.staging
 
 # IDE
 .vscode/
@@ -41,3 +44,8 @@ package-lock 2.json
 montex-erp-integrado.html
 montex-v65.html
 base44-app@0.0.0
+
+# Backup files
+*.bak
+*.orig
+*.tmp
