@@ -7,6 +7,7 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import {
   getAllCorteItems,
   getCorteMetrics,
@@ -80,6 +81,7 @@ const GRID_COLS = '36px 62px 125px minmax(140px,1fr) 80px minmax(100px,1fr) 48px
 // ==========================================
 export default function KanbanCortePage() {
   // --- Estado ---
+  const [viewMode, setViewMode] = useState('lista'); // 'lista' | 'kanban'
   const [items, setItems] = useState([]);
   const [metrics, setMetrics] = useState({});
   const [categorias, setCategorias] = useState([]);
@@ -233,9 +235,64 @@ export default function KanbanCortePage() {
     else { setSortField(field); setSortDir('asc'); }
   };
 
+  // --- Kanban Drag-and-Drop Handler ---
+  const handleDragEnd = (result) => {
+    const { source, destination, draggableId } = result;
+    if (!destination || (source.droppableId === destination.droppableId && source.index === destination.index)) return;
+
+    const marca = draggableId;
+    const item = items.find(i => i.marca === marca);
+    if (!item) return;
+
+    const sourceStatus = source.droppableId;
+    const destStatus = destination.droppableId;
+
+    // Determine what functions to call based on transition
+    const calls = [];
+
+    if (sourceStatus === 'aguardando' && destStatus === 'cortando') {
+      calls.push(() => iniciarCorte(marca));
+      calls.push(() => abaterEstoquePorCorte(item));
+    } else if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
+      calls.push(() => abaterEstoquePorCorte(item));
+      calls.push(() => finalizarCorte(marca));
+    } else if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
+      calls.push(() => finalizarCorte(marca));
+    } else if (sourceStatus === 'cortando' && destStatus === 'aguardando') {
+      calls.push(() => resetarCorte(marca));
+    } else if (sourceStatus === 'finalizado' && destStatus === 'aguardando') {
+      calls.push(() => resetarCorte(marca));
+    }
+
+    // Execute all calls in order
+    calls.forEach(call => call());
+  };
+
   // Conjuntos derivados
   const conjuntosReady = conjuntosInfo.filter(c => c.pronto);
   const conjuntosProgress = conjuntosInfo.filter(c => !c.pronto && c.cortadas > 0);
+
+  // --- Kanban Board Data ---
+  const kanbanItemsForDisplay = useMemo(() => {
+    let result = [...items];
+    if (filtroCategoria !== 'TODOS') result = result.filter(i => i.peca === filtroCategoria);
+    if (busca) {
+      const t = busca.toLowerCase();
+      result = result.filter(i =>
+        String(i.marca).includes(t) ||
+        (i.peca || '').toLowerCase().includes(t) ||
+        (i.perfil || '').toLowerCase().includes(t) ||
+        (i.material || '').toLowerCase().includes(t)
+      );
+    }
+    return result;
+  }, [items, filtroCategoria, busca]);
+
+  const kanbanColumns = useMemo(() => ({
+    aguardando: kanbanItemsForDisplay.filter(i => i.status === 'aguardando'),
+    cortando: kanbanItemsForDisplay.filter(i => i.status === 'cortando'),
+    finalizado: kanbanItemsForDisplay.filter(i => i.status === 'finalizado')
+  }), [kanbanItemsForDisplay]);
 
   // ==========================================
   // RENDER
@@ -279,31 +336,61 @@ export default function KanbanCortePage() {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowPanel(!showPanel)}
-          style={{
-            position: 'relative',
-            background: conjuntosReady.length > 0 ? 'linear-gradient(135deg, #064e3b, #065f46)' : '#1f2937',
-            border: `1px solid ${conjuntosReady.length > 0 ? '#22c55e' : '#374151'}`,
-            borderRadius: 12, padding: '10px 18px', cursor: 'pointer',
-            color: '#fff', fontSize: 13, fontWeight: 600,
-            display: 'flex', alignItems: 'center', gap: 8,
-            transition: 'all 0.2s',
-            boxShadow: conjuntosReady.length > 0 ? '0 0 20px rgba(34,197,94,0.2)' : 'none'
-          }}
-        >
-          <span style={{ fontSize: 18 }}>🔔</span>
-          <span>Conjuntos Prontos</span>
-          {conjuntosReady.length > 0 && (
-            <span style={{
-              background: '#22c55e', color: '#000', borderRadius: 20,
-              padding: '2px 8px', fontSize: 11, fontWeight: 800, minWidth: 20, textAlign: 'center',
-              animation: 'pulse 2s infinite'
-            }}>
-              {conjuntosReady.length}
-            </span>
-          )}
-        </button>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* View Toggle */}
+          <div style={{ display: 'flex', gap: 4, background: '#1f2937', borderRadius: 10, padding: 4 }}>
+            <button
+              onClick={() => setViewMode('lista')}
+              style={{
+                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: viewMode === 'lista' ? '1px solid #3b82f6' : '1px solid transparent',
+                background: viewMode === 'lista' ? '#0c2d48' : 'transparent',
+                color: viewMode === 'lista' ? '#60a5fa' : '#9ca3af',
+                cursor: 'pointer', transition: 'all 0.15s'
+              }}
+            >
+              📋 Lista
+            </button>
+            <button
+              onClick={() => setViewMode('kanban')}
+              style={{
+                padding: '8px 14px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: viewMode === 'kanban' ? '1px solid #8b5cf6' : '1px solid transparent',
+                background: viewMode === 'kanban' ? '#3d1a5e' : 'transparent',
+                color: viewMode === 'kanban' ? '#c4b5fd' : '#9ca3af',
+                cursor: 'pointer', transition: 'all 0.15s'
+              }}
+            >
+              🎯 Kanban
+            </button>
+          </div>
+
+          <button
+            onClick={() => setShowPanel(!showPanel)}
+            style={{
+              position: 'relative',
+              background: conjuntosReady.length > 0 ? 'linear-gradient(135deg, #064e3b, #065f46)' : '#1f2937',
+              border: `1px solid ${conjuntosReady.length > 0 ? '#22c55e' : '#374151'}`,
+              borderRadius: 12, padding: '10px 18px', cursor: 'pointer',
+              color: '#fff', fontSize: 13, fontWeight: 600,
+              display: 'flex', alignItems: 'center', gap: 8,
+              transition: 'all 0.2s',
+              boxShadow: conjuntosReady.length > 0 ? '0 0 20px rgba(34,197,94,0.2)' : 'none'
+            }}
+          >
+            <span style={{ fontSize: 18 }}>🔔</span>
+            <span>Conjuntos Prontos</span>
+            {conjuntosReady.length > 0 && (
+              <span style={{
+                background: '#22c55e', color: '#000', borderRadius: 20,
+                padding: '2px 8px', fontSize: 11, fontWeight: 800, minWidth: 20, textAlign: 'center',
+                animation: 'pulse 2s infinite'
+              }}>
+                {conjuntosReady.length}
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* ====== KPI CARDS ====== */}
@@ -450,206 +537,498 @@ export default function KanbanCortePage() {
         )}
       </div>
 
-      {/* ====== TABELA PRINCIPAL ====== */}
-      <div style={{
-        background: '#111827', border: '1px solid #1f2937', borderRadius: 12,
-        overflow: 'hidden'
-      }}>
-        <div style={{ overflowX: 'auto' }}>
-          <div style={{ minWidth: 920 }}>
-            {/* Cabecalho */}
-            <div style={{
-              display: 'grid', gridTemplateColumns: GRID_COLS,
-              padding: '9px 14px', background: '#0d1117',
-              borderBottom: '2px solid #1f2937',
-              fontSize: 10, fontWeight: 700, color: '#6b7280',
-              textTransform: 'uppercase', letterSpacing: '0.5px',
-              position: 'sticky', top: 0, zIndex: 2
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={pageItems.filter(i => i.status !== 'finalizado').length > 0 &&
-                    pageItems.filter(i => i.status !== 'finalizado').every(i => selectedMarcas.has(i.marca))}
-                  onChange={e => e.target.checked ? selectAllPage() : clearSelection()}
-                  style={{ cursor: 'pointer' }}
-                />
-              </div>
-              {[
-                { field: 'marca', label: 'Marca' },
-                { field: 'peca', label: 'Tipo' },
-                { field: 'perfil', label: 'Perfil' },
-                { field: 'comprimento', label: 'Comp.' },
-                { field: 'material', label: 'Material' },
-                { field: 'quantidade', label: 'Qtd' },
-                { field: 'peso', label: 'Peso' },
-                { field: 'status', label: 'Status' },
-              ].map(col => (
-                <div key={col.field}
-                  onClick={() => handleSort(col.field)}
-                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, userSelect: 'none' }}
-                >
-                  {col.label}
-                  {sortField === col.field && (
-                    <span style={{ fontSize: 8, color: '#8b5cf6' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
-                  )}
+      {/* ====== VISTA PRINCIPAL: LISTA OU KANBAN ====== */}
+      {viewMode === 'lista' ? (
+        /* LISTA VIEW */
+        <div style={{
+          background: '#111827', border: '1px solid #1f2937', borderRadius: 12,
+          overflow: 'hidden'
+        }}>
+          <div style={{ overflowX: 'auto' }}>
+            <div style={{ minWidth: 920 }}>
+              {/* Cabecalho */}
+              <div style={{
+                display: 'grid', gridTemplateColumns: GRID_COLS,
+                padding: '9px 14px', background: '#0d1117',
+                borderBottom: '2px solid #1f2937',
+                fontSize: 10, fontWeight: 700, color: '#6b7280',
+                textTransform: 'uppercase', letterSpacing: '0.5px',
+                position: 'sticky', top: 0, zIndex: 2
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={pageItems.filter(i => i.status !== 'finalizado').length > 0 &&
+                      pageItems.filter(i => i.status !== 'finalizado').every(i => selectedMarcas.has(i.marca))}
+                    onChange={e => e.target.checked ? selectAllPage() : clearSelection()}
+                    style={{ cursor: 'pointer' }}
+                  />
                 </div>
-              ))}
-              <div>Acoes</div>
-            </div>
-
-            {/* Corpo */}
-            {pageItems.map((item, idx) => {
-              const cor = getCor(item.peca);
-              const sc = STATUS_CONF[item.status];
-              const isSel = selectedMarcas.has(item.marca);
-              const isExp = expandedMarca === item.marca;
-
-              return (
-                <React.Fragment key={item.marca}>
-                  <div
-                    style={{
-                      display: 'grid', gridTemplateColumns: GRID_COLS,
-                      padding: '8px 14px',
-                      background: isSel ? '#1a1a2e' : idx % 2 === 0 ? '#111827' : '#0f1520',
-                      borderBottom: '1px solid #1f293744',
-                      fontSize: 12, alignItems: 'center',
-                      transition: 'background 0.1s', cursor: 'pointer'
-                    }}
-                    onClick={() => setExpandedMarca(isExp ? null : item.marca)}
-                    onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = '#181e2e'; }}
-                    onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = idx % 2 === 0 ? '#111827' : '#0f1520'; }}
+                {[
+                  { field: 'marca', label: 'Marca' },
+                  { field: 'peca', label: 'Tipo' },
+                  { field: 'perfil', label: 'Perfil' },
+                  { field: 'comprimento', label: 'Comp.' },
+                  { field: 'material', label: 'Material' },
+                  { field: 'quantidade', label: 'Qtd' },
+                  { field: 'peso', label: 'Peso' },
+                  { field: 'status', label: 'Status' },
+                ].map(col => (
+                  <div key={col.field}
+                    onClick={() => handleSort(col.field)}
+                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 3, userSelect: 'none' }}
                   >
-                    {/* Checkbox */}
-                    <div onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" checked={isSel}
-                        onChange={() => toggleSelect(item.marca)}
-                        disabled={item.status === 'finalizado'}
-                        style={{ cursor: item.status === 'finalizado' ? 'default' : 'pointer' }}
-                      />
-                    </div>
-
-                    {/* Marca */}
-                    <div style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>
-                      {item.marca}
-                    </div>
-
-                    {/* Tipo */}
-                    <div>
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 3,
-                        padding: '2px 8px', borderRadius: 5,
-                        background: cor.bg, border: `1px solid ${cor.border}44`,
-                        color: cor.text, fontSize: 10, fontWeight: 600
-                      }}>
-                        {cor.icon} {item.peca}
-                      </span>
-                    </div>
-
-                    {/* Perfil */}
-                    <div style={{ color: '#d1d5db', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.perfil || '—'}
-                    </div>
-
-                    {/* Comprimento */}
-                    <div style={{ color: '#9ca3af', fontSize: 11 }}>{formatComp(item.comprimento)}</div>
-
-                    {/* Material */}
-                    <div style={{ color: '#9ca3af', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.material || '—'}
-                    </div>
-
-                    {/* Quantidade */}
-                    <div style={{ fontWeight: 600, color: '#e5e7eb', textAlign: 'center' }}>{item.quantidade}</div>
-
-                    {/* Peso */}
-                    <div style={{ fontWeight: 600, color: '#c4b5fd', fontSize: 11 }}>{formatPeso(item.peso)}</div>
-
-                    {/* Status */}
-                    <div>
-                      <span style={{
-                        padding: '3px 8px', borderRadius: 5,
-                        background: sc.bg, border: `1px solid ${sc.border}`,
-                        color: sc.text, fontSize: 10, fontWeight: 600,
-                        display: 'inline-flex', alignItems: 'center', gap: 3
-                      }}>
-                        {sc.icon} {sc.label}
-                      </span>
-                    </div>
-
-                    {/* Acoes - com abatimento automático de estoque */}
-                    <div style={{ display: 'flex', gap: 3 }} onClick={e => e.stopPropagation()}>
-                      {item.status === 'aguardando' && (
-                        <>
-                          <button onClick={() => { abaterEstoquePorCorte(item); iniciarCorte(item.marca); }} title="Iniciar Corte (abate estoque)"
-                            style={actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa')}>
-                            ▶
-                          </button>
-                          <button onClick={() => { abaterEstoquePorCorte(item); finalizarCorte(item.marca); }} title="Finalizar Corte (abate estoque)"
-                            style={actionBtnStyle('#064e3b', '#22c55e', '#4ade80')}>
-                            ✅
-                          </button>
-                        </>
-                      )}
-                      {item.status === 'cortando' && (
-                        <button onClick={() => finalizarCorte(item.marca)} title="Finalizar"
-                          style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), padding: '3px 10px' }}>
-                          ✅ Finalizar
-                        </button>
-                      )}
-                      {item.status === 'finalizado' && (
-                        <button onClick={() => resetarCorte(item.marca)} title="Voltar para Aguardando"
-                          style={actionBtnStyle('#374151', '#6b7280', '#9ca3af')}>
-                          ↩
-                        </button>
-                      )}
-                    </div>
+                    {col.label}
+                    {sortField === col.field && (
+                      <span style={{ fontSize: 8, color: '#8b5cf6' }}>{sortDir === 'asc' ? '▲' : '▼'}</span>
+                    )}
                   </div>
-
-                  {/* Linha expandida - conjuntos que usam esta marca */}
-                  {isExp && (
-                    <div style={{
-                      padding: '8px 14px 8px 112px', background: '#0a0e18',
-                      borderBottom: '1px solid #1f2937', fontSize: 11
-                    }}>
-                      <span style={{ color: '#6b7280', marginRight: 6 }}>Usado nos conjuntos:</span>
-                      {(() => {
-                        const conjs = getConjuntosByMarca(item.marca);
-                        if (conjs.length === 0) return <span style={{ color: '#4b5563', fontStyle: 'italic' }}>Nenhum conjunto mapeado</span>;
-                        return (
-                          <>
-                            {conjs.slice(0, 25).map(c => (
-                              <span key={c} style={{
-                                display: 'inline-block', padding: '1px 7px', margin: '1px 3px',
-                                borderRadius: 4, background: '#1f2937', border: '1px solid #374151',
-                                color: '#93c5fd', fontSize: 10
-                              }}>
-                                {c}
-                              </span>
-                            ))}
-                            {conjs.length > 25 && <span style={{ color: '#6b7280' }}> +{conjs.length - 25} mais</span>}
-                          </>
-                        );
-                      })()}
-                    </div>
-                  )}
-                </React.Fragment>
-              );
-            })}
-
-            {/* Estado vazio */}
-            {pageItems.length === 0 && (
-              <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>
-                <div style={{ fontSize: 36, marginBottom: 8 }}>🔍</div>
-                <div style={{ fontSize: 14 }}>Nenhum item encontrado com os filtros atuais</div>
+                ))}
+                <div>Acoes</div>
               </div>
-            )}
+
+              {/* Corpo */}
+              {pageItems.map((item, idx) => {
+                const cor = getCor(item.peca);
+                const sc = STATUS_CONF[item.status];
+                const isSel = selectedMarcas.has(item.marca);
+                const isExp = expandedMarca === item.marca;
+
+                return (
+                  <React.Fragment key={item.marca}>
+                    <div
+                      style={{
+                        display: 'grid', gridTemplateColumns: GRID_COLS,
+                        padding: '8px 14px',
+                        background: isSel ? '#1a1a2e' : idx % 2 === 0 ? '#111827' : '#0f1520',
+                        borderBottom: '1px solid #1f293744',
+                        fontSize: 12, alignItems: 'center',
+                        transition: 'background 0.1s', cursor: 'pointer'
+                      }}
+                      onClick={() => setExpandedMarca(isExp ? null : item.marca)}
+                      onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = '#181e2e'; }}
+                      onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = idx % 2 === 0 ? '#111827' : '#0f1520'; }}
+                    >
+                      {/* Checkbox */}
+                      <div onClick={e => e.stopPropagation()}>
+                        <input type="checkbox" checked={isSel}
+                          onChange={() => toggleSelect(item.marca)}
+                          disabled={item.status === 'finalizado'}
+                          style={{ cursor: item.status === 'finalizado' ? 'default' : 'pointer' }}
+                        />
+                      </div>
+
+                      {/* Marca */}
+                      <div style={{ fontWeight: 700, color: '#fff', fontSize: 13 }}>
+                        {item.marca}
+                      </div>
+
+                      {/* Tipo */}
+                      <div>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 3,
+                          padding: '2px 8px', borderRadius: 5,
+                          background: cor.bg, border: `1px solid ${cor.border}44`,
+                          color: cor.text, fontSize: 10, fontWeight: 600
+                        }}>
+                          {cor.icon} {item.peca}
+                        </span>
+                      </div>
+
+                      {/* Perfil */}
+                      <div style={{ color: '#d1d5db', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.perfil || '—'}
+                      </div>
+
+                      {/* Comprimento */}
+                      <div style={{ color: '#9ca3af', fontSize: 11 }}>{formatComp(item.comprimento)}</div>
+
+                      {/* Material */}
+                      <div style={{ color: '#9ca3af', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {item.material || '—'}
+                      </div>
+
+                      {/* Quantidade */}
+                      <div style={{ fontWeight: 600, color: '#e5e7eb', textAlign: 'center' }}>{item.quantidade}</div>
+
+                      {/* Peso */}
+                      <div style={{ fontWeight: 600, color: '#c4b5fd', fontSize: 11 }}>{formatPeso(item.peso)}</div>
+
+                      {/* Status */}
+                      <div>
+                        <span style={{
+                          padding: '3px 8px', borderRadius: 5,
+                          background: sc.bg, border: `1px solid ${sc.border}`,
+                          color: sc.text, fontSize: 10, fontWeight: 600,
+                          display: 'inline-flex', alignItems: 'center', gap: 3
+                        }}>
+                          {sc.icon} {sc.label}
+                        </span>
+                      </div>
+
+                      {/* Acoes - com abatimento automático de estoque */}
+                      <div style={{ display: 'flex', gap: 3 }} onClick={e => e.stopPropagation()}>
+                        {item.status === 'aguardando' && (
+                          <>
+                            <button onClick={() => { abaterEstoquePorCorte(item); iniciarCorte(item.marca); }} title="Iniciar Corte (abate estoque)"
+                              style={actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa')}>
+                              ▶
+                            </button>
+                            <button onClick={() => { abaterEstoquePorCorte(item); finalizarCorte(item.marca); }} title="Finalizar Corte (abate estoque)"
+                              style={actionBtnStyle('#064e3b', '#22c55e', '#4ade80')}>
+                              ✅
+                            </button>
+                          </>
+                        )}
+                        {item.status === 'cortando' && (
+                          <button onClick={() => finalizarCorte(item.marca)} title="Finalizar"
+                            style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), padding: '3px 10px' }}>
+                            ✅ Finalizar
+                          </button>
+                        )}
+                        {item.status === 'finalizado' && (
+                          <button onClick={() => resetarCorte(item.marca)} title="Voltar para Aguardando"
+                            style={actionBtnStyle('#374151', '#6b7280', '#9ca3af')}>
+                            ↩
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Linha expandida - conjuntos que usam esta marca */}
+                    {isExp && (
+                      <div style={{
+                        padding: '8px 14px 8px 112px', background: '#0a0e18',
+                        borderBottom: '1px solid #1f2937', fontSize: 11
+                      }}>
+                        <span style={{ color: '#6b7280', marginRight: 6 }}>Usado nos conjuntos:</span>
+                        {(() => {
+                          const conjs = getConjuntosByMarca(item.marca);
+                          if (conjs.length === 0) return <span style={{ color: '#4b5563', fontStyle: 'italic' }}>Nenhum conjunto mapeado</span>;
+                          return (
+                            <>
+                              {conjs.slice(0, 25).map(c => (
+                                <span key={c} style={{
+                                  display: 'inline-block', padding: '1px 7px', margin: '1px 3px',
+                                  borderRadius: 4, background: '#1f2937', border: '1px solid #374151',
+                                  color: '#93c5fd', fontSize: 10
+                                }}>
+                                  {c}
+                                </span>
+                              ))}
+                              {conjs.length > 25 && <span style={{ color: '#6b7280' }}> +{conjs.length - 25} mais</span>}
+                            </>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+
+              {/* Estado vazio */}
+              {pageItems.length === 0 && (
+                <div style={{ padding: 40, textAlign: 'center', color: '#6b7280' }}>
+                  <div style={{ fontSize: 36, marginBottom: 8 }}>🔍</div>
+                  <div style={{ fontSize: 14 }}>Nenhum item encontrado com os filtros atuais</div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* KANBAN VIEW */
+        <DragDropContext onDragEnd={handleDragEnd}>
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(3, 1fr)',
+            gap: 16,
+            minHeight: 600
+          }}>
+            {/* Coluna Aguardando */}
+            <Droppable droppableId="aguardando">
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  style={{
+                    background: '#111827',
+                    border: `2px solid ${snapshot.isDraggingOver ? '#f59e0b' : '#1f2937'}`,
+                    borderRadius: 12,
+                    padding: 12,
+                    minHeight: 600,
+                    transition: 'border-color 0.2s',
+                    overflowY: 'auto',
+                    maxHeight: 'calc(100vh - 500px)'
+                  }}
+                >
+                  <div style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#fbbf24',
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <span>⏳</span>
+                    Aguardando ({kanbanColumns.aguardando.length})
+                  </div>
+                  {kanbanColumns.aguardando.map((item, idx) => (
+                    <Draggable key={item.marca} draggableId={item.marca} index={idx}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          style={{
+                            background: '#1a1a2e',
+                            border: '1px solid #44370e',
+                            borderRadius: 8,
+                            padding: 10,
+                            marginBottom: 8,
+                            cursor: 'grab',
+                            transition: 'all 0.15s',
+                            opacity: snapshot.isDragging ? 0.5 : 1,
+                            boxShadow: snapshot.isDragging ? '0 8px 24px rgba(245, 158, 11, 0.3)' : 'none',
+                            ...provided.draggableProps.style
+                          }}
+                          onMouseEnter={e => {
+                            if (!snapshot.isDragging) {
+                              e.currentTarget.style.background = '#252840';
+                              e.currentTarget.style.borderColor = '#f59e0b';
+                            }
+                          }}
+                          onMouseLeave={e => {
+                            if (!snapshot.isDragging) {
+                              e.currentTarget.style.background = '#1a1a2e';
+                              e.currentTarget.style.borderColor = '#44370e';
+                            }
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 6 }}>
+                            {item.marca}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 2,
+                              padding: '2px 6px', borderRadius: 4,
+                              background: getCor(item.peca).bg,
+                              border: `1px solid ${getCor(item.peca).border}44`,
+                              color: getCor(item.peca).text,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {getCor(item.peca).icon} {item.peca}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#d1d5db', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.perfil || '—'}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                            {formatPeso(item.peso)}
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
 
-      {/* ====== PAGINACAO ====== */}
-      {totalPages > 1 && (
+            {/* Coluna Em Corte */}
+            <Droppable droppableId="cortando">
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  style={{
+                    background: '#111827',
+                    border: `2px solid ${snapshot.isDraggingOver ? '#3b82f6' : '#1f2937'}`,
+                    borderRadius: 12,
+                    padding: 12,
+                    minHeight: 600,
+                    transition: 'border-color 0.2s',
+                    overflowY: 'auto',
+                    maxHeight: 'calc(100vh - 500px)'
+                  }}
+                >
+                  <div style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#60a5fa',
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <span>⚙️</span>
+                    Em Corte ({kanbanColumns.cortando.length})
+                  </div>
+                  {kanbanColumns.cortando.map((item, idx) => (
+                    <Draggable key={item.marca} draggableId={item.marca} index={idx}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          style={{
+                            background: '#0c2d48',
+                            border: '1px solid #0c2d48',
+                            borderRadius: 8,
+                            padding: 10,
+                            marginBottom: 8,
+                            cursor: 'grab',
+                            transition: 'all 0.15s',
+                            opacity: snapshot.isDragging ? 0.5 : 1,
+                            boxShadow: snapshot.isDragging ? '0 8px 24px rgba(59, 130, 246, 0.3)' : 'none',
+                            ...provided.draggableProps.style
+                          }}
+                          onMouseEnter={e => {
+                            if (!snapshot.isDragging) {
+                              e.currentTarget.style.background = '#1a3a56';
+                              e.currentTarget.style.borderColor = '#3b82f6';
+                            }
+                          }}
+                          onMouseLeave={e => {
+                            if (!snapshot.isDragging) {
+                              e.currentTarget.style.background = '#0c2d48';
+                              e.currentTarget.style.borderColor = '#0c2d48';
+                            }
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 6 }}>
+                            {item.marca}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 2,
+                              padding: '2px 6px', borderRadius: 4,
+                              background: getCor(item.peca).bg,
+                              border: `1px solid ${getCor(item.peca).border}44`,
+                              color: getCor(item.peca).text,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {getCor(item.peca).icon} {item.peca}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#d1d5db', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.perfil || '—'}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                            {formatPeso(item.peso)}
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+
+            {/* Coluna Finalizado */}
+            <Droppable droppableId="finalizado">
+              {(provided, snapshot) => (
+                <div
+                  ref={provided.innerRef}
+                  {...provided.droppableProps}
+                  style={{
+                    background: '#111827',
+                    border: `2px solid ${snapshot.isDraggingOver ? '#22c55e' : '#1f2937'}`,
+                    borderRadius: 12,
+                    padding: 12,
+                    minHeight: 600,
+                    transition: 'border-color 0.2s',
+                    overflowY: 'auto',
+                    maxHeight: 'calc(100vh - 500px)'
+                  }}
+                >
+                  <div style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: '#4ade80',
+                    marginBottom: 12,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8
+                  }}>
+                    <span>✅</span>
+                    Finalizado ({kanbanColumns.finalizado.length})
+                  </div>
+                  {kanbanColumns.finalizado.map((item, idx) => (
+                    <Draggable key={item.marca} draggableId={item.marca} index={idx}>
+                      {(provided, snapshot) => (
+                        <div
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          style={{
+                            background: '#0d3320',
+                            border: '1px solid #0d3320',
+                            borderRadius: 8,
+                            padding: 10,
+                            marginBottom: 8,
+                            cursor: 'grab',
+                            transition: 'all 0.15s',
+                            opacity: snapshot.isDragging ? 0.5 : 1,
+                            boxShadow: snapshot.isDragging ? '0 8px 24px rgba(34, 197, 94, 0.3)' : 'none',
+                            ...provided.draggableProps.style
+                          }}
+                          onMouseEnter={e => {
+                            if (!snapshot.isDragging) {
+                              e.currentTarget.style.background = '#1a4a30';
+                              e.currentTarget.style.borderColor = '#22c55e';
+                            }
+                          }}
+                          onMouseLeave={e => {
+                            if (!snapshot.isDragging) {
+                              e.currentTarget.style.background = '#0d3320';
+                              e.currentTarget.style.borderColor = '#0d3320';
+                            }
+                          }}
+                        >
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#fff', marginBottom: 6 }}>
+                            {item.marca}
+                          </div>
+                          <div style={{ display: 'flex', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+                            <span style={{
+                              display: 'inline-flex', alignItems: 'center', gap: 2,
+                              padding: '2px 6px', borderRadius: 4,
+                              background: getCor(item.peca).bg,
+                              border: `1px solid ${getCor(item.peca).border}44`,
+                              color: getCor(item.peca).text,
+                              fontSize: 9,
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap'
+                            }}>
+                              {getCor(item.peca).icon} {item.peca}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#d1d5db', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.perfil || '—'}
+                          </div>
+                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                            {formatPeso(item.peso)}
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </div>
+        </DragDropContext>
+      )}
+
+      {/* ====== PAGINACAO (somente para vista de lista) ====== */}
+      {viewMode === 'lista' && totalPages > 1 && (
         <div style={{
           display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 6,
           padding: '14px 0', marginTop: 6
