@@ -77,7 +77,7 @@ const navigationCategories = [
     bgHover: 'hover:bg-emerald-500/10',
     items: [
       { name: 'Visão Geral', href: 'DashboardPremium', icon: LayoutDashboard },
-      { name: 'ERP Integrado', href: 'DashboardERPIntegrado', icon: Database, badge: 'NEW' },
+      { name: 'BI Analytics', href: 'DashboardBI', icon: Database, badge: 'OLAP' },
     ]
   },
   {
@@ -185,7 +185,6 @@ const navigationCategories = [
       { name: 'BI Estratégico', href: 'BIEstrategico', icon: Globe, badge: 'C-LEVEL' },
       { name: 'BI Tático', href: 'BITatico', icon: TrendingUp, badge: 'MGR' },
       { name: 'BI Operacional', href: 'BIOperacional', icon: Activity, badge: 'LIVE' },
-      { name: 'BI Analytics', href: 'DashboardBI', icon: Database },
     ]
   },
   {
@@ -197,7 +196,6 @@ const navigationCategories = [
     items: [
       { name: 'Visualização 3D', href: 'MontexERP3DPage', icon: Globe, badge: '3D' },
       { name: 'Simulador', href: 'SimuladorPage', icon: Target },
-      { name: 'Dashboard HUD', href: 'DashboardFuturista', icon: Gauge, badge: 'HUD' },
       { name: 'Ultrawide 49"', href: 'CommandCenterUltrawide', icon: Monitor, badge: '5K' },
       { name: 'Command Ultra', href: 'CommandCenterUltra', icon: Gauge },
     ]

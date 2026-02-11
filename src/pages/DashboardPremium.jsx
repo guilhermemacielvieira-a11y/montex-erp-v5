@@ -1,5 +1,6 @@
-// MONTEX ERP Premium - Dashboard Premium
-// Integrado com ERPContext - Dados reais da obra SUPER LUNA
+// MONTEX ERP Premium - Dashboard Premium (Canônico Consolidado)
+// Integrado com ERPContext - Dados reais + Componentes Compartilhados
+// Consolidação: absorveu widgets de ERPIntegrado, Futurista, e Dashboard legacy
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,8 +8,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 // Import hooks
 import { useResolution } from '../hooks/useResolution';
 
-// ERPContext - dados reais
-import { useObras, useProducao, useEstoque, useMedicoes } from '../contexts/ERPContext';
+// ERPContext - dados reais (inclui hooks do ERPIntegrado)
+import { useObras, useProducao, useEstoque, useMedicoes, useExpedicao, useEquipes } from '../contexts/ERPContext';
 
 // Import complementary data
 import { commandCenterData } from '../data/commandCenterData';
@@ -17,7 +18,7 @@ import { commandCenterData } from '../data/commandCenterData';
 import { DRE_OBRA, COMPOSICAO_CONTRATO } from '../data/obraFinanceiraDatabase';
 import {
   Building2, DollarSign, Bell, Activity, Target, Globe, Layers,
-  Clock, Users, Factory, Truck, Shield, BarChart3,
+  Clock, Users, Factory, Truck, Shield, BarChart3, Settings,
   Cpu, HardDrive, Wifi, Play, Pause,
   ArrowUp, ArrowDown, Gauge, Database, Server, Radio
 } from 'lucide-react';
@@ -34,6 +35,15 @@ import {
   Globe3D, BarChart3D, DonutChart3D,
   AnimatedCounter, HolographicCard, CyberGrid
 } from '@/components/ui/Ultra3DComponents';
+
+// ===== COMPONENTES COMPARTILHADOS (Consolidação) =====
+import { KPICard } from '@/components/dashboard/shared/KPICard';
+import ChartWrapper from '@/components/dashboard/shared/ChartWrapper';
+import PeriodSelector from '@/components/dashboard/shared/PeriodSelector';
+import ObraProgressWidget from '@/components/dashboard/shared/ObraProgressWidget';
+import EstoqueResumoWidget from '@/components/dashboard/shared/EstoqueResumoWidget';
+import DashboardWidgetCustomizer, { useWidgetVisibility } from '@/components/dashboard/shared/DashboardWidgetCustomizer';
+import ProgressRing from '@/components/dashboard/shared/ProgressRing';
 
 // ==================== ULTRA COMPONENTS ====================
 
@@ -222,15 +232,24 @@ const COLORS = ['#22d3ee', '#34d399', '#c084fc', '#fbbf24', '#f87171', '#60a5fa'
 // ==================== MAIN COMPONENT ====================
 
 export default function DashboardPremium() {
-  // ERPContext - dados reais
+  // ERPContext - dados reais (consolidado com hooks do ERPIntegrado)
   const { obras, obraAtualData } = useObras();
   const { pecas } = useProducao();
   const { estoque } = useEstoque();
   const { medicoes } = useMedicoes();
+  // Hooks absorvidos do ERPIntegrado
+  let expedicoes = [], equipes = [];
+  try { const exp = useExpedicao(); expedicoes = exp?.expedicoes || []; } catch {}
+  try { const eq = useEquipes(); equipes = eq?.equipes || []; } catch {}
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLive, setIsLive] = useState(true);
   const [showBootScreen, setShowBootScreen] = useState(true);
+  const [periodo, setPeriodo] = useState('mes');
+  const [showCustomizer, setShowCustomizer] = useState(false);
+
+  // Widget visibility (Dashboard Customizer)
+  const widgetState = useWidgetVisibility();
 
   // Hook de resolução para dimensionamento automático
   const resolution = useResolution();
@@ -366,6 +385,25 @@ export default function DashboardPremium() {
     { subject: 'Inovação', value: 0 }
   ];
 
+  // Dados absorvidos do ERPIntegrado: progresso por obra
+  const obrasEmAndamento = useMemo(() => {
+    return obras
+      .filter(o => ['em_fabricacao', 'em_montagem', 'aprovada', 'aprovado', 'em_producao', 'em_projeto', 'em_andamento'].includes(o.status))
+      .map(obra => ({
+        codigo: obra.codigo,
+        nome: obra.nome,
+        cliente: obra.cliente || 'N/A',
+        progresso: obra.progresso || {},
+      }));
+  }, [obras]);
+
+  // Alertas de estoque (absorvido do ERPIntegrado)
+  const alertasEstoqueCount = useMemo(() => {
+    return estoque.filter(e =>
+      (e.quantidadeAtual || e.quantidade || 0) < (e.quantidadeMinima || e.minimo || 0)
+    ).length;
+  }, [estoque]);
+
   return (
     <div className="min-h-screen bg-slate-950 relative overflow-hidden">
       {/* Animated Background */}
@@ -477,6 +515,9 @@ export default function DashboardPremium() {
               </div>
             </CyberBorder>
 
+            {/* Period Selector (absorvido do ERPIntegrado) */}
+            <PeriodSelector value={periodo} onChange={setPeriodo} />
+
             {/* Live toggle */}
             <Button
               variant="ghost"
@@ -486,6 +527,16 @@ export default function DashboardPremium() {
             >
               {isLive ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               {isLive ? 'LIVE' : 'PAUSED'}
+            </Button>
+
+            {/* Dashboard Customizer toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowCustomizer(true)}
+              className="text-slate-400 hover:text-white"
+            >
+              <Settings className="w-4 h-4" />
             </Button>
           </div>
         </motion.div>
@@ -706,6 +757,26 @@ export default function DashboardPremium() {
           </div>
         </div>
 
+        {/* ===== WIDGETS ABSORVIDOS (ERPIntegrado) ===== */}
+        {(widgetState.isVisible('obrasProgress') || widgetState.isVisible('estoque')) && (
+          <div className="grid grid-cols-12 gap-4">
+            {widgetState.isVisible('obrasProgress') && obrasEmAndamento.length > 0 && (
+              <div className="col-span-12 lg:col-span-8">
+                <ObraProgressWidget obras={obrasEmAndamento} maxItems={4} />
+              </div>
+            )}
+            {widgetState.isVisible('estoque') && (
+              <div className={cn(
+                widgetState.isVisible('obrasProgress') && obrasEmAndamento.length > 0
+                  ? 'col-span-12 lg:col-span-4'
+                  : 'col-span-12 lg:col-span-6'
+              )}>
+                <EstoqueResumoWidget estoque={estoque} alertasEstoque={alertasEstoqueCount} />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Bottom Status Bar */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -738,6 +809,13 @@ export default function DashboardPremium() {
           </div>
         </motion.div>
       </div>
+
+      {/* Dashboard Customizer Modal */}
+      <DashboardWidgetCustomizer
+        open={showCustomizer}
+        onClose={() => setShowCustomizer(false)}
+        widgetState={widgetState}
+      />
     </div>
   );
 }

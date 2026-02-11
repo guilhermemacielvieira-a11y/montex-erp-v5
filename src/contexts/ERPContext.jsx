@@ -693,17 +693,19 @@ export function ERPProvider({ children }) {
       }
 
       dispatch({ type: ACTIONS.SET_LOADING, payload: true });
+      console.log('[ERP] loadFromSupabase: iniciando...');
 
       try {
+        console.log('[ERP] Verificando conexão com Supabase...');
         const conn = await checkConnection();
         if (!conn.connected) {
-          console.warn('⚠️ Supabase indisponível — usando dados mock');
+          console.warn('⚠️ Supabase indisponível:', conn.error, '— usando dados mock');
           dispatch({ type: ACTIONS.SET_LOADING, payload: false });
           return;
         }
 
         setSupabaseConnected(true);
-        console.log('🔌 Conectado ao Supabase — carregando dados...');
+        console.log('🔌 Conectado ao Supabase — carregando 17 tabelas em paralelo...');
 
         // Carregar tudo em paralelo
         const [

@@ -1,4 +1,5 @@
-const CACHE_NAME = 'montex-erp-v5-cache';
+const CACHE_VERSION = 'v2-2026-02-11';
+const CACHE_NAME = `montex-erp-v5-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -6,6 +7,7 @@ const STATIC_ASSETS = [
 
 // Install - cache static assets
 self.addEventListener('install', (event) => {
+  console.log('[SW] Installing new version:', CACHE_VERSION);
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       console.log('[SW] Caching static assets');
@@ -15,14 +17,18 @@ self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
 
-// Activate - clean old caches
+// Activate - clean ALL old caches
 self.addEventListener('activate', (event) => {
+  console.log('[SW] Activating version:', CACHE_VERSION);
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames
           .filter((name) => name !== CACHE_NAME)
-          .map((name) => caches.delete(name))
+          .map((name) => {
+            console.log('[SW] Removing old cache:', name);
+            return caches.delete(name);
+          })
       );
     })
   );
@@ -39,11 +45,14 @@ self.addEventListener('fetch', (event) => {
   if (url.hostname.includes('supabase.co')) return;
   if (url.pathname.startsWith('/api/')) return;
 
+  // Skip auth-related requests
+  if (url.pathname.includes('auth') || url.pathname.includes('token')) return;
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
-        // Cache successful responses
-        if (response.status === 200) {
+        // Cache successful responses (only static assets)
+        if (response.status === 200 && url.pathname.startsWith('/assets/')) {
           const responseClone = response.clone();
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, responseClone);

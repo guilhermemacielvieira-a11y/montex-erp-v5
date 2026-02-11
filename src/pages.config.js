@@ -56,7 +56,8 @@ import AtualizacaoProducaoIndependente from './pages/AtualizacaoProducaoIndepend
 import AtualizacaoProducaoPublica from './pages/AtualizacaoProducaoPublica';
 import Chatbot from './pages/Chatbot';
 import Clientes from './pages/Clientes';
-import Dashboard from './pages/Dashboard';
+// Dashboard.jsx DEPRECADO - consolidado no DashboardPremium
+// import Dashboard from './pages/Dashboard';
 import DashboardPremium from './pages/DashboardPremium';
 import GerenciadorRelatorios from './pages/GerenciadorRelatorios';
 import Orcamentos from './pages/Orcamentos';
@@ -71,7 +72,8 @@ import ColaboracaoProjetos from './pages/ColaboracaoProjetos';
 import ProducaoPage from './pages/ProducaoPage';
 import FinanceiroPage from './pages/FinanceiroPage';
 import OrcamentosPage from './pages/OrcamentosPage';
-import DashboardFuturista from './pages/DashboardFuturista';
+// DashboardFuturista DEPRECADO - consolidado no DashboardPremium
+// import DashboardFuturista from './pages/DashboardFuturista';
 import DashboardBI from './pages/DashboardBI';
 import BIOperacional from './pages/BIOperacional';
 import BITatico from './pages/BITatico';
@@ -101,7 +103,8 @@ import EstoquePage from './pages/EstoquePage';
 // Gestão Financeira da Obra
 import GestaoFinanceiraObra from './pages/GestaoFinanceiraObra';
 import SimuladorOrcamento from './pages/SimuladorOrcamento';
-import DashboardERPIntegrado from './pages/DashboardERPIntegrado';
+// DashboardERPIntegrado DEPRECADO - consolidado no DashboardPremium
+// import DashboardERPIntegrado from './pages/DashboardERPIntegrado';
 import ExpedicaoIntegrado from './pages/ExpedicaoIntegrado';
 // Módulo 3D
 import MontexERP3DPage from './pages/MontexERP3DPage';
@@ -131,7 +134,7 @@ export const PAGES = {
     "AtualizacaoProducaoPublica": AtualizacaoProducaoPublica,
     "Chatbot": Chatbot,
     "Clientes": Clientes,
-    "Dashboard": Dashboard,
+    // "Dashboard": Dashboard,  // DEPRECADO → DashboardPremium
     "DashboardPremium": DashboardPremium,
     "GerenciadorRelatorios": GerenciadorRelatorios,
     "Orcamentos": Orcamentos,
@@ -146,7 +149,7 @@ export const PAGES = {
     "ProducaoPage": ProducaoPage,
     "FinanceiroPage": FinanceiroPage,
     "OrcamentosPage": OrcamentosPage,
-    "DashboardFuturista": DashboardFuturista,
+    // "DashboardFuturista": DashboardFuturista,  // DEPRECADO → DashboardPremium
     "DashboardBI": DashboardBI,
     "BIOperacional": BIOperacional,
     "BITatico": BITatico,
@@ -176,7 +179,7 @@ export const PAGES = {
     // Módulos Gestão Financeira Integrada
     "GestaoFinanceiraObra": GestaoFinanceiraObra,
     "SimuladorOrcamento": SimuladorOrcamento,
-    "DashboardERPIntegrado": DashboardERPIntegrado,
+    // "DashboardERPIntegrado": DashboardERPIntegrado,  // DEPRECADO → DashboardPremium
     "ExpedicaoIntegrado": ExpedicaoIntegrado,
     // Módulo 3D
     "MontexERP3DPage": MontexERP3DPage,

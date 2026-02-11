@@ -404,22 +404,29 @@ export const AuthProvider = ({ children }) => {
 
   // Login com email e senha
   const login = useCallback(async (email, password) => {
+    console.log('[Auth] login: iniciando para', email);
     setIsLoadingAuth(true);
     setAuthError(null);
 
     try {
+      console.log('[Auth] login: chamando signInWithPassword...');
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password
       });
 
       if (error) {
+        console.error('[Auth] login: erro signIn:', error.message);
         setIsLoadingAuth(false);
         return { success: false, error: error.message };
       }
 
+      console.log('[Auth] login: signIn OK, user:', data.user?.email);
+
       // Buscar perfil
+      console.log('[Auth] login: buscando perfil...');
       const userProfile = await fetchProfile(data.user);
+      console.log('[Auth] login: perfil encontrado:', userProfile ? `${userProfile.nome} (${userProfile.role})` : 'NENHUM');
 
       if (!userProfile) {
         await supabase.auth.signOut();
@@ -433,13 +440,16 @@ export const AuthProvider = ({ children }) => {
         return { success: false, error: 'Usuário desativado. Contate o administrador.' };
       }
 
+      console.log('[Auth] login: setando autenticação...');
       setUser(userProfile);
       setProfile(userProfile);
       setIsAuthenticated(true);
       setIsLoadingAuth(false);
 
+      console.log('✅ [Auth] login: completo com sucesso!');
       return { success: true, user: userProfile };
     } catch (err) {
+      console.error('[Auth] login: EXCEÇÃO:', err?.message || err);
       setIsLoadingAuth(false);
       return { success: false, error: 'Erro de conexão. Tente novamente.' };
     }
