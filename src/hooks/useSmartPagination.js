@@ -126,6 +126,29 @@ export function useSmartPagination(tableName, contextData = [], options = {}) {
     return clientPaginatedData.allData.slice(start, end);
   }, [clientPaginatedData, page, pageSize]);
 
+  // ===== CALLBACKS CLIENT-SIDE (devem ser declarados ANTES de qualquer return condicional) =====
+  const nextPage = useCallback(() => {
+    if (page < clientPaginatedData.totalPages - 1) {
+      setPage(page + 1);
+    }
+  }, [page, clientPaginatedData.totalPages]);
+
+  const prevPage = useCallback(() => {
+    if (page > 0) {
+      setPage(page - 1);
+    }
+  }, [page]);
+
+  const goToPage = useCallback((p) => {
+    if (p >= 0 && p < clientPaginatedData.totalPages) {
+      setPage(p);
+    }
+  }, [clientPaginatedData.totalPages]);
+
+  const refresh = useCallback(() => {
+    setPage(0);
+  }, []);
+
   // ===== RETORNO UNIFICADO =====
 
   // Em modo server-side, usar dados do usePagination
@@ -147,29 +170,6 @@ export function useSmartPagination(tableName, contextData = [], options = {}) {
   }
 
   // Em modo client-side
-  const nextPage = useCallback(() => {
-    if (page < clientPaginatedData.totalPages - 1) {
-      setPage(page + 1);
-    }
-  }, [page, clientPaginatedData.totalPages]);
-
-  const prevPage = useCallback(() => {
-    if (page > 0) {
-      setPage(page - 1);
-    }
-  }, [page]);
-
-  const goToPage = useCallback((p) => {
-    if (p >= 0 && p < clientPaginatedData.totalPages) {
-      setPage(p);
-    }
-  }, [clientPaginatedData.totalPages]);
-
-  const refresh = useCallback(() => {
-    // Em client-side, recarregar é apenas resetar página
-    setPage(0);
-  }, []);
-
   return {
     data: pagedClientData,
     loading: clientLoading,

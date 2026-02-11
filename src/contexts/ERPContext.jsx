@@ -962,9 +962,10 @@ export function ERPProvider({ children }) {
     removeNotificacao
   ]);
 
-  // 2. ObrasContext: obras + orcamentos
+  // 2. ObrasContext: obras + orcamentos + clientes
   const obrasValue = useMemo(() => ({
     obras: state.obras,
+    clientes: state.clientes,
     orcamentos: state.orcamentos,
     addObra,
     updateObra,
@@ -973,6 +974,7 @@ export function ERPProvider({ children }) {
     addOrcamento
   }), [
     state.obras,
+    state.clientes,
     state.orcamentos,
     addObra,
     updateObra,
@@ -1021,7 +1023,9 @@ export function ERPProvider({ children }) {
     registrarEntregaMaterial,
     updateMaterial,
     listas: state.listas,
-    importarLista
+    importarLista,
+    notasFiscais: state.notasFiscais,
+    movimentacoesEstoque: state.movimentacoesEstoque
   }), [
     state.estoque,
     estoqueObraAtual,
@@ -1038,7 +1042,9 @@ export function ERPProvider({ children }) {
     registrarEntregaMaterial,
     updateMaterial,
     state.listas,
-    importarLista
+    importarLista,
+    state.notasFiscais,
+    state.movimentacoesEstoque
   ]);
 
   // 5. OperacoesContext: expedição + medições + lançamentos + equipes
@@ -1248,6 +1254,7 @@ export function useObras() {
   const core = useContext(ERPCoreContext);
   return {
     obras: context.obras,
+    clientes: context.clientes,
     orcamentos: context.orcamentos,
     obraAtual: core.obraAtual,
     obraAtualData: core.obraAtualData,
