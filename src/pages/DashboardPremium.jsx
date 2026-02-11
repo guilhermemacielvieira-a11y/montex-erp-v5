@@ -12,7 +12,8 @@ import {
   Building2, DollarSign, Bell, Activity, Target, Globe, Layers,
   Clock, Users, Factory, Truck, Shield, BarChart3, Settings,
   Cpu, HardDrive, Wifi, Play, Pause,
-  ArrowUp, ArrowDown, Gauge, Database, Server, Radio
+  ArrowUp, ArrowDown, Gauge, Database, Server, Radio,
+  Download, Grid3X3, Monitor
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,11 @@ import {
   AlertsWidget, PerformanceRadar, FinancialSummary, StatusBar,
   MachineStatusGrid, TeamPanel, ProgressRing
 } from '@/components/dashboard/shared';
+
+// ===== NOVOS COMPONENTES (4 Features) =====
+import DashboardExporter from '@/components/dashboard/DashboardExporter';
+import QuickActions from '@/components/dashboard/QuickActions';
+import ActivityTimeline from '@/components/dashboard/ActivityTimeline';
 
 // ==================== ULTRA COMPONENTS ====================
 
@@ -75,6 +81,30 @@ const CyberBorder = ({ children, color = '#22d3ee', className = '', glow = true 
     )}
     {children}
   </div>
+);
+
+// HUD Mode Scan Line Effect
+const ScanLineEffect = () => (
+  <>
+    <style>{`
+      @keyframes scan-line {
+        0% { top: 0; }
+        100% { top: 100%; }
+      }
+      .hud-scan-line {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 2px;
+        background: linear-gradient(to bottom, rgba(34, 197, 94, 0.3), transparent);
+        pointer-events: none;
+        animation: scan-line 8s linear infinite;
+        z-index: 5;
+      }
+    `}</style>
+    <div className="hud-scan-line" />
+  </>
 );
 
 const UltraStatCard = ({ title, value, subtitle, icon: Icon, color = '#22d3ee', trend, sparkData = [], onClick }) => (
@@ -142,6 +172,14 @@ export default function DashboardPremium() {
   const [periodo, setPeriodo] = useState('mes');
   const [showCustomizer, setShowCustomizer] = useState(false);
 
+  // New Features: Exporter, HUD Mode
+  const [exporterOpen, setExporterOpen] = useState(false);
+  const [hudTheme, setHudTheme] = useState(() => {
+    // Load from localStorage
+    const stored = localStorage.getItem('dashboardHudMode');
+    return stored ? JSON.parse(stored) : false;
+  });
+
   // Widget visibility (Dashboard Customizer)
   const widgetState = useWidgetVisibility();
 
@@ -200,6 +238,11 @@ export default function DashboardPremium() {
     return () => clearTimeout(timer);
   }, []);
 
+  // Persist HUD theme to localStorage
+  useEffect(() => {
+    localStorage.setItem('dashboardHudMode', JSON.stringify(hudTheme));
+  }, [hudTheme]);
+
   // Derivar dados de obras em andamento a partir do contexto raw (mantém compatibilidade)
   const obrasEmAndamento = useMemo(() => {
     return metrics.raw.obras
@@ -212,16 +255,49 @@ export default function DashboardPremium() {
       }));
   }, [metrics.raw.obras]);
 
+  // Memoized dashboard data for exporter
+  const exporterData = useMemo(() => ({
+    stats: {
+      projetosAtivos: metrics.projetos.ativos,
+      pesoFabricacao: metrics.producao.totalPecas * 2.5, // Approximate kg
+      progressoMedio: metrics.producao.progressoGeral,
+      valorTotal: metrics.financeiro.valorFaturado || 0,
+    },
+    projects: obrasEmAndamento.slice(0, 10).map(obra => ({
+      nome: obra.nome,
+      status: obra.status,
+      percentual: Object.values(obra.progresso)[0] || 0,
+    })),
+  }), [metrics, obrasEmAndamento]);
+
+  // HUD theme colors
+  const hudColors = hudTheme
+    ? { primary: '#22c55e', accent: '#16a34a', bg: 'bg-gradient-to-b from-slate-950 via-green-950/20 to-slate-950' }
+    : { primary: '#22d3ee', accent: '#0891b2', bg: 'bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950' };
+
   return (
-    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
+    <div className={`min-h-screen ${hudColors.bg} relative overflow-hidden`}>
+      {/* HUD Scan Line Effect */}
+      {hudTheme && <ScanLineEffect />}
+
       {/* Animated Background */}
-      <CyberGrid color="#22d3ee" opacity={0.03} />
+      <CyberGrid color={hudColors.primary} opacity={0.03} />
 
       {/* Gradient overlays */}
       <div className="fixed inset-0 pointer-events-none">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(34,211,238,0.1),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(192,132,252,0.1),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(52,211,153,0.05),transparent_60%)]" />
+        {hudTheme ? (
+          <>
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(34,197,94,0.1),transparent_50%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(34,197,94,0.05),transparent_50%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(34,197,94,0.03),transparent_60%)]" />
+          </>
+        ) : (
+          <>
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(34,211,238,0.1),transparent_50%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(192,132,252,0.1),transparent_50%)]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(52,211,153,0.05),transparent_60%)]" />
+          </>
+        )}
       </div>
 
       {/* Floating particles */}
@@ -281,16 +357,28 @@ export default function DashboardPremium() {
         >
           <div className="flex items-center gap-4">
             <motion.div
-              className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center"
-              animate={{ boxShadow: ['0 0 20px rgba(52,211,153,0.3)', '0 0 40px rgba(52,211,153,0.5)', '0 0 20px rgba(52,211,153,0.3)'] }}
+              className={`w-12 h-12 rounded-xl flex items-center justify-center ${
+                hudTheme
+                  ? 'bg-gradient-to-br from-green-500 to-emerald-600'
+                  : 'bg-gradient-to-br from-emerald-500 to-teal-600'
+              }`}
+              animate={{
+                boxShadow: hudTheme
+                  ? ['0 0 20px rgba(34,197,94,0.3)', '0 0 40px rgba(34,197,94,0.5)', '0 0 20px rgba(34,197,94,0.3)']
+                  : ['0 0 20px rgba(52,211,153,0.3)', '0 0 40px rgba(52,211,153,0.5)', '0 0 20px rgba(52,211,153,0.3)']
+              }}
               transition={{ duration: 2, repeat: Infinity }}
             >
               <Gauge className="w-6 h-6 text-white" />
             </motion.div>
             <div>
               <h1 className="text-xl font-black text-white tracking-wide flex items-center gap-2">
-                DASHBOARD PREMIUM
-                <span className="text-[9px] px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full font-mono flex items-center gap-1">
+                {hudTheme ? 'COMMAND CENTER' : 'DASHBOARD PREMIUM'}
+                <span className={`text-[9px] px-2 py-0.5 rounded-full font-mono flex items-center gap-1 ${
+                  hudTheme
+                    ? 'bg-green-500/20 text-green-400'
+                    : 'bg-emerald-500/20 text-emerald-400'
+                }`}>
                   <Radio className="w-2.5 h-2.5" /> LIVE
                 </span>
               </h1>
@@ -331,10 +419,33 @@ export default function DashboardPremium() {
               variant="ghost"
               size="sm"
               onClick={() => setIsLive(!isLive)}
-              className={cn("gap-2", isLive ? "text-emerald-400" : "text-slate-400")}
+              className={cn("gap-2", isLive ? (hudTheme ? "text-green-400" : "text-emerald-400") : "text-slate-400")}
             >
               {isLive ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               {isLive ? 'LIVE' : 'PAUSED'}
+            </Button>
+
+            {/* HUD Theme Toggle */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setHudTheme(!hudTheme)}
+              className={cn("gap-2", hudTheme ? "text-green-400" : "text-slate-400")}
+              title={hudTheme ? 'Disable HUD Mode' : 'Enable HUD Mode'}
+            >
+              <Monitor className="w-4 h-4" />
+              {hudTheme ? 'HUD' : 'PREMIUM'}
+            </Button>
+
+            {/* Export Dashboard */}
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setExporterOpen(true)}
+              className="text-slate-400 hover:text-white gap-2"
+              title="Export dashboard data"
+            >
+              <Download className="w-4 h-4" />
             </Button>
 
             {/* Dashboard Customizer toggle */}
@@ -544,6 +655,32 @@ export default function DashboardPremium() {
           </div>
         )}
 
+        {/* ===== NOVOS WIDGETS (4 Features) ===== */}
+
+        {/* QuickActions + ActivityTimeline Grid */}
+        {(widgetState.isVisible('quickActions') || widgetState.isVisible('activityTimeline')) && (
+          <div className="grid grid-cols-12 gap-4">
+            {widgetState.isVisible('quickActions') && (
+              <div className={cn(
+                widgetState.isVisible('activityTimeline')
+                  ? 'col-span-12 lg:col-span-6'
+                  : 'col-span-12'
+              )}>
+                <QuickActions />
+              </div>
+            )}
+            {widgetState.isVisible('activityTimeline') && (
+              <div className={cn(
+                widgetState.isVisible('quickActions')
+                  ? 'col-span-12 lg:col-span-6'
+                  : 'col-span-12'
+              )}>
+                <ActivityTimeline activities={[]} />
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Bottom Status Bar - Using shared component */}
         <StatusBar currentTime={currentTime} viewport={viewport} currentBreakpoint={currentBreakpoint} />
       </div>
@@ -553,6 +690,13 @@ export default function DashboardPremium() {
         open={showCustomizer}
         onClose={() => setShowCustomizer(false)}
         widgetState={widgetState}
+      />
+
+      {/* Dashboard Exporter Dialog */}
+      <DashboardExporter
+        open={exporterOpen}
+        onOpenChange={setExporterOpen}
+        dashboardData={exporterData}
       />
     </div>
   );
