@@ -31,14 +31,16 @@ export default function MontagemPage() {
     return equipes.map(eq => {
       // Encontrar membros da equipe
       const membrosEquipe = funcionarios?.filter(f => f.equipeId === eq.id) || [];
-      const lider = membrosEquipe.find(f => f.funcao === 'encarregado' || f.funcao === 'lider') || membrosEquipe[0];
+      const liderFunc = funcionarios?.find(f => f.id === eq.liderId) || membrosEquipe[0];
+      // Tipo → status visual
+      const statusMap = { producao: 'em_campo', pintura: 'em_campo', montagem: 'em_campo' };
       return {
         id: eq.id,
         nome: eq.nome || `Equipe ${eq.id}`,
-        membros: membrosEquipe.length || eq.membros || 0,
-        lider: lider?.nome || eq.lider || 'Sem líder',
-        status: eq.status || 'disponivel',
-        projeto: eq.obraNome || obraAtualData?.nome || null,
+        membros: membrosEquipe.length || 0,
+        lider: liderFunc?.nome || 'Sem líder',
+        status: statusMap[eq.tipo] || 'disponivel',
+        projeto: obraAtualData?.nome || null,
       };
     });
   }, [equipes, funcionarios, obraAtualData]);
