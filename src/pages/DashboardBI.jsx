@@ -1,5 +1,5 @@
 // MONTEX ERP Premium - Dashboard BI
-// Integrado com ERPContext - Dados reais da obra SUPER LUNA
+// Integrado com useDashboardMetrics - Centralized Metrics Hook
 
 import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
@@ -28,12 +28,7 @@ import {
 import BIFilters from '@/components/bi/BIFilters';
 import PivotTable from '@/components/bi/PivotTable';
 import RelationshipModel from '@/components/bi/RelationshipModel';
-
-// ERPContext - dados reais
-import { useObras, useProducao, useMedicoes } from '../contexts/ERPContext';
-
-// Dados financeiros reais
-import { LANCAMENTOS_DESPESAS, MEDICOES_RECEITAS, DRE_OBRA } from '../data/obraFinanceiraDatabase';
+import { useDashboardMetrics } from '@/hooks/useDashboardMetrics';
 
 // Formatador de moeda
 const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -41,10 +36,11 @@ const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'curre
 const COLORS = ['#22d3ee', '#34d399', '#c084fc', '#fbbf24', '#f87171', '#60a5fa'];
 
 export default function DashboardBI() {
-  // ERPContext - dados reais
-  const { obras, obraAtualData } = useObras();
-  const { pecas } = useProducao();
-  const { medicoes } = useMedicoes();
+  // Centralized metrics hook
+  const metrics = useDashboardMetrics();
+
+  // Extract raw data for BI-specific filtering
+  const { obras, pecas } = metrics.raw;
 
   const [filters, setFilters] = useState({
     periodo: 'all',
@@ -77,15 +73,16 @@ export default function DashboardBI() {
     });
   }, [projetos, filters]);
 
-  // Calculate KPIs from real data
+  // Calculate KPIs from filtered projetos and base metrics
   const kpis = useMemo(() => {
     const totalValor = filteredProjetos.reduce((acc, p) => acc + (p.valor_total || 0), 0);
     const totalPeso = filteredProjetos.reduce((acc, p) => acc + (p.peso_total || 0), 0);
     const progressoMedio = filteredProjetos.reduce((acc, p) => acc + (p.progresso || 0), 0) / (filteredProjetos.length || 1);
 
-    // Dados financeiros reais
-    const receitas = MEDICOES_RECEITAS.reduce((acc, m) => acc + m.valor, 0);
-    const despesas = LANCAMENTOS_DESPESAS.reduce((acc, d) => acc + d.valor, 0);
+    // Use base financial metrics from centralized hook, but apply to filtered data
+    const receitas = metrics.financeiro.receitas * 1000000; // Convert back to base
+    const despesas = metrics.financeiro.despesas * 1000000;
+    const lucro = receitas - despesas;
 
     return {
       totalProjetos: filteredProjetos.length,
@@ -94,10 +91,10 @@ export default function DashboardBI() {
       progressoMedio,
       receitas,
       despesas,
-      lucro: receitas - despesas,
-      margemLucro: receitas > 0 ? ((receitas - despesas) / receitas * 100).toFixed(1) : 0
+      lucro,
+      margemLucro: receitas > 0 ? ((lucro / receitas) * 100).toFixed(1) : 0
     };
-  }, [filteredProjetos]);
+  }, [filteredProjetos, metrics.financeiro]);
 
   // Chart data preparations
   const statusDistribution = useMemo(() => {

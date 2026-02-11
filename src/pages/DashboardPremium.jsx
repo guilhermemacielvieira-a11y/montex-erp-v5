@@ -1,5 +1,5 @@
 // MONTEX ERP Premium - Dashboard Premium (Canônico Consolidado)
-// Integrado com ERPContext - Dados reais + Componentes Compartilhados
+// Integrado com useDashboardMetrics hook - Dados reais + Componentes Compartilhados
 // Consolidação: absorveu widgets de ERPIntegrado, Futurista, e Dashboard legacy
 
 import React, { useState, useMemo, useEffect } from 'react';
@@ -7,15 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 // Import hooks
 import { useResolution } from '../hooks/useResolution';
-
-// ERPContext - dados reais (inclui hooks do ERPIntegrado)
-import { useObras, useProducao, useEstoque, useMedicoes, useExpedicao, useEquipes } from '../contexts/ERPContext';
-
-// Import complementary data
-import { commandCenterData } from '../data/commandCenterData';
-
-// Import financial data
-import { DRE_OBRA, COMPOSICAO_CONTRATO } from '../data/obraFinanceiraDatabase';
+import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import {
   Building2, DollarSign, Bell, Activity, Target, Globe, Layers,
   Clock, Users, Factory, Truck, Shield, BarChart3, Settings,
@@ -37,13 +29,12 @@ import {
 } from '@/components/ui/Ultra3DComponents';
 
 // ===== COMPONENTES COMPARTILHADOS (Consolidação) =====
-import { KPICard } from '@/components/dashboard/shared/KPICard';
-import ChartWrapper from '@/components/dashboard/shared/ChartWrapper';
-import PeriodSelector from '@/components/dashboard/shared/PeriodSelector';
-import ObraProgressWidget from '@/components/dashboard/shared/ObraProgressWidget';
-import EstoqueResumoWidget from '@/components/dashboard/shared/EstoqueResumoWidget';
-import DashboardWidgetCustomizer, { useWidgetVisibility } from '@/components/dashboard/shared/DashboardWidgetCustomizer';
-import ProgressRing from '@/components/dashboard/shared/ProgressRing';
+import {
+  KPICard, ChartWrapper, PeriodSelector, ObraProgressWidget,
+  EstoqueResumoWidget, DashboardWidgetCustomizer, useWidgetVisibility,
+  AlertsWidget, PerformanceRadar, FinancialSummary, StatusBar,
+  MachineStatusGrid, TeamPanel, ProgressRing
+} from '@/components/dashboard/shared';
 
 // ==================== ULTRA COMPONENTS ====================
 
@@ -136,111 +127,14 @@ const UltraStatCard = ({ title, value, subtitle, icon: Icon, color = '#22d3ee', 
   </HolographicCard>
 );
 
-const MachineStatusWidget = ({ machines = [] }) => {
-  const defaultMachines = [];
-  const machineList = machines.length > 0 ? machines : defaultMachines;
-  const operando = machineList.filter(m => m.status === 'operando').length;
-  const total = machineList.length;
-
-  return (
-    <HolographicCard color="#fbbf24" className="p-4 bg-slate-900/80 backdrop-blur-xl">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Factory className="w-4 h-4 text-amber-400" />
-          <span className="text-xs text-white font-bold">MÁQUINAS</span>
-        </div>
-        <span className="text-lg font-mono font-bold text-amber-400">{operando}/{total}</span>
-      </div>
-      <div className="grid grid-cols-4 gap-1">
-        {machineList.slice(0, 8).map((m, i) => (
-          <motion.div
-            key={m.id}
-            className="aspect-square rounded-lg flex items-center justify-center relative overflow-hidden"
-            style={{
-              background: m.status === 'operando' ? 'rgba(34,197,94,0.2)' :
-                         m.status === 'standby' ? 'rgba(245,158,11,0.2)' : 'rgba(239,68,68,0.2)',
-              border: `1px solid ${m.status === 'operando' ? '#22c55e' : m.status === 'standby' ? '#f59e0b' : '#ef4444'}30`
-            }}
-            whileHover={{ scale: 1.1 }}
-          >
-            <motion.div
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: m.status === 'operando' ? '#22c55e' : m.status === 'standby' ? '#f59e0b' : '#ef4444' }}
-              animate={m.status === 'operando' ? { scale: [1, 1.3, 1], opacity: [0.7, 1, 0.7] } : {}}
-              transition={{ duration: 1, repeat: Infinity }}
-            />
-            {m.status === 'operando' && (
-              <span className="absolute bottom-0 left-0 right-0 text-[7px] text-center text-emerald-400 font-mono">
-                {m.eficiencia}%
-              </span>
-            )}
-          </motion.div>
-        ))}
-      </div>
-    </HolographicCard>
-  );
-};
-
-const AlertsWidget = ({ alerts = [] }) => {
-  const defaultAlerts = [];
-  const alertList = alerts.length > 0 ? alerts : defaultAlerts;
-  const criticos = alertList.filter(a => a.tipo === 'critico').length;
-
-  return (
-    <HolographicCard color={criticos > 0 ? '#ef4444' : '#22c55e'} className="p-4 bg-slate-900/80 backdrop-blur-xl">
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <Bell className="w-4 h-4" style={{ color: criticos > 0 ? '#ef4444' : '#22c55e' }} />
-          <span className="text-xs text-white font-bold">ALERTAS</span>
-        </div>
-        {criticos > 0 && (
-          <motion.span
-            className="px-2 py-0.5 text-[10px] font-bold bg-red-500/20 text-red-400 rounded"
-            animate={{ opacity: [1, 0.5, 1] }}
-            transition={{ duration: 1, repeat: Infinity }}
-          >
-            {criticos} CRÍTICOS
-          </motion.span>
-        )}
-      </div>
-      <div className="space-y-1.5 max-h-32 overflow-y-auto">
-        {alertList.slice(0, 4).map((alert, i) => (
-          <motion.div
-            key={i}
-            initial={{ x: -10, opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            transition={{ delay: i * 0.1 }}
-            className="flex items-center gap-2 p-1.5 rounded text-[10px]"
-            style={{
-              background: alert.tipo === 'critico' ? 'rgba(239,68,68,0.1)' :
-                         alert.tipo === 'alerta' ? 'rgba(245,158,11,0.1)' : 'rgba(34,211,238,0.1)'
-            }}
-          >
-            <span className={alert.tipo === 'critico' ? 'text-red-400' : alert.tipo === 'alerta' ? 'text-amber-400' : 'text-cyan-400'}>
-              {alert.tipo === 'critico' ? '⚠️' : alert.tipo === 'alerta' ? '⚡' : 'ℹ️'}
-            </span>
-            <span className="text-slate-300 truncate flex-1">{alert.titulo}</span>
-          </motion.div>
-        ))}
-      </div>
-    </HolographicCard>
-  );
-};
 
 const COLORS = ['#22d3ee', '#34d399', '#c084fc', '#fbbf24', '#f87171', '#60a5fa', '#f472b6', '#a3e635'];
 
 // ==================== MAIN COMPONENT ====================
 
 export default function DashboardPremium() {
-  // ERPContext - dados reais (consolidado com hooks do ERPIntegrado)
-  const { obras, obraAtualData } = useObras();
-  const { pecas } = useProducao();
-  const { estoque } = useEstoque();
-  const { medicoes } = useMedicoes();
-  // Hooks absorvidos do ERPIntegrado
-  let expedicoes = [], equipes = [];
-  try { const exp = useExpedicao(); expedicoes = exp?.expedicoes || []; } catch {}
-  try { const eq = useEquipes(); equipes = eq?.equipes || []; } catch {}
+  // Centralized metrics hook - single source of truth
+  const metrics = useDashboardMetrics();
 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isLive, setIsLive] = useState(true);
@@ -306,88 +200,9 @@ export default function DashboardPremium() {
     return () => clearTimeout(timer);
   }, []);
 
-  const { maquinasStatus = [], kpisIndustriais = {}, fluxoFinanceiro = {}, alertasInteligentes = [],
-          producaoTempoReal = {}, pipelineVendas = {}, recursosHumanos = {}, qualidadeMetricas = {} } = commandCenterData || {};
-
-  // Métricas usando dados reais do ERPContext
-  const metrics = useMemo(() => {
-    const obrasAtivas = obras.filter(o => ['em_fabricacao', 'em_montagem', 'aprovada', 'aprovado', 'em_producao', 'em_projeto'].includes(o.status)).length;
-    const pesoTotal = obraAtualData?.pesoTotal || COMPOSICAO_CONTRATO?.pesoTotal || 107000;
-    const valorTotal = obraAtualData?.valorContrato || COMPOSICAO_CONTRATO?.valorTotalContrato || 2700000;
-    const receitas = DRE_OBRA?.receitas?.totalRealizado || 0;
-    const despesas = DRE_OBRA?.despesas?.totalRealizado || 0;
-
-    // Calcular progresso real baseado em peças por etapa
-    const totalPecas = pecas.length;
-    const pecasAguardando = pecas.filter(p => p.etapa === 'aguardando').length;
-    const pecasEmCorte = pecas.filter(p => p.etapa === 'corte').length;
-    const pecasEmFab = pecas.filter(p => p.etapa === 'fabricacao').length;
-    const pecasEmSolda = pecas.filter(p => p.etapa === 'solda').length;
-    const pecasEmPintura = pecas.filter(p => p.etapa === 'pintura').length;
-    const pecasExpedidas = pecas.filter(p => p.etapa === 'expedido').length;
-    const pecasProcessadas = totalPecas - pecasAguardando;
-    const progressoGeral = totalPecas > 0 ? Math.round((pecasProcessadas / totalPecas) * 100) : 0;
-
-    // Alertas de estoque: items sem_estoque ou abaixo do mínimo
-    const alertasEstoque = estoque.filter(e =>
-      (e.quantidadeAtual || e.quantidade || 0) < (e.quantidadeMinima || e.minimo || 0)
-    ).length;
-
-    return {
-      projetosAtivos: obrasAtivas || 1,
-      projetosTotal: obras.length || 1,
-      pesoTotal: pesoTotal / 1000,
-      valorTotal: valorTotal / 1000000,
-      receitas: receitas / 1000000,
-      despesas: despesas / 1000000,
-      lucro: (receitas - despesas) / 1000000,
-      oee: progressoGeral || 0,
-      stockAlerts: alertasEstoque,
-      totalPecas, pecasAguardando, pecasEmCorte, pecasEmFab, pecasEmSolda, pecasEmPintura, pecasExpedidas,
-      progressoGeral,
-      totalFuncionarios: 22,
-      totalEquipes: 5,
-    };
-  }, [obras, obraAtualData, estoque, pecas, kpisIndustriais]);
-
-  // Dados de produção por etapa - derivado de dados reais das peças
-  const productionData = useMemo(() => {
-    const etapas = ['aguardando', 'corte', 'fabricacao', 'solda', 'pintura', 'expedido'];
-    const nomes = { aguardando: 'Aguardando', corte: 'Corte', fabricacao: 'Fabricação', solda: 'Solda', pintura: 'Pintura', expedido: 'Expedido' };
-    return etapas.map(etapa => {
-      const pecasEtapa = pecas.filter(p => p.etapa === etapa);
-      return {
-        mes: nomes[etapa],
-        fabricado: Math.round(pecasEtapa.reduce((acc, p) => acc + (p.peso || 0), 0)),
-        planejado: Math.round(107715 / 6), // peso total dividido igualmente como referência
-      };
-    });
-  }, [pecas]);
-
-  const financialData = (fluxoFinanceiro?.receitasPorDia || []).length > 0
-    ? fluxoFinanceiro.receitasPorDia.map(f => ({ dia: f.dia, valor: (f.valor || 0) / 1000 }))
-    : [];
-
-  // Status das obras
-  const projectStatusData = useMemo(() => [
-    { name: 'Aprovado', value: obras.filter(o => o.status === 'aprovado').length, color: '#60a5fa' },
-    { name: 'Fabricação', value: obras.filter(o => o.status === 'em_fabricacao').length, color: '#22d3ee' },
-    { name: 'Montagem', value: obras.filter(o => o.status === 'em_montagem').length, color: '#34d399' },
-    { name: 'Concluído', value: obras.filter(o => o.status === 'concluido').length, color: '#c084fc' },
-  ].filter(d => d.value > 0), [obras]);
-
-  const radarData = [
-    { subject: 'Produção', value: 0 },
-    { subject: 'Qualidade', value: qualidadeMetricas?.taxaAprovacao || qualidadeMetricas?.conformidade || 0 },
-    { subject: 'Prazo', value: 0 },
-    { subject: 'Custo', value: 0 },
-    { subject: 'Segurança', value: 0 },
-    { subject: 'Inovação', value: 0 }
-  ];
-
-  // Dados absorvidos do ERPIntegrado: progresso por obra
+  // Derivar dados de obras em andamento a partir do contexto raw (mantém compatibilidade)
   const obrasEmAndamento = useMemo(() => {
-    return obras
+    return metrics.raw.obras
       .filter(o => ['em_fabricacao', 'em_montagem', 'aprovada', 'aprovado', 'em_producao', 'em_projeto', 'em_andamento'].includes(o.status))
       .map(obra => ({
         codigo: obra.codigo,
@@ -395,14 +210,7 @@ export default function DashboardPremium() {
         cliente: obra.cliente || 'N/A',
         progresso: obra.progresso || {},
       }));
-  }, [obras]);
-
-  // Alertas de estoque (absorvido do ERPIntegrado)
-  const alertasEstoqueCount = useMemo(() => {
-    return estoque.filter(e =>
-      (e.quantidadeAtual || e.quantidade || 0) < (e.quantidadeMinima || e.minimo || 0)
-    ).length;
-  }, [estoque]);
+  }, [metrics.raw.obras]);
 
   return (
     <div className="min-h-screen bg-slate-950 relative overflow-hidden">
@@ -547,16 +355,16 @@ export default function DashboardPremium() {
           <div className={`${dynamicSizes.leftColSpan} space-y-${dynamicSizes.gap}`} style={{ gap: `${dynamicSizes.gap * 4}px` }}>
             <UltraStatCard
               title="PROJETOS ATIVOS"
-              value={metrics.projetosAtivos}
-              subtitle={`de ${metrics.projetosTotal} projetos totais`}
+              value={metrics.projetos.ativos}
+              subtitle={`de ${metrics.projetos.total} projetos totais`}
               icon={Building2}
               color="#22d3ee"
-              trend={12}
+              trend={metrics.projetos.trend}
               sparkData={[3, 5, 4, 6, 5, 7, 6, 8]}
             />
             <UltraStatCard
               title="OEE GERAL"
-              value={metrics.oee}
+              value={metrics.producao.progressoGeral}
               subtitle="Eficiência Global do Equipamento"
               icon={Gauge}
               color="#34d399"
@@ -565,14 +373,14 @@ export default function DashboardPremium() {
             />
             <UltraStatCard
               title="FATURAMENTO"
-              value={`R$${metrics.valorTotal.toFixed(1)}M`}
+              value={metrics.financeiro.valorMilhoes}
               subtitle="Valor total em projetos"
               icon={DollarSign}
               color="#c084fc"
               trend={8}
               sparkData={[12, 14, 13, 16, 15, 18, 17, 19]}
             />
-            <MachineStatusWidget machines={maquinasStatus} />
+            <MachineStatusGrid machines={metrics.maquinas.lista} />
           </div>
 
           {/* Center Column - Charts */}
@@ -587,17 +395,19 @@ export default function DashboardPremium() {
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <div className="text-2xl font-bold text-white">{metrics.totalPecas - metrics.pecasAguardando}</div>
-                    <div className="text-[10px] text-slate-500">Peças Processadas / {metrics.totalPecas}</div>
+                    <div className="text-2xl font-bold text-white">
+                      {metrics.producao.totalPecas - (metrics.producao.pecasPorEtapa?.aguardando || 0)}
+                    </div>
+                    <div className="text-[10px] text-slate-500">Peças Processadas / {metrics.producao.totalPecas}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-xl font-bold text-emerald-400">{metrics.progressoGeral}%</div>
+                    <div className="text-xl font-bold text-emerald-400">{metrics.producao.progressoGeral}%</div>
                     <div className="text-[10px] text-slate-500">Progresso</div>
                   </div>
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={dynamicSizes.chartHeightLarge}>
-                <ComposedChart data={productionData}>
+                <ComposedChart data={metrics.chartData.productionTrend}>
                   <defs>
                     <linearGradient id="prodGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.4} />
@@ -633,7 +443,7 @@ export default function DashboardPremium() {
                 </div>
               </div>
               <ResponsiveContainer width="100%" height={dynamicSizes.chartHeight}>
-                <AreaChart data={financialData}>
+                <AreaChart data={metrics.chartData.fluxoFinanceiro}>
                   <defs>
                     <linearGradient id="recGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
@@ -644,7 +454,7 @@ export default function DashboardPremium() {
                   <XAxis dataKey="dia" stroke="#64748b" fontSize={10} />
                   <YAxis stroke="#64748b" fontSize={10} />
                   <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8, fontSize: 11 }} />
-                  <Area type="monotone" dataKey="valor" fill="url(#recGrad)" stroke="#34d399" strokeWidth={2} />
+                  <Area type="monotone" dataKey="receita" fill="url(#recGrad)" stroke="#34d399" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
             </HolographicCard>
@@ -663,23 +473,11 @@ export default function DashboardPremium() {
               </div>
             </HolographicCard>
 
-            {/* Alerts */}
-            <AlertsWidget alerts={alertasInteligentes} />
+            {/* Alerts - Using shared component */}
+            <AlertsWidget alerts={metrics.raw.alertasInteligentes || []} />
 
-            {/* Performance Radar */}
-            <HolographicCard color="#c084fc" className="p-4 bg-slate-900/80 backdrop-blur-xl">
-              <div className="flex items-center gap-2 mb-2">
-                <Target className="w-4 h-4 text-purple-400" />
-                <span className="text-xs font-bold text-white">PERFORMANCE</span>
-              </div>
-              <ResponsiveContainer width="100%" height={dynamicSizes.radarHeight}>
-                <RadarChart data={radarData}>
-                  <PolarGrid stroke="#334155" />
-                  <PolarAngleAxis dataKey="subject" stroke="#64748b" fontSize={8} />
-                  <Radar name="Performance" dataKey="value" stroke="#c084fc" fill="#c084fc" fillOpacity={0.3} />
-                </RadarChart>
-              </ResponsiveContainer>
-            </HolographicCard>
+            {/* Performance Radar - Using shared component */}
+            <PerformanceRadar data={metrics.chartData.radarData} height={dynamicSizes.radarHeight} />
           </div>
         </div>
 
@@ -693,10 +491,10 @@ export default function DashboardPremium() {
                 <span className="text-xs font-bold text-white">STATUS DOS PROJETOS</span>
               </div>
               <div className="flex items-center justify-center">
-                <DonutChart3D data={projectStatusData} size={dynamicSizes.donutSize} />
+                <DonutChart3D data={metrics.chartData.projectStatus} size={dynamicSizes.donutSize} />
               </div>
               <div className="grid grid-cols-2 gap-2 mt-4">
-                {projectStatusData.map((item) => (
+                {metrics.chartData.projectStatus.map((item) => (
                   <div key={item.name} className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded" style={{ backgroundColor: item.color }} />
                     <span className="text-[10px] text-slate-400">{item.name}</span>
@@ -715,46 +513,15 @@ export default function DashboardPremium() {
                 <span className="text-xs font-bold text-white">PRODUÇÃO POR MÊS</span>
               </div>
               <BarChart3D
-                data={productionData.slice(0, 6).map(d => ({ label: d.mes.substring(0, 3), value: d.fabricado }))}
+                data={metrics.chartData.productionTrend.slice(0, 6).map(d => ({ label: d.mes.substring(0, 3), value: d.fabricado }))}
                 height={dynamicSizes.chartHeight}
                 color="#fbbf24"
               />
             </HolographicCard>
           </div>
 
-          {/* Team & Resources */}
-          <div className={dynamicSizes.bottomColSpan}>
-            <HolographicCard color="#f472b6" className="p-4 bg-slate-900/80 backdrop-blur-xl">
-              <div className="flex items-center gap-2 mb-4">
-                <Users className="w-4 h-4 text-pink-400" />
-                <span className="text-xs font-bold text-white">RECURSOS HUMANOS</span>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="text-center p-3 rounded-lg bg-slate-800/50">
-                  <AnimatedCounter value={recursosHumanos?.totalColaboradores || 48} color="#f472b6" size="lg" />
-                  <p className="text-[10px] text-slate-500 mt-1">Total</p>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-slate-800/50">
-                  <AnimatedCounter value={recursosHumanos?.presentes || 42} color="#22c55e" size="lg" />
-                  <p className="text-[10px] text-slate-500 mt-1">Presentes</p>
-                </div>
-              </div>
-              <div className="mt-3 space-y-1.5">
-                {(recursosHumanos?.setores?.length > 0 ? recursosHumanos.setores : [
-                  { setor: 'Produção', presentes: 18, total: 20 },
-                  { setor: 'Montagem', presentes: 12, total: 14 },
-                  { setor: 'Engenharia', presentes: 6, total: 6 },
-                  { setor: 'Administrativo', presentes: 6, total: 8 }
-                ]).slice(0, 4).map((dept, i) => (
-                  <div key={dept.setor} className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded" style={{ backgroundColor: COLORS[i] }} />
-                    <span className="text-[10px] text-slate-400 flex-1">{dept.setor}</span>
-                    <span className="text-[10px] font-mono" style={{ color: COLORS[i] }}>{dept.presentes}/{dept.total}</span>
-                  </div>
-                ))}
-              </div>
-            </HolographicCard>
-          </div>
+          {/* Team & Resources - Using shared component */}
+          <TeamPanel equipes={metrics.equipes.lista} />
         </div>
 
         {/* ===== WIDGETS ABSORVIDOS (ERPIntegrado) ===== */}
@@ -771,43 +538,14 @@ export default function DashboardPremium() {
                   ? 'col-span-12 lg:col-span-4'
                   : 'col-span-12 lg:col-span-6'
               )}>
-                <EstoqueResumoWidget estoque={estoque} alertasEstoque={alertasEstoqueCount} />
+                <EstoqueResumoWidget estoque={metrics.raw.estoque} alertasEstoque={metrics.estoque.alertas} />
               </div>
             )}
           </div>
         )}
 
-        {/* Bottom Status Bar */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between bg-slate-900/90 backdrop-blur-xl border border-slate-700/50 rounded-xl px-4 py-2"
-        >
-          <div className="flex items-center gap-6">
-            {[
-              { icon: Factory, label: 'Produção', value: 'ATIVO', color: '#34d399' },
-              { icon: Truck, label: 'Logística', value: 'NORMAL', color: '#22d3ee' },
-              { icon: Shield, label: 'Segurança', value: '100%', color: '#34d399' },
-              { icon: Database, label: 'Backup', value: 'SYNC', color: '#c084fc' },
-              { icon: Server, label: 'API', value: 'ONLINE', color: '#60a5fa' },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center gap-1.5">
-                <item.icon className="w-3.5 h-3.5" style={{ color: item.color }} />
-                <span className="text-[10px] text-slate-500">{item.label}:</span>
-                <span className="text-[10px] font-mono" style={{ color: item.color }}>{item.value}</span>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-[10px] text-slate-500">{currentTime.toLocaleTimeString('pt-BR')}</span>
-            <span className="text-[10px] text-slate-600">|</span>
-            <span className="text-[10px] text-slate-500">{viewport?.width}x{viewport?.height}</span>
-            <span className="text-[10px] text-slate-600">|</span>
-            <span className="text-[10px] text-cyan-500">{currentBreakpoint?.toUpperCase()}</span>
-            <span className="text-[10px] text-slate-600">|</span>
-            <span className="text-[10px] text-slate-500">MONTEX ERP v6.0</span>
-          </div>
-        </motion.div>
+        {/* Bottom Status Bar - Using shared component */}
+        <StatusBar currentTime={currentTime} viewport={viewport} currentBreakpoint={currentBreakpoint} />
       </div>
 
       {/* Dashboard Customizer Modal */}
