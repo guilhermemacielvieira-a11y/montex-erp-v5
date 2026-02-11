@@ -5,7 +5,8 @@
  *
  * Para adicionar uma nova página:
  *   1. Crie o componente em ./pages/NovaPagina.jsx
- *   2. Adicione o import abaixo
+ *   2. Adicione o lazy import abaixo:
+ *      const NovaPagina = lazy(() => import('./pages/NovaPagina'));
  *   3. Adicione a entrada no objeto PAGES
  *
  * Para remover uma página:
@@ -19,98 +20,103 @@
  * - Dashboard canônico: DashboardPremium (substituiu Dashboard, DashboardFuturista, DashboardERPIntegrado)
  * - Estoque canônico: EstoquePageV2 (substituiu EstoquePage)
  * - Orçamentos canônico: OrcamentosPage (substituiu Orcamentos)
+ *
+ * LAZY LOADING (v5.2):
+ * - Todas as páginas usam React.lazy() para code splitting automático
+ * - Cada página é carregada sob demanda, reduzindo o bundle inicial
+ * - O Suspense fallback está configurado no App.jsx
  */
 
+import { lazy } from 'react';
+
 // ===== CORE =====
-import DashboardPremium from './pages/DashboardPremium';
-import Clientes from './pages/Clientes';
-import Projetos from './pages/Projetos';
+const DashboardPremium = lazy(() => import('./pages/DashboardPremium'));
+const Clientes = lazy(() => import('./pages/Clientes'));
+const Projetos = lazy(() => import('./pages/Projetos'));
 
 // ===== PRODUÇÃO =====
-import ProducaoPage from './pages/ProducaoPage';
-import ProducaoFuncionarioPage from './pages/ProducaoFuncionarioPage';
-import DiarioProducaoPage from './pages/DiarioProducaoPage';
-import AtualizacaoProducao from './pages/AtualizacaoProducao';
-import AtualizacaoProducaoIndependente from './pages/AtualizacaoProducaoIndependente';
-import AtualizacaoProducaoPublica from './pages/AtualizacaoProducaoPublica';
-import MontagemPage from './pages/MontagemPage';
+const ProducaoPage = lazy(() => import('./pages/ProducaoPage'));
+const ProducaoFuncionarioPage = lazy(() => import('./pages/ProducaoFuncionarioPage'));
+const DiarioProducaoPage = lazy(() => import('./pages/DiarioProducaoPage'));
+const AtualizacaoProducao = lazy(() => import('./pages/AtualizacaoProducao'));
+const AtualizacaoProducaoIndependente = lazy(() => import('./pages/AtualizacaoProducaoIndependente'));
+const AtualizacaoProducaoPublica = lazy(() => import('./pages/AtualizacaoProducaoPublica'));
+const MontagemPage = lazy(() => import('./pages/MontagemPage'));
 
 // ===== KANBAN =====
-import KanbanCortePage from './pages/KanbanCortePage';
-import KanbanCorteIntegrado from './pages/KanbanCorteIntegrado';
-import KanbanProducaoIntegrado from './pages/KanbanProducaoIntegrado';
+const KanbanCortePage = lazy(() => import('./pages/KanbanCortePage'));
+const KanbanCorteIntegrado = lazy(() => import('./pages/KanbanCorteIntegrado'));
+const KanbanProducaoIntegrado = lazy(() => import('./pages/KanbanProducaoIntegrado'));
 
 // ===== ESTOQUE (canônico: EstoquePageV2) =====
-import EstoquePageV2 from './pages/EstoquePageV2';
-// EstoquePage removido — funcionalidade consolidada no EstoquePageV2
+const EstoquePageV2 = lazy(() => import('./pages/EstoquePageV2'));
 
 // ===== FINANCEIRO =====
-import FinanceiroPage from './pages/FinanceiroPage';
-import GestaoFinanceiraObra from './pages/GestaoFinanceiraObra';
-import ReceitasPage from './pages/ReceitasPage';
-import DespesasPage from './pages/DespesasPage';
-import MetasFinanceirasPage from './pages/MetasFinanceirasPage';
-import AnaliseCustosPage from './pages/AnaliseCustosPage';
-import CentrosCustoPage from './pages/CentrosCustoPage';
-import RelatoriosFinanceiros from './pages/RelatoriosFinanceiros';
+const FinanceiroPage = lazy(() => import('./pages/FinanceiroPage'));
+const GestaoFinanceiraObra = lazy(() => import('./pages/GestaoFinanceiraObra'));
+const ReceitasPage = lazy(() => import('./pages/ReceitasPage'));
+const DespesasPage = lazy(() => import('./pages/DespesasPage'));
+const MetasFinanceirasPage = lazy(() => import('./pages/MetasFinanceirasPage'));
+const AnaliseCustosPage = lazy(() => import('./pages/AnaliseCustosPage'));
+const CentrosCustoPage = lazy(() => import('./pages/CentrosCustoPage'));
+const RelatoriosFinanceiros = lazy(() => import('./pages/RelatoriosFinanceiros'));
 
 // ===== ORÇAMENTOS (canônico: OrcamentosPage) =====
-import OrcamentosPage from './pages/OrcamentosPage';
-import AprovacaoOrcamento from './pages/AprovacaoOrcamento';
-import SimuladorOrcamento from './pages/SimuladorOrcamento';
-import SimuladorPage from './pages/SimuladorPage';
-// Orcamentos.jsx removido — funcionalidade consolidada no OrcamentosPage
+const OrcamentosPage = lazy(() => import('./pages/OrcamentosPage'));
+const AprovacaoOrcamento = lazy(() => import('./pages/AprovacaoOrcamento'));
+const SimuladorOrcamento = lazy(() => import('./pages/SimuladorOrcamento'));
+const SimuladorPage = lazy(() => import('./pages/SimuladorPage'));
 
 // ===== MEDIÇÃO =====
-import MedicaoPage from './pages/MedicaoPage';
-import MedicaoAutomaticaPage from './pages/MedicaoAutomaticaPage';
+const MedicaoPage = lazy(() => import('./pages/MedicaoPage'));
+const MedicaoAutomaticaPage = lazy(() => import('./pages/MedicaoAutomaticaPage'));
 
 // ===== EXPEDIÇÃO =====
-import ExpedicaoIntegrado from './pages/ExpedicaoIntegrado';
-import EnviosExpedicaoPage from './pages/EnviosExpedicaoPage';
+const ExpedicaoIntegrado = lazy(() => import('./pages/ExpedicaoIntegrado'));
+const EnviosExpedicaoPage = lazy(() => import('./pages/EnviosExpedicaoPage'));
 
 // ===== BI & ANALYTICS =====
-import DashboardBI from './pages/DashboardBI';
-import BIOperacional from './pages/BIOperacional';
-import BITatico from './pages/BITatico';
-import BIEstrategico from './pages/BIEstrategico';
-import CommandCenterUltrawide from './pages/CommandCenterUltrawide';
-import CommandCenterUltra from './pages/CommandCenterUltra';
+const DashboardBI = lazy(() => import('./pages/DashboardBI'));
+const BIOperacional = lazy(() => import('./pages/BIOperacional'));
+const BITatico = lazy(() => import('./pages/BITatico'));
+const BIEstrategico = lazy(() => import('./pages/BIEstrategico'));
+const CommandCenterUltrawide = lazy(() => import('./pages/CommandCenterUltrawide'));
+const CommandCenterUltra = lazy(() => import('./pages/CommandCenterUltra'));
 
 // ===== COMPRAS & MATERIAIS =====
-import ComprasPage from './pages/ComprasPage';
-import ImportRomaneioPage from './pages/ImportRomaneioPage';
+const ComprasPage = lazy(() => import('./pages/ComprasPage'));
+const ImportRomaneioPage = lazy(() => import('./pages/ImportRomaneioPage'));
 
 // ===== RH & EQUIPES =====
-import EquipesPage from './pages/EquipesPage';
-import RHPage from './pages/RHPage';
+const EquipesPage = lazy(() => import('./pages/EquipesPage'));
+const RHPage = lazy(() => import('./pages/RHPage'));
 
 // ===== DOCUMENTAÇÃO TÉCNICA =====
-import CroquisPage from './pages/CroquisPage';
-import DetalhamentosPage from './pages/DetalhamentosPage';
-import MontexERP3DPage from './pages/MontexERP3DPage';
+const CroquisPage = lazy(() => import('./pages/CroquisPage'));
+const DetalhamentosPage = lazy(() => import('./pages/DetalhamentosPage'));
+const MontexERP3DPage = lazy(() => import('./pages/MontexERP3DPage'));
 
 // ===== RELATÓRIOS & FERRAMENTAS =====
-import Relatorios from './pages/Relatorios';
-import RelatoriosIA from './pages/RelatoriosIA';
-import GerenciadorRelatorios from './pages/GerenciadorRelatorios';
-import AgendamentosRelatorios from './pages/AgendamentosRelatorios';
-import Analisador from './pages/Analisador';
-import SugestoesIAPage from './pages/SugestoesIAPage';
+const Relatorios = lazy(() => import('./pages/Relatorios'));
+const RelatoriosIA = lazy(() => import('./pages/RelatoriosIA'));
+const GerenciadorRelatorios = lazy(() => import('./pages/GerenciadorRelatorios'));
+const AgendamentosRelatorios = lazy(() => import('./pages/AgendamentosRelatorios'));
+const Analisador = lazy(() => import('./pages/Analisador'));
+const SugestoesIAPage = lazy(() => import('./pages/SugestoesIAPage'));
 
 // ===== OUTROS =====
-import Tarefas from './pages/Tarefas';
-import Automacoes from './pages/Automacoes';
-import ColaboracaoProjetos from './pages/ColaboracaoProjetos';
-import AssistenteTecnico from './pages/AssistenteTecnico';
-import Chatbot from './pages/Chatbot';
-import MultiObrasPage from './pages/MultiObrasPage';
-import VendasPage from './pages/VendasPage';
+const Tarefas = lazy(() => import('./pages/Tarefas'));
+const Automacoes = lazy(() => import('./pages/Automacoes'));
+const ColaboracaoProjetos = lazy(() => import('./pages/ColaboracaoProjetos'));
+const AssistenteTecnico = lazy(() => import('./pages/AssistenteTecnico'));
+const Chatbot = lazy(() => import('./pages/Chatbot'));
+const MultiObrasPage = lazy(() => import('./pages/MultiObrasPage'));
+const VendasPage = lazy(() => import('./pages/VendasPage'));
 
 // ===== ADMIN =====
-import UsuariosPage from './pages/UsuariosPage';
+const UsuariosPage = lazy(() => import('./pages/UsuariosPage'));
 
-// ===== LAYOUT =====
+// ===== LAYOUT (não usa lazy - carregado sempre) =====
 import __Layout from './Layout.jsx';
 
 
