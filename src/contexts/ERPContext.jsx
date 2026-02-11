@@ -1,9 +1,12 @@
 /**
- * MONTEX ERP Premium - Context Global
+ * MONTEX ERP Premium - Context Global (Refactored)
  *
  * Gerencia todo o estado da aplicação com interligação entre módulos.
  * Em PRODUÇÃO: dados vêm exclusivamente do Supabase. Sem fallback para mock data.
  * Em DESENVOLVIMENTO: mock data carregado apenas se Supabase não estiver configurado.
+ *
+ * REFACTORING: 5 domain contexts com memoization por domínio para performance optimization.
+ * Cada contexto é memoizado com apenas suas state slices, reduzindo re-renders desnecessários.
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
@@ -99,10 +102,17 @@ const initialState = emptyState;
 
 
 // ========================================
-// CONTEXTO
+// 5 DOMAIN CONTEXTS (Memoized)
 // ========================================
 
-const ERPContext = createContext(null);
+const ERPCoreContext = createContext(null);
+const ObrasContext = createContext(null);
+const ProducaoContext = createContext(null);
+const SupplyContext = createContext(null);
+const OperacoesContext = createContext(null);
+
+// Legacy default export for backward compatibility
+const ERPContext = ERPCoreContext;
 
 export function ERPProvider({ children }) {
   const [state, dispatch] = useReducer(erpReducer, initialState);
@@ -921,8 +931,153 @@ export function ERPProvider({ children }) {
     });
   }, [state.estoque]);
 
-  // ===== VALOR DO CONTEXTO =====
-  const value = useMemo(() => ({
+  // ===== MEMOIZED DOMAIN CONTEXTS =====
+
+  // 1. ERPCoreContext: connection/loading state
+  const coreValue = useMemo(() => ({
+    supabaseConnected,
+    dataSource,
+    connectionError,
+    loading: state.loading,
+    obraAtual: state.obraAtual,
+    obraAtualData,
+    setObraAtual,
+    filtros: state.filtros,
+    setFiltros,
+    notificacoes: state.notificacoes,
+    addNotificacao,
+    removeNotificacao
+  }), [
+    supabaseConnected,
+    dataSource,
+    connectionError,
+    state.loading,
+    state.obraAtual,
+    obraAtualData,
+    setObraAtual,
+    state.filtros,
+    setFiltros,
+    state.notificacoes,
+    addNotificacao,
+    removeNotificacao
+  ]);
+
+  // 2. ObrasContext: obras + orcamentos
+  const obrasValue = useMemo(() => ({
+    obras: state.obras,
+    orcamentos: state.orcamentos,
+    addObra,
+    updateObra,
+    updateProgressoObra,
+    aprovarOrcamento,
+    addOrcamento
+  }), [
+    state.obras,
+    state.orcamentos,
+    addObra,
+    updateObra,
+    updateProgressoObra,
+    aprovarOrcamento,
+    addOrcamento
+  ]);
+
+  // 3. ProducaoContext: pecas + maquinas
+  const producaoValue = useMemo(() => ({
+    pecas: state.pecas,
+    pecasObraAtual,
+    maquinas: state.maquinas,
+    moverPecaEtapa,
+    updateStatusCorte,
+    addPecas,
+    updatePeca,
+    reloadPecas,
+    updateMaquina
+  }), [
+    state.pecas,
+    pecasObraAtual,
+    state.maquinas,
+    moverPecaEtapa,
+    updateStatusCorte,
+    addPecas,
+    updatePeca,
+    reloadPecas,
+    updateMaquina
+  ]);
+
+  // 4. SupplyContext: estoque + compras + materiais + listas
+  const supplyValue = useMemo(() => ({
+    estoque: state.estoque,
+    estoqueObraAtual,
+    alertasEstoque,
+    consumirEstoque,
+    adicionarEstoque,
+    reservarEstoque,
+    compras: state.compras,
+    comprasObraAtual,
+    addCompra,
+    receberCompra,
+    materiaisEstoque: state.materiaisEstoque,
+    importarMateriais,
+    registrarEntregaMaterial,
+    updateMaterial,
+    listas: state.listas,
+    importarLista
+  }), [
+    state.estoque,
+    estoqueObraAtual,
+    alertasEstoque,
+    consumirEstoque,
+    adicionarEstoque,
+    reservarEstoque,
+    state.compras,
+    comprasObraAtual,
+    addCompra,
+    receberCompra,
+    state.materiaisEstoque,
+    importarMateriais,
+    registrarEntregaMaterial,
+    updateMaterial,
+    state.listas,
+    importarLista
+  ]);
+
+  // 5. OperacoesContext: expedição + medições + lançamentos + equipes
+  const operacoesValue = useMemo(() => ({
+    expedicoes: state.expedicoes,
+    expedicoesObraAtual,
+    addExpedicao,
+    updateExpedicao,
+    medicoes: state.medicoes,
+    medicoesObraAtual,
+    configMedicao: state.configMedicao,
+    addMedicao,
+    updateConfigMedicao,
+    lancamentosDespesas: state.lancamentosDespesas,
+    addLancamento,
+    updateLancamento,
+    funcionarios: state.funcionarios,
+    equipes: state.equipes,
+    alocarEquipe
+  }), [
+    state.expedicoes,
+    expedicoesObraAtual,
+    addExpedicao,
+    updateExpedicao,
+    state.medicoes,
+    medicoesObraAtual,
+    state.configMedicao,
+    addMedicao,
+    updateConfigMedicao,
+    state.lancamentosDespesas,
+    addLancamento,
+    updateLancamento,
+    state.funcionarios,
+    state.equipes,
+    alocarEquipe
+  ]);
+
+  // Legacy unified value for backward compatibility
+  const unifiedValue = useMemo(() => ({
     // Estado
     ...state,
 
@@ -1045,65 +1200,173 @@ export function ERPProvider({ children }) {
   ]);
 
   return (
-    <ERPContext.Provider value={value}>
-      {children}
-    </ERPContext.Provider>
+    <ERPCoreContext.Provider value={coreValue}>
+      <ObrasContext.Provider value={obrasValue}>
+        <ProducaoContext.Provider value={producaoValue}>
+          <SupplyContext.Provider value={supplyValue}>
+            <OperacoesContext.Provider value={operacoesValue}>
+              {children}
+            </OperacoesContext.Provider>
+          </SupplyContext.Provider>
+        </ProducaoContext.Provider>
+      </ObrasContext.Provider>
+    </ERPCoreContext.Provider>
   );
 }
 
 // ===== HOOK CUSTOMIZADO =====
+// useERP() now aggregates all domain contexts for backward compatibility
 export function useERP() {
-  const context = useContext(ERPContext);
-  if (!context) {
+  const core = useContext(ERPCoreContext);
+  const obras = useContext(ObrasContext);
+  const producao = useContext(ProducaoContext);
+  const supply = useContext(SupplyContext);
+  const operacoes = useContext(OperacoesContext);
+
+  if (!core || !obras || !producao || !supply || !operacoes) {
     throw new Error('useERP deve ser usado dentro de um ERPProvider');
   }
-  return context;
+
+  // Aggregate all contexts into unified value for backward compatibility
+  return {
+    ...core,
+    ...obras,
+    ...producao,
+    ...supply,
+    ...operacoes
+  };
 }
 
-// ===== HOOKS ESPECÍFICOS =====
+// ===== HOOKS ESPECÍFICOS (Domain-based) =====
+// Each hook now reads from its specific domain context for better performance
+
 export function useObras() {
-  const { obras, obraAtual, obraAtualData, setObraAtual, updateObra, addObra, updateProgressoObra } = useERP();
-  return { obras, obraAtual, obraAtualData, setObraAtual, updateObra, addObra, updateProgressoObra };
+  const context = useContext(ObrasContext);
+  if (!context) {
+    throw new Error('useObras deve ser usado dentro de um ERPProvider');
+  }
+  const core = useContext(ERPCoreContext);
+  return {
+    obras: context.obras,
+    orcamentos: context.orcamentos,
+    obraAtual: core.obraAtual,
+    obraAtualData: core.obraAtualData,
+    setObraAtual: core.setObraAtual,
+    updateObra: context.updateObra,
+    addObra: context.addObra,
+    updateProgressoObra: context.updateProgressoObra,
+    aprovarOrcamento: context.aprovarOrcamento,
+    addOrcamento: context.addOrcamento
+  };
 }
 
 export function useEstoque() {
-  const { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, reservarEstoque } = useERP();
-  return { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, reservarEstoque };
+  const context = useContext(SupplyContext);
+  if (!context) {
+    throw new Error('useEstoque deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    estoque: context.estoque,
+    estoqueObraAtual: context.estoqueObraAtual,
+    alertasEstoque: context.alertasEstoque,
+    consumirEstoque: context.consumirEstoque,
+    adicionarEstoque: context.adicionarEstoque,
+    reservarEstoque: context.reservarEstoque
+  };
 }
 
 export function useProducao() {
-  const { pecas, pecasObraAtual, maquinas, moverPecaEtapa, updateStatusCorte, addPecas, updatePeca, reloadPecas, updateMaquina } = useERP();
-  return { pecas, pecasObraAtual, maquinas, moverPecaEtapa, updateStatusCorte, addPecas, updatePeca, reloadPecas, updateMaquina };
+  const context = useContext(ProducaoContext);
+  if (!context) {
+    throw new Error('useProducao deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    pecas: context.pecas,
+    pecasObraAtual: context.pecasObraAtual,
+    maquinas: context.maquinas,
+    moverPecaEtapa: context.moverPecaEtapa,
+    updateStatusCorte: context.updateStatusCorte,
+    addPecas: context.addPecas,
+    updatePeca: context.updatePeca,
+    reloadPecas: context.reloadPecas,
+    updateMaquina: context.updateMaquina
+  };
 }
 
 export function useExpedicao() {
-  const { expedicoes, expedicoesObraAtual, addExpedicao, updateExpedicao } = useERP();
-  return { expedicoes, expedicoesObraAtual, addExpedicao, updateExpedicao };
+  const context = useContext(OperacoesContext);
+  if (!context) {
+    throw new Error('useExpedicao deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    expedicoes: context.expedicoes,
+    expedicoesObraAtual: context.expedicoesObraAtual,
+    addExpedicao: context.addExpedicao,
+    updateExpedicao: context.updateExpedicao
+  };
 }
 
 export function useMedicoes() {
-  const { medicoes, medicoesObraAtual, configMedicao, addMedicao, updateConfigMedicao } = useERP();
-  return { medicoes, medicoesObraAtual, configMedicao, addMedicao, updateConfigMedicao };
+  const context = useContext(OperacoesContext);
+  if (!context) {
+    throw new Error('useMedicoes deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    medicoes: context.medicoes,
+    medicoesObraAtual: context.medicoesObraAtual,
+    configMedicao: context.configMedicao,
+    addMedicao: context.addMedicao,
+    updateConfigMedicao: context.updateConfigMedicao
+  };
 }
 
 export function useLancamentos() {
-  const { lancamentosDespesas, addLancamento, updateLancamento } = useERP();
-  return { lancamentosDespesas, addLancamento, updateLancamento };
+  const context = useContext(OperacoesContext);
+  if (!context) {
+    throw new Error('useLancamentos deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    lancamentosDespesas: context.lancamentosDespesas,
+    addLancamento: context.addLancamento,
+    updateLancamento: context.updateLancamento
+  };
 }
 
 export function useEquipes() {
-  const { equipes, funcionarios, alocarEquipe } = useERP();
-  return { equipes, funcionarios, alocarEquipe };
+  const context = useContext(OperacoesContext);
+  if (!context) {
+    throw new Error('useEquipes deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    equipes: context.equipes,
+    funcionarios: context.funcionarios,
+    alocarEquipe: context.alocarEquipe
+  };
 }
 
 export function useCompras() {
-  const { compras, comprasObraAtual, addCompra, receberCompra } = useERP();
-  return { compras, comprasObraAtual, addCompra, receberCompra };
+  const context = useContext(SupplyContext);
+  if (!context) {
+    throw new Error('useCompras deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    compras: context.compras,
+    comprasObraAtual: context.comprasObraAtual,
+    addCompra: context.addCompra,
+    receberCompra: context.receberCompra
+  };
 }
 
 export function useOrcamentos() {
-  const { orcamentos, aprovarOrcamento, addOrcamento } = useERP();
-  return { orcamentos, aprovarOrcamento, addOrcamento };
+  const context = useContext(ObrasContext);
+  if (!context) {
+    throw new Error('useOrcamentos deve ser usado dentro de um ERPProvider');
+  }
+  return {
+    orcamentos: context.orcamentos,
+    aprovarOrcamento: context.aprovarOrcamento,
+    addOrcamento: context.addOrcamento
+  };
 }
 
 export function useMateriais() {
