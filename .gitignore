@@ -49,3 +49,4 @@ base44-app@0.0.0
 *.bak
 *.orig
 *.tmp
+.vercel

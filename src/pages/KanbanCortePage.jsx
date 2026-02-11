@@ -2,23 +2,16 @@
 // KANBAN CORTE PAGE - Controle de Corte
 // ============================================
 // Lista completa de peças para corte com
-// rastreamento de status e notificações
-// automáticas para o Kanban de Produção
+// rastreamento de status PERSISTIDO NO SUPABASE
+// e notificações automáticas para o Kanban de Produção.
+//
+// Refatorado: usa useCorteSupabase em vez de
+// corteStatusStore (que era 100% em memória).
 // ============================================
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import {
-  getAllCorteItems,
-  getCorteMetrics,
-  getCorteCategorias,
-  iniciarCorte,
-  finalizarCorte,
-  resetarCorte,
-  finalizarCorteEmLote,
-  subscribeCorteChanges,
-  contarCortadasParaConjunto
-} from '../data/corteStatusStore';
+import { useCorteSupabase } from '../hooks/useCorteSupabase';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
 
@@ -46,6 +39,7 @@ const CATEGORIA_CORES = {
   'DIAGONAL-TL':      { bg: '#3d3d2d', border: '#d4ac0d', text: '#f7dc6f', icon: '↗️' },
   'TIRANTE':          { bg: '#1f1f3d', border: '#5b2c6f', text: '#a569bd', icon: '🔗' },
   'CONTRAVENTAMENTO': { bg: '#2d1f1f', border: '#cb4335', text: '#f1948a', icon: '✖️' },
+  'BOCAL':            { bg: '#2d2d4f', border: '#6c5ce7', text: '#a29bfe', icon: '🔧' },
 };
 
 const getCor = (tipo) => CATEGORIA_CORES[tipo] || { bg: '#2d2d2d', border: '#7f8c8d', text: '#bdc3c7', icon: '📦' };
@@ -80,22 +74,25 @@ const GRID_COLS = '36px 62px 125px minmax(140px,1fr) 80px minmax(100px,1fr) 48px
 // COMPONENTE PRINCIPAL
 // ==========================================
 export default function KanbanCortePage() {
-  // --- Estado ---
-  const [viewMode, setViewMode] = useState('lista'); // 'lista' | 'kanban'
-  const [items, setItems] = useState([]);
-  const [metrics, setMetrics] = useState({});
-  const [categorias, setCategorias] = useState([]);
+  // --- Hook de dados reais do Supabase ---
+  const {
+    items, metrics, categorias,
+    iniciarCorte, finalizarCorte, resetarCorte, finalizarCorteEmLote,
+    contarCortadasParaConjunto, loading: corteLoading
+  } = useCorteSupabase();
+
+  // --- Estado local da UI ---
+  const [viewMode, setViewMode] = useState('lista');
   const [filtroCategoria, setFiltroCategoria] = useState('TODOS');
   const [filtroStatus, setFiltroStatus] = useState('TODOS');
   const [busca, setBusca] = useState('');
-  const [selectedMarcas, setSelectedMarcas] = useState(new Set());
-  const [conjuntosInfo, setConjuntosInfo] = useState([]);
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [showPanel, setShowPanel] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [sortField, setSortField] = useState('marca');
   const [sortDir, setSortDir] = useState('asc');
   const [toast, setToast] = useState(null);
-  const [expandedMarca, setExpandedMarca] = useState(null);
+  const [expandedId, setExpandedId] = useState(null);
   const prevReadyRef = useRef([]);
   const toastTimer = useRef(null);
   const mountedRef = useRef(false);
@@ -115,13 +112,8 @@ export default function KanbanCortePage() {
     );
   }, [deduzirEstoque]);
 
-  // --- Refresh de dados ---
-  const refresh = useCallback(() => {
-    setItems(getAllCorteItems());
-    setMetrics(getCorteMetrics());
-    setCategorias(getCorteCategorias());
-
-    // Calcular prontidão dos conjuntos
+  // --- Conjuntos (BOM) prontidão - computado reativamente ---
+  const conjuntosInfo = useMemo(() => {
     const info = [];
     const allConj = Object.keys(CONJUNTO_BOM);
     allConj.forEach(nome => {
@@ -140,9 +132,12 @@ export default function KanbanCortePage() {
       if (a.pronto !== b.pronto) return b.pronto ? 1 : -1;
       return b.progresso - a.progresso;
     });
+    return info;
+  }, [contarCortadasParaConjunto]);
 
-    // Verificar conjuntos que acabaram de ficar prontos (toast)
-    const newReady = info.filter(c => c.pronto).map(c => c.nome);
+  // Toast para conjuntos que acabaram de ficar prontos
+  useEffect(() => {
+    const newReady = conjuntosInfo.filter(c => c.pronto).map(c => c.nome);
     if (mountedRef.current) {
       const justReady = newReady.filter(n => !prevReadyRef.current.includes(n));
       if (justReady.length > 0) {
@@ -156,17 +151,14 @@ export default function KanbanCortePage() {
     }
     mountedRef.current = true;
     prevReadyRef.current = newReady;
-    setConjuntosInfo(info);
-  }, []);
+  }, [conjuntosInfo]);
 
+  // Cleanup do timer
   useEffect(() => {
-    refresh();
-    const unsub = subscribeCorteChanges(refresh);
     return () => {
-      unsub();
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
-  }, [refresh]);
+  }, []);
 
   // --- Filtragem e Ordenação ---
   const filteredItems = useMemo(() => {
@@ -202,32 +194,32 @@ export default function KanbanCortePage() {
     qtd: filteredItems.reduce((s, i) => s + (i.quantidade || 0), 0),
   }), [filteredItems]);
 
-  // --- Seleção ---
-  const toggleSelect = (marca) => {
-    setSelectedMarcas(prev => {
+  // --- Seleção (por ID único) ---
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
       const next = new Set(prev);
-      next.has(marca) ? next.delete(marca) : next.add(marca);
+      next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
   };
   const selectAllPage = () => {
-    setSelectedMarcas(new Set(pageItems.filter(i => i.status !== 'finalizado').map(i => i.marca)));
+    setSelectedIds(new Set(pageItems.filter(i => i.status !== 'finalizado').map(i => i.id)));
   };
-  const clearSelection = () => setSelectedMarcas(new Set());
+  const clearSelection = () => setSelectedIds(new Set());
 
-  // --- Ações (com abatimento automático de estoque) ---
-  const handleBatchFinalize = () => {
-    if (selectedMarcas.size === 0) return;
-    const marcasArray = Array.from(selectedMarcas);
-    // Abater estoque para peças que ainda estão aguardando (não já cortando)
-    marcasArray.forEach(marca => {
-      const item = items.find(i => i.marca === marca);
+  // --- Ações (com abatimento automático de estoque + persistência Supabase) ---
+  const handleBatchFinalize = async () => {
+    if (selectedIds.size === 0) return;
+    const idsArray = Array.from(selectedIds);
+    // Abater estoque para peças que ainda estão aguardando
+    idsArray.forEach(id => {
+      const item = items.find(i => i.id === id);
       if (item && item.status === 'aguardando') {
         abaterEstoquePorCorte(item);
       }
     });
-    finalizarCorteEmLote(marcasArray);
-    setSelectedMarcas(new Set());
+    await finalizarCorteEmLote(idsArray);
+    setSelectedIds(new Set());
   };
 
   const handleSort = (field) => {
@@ -240,32 +232,27 @@ export default function KanbanCortePage() {
     const { source, destination, draggableId } = result;
     if (!destination || (source.droppableId === destination.droppableId && source.index === destination.index)) return;
 
-    const marca = draggableId;
-    const item = items.find(i => i.marca === marca);
+    const id = draggableId;
+    const item = items.find(i => i.id === id);
     if (!item) return;
 
     const sourceStatus = source.droppableId;
     const destStatus = destination.droppableId;
 
     // Determine what functions to call based on transition
-    const calls = [];
-
     if (sourceStatus === 'aguardando' && destStatus === 'cortando') {
-      calls.push(() => iniciarCorte(marca));
-      calls.push(() => abaterEstoquePorCorte(item));
+      abaterEstoquePorCorte(item);
+      iniciarCorte(id);
     } else if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
-      calls.push(() => abaterEstoquePorCorte(item));
-      calls.push(() => finalizarCorte(marca));
+      abaterEstoquePorCorte(item);
+      finalizarCorte(id);
     } else if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
-      calls.push(() => finalizarCorte(marca));
+      finalizarCorte(id);
     } else if (sourceStatus === 'cortando' && destStatus === 'aguardando') {
-      calls.push(() => resetarCorte(marca));
+      resetarCorte(id);
     } else if (sourceStatus === 'finalizado' && destStatus === 'aguardando') {
-      calls.push(() => resetarCorte(marca));
+      resetarCorte(id);
     }
-
-    // Execute all calls in order
-    calls.forEach(call => call());
   };
 
   // Conjuntos derivados
@@ -297,6 +284,24 @@ export default function KanbanCortePage() {
   // ==========================================
   // RENDER
   // ==========================================
+
+  // Loading state
+  if (corteLoading) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(135deg, #0a0f1c 0%, #111827 50%, #0f172a 100%)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: '#9ca3af', fontSize: 16
+      }}>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>⚙️</div>
+          <div>Carregando dados de corte do Supabase...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -332,7 +337,7 @@ export default function KanbanCortePage() {
             KANBAN CORTE
           </h1>
           <p style={{ margin: '4px 0 0', color: '#9ca3af', fontSize: 13 }}>
-            Lista de Material para Corte — {metrics.totalMarcas || 0} posições | {formatPeso(metrics.pesoTotal)} total
+            Controle de Corte — {metrics.totalMarcas || 0} peças | {formatPeso(metrics.pesoTotal)} total
           </p>
         </div>
 
@@ -400,7 +405,7 @@ export default function KanbanCortePage() {
         gap: 10, marginBottom: 16
       }}>
         {[
-          { label: 'Total Marcas', value: metrics.totalMarcas || 0, sub: formatPeso(metrics.pesoTotal), color: '#6366f1', icon: '📋' },
+          { label: 'Total Peças', value: metrics.totalMarcas || 0, sub: formatPeso(metrics.pesoTotal), color: '#6366f1', icon: '📋' },
           { label: 'Aguardando', value: metrics.aguardando || 0, sub: formatPeso(metrics.pesoAguardando), color: '#f59e0b', icon: '⏳' },
           { label: 'Em Corte', value: metrics.cortando || 0, sub: formatPeso(metrics.pesoCortando), color: '#3b82f6', icon: '⚙️' },
           { label: 'Finalizadas', value: metrics.finalizado || 0, sub: formatPeso(metrics.pesoFinalizado), color: '#22c55e', icon: '✅' },
@@ -425,7 +430,7 @@ export default function KanbanCortePage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
           <span style={{ fontSize: 12, color: '#9ca3af' }}>Progresso Geral de Corte</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#8b5cf6' }}>
-            {metrics.progressoPeso || 0}% do peso | {metrics.progressoMarcas || 0}% das marcas
+            {metrics.progressoPeso || 0}% do peso | {metrics.progressoMarcas || 0}% das peças
           </span>
         </div>
         <div style={{ background: '#1f2937', borderRadius: 6, height: 8, overflow: 'hidden' }}>
@@ -518,14 +523,14 @@ export default function KanbanCortePage() {
           {filteredSummary.count} itens | {formatPeso(filteredSummary.peso)} | {filteredSummary.qtd} pcs
         </div>
 
-        {selectedMarcas.size > 0 && (
+        {selectedIds.size > 0 && (
           <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={handleBatchFinalize} style={{
               padding: '7px 14px', borderRadius: 10, border: '1px solid #22c55e',
               background: '#064e3b', color: '#4ade80', fontSize: 12, fontWeight: 600,
               cursor: 'pointer', transition: 'all 0.15s'
             }}>
-              Finalizar {selectedMarcas.size} selecionadas
+              Finalizar {selectedIds.size} selecionadas
             </button>
             <button onClick={clearSelection} style={{
               padding: '7px 10px', borderRadius: 10, border: '1px solid #374151',
@@ -559,7 +564,7 @@ export default function KanbanCortePage() {
                   <input
                     type="checkbox"
                     checked={pageItems.filter(i => i.status !== 'finalizado').length > 0 &&
-                      pageItems.filter(i => i.status !== 'finalizado').every(i => selectedMarcas.has(i.marca))}
+                      pageItems.filter(i => i.status !== 'finalizado').every(i => selectedIds.has(i.id))}
                     onChange={e => e.target.checked ? selectAllPage() : clearSelection()}
                     style={{ cursor: 'pointer' }}
                   />
@@ -590,12 +595,12 @@ export default function KanbanCortePage() {
               {/* Corpo */}
               {pageItems.map((item, idx) => {
                 const cor = getCor(item.peca);
-                const sc = STATUS_CONF[item.status];
-                const isSel = selectedMarcas.has(item.marca);
-                const isExp = expandedMarca === item.marca;
+                const sc = STATUS_CONF[item.status] || STATUS_CONF['aguardando'];
+                const isSel = selectedIds.has(item.id);
+                const isExp = expandedId === item.id;
 
                 return (
-                  <React.Fragment key={item.marca}>
+                  <React.Fragment key={item.id}>
                     <div
                       style={{
                         display: 'grid', gridTemplateColumns: GRID_COLS,
@@ -605,14 +610,14 @@ export default function KanbanCortePage() {
                         fontSize: 12, alignItems: 'center',
                         transition: 'background 0.1s', cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedMarca(isExp ? null : item.marca)}
+                      onClick={() => setExpandedId(isExp ? null : item.id)}
                       onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = '#181e2e'; }}
                       onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = idx % 2 === 0 ? '#111827' : '#0f1520'; }}
                     >
                       {/* Checkbox */}
                       <div onClick={e => e.stopPropagation()}>
                         <input type="checkbox" checked={isSel}
-                          onChange={() => toggleSelect(item.marca)}
+                          onChange={() => toggleSelect(item.id)}
                           disabled={item.status === 'finalizado'}
                           style={{ cursor: item.status === 'finalizado' ? 'default' : 'pointer' }}
                         />
@@ -666,28 +671,28 @@ export default function KanbanCortePage() {
                         </span>
                       </div>
 
-                      {/* Acoes - com abatimento automático de estoque */}
+                      {/* Acoes - com abatimento automático de estoque + persistência Supabase */}
                       <div style={{ display: 'flex', gap: 3 }} onClick={e => e.stopPropagation()}>
                         {item.status === 'aguardando' && (
                           <>
-                            <button onClick={() => { abaterEstoquePorCorte(item); iniciarCorte(item.marca); }} title="Iniciar Corte (abate estoque)"
+                            <button onClick={() => { abaterEstoquePorCorte(item); iniciarCorte(item.id); }} title="Iniciar Corte (abate estoque)"
                               style={actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa')}>
                               ▶
                             </button>
-                            <button onClick={() => { abaterEstoquePorCorte(item); finalizarCorte(item.marca); }} title="Finalizar Corte (abate estoque)"
+                            <button onClick={() => { abaterEstoquePorCorte(item); finalizarCorte(item.id); }} title="Finalizar Corte (abate estoque)"
                               style={actionBtnStyle('#064e3b', '#22c55e', '#4ade80')}>
                               ✅
                             </button>
                           </>
                         )}
                         {item.status === 'cortando' && (
-                          <button onClick={() => finalizarCorte(item.marca)} title="Finalizar"
+                          <button onClick={() => finalizarCorte(item.id)} title="Finalizar"
                             style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), padding: '3px 10px' }}>
                             ✅ Finalizar
                           </button>
                         )}
                         {item.status === 'finalizado' && (
-                          <button onClick={() => resetarCorte(item.marca)} title="Voltar para Aguardando"
+                          <button onClick={() => resetarCorte(item.id)} title="Voltar para Aguardando"
                             style={actionBtnStyle('#374151', '#6b7280', '#9ca3af')}>
                             ↩
                           </button>
@@ -775,7 +780,7 @@ export default function KanbanCortePage() {
                     Aguardando ({kanbanColumns.aguardando.length})
                   </div>
                   {kanbanColumns.aguardando.map((item, idx) => (
-                    <Draggable key={item.marca} draggableId={item.marca} index={idx}>
+                    <Draggable key={item.id} draggableId={item.id} index={idx}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -868,7 +873,7 @@ export default function KanbanCortePage() {
                     Em Corte ({kanbanColumns.cortando.length})
                   </div>
                   {kanbanColumns.cortando.map((item, idx) => (
-                    <Draggable key={item.marca} draggableId={item.marca} index={idx}>
+                    <Draggable key={item.id} draggableId={item.id} index={idx}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -961,7 +966,7 @@ export default function KanbanCortePage() {
                     Finalizado ({kanbanColumns.finalizado.length})
                   </div>
                   {kanbanColumns.finalizado.map((item, idx) => (
-                    <Draggable key={item.marca} draggableId={item.marca} index={idx}>
+                    <Draggable key={item.id} draggableId={item.id} index={idx}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
