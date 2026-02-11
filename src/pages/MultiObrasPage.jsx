@@ -127,8 +127,8 @@ function ObraCard({ obra, pecas, expedicoes, medicoes, clientes, orcamentos, cor
 
   // Calcular progresso físico e financeiro
   const progressoFisico = Math.round(
-    ((obra.progresso.corte + obra.progresso.fabricacao + obra.progresso.solda +
-      obra.progresso.pintura + obra.progresso.expedicao + obra.progresso.montagem) / 6)
+    (((obra.progresso?.corte || 0) + (obra.progresso?.fabricacao || 0) + (obra.progresso?.solda || 0) +
+      (obra.progresso?.pintura || 0) + (obra.progresso?.expedicao || 0) + (obra.progresso?.montagem || 0)) / 6)
   );
 
   // Calcular medições (faturado)
@@ -225,21 +225,21 @@ function ObraCard({ obra, pecas, expedicoes, medicoes, clientes, orcamentos, cor
               <Scissors className="h-3 w-3 text-orange-400" />
               <span className="text-xs text-slate-500">Corte</span>
             </div>
-            <p className="text-sm font-bold text-orange-400">{obra.progresso.corte}%</p>
+            <p className="text-sm font-bold text-orange-400">{obra.progresso?.corte || 0}%</p>
           </div>
           <div className="text-center">
             <div className="flex items-center justify-center gap-1">
               <Factory className="h-3 w-3 text-blue-400" />
               <span className="text-xs text-slate-500">Fab/Solda</span>
             </div>
-            <p className="text-sm font-bold text-blue-400">{Math.round((obra.progresso.fabricacao + obra.progresso.solda) / 2)}%</p>
+            <p className="text-sm font-bold text-blue-400">{Math.round(((obra.progresso?.fabricacao || 0) + (obra.progresso?.solda || 0)) / 2)}%</p>
           </div>
           <div className="text-center">
             <div className="flex items-center justify-center gap-1">
               <Hammer className="h-3 w-3 text-emerald-400" />
               <span className="text-xs text-slate-500">Montagem</span>
             </div>
-            <p className="text-sm font-bold text-emerald-400">{obra.progresso.montagem}%</p>
+            <p className="text-sm font-bold text-emerald-400">{obra.progresso?.montagem || 0}%</p>
           </div>
         </div>
 
