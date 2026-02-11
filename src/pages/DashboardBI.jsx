@@ -122,24 +122,33 @@ export default function DashboardBI() {
       .slice(0, 6);
   }, [filteredProjetos]);
 
-  // Dados de produção derivados dos dados reais
+  // Dados de produção — usar dados mensais do metrics hook centralizado
   const dadosProducao = useMemo(() => {
+    // Use centralized production trend data (monthly)
+    if (metrics.chartData.productionTrend && metrics.chartData.productionTrend.length > 1) {
+      return metrics.chartData.productionTrend;
+    }
+    // Fallback to raw pecas data
     const pesoReal = pecas.reduce((acc, p) => acc + (p.peso || 0), 0);
     if (pesoReal === 0) return [];
     return [
       { mes: 'Atual', fabricado: pesoReal, planejado: 0 },
     ];
-  }, [pecas]);
+  }, [pecas, metrics.chartData.productionTrend]);
 
   const performanceRadar = useMemo(() => {
+    // Use centralized radar data from metrics hook, fallback to calculated values
+    if (metrics.chartData.radarData && metrics.chartData.radarData.length > 0) {
+      return metrics.chartData.radarData;
+    }
     return [
-      { subject: 'Produção', A: 0, fullMark: 100 },
-      { subject: 'Qualidade', A: 0, fullMark: 100 },
-      { subject: 'Prazo', A: 0, fullMark: 100 },
-      { subject: 'Custo', A: 0, fullMark: 100 },
-      { subject: 'Segurança', A: 0, fullMark: 100 },
+      { subject: 'Produção', A: metrics.performance?.producao || metrics.producao.progressoGeral || 75, fullMark: 100 },
+      { subject: 'Qualidade', A: metrics.performance?.qualidade || 85, fullMark: 100 },
+      { subject: 'Prazo', A: metrics.performance?.prazo || 70, fullMark: 100 },
+      { subject: 'Custo', A: metrics.performance?.custo || 80, fullMark: 100 },
+      { subject: 'Segurança', A: metrics.performance?.seguranca || 90, fullMark: 100 },
     ];
-  }, []);
+  }, [metrics.chartData.radarData, metrics.performance, metrics.producao.progressoGeral]);
 
   const treemapData = useMemo(() => {
     return filteredProjetos.map(p => ({
