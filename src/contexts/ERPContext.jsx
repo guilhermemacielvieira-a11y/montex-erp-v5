@@ -188,6 +188,10 @@ const ACTIONS = {
   ADD_MEDICAO: 'ADD_MEDICAO',
   UPDATE_CONFIG_MEDICAO: 'UPDATE_CONFIG_MEDICAO',
 
+  // Lançamentos / Despesas
+  ADD_LANCAMENTO: 'ADD_LANCAMENTO',
+  UPDATE_LANCAMENTO: 'UPDATE_LANCAMENTO',
+
   // Funcionários e Equipes
   UPDATE_FUNCIONARIO: 'UPDATE_FUNCIONARIO',
   UPDATE_EQUIPE: 'UPDATE_EQUIPE',
@@ -495,6 +499,21 @@ function erpReducer(state, action) {
             [action.payload.etapa]: action.payload.config
           }
         }
+      };
+
+    // ===== LANÇAMENTOS / DESPESAS =====
+    case ACTIONS.ADD_LANCAMENTO:
+      return {
+        ...state,
+        lancamentosDespesas: [...state.lancamentosDespesas, action.payload]
+      };
+
+    case ACTIONS.UPDATE_LANCAMENTO:
+      return {
+        ...state,
+        lancamentosDespesas: state.lancamentosDespesas.map(l =>
+          l.id === action.payload.id ? { ...l, ...action.payload.data } : l
+        )
       };
 
     // ===== FUNCIONÁRIOS E EQUIPES =====
@@ -1169,6 +1188,34 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  // ===== AÇÕES - LANÇAMENTOS / DESPESAS =====
+  const addLancamento = useCallback(async (lancamento) => {
+    const lancamentoComId = { ...lancamento, id: lancamento.id || `lanc-${Date.now()}` };
+    dispatch({ type: ACTIONS.ADD_LANCAMENTO, payload: lancamentoComId });
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(lancamentoComId);
+        await lancamentosApi.create(record);
+        console.log(`✅ Lançamento ${lancamentoComId.id} criado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar lançamento no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const updateLancamento = useCallback(async (id, data) => {
+    dispatch({ type: ACTIONS.UPDATE_LANCAMENTO, payload: { id, data } });
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        await lancamentosApi.update(id, snakeData);
+        console.log(`✅ Lançamento ${id} atualizado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar lançamento no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
   // ===== AÇÕES - EQUIPES =====
   const alocarEquipe = useCallback(async (equipeId, obraId) => {
     dispatch({ type: ACTIONS.ALOCAR_EQUIPE, payload: { equipeId, obraId } });
@@ -1424,6 +1471,10 @@ export function ERPProvider({ children }) {
     addMedicao,
     updateConfigMedicao,
 
+    // Ações - Lançamentos / Despesas
+    addLancamento,
+    updateLancamento,
+
     // Ações - Equipes
     alocarEquipe,
 
@@ -1475,6 +1526,8 @@ export function ERPProvider({ children }) {
     receberCompra,
     addMedicao,
     updateConfigMedicao,
+    addLancamento,
+    updateLancamento,
     alocarEquipe,
     updateMaquina,
     importarLista,
@@ -1526,6 +1579,11 @@ export function useExpedicao() {
 export function useMedicoes() {
   const { medicoes, medicoesObraAtual, configMedicao, addMedicao, updateConfigMedicao } = useERP();
   return { medicoes, medicoesObraAtual, configMedicao, addMedicao, updateConfigMedicao };
+}
+
+export function useLancamentos() {
+  const { lancamentosDespesas, addLancamento, updateLancamento } = useERP();
+  return { lancamentosDespesas, addLancamento, updateLancamento };
 }
 
 export function useEquipes() {

@@ -1,7 +1,7 @@
 // MONTEX ERP Premium - Gestão de Despesas
 // Cadastro com categorias e centros de custo
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import {
   DollarSign,
@@ -45,6 +45,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { useLancamentos } from '../contexts/ERPContext';
 import {
   BarChart,
   Bar,
@@ -82,11 +83,7 @@ const centrosCusto = [
 // Despesas - dados limpos (cadastrar via formulário)
 const mockDespesas = [];
 
-// Dados para gráfico de categorias - limpos
-const dadosCategorias = [];
-
-// Dados por centro de custo - limpos
-const dadosCentros = [];
+// Dados para gráficos - serão calculados dinamicamente dentro do componente
 
 const formatCurrency = (value) => {
   return new Intl.NumberFormat('pt-BR', {
@@ -120,12 +117,15 @@ const getCategoriaColor = (categoriaNome) => {
 };
 
 export default function DespesasPage() {
+  // ERPContext - dados reais do Supabase
+  const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [filtroCentro, setFiltroCentro] = useState('todos');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [despesas, setDespesas] = useState(mockDespesas);
+  const [despesas, setDespesas] = useState([]);
   const [formData, setFormData] = useState({
     descricao: '',
     fornecedor: '',
@@ -136,15 +136,57 @@ export default function DespesasPage() {
     formaPagto: ''
   });
 
-  // KPIs
+  // Sincronizar despesas com dados do Supabase
+  useEffect(() => {
+    if (lancamentosDespesas && lancamentosDespesas.length > 0) {
+      const despesasConvertidas = lancamentosDespesas.map(l => ({
+        id: l.id,
+        data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
+        descricao: l.descricao || l.nome || '-',
+        fornecedor: l.fornecedor || '-',
+        categoria: l.categoria || 'Outros',
+        centroCusto: l.centroCusto || l.centrosCusto || 'Produção',
+        valor: l.valor || 0,
+        status: l.status || 'pendente',
+        formaPagto: l.formaPagto || l.formaPagamento || '-',
+        vencimento: l.vencimento || l.dataVencimento || '-'
+      }));
+      setDespesas(despesasConvertidas);
+    }
+  }, [lancamentosDespesas]);
+
+  // Dados para gráficos - dinâmicos
+  const dadosCategorias = useMemo(() => {
+    const catMap = {};
+    despesas.forEach(d => {
+      const cat = d.categoria || 'Outros';
+      catMap[cat] = (catMap[cat] || 0) + (d.valor || 0);
+    });
+    return Object.entries(catMap).map(([nome, valor]) => ({
+      nome,
+      valor,
+      cor: categorias.find(c => c.nome === nome)?.cor || '#64748b'
+    }));
+  }, [despesas]);
+
+  const dadosCentros = useMemo(() => {
+    const ccMap = {};
+    despesas.forEach(d => {
+      const cc = d.centroCusto || 'Outros';
+      ccMap[cc] = (ccMap[cc] || 0) + (d.valor || 0);
+    });
+    return Object.entries(ccMap).map(([nome, valor]) => ({ nome, valor }));
+  }, [despesas]);
+
+  // KPIs - calculados dos dados reais
   const kpis = useMemo(() => {
-    const totalPago = mockDespesas.filter(d => d.status === 'pago').reduce((sum, d) => sum + d.valor, 0);
-    const totalPendente = mockDespesas.filter(d => d.status === 'pendente').reduce((sum, d) => sum + d.valor, 0);
-    const totalAtrasado = mockDespesas.filter(d => d.status === 'atrasado').reduce((sum, d) => sum + d.valor, 0);
-    const total = mockDespesas.reduce((sum, d) => sum + d.valor, 0);
+    const totalPago = despesas.filter(d => d.status === 'pago').reduce((sum, d) => sum + (d.valor || 0), 0);
+    const totalPendente = despesas.filter(d => d.status === 'pendente').reduce((sum, d) => sum + (d.valor || 0), 0);
+    const totalAtrasado = despesas.filter(d => d.status === 'atrasado').reduce((sum, d) => sum + (d.valor || 0), 0);
+    const total = despesas.reduce((sum, d) => sum + (d.valor || 0), 0);
 
     return { totalPago, totalPendente, totalAtrasado, total };
-  }, []);
+  }, [despesas]);
 
   // Filtrar despesas
   const despesasFiltradas = useMemo(() => {
@@ -158,14 +200,14 @@ export default function DespesasPage() {
     });
   }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro]);
 
-  const handleSaveDespesa = () => {
+  const handleSaveDespesa = async () => {
     if (!formData.descricao || !formData.fornecedor || !formData.categoria || !formData.centroCusto || !formData.valor || !formData.vencimento || !formData.formaPagto) {
       toast.error('Preencher todos os campos');
       return;
     }
 
     const novaDespesa = {
-      id: Date.now(),
+      id: `desp-${Date.now()}`,
       data: new Date().toISOString().split('T')[0],
       descricao: formData.descricao,
       fornecedor: formData.fornecedor,
@@ -177,7 +219,9 @@ export default function DespesasPage() {
       vencimento: formData.vencimento
     };
 
-    setDespesas([...despesas, novaDespesa]);
+    // Persist via ERPContext → Supabase
+    await addLancamento(novaDespesa);
+    setDespesas(prev => [...prev, novaDespesa]);
     toast.success('Despesa criada com sucesso!');
     setDialogOpen(false);
     setFormData({

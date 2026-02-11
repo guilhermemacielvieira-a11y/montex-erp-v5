@@ -13,19 +13,35 @@ import * as Select from '@radix-ui/react-select';
 import { cn } from '@/lib/utils';
 
 // ERPContext - dados reais
-import { useObras, useProducao } from '../contexts/ERPContext';
+import { useObras, useProducao, useEquipes } from '../contexts/ERPContext';
 import { ETAPAS_PRODUCAO } from '../data/database';
 
 export default function MontagemPage() {
   // ERPContext - dados reais
   const { obras, obraAtualData } = useObras();
   const { pecas } = useProducao();
+  const { equipes, funcionarios } = useEquipes();
 
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [obraFiltro, setObraFiltro] = useState('todas');
 
-  // Equipes de montagem - Será preenchido com dados reais
-  const equipesMontagem = useMemo(() => [], [obraAtualData]);
+  // Equipes de montagem - dados do Supabase via useEquipes()
+  const equipesMontagem = useMemo(() => {
+    if (!equipes || equipes.length === 0) return [];
+    return equipes.map(eq => {
+      // Encontrar membros da equipe
+      const membrosEquipe = funcionarios?.filter(f => f.equipeId === eq.id) || [];
+      const lider = membrosEquipe.find(f => f.funcao === 'encarregado' || f.funcao === 'lider') || membrosEquipe[0];
+      return {
+        id: eq.id,
+        nome: eq.nome || `Equipe ${eq.id}`,
+        membros: membrosEquipe.length || eq.membros || 0,
+        lider: lider?.nome || eq.lider || 'Sem líder',
+        status: eq.status || 'disponivel',
+        projeto: eq.obraNome || obraAtualData?.nome || null,
+      };
+    });
+  }, [equipes, funcionarios, obraAtualData]);
 
   // Itens de montagem derivados das peças expedidas
   const itensMontagem = useMemo(() => {

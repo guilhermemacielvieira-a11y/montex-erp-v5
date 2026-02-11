@@ -88,7 +88,7 @@ import {
   calcularResumoMateriais,
   calcularEstoquePorTipo
 } from '../data/obraFinanceiraDatabase';
-import { useObras } from '../contexts/ERPContext';
+import { useObras, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 
 // Formatação monetária brasileira completa (ex: 2.700.000,00)
 const formatMoney = (valor) => {
@@ -191,12 +191,15 @@ const ProgressBar = ({ value, max, color = 'cyan', showLabel = true, height = 'h
 };
 
 export default function GestaoFinanceiraObra() {
-  // ERPContext - lista de obras para filtro
+  // ERPContext - dados reais do Supabase
   const { obras: obrasERP, obraAtualData } = useObras();
+  const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx } = useLancamentos();
+  const { medicoes: medicoesSupabase } = useMedicoes();
 
   // Estados
   const [obra, setObra] = useState(OBRA_MODELO);
   const [obraFiltro, setObraFiltro] = useState(OBRA_MODELO.id);
+  // Mesclar dados estáticos do modelo com dados reais do Supabase
   const [lancamentos, setLancamentos] = useState(LANCAMENTOS_DESPESAS);
   const [pedidosFuturos, setPedidosFuturos] = useState(PEDIDOS_PRE_APROVADOS);
   const [medicoesReceitas, setMedicoesReceitas] = useState(MEDICOES_RECEITAS);
@@ -211,6 +214,30 @@ export default function GestaoFinanceiraObra() {
   const [showNovaMedicao, setShowNovaMedicao] = useState(false);
   const [setorSelecionado, setSetorSelecionado] = useState('todos');
   const [viewMode, setViewMode] = useState('real'); // 'real', 'futuro', 'projecao'
+
+  // Mesclar dados do Supabase quando disponíveis
+  React.useEffect(() => {
+    if (lancamentosSupabase && lancamentosSupabase.length > 0) {
+      // IDs existentes do modelo estático
+      const idsEstaticos = new Set(LANCAMENTOS_DESPESAS.map(l => l.id));
+      // Lançamentos do Supabase que não estão no modelo estático
+      const novosDoSupabase = lancamentosSupabase.filter(l => !idsEstaticos.has(l.id)).map(l => ({
+        id: l.id,
+        tipo: l.tipo || 'despesa',
+        data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
+        descricao: l.descricao || l.nome || '-',
+        fornecedor: l.fornecedor || '-',
+        categoria: l.categoria || 'outros',
+        valor: l.valor || 0,
+        status: l.status || 'pendente',
+        nf: l.nf || null,
+        observacao: l.observacao || '',
+        obraId: l.obraId || obra.id,
+      }));
+      // Mesclar: modelo estático + novos do Supabase
+      setLancamentos([...LANCAMENTOS_DESPESAS, ...novosDoSupabase]);
+    }
+  }, [lancamentosSupabase, obra.id]);
 
   // Cálculos principais
   const saldo = useMemo(() =>
@@ -356,8 +383,8 @@ export default function GestaoFinanceiraObra() {
     });
   }, [obra.setores, medicoes]);
 
-  // Adicionar lançamento
-  const adicionarLancamento = useCallback((novoLanc) => {
+  // Adicionar lançamento - persiste no Supabase
+  const adicionarLancamento = useCallback(async (novoLanc) => {
     const lancamento = {
       id: `lanc-${Date.now()}`,
       obraId: obra.id,
@@ -366,14 +393,30 @@ export default function GestaoFinanceiraObra() {
     };
     setLancamentos(prev => [...prev, lancamento]);
     setShowNovoLancamento(false);
-  }, [obra.id]);
+    // Persistir no Supabase via ERPContext
+    try {
+      await addLancamentoCtx(lancamento);
+    } catch (err) {
+      console.error('Erro ao salvar lançamento:', err);
+    }
+  }, [obra.id, addLancamentoCtx]);
 
-  // Atualizar status lançamento
-  const atualizarStatusLancamento = useCallback((id, novoStatus) => {
+  // Atualizar status lançamento - persiste no Supabase
+  const atualizarStatusLancamento = useCallback(async (id, novoStatus) => {
+    const updateData = {
+      status: novoStatus,
+      dataPagamento: novoStatus === STATUS_LANCAMENTO.PAGO ? new Date().toISOString() : undefined
+    };
     setLancamentos(prev => prev.map(l =>
-      l.id === id ? { ...l, status: novoStatus, dataPagamento: novoStatus === STATUS_LANCAMENTO.PAGO ? new Date().toISOString() : l.dataPagamento } : l
+      l.id === id ? { ...l, ...updateData } : l
     ));
-  }, []);
+    // Persistir no Supabase via ERPContext
+    try {
+      await updateLancamentoCtx(id, updateData);
+    } catch (err) {
+      console.error('Erro ao atualizar lançamento:', err);
+    }
+  }, [updateLancamentoCtx]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">

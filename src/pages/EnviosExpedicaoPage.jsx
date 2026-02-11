@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
@@ -71,7 +71,8 @@ export default function EnviosExpedicaoPage() {
     return Object.entries(obrasMap).map(([name, value]) => ({ name, value }));
   }, [enviosReais]);
 
-  const [envios, setEnvios] = useState([]);
+  // envios agora são derivados dos dados reais do Supabase
+  const envios = enviosReais;
   const [filtroStatus, setFiltroStatus] = useState('TODOS');
   const [filtroObra, setFiltroObra] = useState('');
   const [busca, setBusca] = useState('');
@@ -84,16 +85,16 @@ export default function EnviosExpedicaoPage() {
 
   const enviosFiltrados = envios.filter(e => {
     if (filtroStatus !== 'TODOS' && e.status !== filtroStatus) return false;
-    if (filtroObra && !e.obra.toLowerCase().includes(filtroObra.toLowerCase())) return false;
-    if (busca && !e.numero.toLowerCase().includes(busca.toLowerCase()) &&
-        !e.cliente.toLowerCase().includes(busca.toLowerCase())) return false;
+    if (filtroObra && !(e.obra || e.obraNome || '').toLowerCase().includes(filtroObra.toLowerCase())) return false;
+    if (busca && !(e.numero || '').toLowerCase().includes(busca.toLowerCase()) &&
+        !(e.cliente || '').toLowerCase().includes(busca.toLowerCase())) return false;
     return true;
   });
 
   const totalEnvios = envios.length;
   const emTransito = envios.filter(e => e.status === 'EM_TRANSITO').length;
   const entregues = envios.filter(e => e.status === 'ENTREGUE').length;
-  const pesoTotalMes = envios.reduce((a, e) => a + e.pesoTotal, 0);
+  const pesoTotalMes = envios.reduce((a, e) => a + (e.pesoTotal || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -123,7 +124,7 @@ export default function EnviosExpedicaoPage() {
                 { header: 'Valor Frete (R$)', key: 'valorFrete' }
               ];
               const timestamp = new Date().toISOString().split('T')[0];
-              exportToExcel(mockEnvios, columns, `envios-expedicao-${timestamp}`);
+              exportToExcel(envios, columns, `envios-expedicao-${timestamp}`);
               toast.success('Envios exportados para Excel com sucesso!');
             }}
             variant="outline"
