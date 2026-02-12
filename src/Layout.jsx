@@ -76,7 +76,8 @@ const navigationCategories = [
     color: 'text-emerald-500',
     bgHover: 'hover:bg-emerald-500/10',
     items: [
-      { name: 'Visão Geral', href: 'DashboardPremium', icon: LayoutDashboard },
+      { name: 'Visão Geral', href: 'VisaoGeralPage', icon: LayoutDashboard, badge: 'LIVE' },
+      { name: 'Dashboard', href: 'DashboardPremium', icon: LayoutDashboard },
       { name: 'BI Analytics', href: 'DashboardBI', icon: Database, badge: 'OLAP' },
     ]
   },
