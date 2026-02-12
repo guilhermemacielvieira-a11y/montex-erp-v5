@@ -142,6 +142,7 @@ export const PAGES = {
 
     // Estoque (canônico: V2)
     "EstoquePageV2": EstoquePageV2,
+  "EstoquePage": EstoquePageV2,  // Alias para compatibilidade de URL
 
     // Financeiro
     "FinanceiroPage": FinanceiroPage,
