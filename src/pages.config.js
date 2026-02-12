@@ -31,6 +31,7 @@ import { lazy } from 'react';
 
 // ===== CORE =====
 const DashboardPremium = lazy(() => import('./pages/DashboardPremium'));
+const VisaoGeralPage = lazy(() => import('./pages/VisaoGeralPage'));
 const Clientes = lazy(() => import('./pages/Clientes'));
 const Projetos = lazy(() => import('./pages/Projetos'));
 
@@ -123,6 +124,7 @@ import __Layout from './Layout.jsx';
 export const PAGES = {
     // Core
     "DashboardPremium": DashboardPremium,
+        "VisaoGeralPage": VisaoGeralPage,
     "Clientes": Clientes,
     "Projetos": Projetos,
 
