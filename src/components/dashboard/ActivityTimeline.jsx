@@ -8,7 +8,8 @@ import {
   AlertTriangle,
   Clock,
   User,
-  Building2
+  Building2,
+  Inbox
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
@@ -37,52 +38,6 @@ const activityColors = {
 };
 
 export default function ActivityTimeline({ activities = [] }) {
-  // Mock activities for demonstration
-  const mockActivities = [
-    {
-      id: 1,
-      type: 'projeto',
-      title: 'Novo projeto criado',
-      description: 'Shopping Center Aurora - 1.250 ton',
-      user: 'Carlos Silva',
-      timestamp: new Date(Date.now() - 1000 * 60 * 15), // 15 min ago
-    },
-    {
-      id: 2,
-      type: 'aprovacao',
-      title: 'Orçamento aprovado',
-      description: 'Galpão Industrial Metalfrio - R$ 2.8M',
-      user: 'Maria Santos',
-      timestamp: new Date(Date.now() - 1000 * 60 * 45), // 45 min ago
-    },
-    {
-      id: 3,
-      type: 'producao',
-      title: 'Produção atualizada',
-      description: 'Lote #1247 - 85% concluído',
-      user: 'João Pereira',
-      timestamp: new Date(Date.now() - 1000 * 60 * 120), // 2h ago
-    },
-    {
-      id: 4,
-      type: 'financeiro',
-      title: 'Pagamento recebido',
-      description: 'Medição #3 - Supermercado Atacadão',
-      user: 'Sistema',
-      timestamp: new Date(Date.now() - 1000 * 60 * 180), // 3h ago
-    },
-    {
-      id: 5,
-      type: 'alerta',
-      title: 'Prazo próximo',
-      description: 'Entrega Fase 2 - Centro Logístico em 5 dias',
-      user: 'Sistema',
-      timestamp: new Date(Date.now() - 1000 * 60 * 240), // 4h ago
-    },
-  ];
-
-  const displayActivities = activities.length > 0 ? activities : mockActivities;
-
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -96,68 +51,66 @@ export default function ActivityTimeline({ activities = [] }) {
             <h3 className="text-lg font-semibold text-white">Atividades Recentes</h3>
             <p className="text-sm text-slate-400">Últimas atualizações do sistema</p>
           </div>
-          <motion.button
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-            className="text-sm text-orange-400 hover:text-orange-300 font-medium"
-          >
-            Ver todas
-          </motion.button>
         </div>
       </div>
 
       {/* Timeline */}
       <div className="p-4 space-y-1 max-h-[400px] overflow-y-auto custom-scrollbar">
-        {displayActivities.map((activity, index) => {
-          const Icon = activityIcons[activity.type] || Clock;
-          const gradient = activityColors[activity.type] || 'from-slate-500 to-slate-600';
+        {activities.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-8 text-slate-500">
+            <Inbox className="w-10 h-10 mb-3 text-slate-600" />
+            <p className="text-sm font-medium">Nenhuma atividade registrada</p>
+            <p className="text-xs mt-1">As atividades aparecerão aqui conforme o sistema for utilizado</p>
+          </div>
+        ) : (
+          activities.map((activity, index) => {
+            const Icon = activityIcons[activity.type] || Clock;
+            const gradient = activityColors[activity.type] || 'from-slate-500 to-slate-600';
 
-          return (
-            <motion.div
-              key={activity.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="relative flex gap-4 p-3 rounded-xl hover:bg-slate-800/50 transition-colors group"
-            >
-              {/* Timeline Line */}
-              {index < displayActivities.length - 1 && (
-                <div className="absolute left-[27px] top-14 w-0.5 h-[calc(100%-20px)] bg-gradient-to-b from-slate-700 to-transparent" />
-              )}
+            return (
+              <motion.div
+                key={activity.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: index * 0.1 }}
+                className="relative flex gap-4 p-3 rounded-xl hover:bg-slate-800/50 transition-colors group"
+              >
+                {index < activities.length - 1 && (
+                  <div className="absolute left-[27px] top-14 w-0.5 h-[calc(100%-20px)] bg-gradient-to-b from-slate-700 to-transparent" />
+                )}
 
-              {/* Icon */}
-              <div className={cn(
-                "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
-                `bg-gradient-to-br ${gradient}`
-              )}>
-                <Icon className="h-5 w-5 text-white" />
-              </div>
-
-              {/* Content */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="text-sm font-medium text-white group-hover:text-orange-400 transition-colors">
-                      {activity.title}
-                    </p>
-                    <p className="text-sm text-slate-400 truncate">
-                      {activity.description}
-                    </p>
-                  </div>
-                  <span className="text-xs text-slate-500 whitespace-nowrap">
-                    {formatDistanceToNow(activity.timestamp, {
-                      addSuffix: true,
-                      locale: ptBR
-                    })}
-                  </span>
+                <div className={cn(
+                  "w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg",
+                  `bg-gradient-to-br ${gradient}`
+                )}>
+                  <Icon className="h-5 w-5 text-white" />
                 </div>
-                <p className="text-xs text-slate-500 mt-1">
-                  por {activity.user}
-                </p>
-              </div>
-            </motion.div>
-          );
-        })}
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-white group-hover:text-orange-400 transition-colors">
+                        {activity.title}
+                      </p>
+                      <p className="text-sm text-slate-400 truncate">
+                        {activity.description}
+                      </p>
+                    </div>
+                    <span className="text-xs text-slate-500 whitespace-nowrap">
+                      {formatDistanceToNow(activity.timestamp, {
+                        addSuffix: true,
+                        locale: ptBR
+                      })}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    por {activity.user}
+                  </p>
+                </div>
+              </motion.div>
+            );
+          })
+        )}
       </div>
 
       <style>{`
