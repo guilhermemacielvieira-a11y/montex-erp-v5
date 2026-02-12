@@ -139,7 +139,9 @@ export default function DespesasPage() {
   // Sincronizar despesas com dados do Supabase
   useEffect(() => {
     if (lancamentosDespesas && lancamentosDespesas.length > 0) {
-      const despesasConvertidas = lancamentosDespesas.map(l => ({
+      // Excluir lancamentos vinculados a obras (exclusivos de GestaoFinanceiraObra)
+        const despesasGerais = lancamentosDespesas.filter(l => !l.obraId && !l.obra_id);
+        const despesasConvertidas = despesasGerais.map(l => ({
         id: l.id,
         data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
         descricao: l.descricao || l.nome || '-',
