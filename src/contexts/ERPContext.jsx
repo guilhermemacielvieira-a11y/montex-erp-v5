@@ -28,7 +28,10 @@ import {
   transformPecaArray,
   transformPecaRecord,
   pecaToSupabase,
-  reverseTransformRecord
+  reverseTransformRecord,
+  transformObraArray,
+  calcularProgressoObra,
+  STATUS_MAP_SUPABASE
 } from './transforms';
 import { erpReducer } from './reducers';
 
@@ -227,7 +230,7 @@ export function ERPProvider({ children }) {
           // Transformar snake_case → camelCase
           const payload = {
             clientes: transformArray(clientesData),
-            obras: transformArray(obrasData),
+            obras: transformObraArray(obrasData),
             orcamentos: transformArray(orcamentosData),
             listas: transformArray(listasData),
             estoque: transformArray(estoqueData),
@@ -253,6 +256,9 @@ export function ERPProvider({ children }) {
           if (obrasData.length > 0) {
             payload.obraAtual = obrasData[0].id;
           }
+
+          // Calcular progresso das obras baseado nas pecas
+          payload.obras = calcularProgressoObra(payload.obras, payload.pecas);
 
           dispatch({ type: ACTIONS.INIT_FROM_SUPABASE, payload });
           setDataSource('supabase');
