@@ -35,7 +35,7 @@ const statusConfig = {
   'ativo': { label: 'Em Produção', color: 'text-orange-400', bg: 'bg-orange-500/20', icon: Factory },
   'concluido': { label: 'Concluída', color: 'text-emerald-400', bg: 'bg-emerald-500/20', icon: CheckCircle2 },
   'pausado': { label: 'Pausada', color: 'text-yellow-400', bg: 'bg-yellow-500/20', icon: AlertCircle },
-  'cancelado': { label: 'Cancelada', color: 'text-red-400', bg: 'bg-red-500/20', icon: AlertCircle },
+  'cancelado': { label: 'Cancelada', color: 'text-red-400', bg: 'bg-red-500/20', icon: AlertCircle }
 };
 
 export default function SeletorObra({ compact = false }) {

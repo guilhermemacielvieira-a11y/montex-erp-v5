@@ -67,6 +67,160 @@ import {
   checkConnection
 } from '@/api/supabaseClient';
 
+// ========================================
+// TRANSFORMADOR: snake_case → camelCase
+// ========================================
+function snakeToCamel(str) {
+  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+
+function transformRecord(record) {
+  if (!record || typeof record !== 'object') return record;
+  const result = {};
+  for (const [key, value] of Object.entries(record)) {
+    result[snakeToCamel(key)] = value;
+  }
+  return result;
+}
+
+function transformArray(records) {
+  return (records || []).map(transformRecord);
+}
+
+// Transformar peças com aliases (peso_total → peso para compatibilidade com mock)
+function transformPecaRecord(record) {
+  const base = transformRecord(record);
+  if (base) {
+    if (base.pesoTotal !== undefined && base.peso === undefined) {
+      base.peso = base.pesoTotal;
+    }
+    if (base.pesoUnitario !== undefined && base.pesoUnit === undefined) {
+      base.pesoUnit = base.pesoUnitario;
+    }
+    if (!base.peso && base.peso !== 0) base.peso = base.pesoTotal || base.pesoUnitario || 0;
+    if (!base.perfil) base.perfil = base.tipo || '';
+    if (!base.comprimento) base.comprimento = 0;
+    if (!base.material) base.material = 'A-36';
+    if (!base.tipo) base.tipo = base.nome || 'PEÇA';
+    if (!base.marca) base.marca = base.codigo || base.id || '';
+    if (!base.statusCorte) base.statusCorte = 'aguardando';
+    if (!base.etapa) base.etapa = 'aguardando';
+    if (!base.quantidade) base.quantidade = 1;
+  }
+  return base;
+}
+
+function transformPecaArray(records) {
+  return (records || []).map(transformPecaRecord);
+}
+
+// Mapeamento de status do Supabase → STATUS_OBRA do mock
+const STATUS_MAP_SUPABASE = {
+  'ativo': 'em_producao',
+  'concluido': 'concluida',
+  'pausado': 'aguardando_material',
+  'cancelado': 'cancelada',
+  'em_fabricacao': 'em_producao',
+  'planejamento': 'em_projeto'
+};
+
+// Transformar obras com aliases (contrato_peso_total → pesoTotal)
+function transformObraRecord(record) {
+  const base = transformRecord(record);
+  if (base) {
+    // Mapear status do Supabase para STATUS_OBRA
+    if (base.status && STATUS_MAP_SUPABASE[base.status]) {
+      base.status = STATUS_MAP_SUPABASE[base.status];
+    }
+    // Aliases para compatibilidade com mock
+    if (base.contratoPesoTotal !== undefined && base.pesoTotal === undefined) {
+      base.pesoTotal = base.contratoPesoTotal;
+    }
+    if (base.contratoValorTotal !== undefined && base.valorContrato === undefined) {
+      base.valorContrato = base.contratoValorTotal;
+    }
+    if (base.contratoPrazoMeses !== undefined && base.prazoMeses === undefined) {
+      base.prazoMeses = base.contratoPrazoMeses;
+    }
+    if (base.dataPrevistaFim !== undefined && base.previsaoTermino === undefined) {
+      base.previsaoTermino = base.dataPrevistaFim;
+    }
+    // Garantir que progresso existe (será calculado depois com dados de peças)
+    if (!base.progresso) {
+      base.progresso = {
+        corte: 0,
+        fabricacao: 0,
+        solda: 0,
+        pintura: 0,
+        expedicao: 0,
+        montagem: 0
+      };
+    }
+  }
+  return base;
+}
+
+function transformObraArray(records) {
+  return (records || []).map(transformObraRecord);
+}
+
+// Calcular progresso da obra baseado nas peças de produção reais
+function calcularProgressoObra(obras, pecas) {
+  return obras.map(obra => {
+    const pecasObra = pecas.filter(p => p.obraId === obra.id);
+    if (pecasObra.length === 0) return obra;
+
+    const total = pecasObra.length;
+    const etapas = {
+      corte: 0,
+      fabricacao: 0,
+      solda: 0,
+      pintura: 0,
+      expedicao: 0,
+      montagem: 0
+    };
+
+    // Contar peças por etapa (cada etapa inclui as anteriores)
+    pecasObra.forEach(p => {
+      const etapa = p.etapa || 'aguardando';
+      switch (etapa) {
+        case 'montagem':
+          etapas.montagem++;
+          // fall through
+        case 'expedido':
+          etapas.expedicao++;
+          // fall through
+        case 'pintura':
+          etapas.pintura++;
+          // fall through
+        case 'solda':
+          etapas.solda++;
+          // fall through
+        case 'fabricacao':
+          etapas.fabricacao++;
+          // fall through
+        case 'corte':
+          etapas.corte++;
+          break;
+        case 'aguardando':
+        default:
+          break;
+      }
+    });
+
+    return {
+      ...obra,
+      progresso: {
+        corte: Math.round((etapas.corte / total) * 100),
+        fabricacao: Math.round((etapas.fabricacao / total) * 100),
+        solda: Math.round((etapas.solda / total) * 100),
+        pintura: Math.round((etapas.pintura / total) * 100),
+        expedicao: Math.round((etapas.expedicao / total) * 100),
+        montagem: Math.round((etapas.montagem / total) * 100)
+      }
+    };
+  });
+}
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -230,13 +384,18 @@ export function ERPProvider({ children }) {
         // Se tem dados no Supabase, usar eles
         if (obrasData.length > 0 || pecasData.length > 0) {
           // Transformar snake_case → camelCase
+          const pecasTransformadas = transformPecaArray(pecasData);
+          const obrasTransformadas = transformObraArray(obrasData);
+          // Calcular progresso real baseado nas peças
+          const obrasComProgresso = calcularProgressoObra(obrasTransformadas, pecasTransformadas);
+
           const payload = {
             clientes: transformArray(clientesData),
-            obras: transformObraArray(obrasData),
+            obras: obrasComProgresso,
             orcamentos: transformArray(orcamentosData),
             listas: transformArray(listasData),
-            estoque: transformEstoqueArray(estoqueData),
-            pecas: transformPecaArray(pecasData),
+            estoque: transformArray(estoqueData),
+            pecas: pecasTransformadas,
             funcionarios: transformArray(funcionariosData),
             equipes: transformArray(equipesData),
             compras: transformArray(comprasData),
