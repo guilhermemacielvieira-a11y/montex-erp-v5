@@ -37,8 +37,18 @@ export function transformPecaRecord(record) {
     }
     if (base.pesoUnitario !== undefined && base.pesoUnit === undefined) {
       base.pesoUnit = base.pesoUnitario;
-    }
+    
   }
+    // Defaults para campos nulos (evitar crashes no Kanban)
+    if (!base.peso && base.peso !== 0) base.peso = base.pesoTotal || base.pesoUnitario || 0;
+    if (!base.perfil) base.perfil = base.tipo || '';
+    if (!base.comprimento) base.comprimento = 0;
+    if (!base.material) base.material = 'A-36';
+    if (!base.tipo) base.tipo = base.nome || 'PECA';
+    if (!base.marca) base.marca = base.codigo || base.id || '';
+    if (!base.statusCorte) base.statusCorte = 'aguardando';
+    if (!base.etapa) base.etapa = 'aguardando';
+    if (!base.quantidade) base.quantidade = 1;
   return base;
 }
 
@@ -104,4 +114,82 @@ export function reverseTransformRecord(record) {
     result[camelToSnake(key)] = value;
   }
   return result;
+}
+
+// ============================================
+// OBRA TRANSFORMS (Supabase -> React)
+// ============================================
+
+// Mapeamento de status do Supabase para STATUS_OBRA do sistema
+export const STATUS_MAP_SUPABASE = {
+  'ativo': 'em_producao',
+  'concluido': 'concluida',
+  'pausado': 'aguardando_material',
+  'cancelado': 'cancelada',
+  'em_fabricacao': 'em_producao',
+  'planejamento': 'em_projeto'
+};
+
+// Transformar registro de obra com aliases de campo
+export function transformObraRecord(record) {
+  const base = transformRecord(record);
+  if (base) {
+    // Mapear status do Supabase para status do sistema
+    if (base.status && STATUS_MAP_SUPABASE[base.status]) {
+      base.status = STATUS_MAP_SUPABASE[base.status];
+    }
+    // Aliases de campos do Supabase
+    if (base.contratoPesoTotal !== undefined && base.pesoTotal === undefined) {
+      base.pesoTotal = base.contratoPesoTotal;
+    }
+    if (base.contratoValorTotal !== undefined && base.valorContrato === undefined) {
+      base.valorContrato = base.contratoValorTotal;
+    }
+    if (base.contratoPrazoMeses !== undefined && base.prazoMeses === undefined) {
+      base.prazoMeses = base.contratoPrazoMeses;
+    }
+    if (base.dataPrevistaFim !== undefined && base.previsaoTermino === undefined) {
+      base.previsaoTermino = base.dataPrevistaFim;
+    }
+    // Garantir objeto progresso
+    if (!base.progresso) {
+      base.progresso = { corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, montagem: 0 };
+    }
+  }
+  return base;
+}
+
+// Transformar array de obras
+export function transformObraArray(records) {
+  return (records || []).map(transformObraRecord);
+}
+
+// Calcular progresso da obra baseado nas pecas
+export function calcularProgressoObra(obras, pecas) {
+  return obras.map(obra => {
+    const pecasObra = pecas.filter(p => p.obraId === obra.id);
+    if (pecasObra.length === 0) return obra;
+    const total = pecasObra.length;
+    const etapas = { corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, montagem: 0 };
+    pecasObra.forEach(p => {
+      const etapa = p.etapa || 'aguardando';
+      switch (etapa) {
+        case 'montagem': etapas.montagem++;
+        case 'expedido': etapas.expedicao++;
+        case 'pintura': etapas.pintura++;
+        case 'solda': etapas.solda++;
+        case 'fabricacao': etapas.fabricacao++;
+        case 'corte': etapas.corte++; break;
+        case 'aguardando': default: break;
+      }
+    });
+    return { ...obra, progresso: {
+      corte: Math.round((etapas.corte / total) * 100),
+      fabricacao: Math.round((etapas.fabricacao / total) * 100),
+      solda: Math.round((etapas.solda / total) * 100),
+      pintura: Math.round((etapas.pintura / total) * 100),
+      expedicao: Math.round((etapas.expedicao / total) * 100),
+      montagem: Math.round((etapas.montagem / total) * 100)
+    }};
+  });
 }
