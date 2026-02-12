@@ -93,7 +93,7 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
   const status = getStatusEstoque(item);
   const StatusIcon = status.icon;
   const porcentagemUsada = Math.min(100, (item.quantidade / (item.minimo * 2)) * 100);
-  const reservadoParaObra = item.obraReservada === obraAtual?.id;
+  const reservadoParaObra = (item.obraReservada || item.obraId || item.obra_id) === obraAtual?.id;
 
   return (
     <motion.div
@@ -121,8 +121,8 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
           <p className="text-slate-300 text-sm truncate">{item.descricao}</p>
           <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
             <span>📍 {item.localizacao}</span>
-            <span>📦 {item.categoria}</span>
-            <span>💰 R$ {item.precoUnitario?.toFixed(2)}/{item.unidade}</span>
+            <span>📦 {item.categoria || item.tipo}</span>
+            <span>💰 R$ {(item.precoUnitario || 0).toFixed(2)}/{item.unidade}</span>
           </div>
         </div>
 
@@ -195,7 +195,7 @@ export default function EstoquePageV2() {
     let items = filtroObra === 'obra_atual' ? estoqueObraAtual : estoque;
 
     if (filtroCategoria !== 'todas') {
-      items = items.filter(item => item.categoria === filtroCategoria);
+      items = items.filter(item => (item.categoria || item.tipo) === filtroCategoria);
     }
 
     if (filtroStatus !== 'todos') {
@@ -219,7 +219,7 @@ export default function EstoquePageV2() {
   // Hook de paginação inteligente para a tab de itens
   const paginationItens = useSmartPagination('estoque', estoqueFiltrado, {
     pageSize: 30,
-    orderBy: 'created_at',
+    orderBy: 'updated_at',
     ascending: false,
     filters: {},
     search: '',
@@ -229,7 +229,7 @@ export default function EstoquePageV2() {
   // Hook de paginação inteligente para itens vinculados à obra
   const paginationVinculados = useSmartPagination('estoque', estoqueObraAtual, {
     pageSize: 30,
-    orderBy: 'created_at',
+    orderBy: 'updated_at',
     ascending: false,
     filters: {},
     search: '',
@@ -260,8 +260,8 @@ export default function EstoquePageV2() {
 
   const dadosCategoriaBar = CATEGORIAS_MATERIAL.map(cat => ({
     name: cat.nome.substring(0, 8),
-    quantidade: estoque.filter(i => i.categoria === cat.id).length,
-    valor: estoque.filter(i => i.categoria === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.precoUnitario) || 0)), 0) / 1000
+    quantidade: estoque.filter(i => (i.categoria || i.tipo) === cat.id).length,
+    valor: estoque.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.precoUnitario) || 0)), 0) / 1000
   }));
 
   const handleEdit = (item) => {
