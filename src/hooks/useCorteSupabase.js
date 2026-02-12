@@ -1,8 +1,8 @@
 // ============================================
 // USE CORTE SUPABASE - Hook para Corte com Persistência
 // ============================================
-// Substitui o corteStatusStore (em memória) por dados
-// reais do Supabase via ERPContext/ProducaoContext.
+// Lê dados da tabela materiais_corte do Supabase
+// (importada da planilha BELO-VALE_LISTA_MATERIAIS PARA CORTE)
 //
 // Status possíveis (modelo de 3 estados):
 //   'aguardando'  → Peça na fila para corte
@@ -10,99 +10,146 @@
 //   'finalizado'  → Corte concluído
 // ============================================
 
-import { useMemo, useCallback, useContext } from 'react';
-import ERPContext, { useProducao } from '../contexts/ERPContext';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { supabase } from '../api/supabaseClient';
 
 /**
- * Hook que fornece dados de corte persistidos no Supabase.
- * Mesma interface que o antigo corteStatusStore, mas com persistência real.
+ * Hook que fornece dados de corte da tabela materiais_corte do Supabase.
  *
  * @returns {object} { items, metrics, categorias, iniciarCorte, finalizarCorte,
  *                      resetarCorte, finalizarCorteEmLote, contarCortadasParaConjunto, loading }
  */
 export function useCorteSupabase() {
-  // Contextos do ERP
-  const erpCore = useContext(ERPContext);
-  const dataSource = erpCore?.dataSource || 'loading';
-  const { pecas, updatePeca } = useProducao();
+  const [rawItems, setRawItems] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // ===== MAPEAR PEÇAS DO SUPABASE PARA FORMATO DO KANBAN =====
+  // ===== CARREGAR DADOS DO SUPABASE =====
+  const fetchData = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('materiais_corte')
+        .select('*')
+        .order('marca', { ascending: true });
+
+      if (error) throw error;
+      setRawItems(data || []);
+    } catch (err) {
+      console.error('[useCorteSupabase] Erro ao carregar materiais_corte:', err);
+      setRawItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // ===== MAPEAR PARA FORMATO DO KANBAN =====
   const allItems = useMemo(() => {
-    if (!pecas || pecas.length === 0) return [];
-    return pecas.map(p => ({
+    if (!rawItems || rawItems.length === 0) return [];
+    return rawItems.map(p => ({
       id: p.id,
-      marca: String(p.marca || p.id),
-      peca: p.tipo || p.nome || '',
-      nome: p.nome || '',
+      marca: String(p.marca || ''),
+      peca: p.peca || '',
       perfil: p.perfil || '',
-      comprimento: p.comprimento || 0,
+      comprimento: p.comprimento_mm || 0,
       material: p.material || '',
       quantidade: p.quantidade || 1,
-      peso: p.pesoTotal || p.peso || p.pesoUnitario || 0,
-      status: normalizeStatus(p.statusCorte),
-      dataInicio: p.dataInicio || null,
-      dataFim: p.dataFimReal || null,
-      maquina: null
+      peso: parseFloat(p.peso_teorico) || 0,
+      status: normalizeStatus(p.status_corte),
+      dataInicio: p.data_inicio || null,
+      dataFim: p.data_fim || null,
+      maquina: p.maquina || null
     }));
-  }, [pecas]);
+  }, [rawItems]);
 
   // ===== AÇÕES DE CORTE (com persistência Supabase) =====
 
   const iniciarCorte = useCallback(async (id) => {
     try {
-      await updatePeca(id, {
-        statusCorte: 'cortando',
-        dataInicio: new Date().toISOString().split('T')[0]
-      });
+      const { error } = await supabase
+        .from('materiais_corte')
+        .update({
+          status_corte: 'cortando',
+          data_inicio: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      if (error) throw error;
+      await fetchData();
       return true;
     } catch (err) {
       console.error('Erro ao iniciar corte:', err);
       return false;
     }
-  }, [updatePeca]);
+  }, [fetchData]);
 
   const finalizarCorte = useCallback(async (id) => {
     try {
-      await updatePeca(id, {
-        statusCorte: 'finalizado',
-        dataFimReal: new Date().toISOString().split('T')[0]
-      });
+      const { error } = await supabase
+        .from('materiais_corte')
+        .update({
+          status_corte: 'finalizado',
+          data_fim: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      if (error) throw error;
+      await fetchData();
       return true;
     } catch (err) {
       console.error('Erro ao finalizar corte:', err);
       return false;
     }
-  }, [updatePeca]);
+  }, [fetchData]);
 
   const resetarCorte = useCallback(async (id) => {
     try {
-      await updatePeca(id, {
-        statusCorte: 'aguardando'
-      });
+      const { error } = await supabase
+        .from('materiais_corte')
+        .update({
+          status_corte: 'aguardando',
+          data_inicio: null,
+          data_fim: null,
+          maquina: null,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id);
+      if (error) throw error;
+      await fetchData();
       return true;
     } catch (err) {
       console.error('Erro ao resetar corte:', err);
       return false;
     }
-  }, [updatePeca]);
+  }, [fetchData]);
 
   const finalizarCorteEmLote = useCallback(async (ids) => {
     let count = 0;
-    const dataFim = new Date().toISOString().split('T')[0];
+    const dataFim = new Date().toISOString();
     const promises = ids.map(async (id) => {
       const item = allItems.find(i => i.id === id);
       if (item && item.status !== 'finalizado') {
         try {
-          await updatePeca(id, { statusCorte: 'finalizado', dataFimReal: dataFim });
-          count++;
+          const { error } = await supabase
+            .from('materiais_corte')
+            .update({
+              status_corte: 'finalizado',
+              data_fim: dataFim,
+              updated_at: dataFim
+            })
+            .eq('id', id);
+          if (!error) count++;
         } catch (err) {
-          console.error(`Erro ao finalizar ${id}:`, err);
+          console.error('Erro ao finalizar ' + id + ':', err);
         }
       }
     });
     await Promise.all(promises);
+    await fetchData();
     return count;
-  }, [allItems, updatePeca]);
+  }, [allItems, fetchData]);
 
   // ===== MÉTRICAS / KPIs =====
   const metrics = useMemo(() => {
@@ -186,7 +233,7 @@ export function useCorteSupabase() {
     resetarCorte,
     finalizarCorteEmLote,
     contarCortadasParaConjunto,
-    loading: dataSource === 'loading'
+    loading
   };
 }
 
