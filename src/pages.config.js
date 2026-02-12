@@ -112,6 +112,7 @@ const ColaboracaoProjetos = lazy(() => import('./pages/ColaboracaoProjetos'));
 const AssistenteTecnico = lazy(() => import('./pages/AssistenteTecnico'));
 const Chatbot = lazy(() => import('./pages/Chatbot'));
 const MultiObrasPage = lazy(() => import('./pages/MultiObrasPage'));
+const GestaoObrasPage = lazy(() => import('./pages/GestaoObrasPage'));
 const VendasPage = lazy(() => import('./pages/VendasPage'));
 
 // ===== ADMIN =====
@@ -124,7 +125,7 @@ import __Layout from './Layout.jsx';
 export const PAGES = {
     // Core
     "DashboardPremium": DashboardPremium,
-        "VisaoGeralPage": VisaoGeralPage,
+    "VisaoGeralPage": VisaoGeralPage,
     "Clientes": Clientes,
     "Projetos": Projetos,
 
@@ -206,6 +207,7 @@ export const PAGES = {
     "AssistenteTecnico": AssistenteTecnico,
     "Chatbot": Chatbot,
     "MultiObrasPage": MultiObrasPage,
+    "GestaoObrasPage": GestaoObrasPage,
     "VendasPage": VendasPage,
 
     // Admin
