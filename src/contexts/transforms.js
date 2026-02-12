@@ -37,7 +37,7 @@ export function transformPecaRecord(record) {
     }
     if (base.pesoUnitario !== undefined && base.pesoUnit === undefined) {
       base.pesoUnit = base.pesoUnitario;
-    
+    }
   }
     // Defaults para campos nulos (evitar crashes no Kanban)
     if (!base.peso && base.peso !== 0) base.peso = base.pesoTotal || base.pesoUnitario || 0;
