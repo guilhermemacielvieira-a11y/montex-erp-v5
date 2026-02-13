@@ -1,18 +1,17 @@
-// ============================================
-// MONTEX ERP 3D - MÓDULO INTEGRADO AO ERP
-// Versão: 3.0.0 - Visualizações Avançadas
-// ============================================
+// ==============================================
+// MONTEX ERP 3D - MODULO INTEGRADO AO ERP
+// Versao: 4.0.0 - Correcoes Layout + Importacao IFC
+// ==============================================
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { useObras, useProducao } from '@/contexts/ERPContext';
 import { ETAPAS_PRODUCAO } from '@/data/database';
 
-// ============================================
-// CONFIGURAÇÕES E CONSTANTES
-// ============================================
+// ==============================================
+// CONFIGURACOES E CONSTANTES
+// ==============================================
 
-// Mapeamento de ETAPAS_PRODUCAO (ERP) para STATUS 3D
 const STATUS_MAP = {
   [ETAPAS_PRODUCAO.AGUARDANDO]: 'NAO_INICIADO',
   [ETAPAS_PRODUCAO.CORTE]: 'EM_FABRICACAO',
@@ -22,1197 +21,817 @@ const STATUS_MAP = {
   [ETAPAS_PRODUCAO.EXPEDIDO]: 'MONTADO'
 };
 
-// Status 3D com cores e configurações visuais - Paleta melhorada
 export const STATUS_CONFIG = {
-  NAO_INICIADO: { color: 0x6b7280, emissive: 0x1a1a1a, label: 'Não Iniciado', icon: '⏳', opacity: 0.4 },
-  EM_FABRICACAO: { color: 0xf59e0b, emissive: 0x663300, label: 'Em Fabricação', icon: '🔧', opacity: 0.7 },
+  NAO_INICIADO: { color: 0x6b7280, emissive: 0x1a1a1a, label: 'Nao Iniciado', icon: '⏳', opacity: 0.4 },
+  EM_FABRICACAO: { color: 0xf59e0b, emissive: 0x663300, label: 'Em Fabricacao', icon: '🔧', opacity: 0.7 },
   FABRICADO: { color: 0x3b82f6, emissive: 0x1a365d, label: 'Fabricado', icon: '✓', opacity: 0.85 },
   EM_MONTAGEM: { color: 0x8b5cf6, emissive: 0x44337a, label: 'Em Montagem', icon: '🏗️', opacity: 0.9 },
   MONTADO: { color: 0x10b981, emissive: 0x1c4532, label: 'Montado', icon: '✅', opacity: 1.0 }
 };
 
-// Configuração de tipos de elementos
 export const TYPE_CONFIG = {
   COLUNA: { color: 0x2563eb, geometry: 'box', baseHeight: 9.5 },
   TESOURA: { color: 0xdc2626, geometry: 'box', baseHeight: 0.3 },
   'VIGA-MESTRA': { color: 0x059669, geometry: 'box', baseHeight: 0.2 },
   VIGA: { color: 0x10b981, geometry: 'box', baseHeight: 0.2 },
-  TERÇA: { color: 0xd97706, geometry: 'box', baseHeight: 0.15 },
+  TERCA: { color: 0xd97706, geometry: 'box', baseHeight: 0.15 },
   TIRANTE: { color: 0x7c3aed, geometry: 'cylinder', baseHeight: 0.05 },
   CONTRAVENTAMENTO: { color: 0xdb2777, geometry: 'cylinder', baseHeight: 0.03 },
-  TRELIÇA: { color: 0x0891b2, geometry: 'box', baseHeight: 0.5 },
+  TRELICA: { color: 0x0891b2, geometry: 'box', baseHeight: 0.5 },
   CALHA: { color: 0x65a30d, geometry: 'box', baseHeight: 0.2 },
-  'TERÇA-TAP': { color: 0xea580c, geometry: 'box', baseHeight: 0.1 }
+  'TERCA-TAP': { color: 0xa3580c, geometry: 'box', baseHeight: 0.1 }
 };
 
-// Grid padrão para geração de elementos
 const GRID = {
-  eixoX: [0, 4.5, 9.0, 13.5, 18.0, 22.5, 27.0, 31.5, 36.0, 40.5, 45.0, 49.5, 54.0, 58.5, 63.0, 67.5, 72.0, 76.5, 81.0, 85.0],
-  filaY: { A: 0, B: 9.7, C: 21.1, D: 31.4, E: 35.4, F: 40.8, G: 45.2, H: 49.7 },
-  filas: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'],
-  eixos: Array.from({length: 20}, (_, i) => i + 1)
+  eixoX: [0,4.5,9,13.5,18,22.5,27,31.5,36,40.5,45,49.5,54,58.5,63,67.5,72,76.5,81,85],
+  filaY: { A:0, B:9.7, C:21.1, D:31.4, E:35.4, F:40.8, G:45.2, H:49.7 },
+  filas: ['A','B','C','D','E','F','G','H']
 };
 
-// ============================================
-// FUNÇÃO PARA CONVERTER PEÇAS DO ERP PARA ELEMENTOS 3D
-// ============================================
-
-const convertPecasToElements = (pecas, _obraData) => {
-  if (!pecas || pecas.length === 0) {
-    return generateDemoElements(); // Fallback para demo
-  }
-
-  return pecas.map((peca, idx) => {
-    // Mapear etapa ERP para status 3D
-    const status3D = STATUS_MAP[peca.etapa] || 'NAO_INICIADO';
-
-    // Calcular posição baseada no índice e tipo
-    const tipo = peca.tipo?.toUpperCase() || 'VIGA';
-    const typeConfig = TYPE_CONFIG[tipo] || TYPE_CONFIG.VIGA;
-
-    // Distribuir elementos no grid
-    const eixoIdx = idx % GRID.eixoX.length;
-    const filaIdx = Math.floor(idx / GRID.eixoX.length) % GRID.filas.length;
-
-    return {
-      id: peca.id || idx + 1,
-      type: tipo,
-      profile: peca.perfil || 'W200X19.3',
-      x: GRID.eixoX[eixoIdx] || idx * 5,
-      y: GRID.filaY[GRID.filas[filaIdx]] || idx * 3,
-      z: tipo === 'COLUNA' ? 0 : 7 + Math.random() * 2,
-      length: peca.comprimento || typeConfig.baseHeight,
-      width: 0.2 + Math.random() * 0.2,
-      depth: 0.1 + Math.random() * 0.1,
-      rotation: tipo === 'COLUNA' ? [0, 0, 0] : [0, 0, Math.random() * 0.5],
-      posicao: peca.posicao || `${eixoIdx + 1}/${GRID.filas[filaIdx]}`,
-      eixo: eixoIdx + 1,
-      fila: GRID.filas[filaIdx],
-      peso: peca.peso || 100,
-      status: status3D,
-      etapa_producao: peca.etapa,
-      marca: peca.marca,
-      quantidade: peca.quantidade,
-      data_fabricacao: peca.dataCorte,
-      data_montagem: peca.etapa === ETAPAS_PRODUCAO.EXPEDIDO ? new Date().toISOString().split('T')[0] : null
-    };
-  });
+const VIEW_PRESETS = {
+  frontal: { pos: [40,15,80], target: [40,5,25] },
+  lateral: { pos: [90,15,25], target: [40,5,25] },
+  top: { pos: [40,60,25], target: [40,0,25] },
+  iso: { pos: [70,30,60], target: [40,5,25] },
+  '3d': { pos: [60,25,55], target: [40,5,25] }
 };
 
-// ============================================
-// GERADOR DE ELEMENTOS DEMO (FALLBACK)
-// ============================================
+// ==============================================
+// COMPONENTE VIEWER 3D (Three.js)
+// ==============================================
 
-const generateDemoElements = () => {
-  const elements = [];
-  let id = 1;
-  const { eixoX, filaY, filas } = GRID;
-
-  // COLUNAS
-  for (let ei = 0; ei < 17; ei += 4) {
-    filas.forEach((fila, fi) => {
-      if (fi % 2 === 0) {
-        const prog = Math.random();
-        elements.push({
-          id: id++, type: 'COLUNA', profile: 'W410X53',
-          x: eixoX[ei], y: filaY[fila], z: 0,
-          length: 9.5, width: 0.4, depth: 0.4, rotation: [0, 0, 0],
-          posicao: `${ei + 1}/${fila}`, eixo: ei + 1, fila,
-          peso: 598,
-          status: prog > 0.7 ? 'MONTADO' : prog > 0.5 ? 'EM_MONTAGEM' : prog > 0.3 ? 'FABRICADO' : 'EM_FABRICACAO'
-        });
-      }
-    });
-  }
-
-  // TESOURAS
-  for (let i = 0; i < 16; i += 2) {
-    filas.forEach((fila, fIdx) => {
-      if (fIdx < filas.length - 1) {
-        const nextFila = filas[fIdx + 1];
-        const prog = Math.random();
-        elements.push({
-          id: id++, type: 'TESOURA', profile: 'W250X25.3',
-          x: eixoX[i], y: (filaY[fila] + filaY[nextFila]) / 2, z: 8.5,
-          length: filaY[nextFila] - filaY[fila], width: 0.25, depth: 0.1,
-          rotation: [0, 0, Math.PI / 2],
-          posicao: `${i + 1}/${fila}-${nextFila}`, eixo: i + 1, fila,
-          peso: 350,
-          status: prog > 0.6 ? 'FABRICADO' : prog > 0.3 ? 'EM_FABRICACAO' : 'NAO_INICIADO'
-        });
-      }
-    });
-  }
-
-  // VIGAS
-  filas.filter((_, i) => i % 3 === 0).forEach(fila => {
-    for (let i = 0; i < 15; i += 8) {
-      elements.push({
-        id: id++, type: 'VIGA-MESTRA', profile: 'W200X19.3',
-        x: (eixoX[i] + eixoX[i + 4]) / 2, y: filaY[fila], z: 7.5,
-        length: 18, width: 0.2, depth: 0.1,
-        rotation: [0, 0, 0],
-        posicao: `${i + 1}-${i + 5}/${fila}`, eixo: i + 1, fila,
-        peso: 973,
-        status: Math.random() > 0.5 ? 'FABRICADO' : 'EM_FABRICACAO'
-      });
-    }
-  });
-
-  // TERÇAS
-  for (let i = 0; i < 17; i += 2) {
-    for (let j = 0; j < 6; j++) {
-      const yPos = j * 8;
-      if (yPos <= 49.7) {
-        elements.push({
-          id: id++, type: 'TERÇA', profile: 'UE200X75X20X2',
-          x: eixoX[i], y: yPos, z: 9.0,
-          length: 4.5, width: 0.2, depth: 0.075,
-          rotation: [0, 0, 0],
-          posicao: `${i + 1}/T${j + 1}`, eixo: i + 1, fila: 'T' + (j + 1),
-          peso: 28,
-          status: 'NAO_INICIADO'
-        });
-      }
-    }
-  }
-
-  return elements;
-};
-
-// ============================================
-// HELPER: Interpolação linear (Lerp)
-// ============================================
-
-const lerp = (start, end, t) => start + (end - start) * Math.max(0, Math.min(1, t));
-
-// ============================================
-// HELPER: Presets de câmera
-// ============================================
-
-const CAMERA_PRESETS = {
-  frontal: { pos: { x: 40, y: 25, z: -80 }, target: { x: 40, y: 25, z: 5 } },
-  lateral: { pos: { x: 120, y: 30, z: 25 }, target: { x: 40, y: 25, z: 5 } },
-  superior: { pos: { x: 40, y: 120, z: 25 }, target: { x: 40, y: 25, z: 5 } },
-  isometrica: { pos: { x: 100, y: 60, z: 100 }, target: { x: 40, y: 25, z: 5 } },
-  perspectiva: { pos: { x: 80, y: 50, z: 80 }, target: { x: 40, y: 25, z: 5 } }
-};
-
-// ============================================
-// COMPONENTE VIEWER 3D - VERSÃO MELHORADA
-// ============================================
-
-const Viewer3D = ({
-  elements,
-  selectedElement,
-  onSelectElement,
-  viewMode,
-  activeFilters,
-  highlightType,
-  regionFilter,
-  timelineDate,
-  isVRMode
-}) => {
+function Scene3DViewer({ pieces, viewMode, colorMode, activeFilters, highlightType, regionFilter, onSelectPiece, selectedPiece }) {
   const containerRef = useRef(null);
   const sceneRef = useRef(null);
-  const rendererRef = useRef(null);
   const cameraRef = useRef(null);
-  const controlsRef = useRef({ isDragging: false, rotation: { x: -0.4, y: 0.6 }, zoom: 120, target: { x: 40, y: 25, z: 5 } });
-  const meshesRef = useRef(new Map());
-  const animationRef = useRef(null);
+  const rendererRef = useRef(null);
+  const meshesRef = useRef([]);
   const raycasterRef = useRef(new THREE.Raycaster());
   const mouseRef = useRef(new THREE.Vector2());
-  const cameraTransitionRef = useRef(null);
-  const [hoveredElement, setHoveredElement] = useState(null);
-  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 });
+  const isDraggingRef = useRef(false);
+  const lastMouseRef = useRef({ x: 0, y: 0 });
+  const rotationRef = useRef({ x: -0.4, y: 0.6 });
+  const zoomRef = useRef(1);
+  const animFrameRef = useRef(null);
 
+  // Initialize Three.js scene
   useEffect(() => {
     if (!containerRef.current) return;
+    const container = containerRef.current;
+    const w = container.clientWidth;
+    const h = container.clientHeight;
+    const isDark = document.documentElement.classList.contains('dark');
+    const bgColor = isDark ? 0x0f172a : 0xf0f4f8;
 
-    // Scene com background gradient
     const scene = new THREE.Scene();
-    const isDarkMode = document.documentElement.classList.contains('dark');
-    scene.background = new THREE.Color(isDarkMode ? 0x0a0a0f : 0xf0f4f8);
-    scene.fog = new THREE.FogExp2(isDarkMode ? 0x0a0a0f : 0xf0f4f8, 0.006);
+    scene.background = new THREE.Color(bgColor);
+    scene.fog = new THREE.Fog(bgColor, 80, 200);
     sceneRef.current = scene;
 
-    // Camera
-    const aspect = containerRef.current.clientWidth / containerRef.current.clientHeight;
-    const camera = new THREE.PerspectiveCamera(isVRMode ? 90 : 50, aspect, 0.1, 1000);
-    camera.position.set(120, 80, 120);
+    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 1000);
+    camera.position.set(60, 25, 55);
+    camera.lookAt(40, 5, 25);
     cameraRef.current = camera;
 
-    // Renderer
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+    renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.2;
-    containerRef.current.appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
-    // Lights aprimoradas
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-    scene.add(ambientLight);
+    // Lights
+    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+    scene.add(ambient);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    dirLight.position.set(50, 50, 30);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 2048;
+    dirLight.shadow.mapSize.height = 2048;
+    scene.add(dirLight);
+    const pointLight = new THREE.PointLight(0x3b82f6, 0.4, 100);
+    pointLight.position.set(40, 20, 25);
+    scene.add(pointLight);
 
-    const sun = new THREE.DirectionalLight(0xfff5e6, 1.8);
-    sun.position.set(100, 150, 80);
-    sun.castShadow = true;
-    sun.shadow.mapSize.width = 4096;
-    sun.shadow.mapSize.height = 4096;
-    sun.shadow.camera.near = 0.5;
-    sun.shadow.camera.far = 500;
-    sun.shadow.camera.left = -100;
-    sun.shadow.camera.right = 100;
-    sun.shadow.camera.top = 100;
-    sun.shadow.camera.bottom = -100;
-    scene.add(sun);
+    // Ground
+    const groundGeo = new THREE.PlaneGeometry(120, 80);
+    const groundMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x1e293b : 0xe2e8f0, roughness: 0.8 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.set(40, -0.1, 25);
+    ground.receiveShadow = true;
+    scene.add(ground);
 
-    scene.add(new THREE.DirectionalLight(0x87ceeb, 0.5).translateX(-50).translateY(50));
-    scene.add(new THREE.HemisphereLight(0x87ceeb, 0x3d3d3d, 0.6));
+    const gridHelper = new THREE.GridHelper(120, 40, 0x334155, 0x1e293b);
+    gridHelper.position.set(40, 0, 25);
+    scene.add(gridHelper);
 
-    // Floor melhorado
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshStandardMaterial({ color: isDarkMode ? 0x1a1a1a : 0xe5e7eb, roughness: 0.8, metalness: 0.1 })
-    );
-    floor.rotation.x = -Math.PI / 2;
-    floor.position.set(40, -0.1, 25);
-    floor.receiveShadow = true;
-    scene.add(floor);
-
-    // Grid melhorado
-    const grid = new THREE.GridHelper(200, 40, isDarkMode ? 0x444444 : 0xcccccc, isDarkMode ? 0x1a1a1a : 0xe5e7eb);
-    grid.position.set(40, 0, 25);
-    grid.material.opacity = 0.2;
-    grid.material.transparent = true;
-    scene.add(grid);
-
-    // === LABELS 3D NOS EIXOS ===
-    const createTextSprite = (text, position, color = '#ffffff', size = 1.2) => {
-      const canvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 128;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = 'rgba(0,0,0,0.6)';
-      ctx.beginPath();
-      ctx.roundRect(10, 10, 236, 108, 12);
-      ctx.fill();
-      ctx.fillStyle = color;
-      ctx.font = 'bold 56px Arial';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, 128, 64);
-      const texture = new THREE.CanvasTexture(canvas);
-      const spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.85 });
-      const sprite = new THREE.Sprite(spriteMat);
-      sprite.position.set(position.x, position.y, position.z);
-      sprite.scale.set(size * 3, size * 1.5, 1);
-      return sprite;
-    };
-
-    // Labels dos Eixos (1-20 ao longo do X)
-    [0, 4, 8, 12, 16].forEach(ei => {
-      if (GRID.eixoX[ei] !== undefined) {
-        const label = createTextSprite(`E${ei + 1}`, { x: GRID.eixoX[ei], y: 0.5, z: -3 }, '#60a5fa', 0.8);
-        scene.add(label);
-      }
-    });
-
-    // Labels das Filas (A-H ao longo do Z)
-    GRID.filas.forEach(fila => {
-      const label = createTextSprite(fila, { x: -4, y: 0.5, z: GRID.filaY[fila] }, '#f59e0b', 0.8);
-      scene.add(label);
-    });
-
-    // Mouse tracking para hover
-    const onMouseMove = (e) => {
-      if (controlsRef.current.isDragging) {
-        const dx = e.clientX - controlsRef.current.lastMouse.x;
-        const dy = e.clientY - controlsRef.current.lastMouse.y;
-        controlsRef.current.rotation.y += dx * 0.005;
-        controlsRef.current.rotation.x = Math.max(-1.5, Math.min(0.2, controlsRef.current.rotation.x + dy * 0.005));
-        controlsRef.current.lastMouse = { x: e.clientX, y: e.clientY };
-      }
-
-      // Raycasting para hover
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycasterRef.current.setFromCamera(mouseRef.current, camera);
-      const intersects = raycasterRef.current.intersectObjects(Array.from(meshesRef.current.values()));
-
+    // Animate loop
+    const animate = () => {
+      animFrameRef.current = requestAnimationFrame(animate);
+      scene.rotation.y = rotationRef.current.y;
+      scene.rotation.x = rotationRef.current.x;
+      camera.zoom = zoomRef.current;
+      camera.updateProjectionMatrix();
       meshesRef.current.forEach(mesh => {
-        const wasHovered = mesh.userData.hovered;
-        mesh.userData.hovered = false;
-        if (wasHovered && !mesh.userData.selected) {
-          mesh.material.emissive.setHex(0x000000);
+        const ud = mesh.userData;
+        if (ud.selected) {
+          mesh.material.emissive.setHex(0x3b82f6);
+        } else if (ud.hovered) {
+          mesh.material.emissive.setHex(0xf59e0b);
+        } else {
+          const sc = STATUS_CONFIG[ud.status];
+          if (sc) mesh.material.emissive.setHex(sc.emissive);
         }
       });
-
-      if (intersects.length > 0) {
-        const mesh = intersects[0].object;
-        if (mesh.userData && !mesh.userData.selected) {
-          mesh.userData.hovered = true;
-          mesh.material.emissive.setHex(0xffff00);
-        }
-        setHoveredElement(mesh.userData);
-        setHoverPos({ x: e.clientX, y: e.clientY });
-      } else {
-        setHoveredElement(null);
-      }
-    };
-
-    const onMouseDown = (e) => {
-      controlsRef.current.isDragging = true;
-      controlsRef.current.lastMouse = { x: e.clientX, y: e.clientY };
-    };
-
-    const onMouseUp = () => {
-      controlsRef.current.isDragging = false;
-    };
-
-    const onClick = (e) => {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycasterRef.current.setFromCamera(mouseRef.current, camera);
-      const intersects = raycasterRef.current.intersectObjects(Array.from(meshesRef.current.values()));
-
-      if (intersects.length > 0) {
-        const mesh = intersects[0].object;
-        if (mesh.userData) {
-          onSelectElement(mesh.userData);
-        }
-      }
-    };
-
-    const onWheel = (e) => {
-      e.preventDefault();
-      controlsRef.current.zoom = Math.max(30, Math.min(300, controlsRef.current.zoom + e.deltaY * 0.1));
-    };
-
-    renderer.domElement.addEventListener('mousemove', onMouseMove);
-    renderer.domElement.addEventListener('mousedown', onMouseDown);
-    renderer.domElement.addEventListener('mouseup', onMouseUp);
-    renderer.domElement.addEventListener('mouseleave', onMouseUp);
-    renderer.domElement.addEventListener('click', onClick);
-    renderer.domElement.addEventListener('wheel', onWheel, { passive: false });
-
-    // Animation loop com transição de câmera suave
-    const animate = () => {
-      animationRef.current = requestAnimationFrame(animate);
-      const c = controlsRef.current;
-
-      // Aplicar transição de câmera se houver
-      if (cameraTransitionRef.current) {
-        const { startPos, startTarget, endPos, endTarget, progress } = cameraTransitionRef.current;
-        const t = Math.min(progress + 0.05, 1);
-
-        c.target.x = lerp(startTarget.x, endTarget.x, t);
-        c.target.y = lerp(startTarget.y, endTarget.y, t);
-        c.target.z = lerp(startTarget.z, endTarget.z, t);
-        c.zoom = lerp(Math.sqrt(startPos.x**2 + startPos.y**2 + startPos.z**2), Math.sqrt(endPos.x**2 + endPos.y**2 + endPos.z**2), t);
-
-        cameraTransitionRef.current.progress = t;
-        if (t >= 1) cameraTransitionRef.current = null;
-      }
-
-      camera.position.x = c.target.x + c.zoom * Math.sin(c.rotation.y) * Math.cos(c.rotation.x);
-      camera.position.y = c.target.z + c.zoom * Math.sin(-c.rotation.x) + 30;
-      camera.position.z = c.target.y + c.zoom * Math.cos(c.rotation.y) * Math.cos(c.rotation.x);
-      camera.lookAt(c.target.x, c.target.z, c.target.y);
       renderer.render(scene, camera);
     };
     animate();
 
+    const handleResize = () => {
+      const nw = container.clientWidth;
+      const nh = container.clientHeight;
+      camera.aspect = nw / nh;
+      camera.updateProjectionMatrix();
+      renderer.setSize(nw, nh);
+    };
+    window.addEventListener('resize', handleResize);
+
     return () => {
-      cancelAnimationFrame(animationRef.current);
-      renderer.domElement.removeEventListener('mousemove', onMouseMove);
-      renderer.domElement.removeEventListener('mousedown', onMouseDown);
-      renderer.domElement.removeEventListener('mouseup', onMouseUp);
-      renderer.domElement.removeEventListener('mouseleave', onMouseUp);
-      renderer.domElement.removeEventListener('click', onClick);
-      renderer.domElement.removeEventListener('wheel', onWheel);
-
-      // Limpar todos os meshes da cena
-      meshesRef.current.forEach(mesh => {
-        mesh.geometry?.dispose();
-        mesh.material?.dispose();
-      });
-      meshesRef.current.clear();
-
-      // Limpar objetos da cena (floor, grid, lights, sprites)
-      scene.traverse(obj => {
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) {
-          if (obj.material.map) obj.material.map.dispose();
-          obj.material.dispose();
-        }
-      });
-
+      window.removeEventListener('resize', handleResize);
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       renderer.dispose();
-      if (containerRef.current?.contains(renderer.domElement)) {
-        containerRef.current.removeChild(renderer.domElement);
-      }
+      if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
     };
-  }, [isVRMode, onSelectElement]);
+  }, []);
 
-  // Função para aplicar transição de câmera
-  const applyPreset = (preset) => {
-    const p = CAMERA_PRESETS[preset];
-    if (!p) return;
-
-    const c = controlsRef.current;
-    const currentPos = {
-      x: c.target.x + c.zoom * Math.sin(c.rotation.y) * Math.cos(c.rotation.x),
-      y: c.target.z + c.zoom * Math.sin(-c.rotation.x) + 30,
-      z: c.target.y + c.zoom * Math.cos(c.rotation.y) * Math.cos(c.rotation.x)
-    };
-    const currentTarget = { ...c.target };
-
-    cameraTransitionRef.current = {
-      startPos: currentPos,
-      startTarget: currentTarget,
-      endPos: p.pos,
-      endTarget: p.target,
-      progress: 0
-    };
-  };
-
-  // Update meshes com hover e click
+  // Create/update 3D pieces
   useEffect(() => {
-    if (!sceneRef.current) return;
+    const scene = sceneRef.current;
+    if (!scene) return;
+    meshesRef.current.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
+    meshesRef.current = [];
 
-    meshesRef.current.forEach(mesh => {
-      sceneRef.current.remove(mesh);
-      mesh.geometry.dispose();
-      mesh.material.dispose();
+    const filtered = pieces.filter(p => {
+      if (!activeFilters.includes(p.status3d)) return false;
+      if (highlightType !== 'ALL' && p.tipo !== highlightType) return false;
+      return true;
     });
-    meshesRef.current.clear();
 
-    elements.forEach(el => {
-      // Filters
-      if (!activeFilters.includes(el.status)) return;
-      if (highlightType && highlightType !== 'ALL' && el.type !== highlightType) return;
-      if (regionFilter) {
-        const { eixoMin, eixoMax, filaMin, filaMax } = regionFilter;
-        if (el.eixo < eixoMin || el.eixo > eixoMax) return;
-        const filaIdx = GRID.filas.indexOf(el.fila);
-        const minIdx = GRID.filas.indexOf(filaMin);
-        const maxIdx = GRID.filas.indexOf(filaMax);
-        if (filaIdx >= 0 && minIdx >= 0 && maxIdx >= 0 && (filaIdx < minIdx || filaIdx > maxIdx)) return;
-      }
-      if (timelineDate && el.data_montagem && el.data_montagem > timelineDate) return;
-
-      // Color baseado em view mode
-      let color, opacity, emissive = 0x000000;
-      if (viewMode === 'status') {
-        const cfg = STATUS_CONFIG[el.status] || STATUS_CONFIG.NAO_INICIADO;
-        color = cfg.color;
-        emissive = cfg.emissive;
-        opacity = cfg.opacity;
-      } else {
-        const cfg = TYPE_CONFIG[el.type] || { color: 0x888888 };
-        color = cfg.color;
-        opacity = 0.9;
-      }
-
-      if (selectedElement?.id === el.id) {
-        emissive = 0xffff00;
-        opacity = 1;
-      }
-
-      // Geometry melhorada com BoxGeometry para estrutura realista
+    filtered.forEach(piece => {
+      const tc = TYPE_CONFIG[piece.tipo] || TYPE_CONFIG['COLUNA'];
+      const sc = STATUS_CONFIG[piece.status3d] || STATUS_CONFIG['NAO_INICIADO'];
       let geometry;
-      if (el.type === 'COLUNA') {
-        geometry = new THREE.BoxGeometry(el.width, el.length, el.depth);
-      } else if (el.type === 'TIRANTE' || el.type === 'CONTRAVENTAMENTO') {
-        geometry = new THREE.CylinderGeometry(el.width / 2, el.width / 2, el.length, 8);
+      if (tc.geometry === 'cylinder') {
+        geometry = new THREE.CylinderGeometry(0.03, 0.03, piece.comprimento ? piece.comprimento/1000 : 3, 8);
       } else {
-        geometry = new THREE.BoxGeometry(el.length, el.width, el.depth);
+        const bh = tc.baseHeight;
+        const bw = piece.tipo === 'COLUNA' ? 0.3 : (piece.comprimento ? piece.comprimento/1000 : 3);
+        geometry = new THREE.BoxGeometry(bw, bh, 0.15);
       }
-
-      // Material metálico realista
       const material = new THREE.MeshStandardMaterial({
-        color,
-        emissive,
-        metalness: 0.8,
-        roughness: 0.3,
-        transparent: opacity < 1,
-        opacity,
-        flatShading: false
+        color: colorMode === 'status' ? sc.color : tc.color,
+        emissive: sc.emissive,
+        roughness: 0.4,
+        metalness: 0.6,
+        transparent: true,
+        opacity: sc.opacity
       });
-
       const mesh = new THREE.Mesh(geometry, material);
 
-      // Posicionamento correto
-      if (el.type === 'COLUNA') {
-        mesh.position.set(el.x, el.z + el.length / 2, el.y);
+      const eixoIdx = piece.eixo != null ? piece.eixo : Math.floor(Math.random() * GRID.eixoX.length);
+      const x = GRID.eixoX[eixoIdx] || eixoIdx * 4.5;
+      const fila = piece.fila || GRID.filas[Math.floor(Math.random() * GRID.filas.length)];
+      const z = GRID.filaY[fila] || 0;
+
+      if (piece.tipo === 'COLUNA') {
+        mesh.position.set(x, tc.baseHeight / 2, z);
+      } else if (piece.tipo === 'TESOURA') {
+        mesh.position.set(x, 9.5 + 0.5, z);
+        mesh.rotation.z = Math.PI * 0.08;
+      } else if (piece.tipo.includes('TERCA') || piece.tipo === 'TIRANTE') {
+        mesh.position.set(x, 10 + Math.random() * 1.5, z);
+        mesh.rotation.y = Math.PI / 2;
+      } else if (piece.tipo.includes('VIGA')) {
+        mesh.position.set(x, 9.5, z);
       } else {
-        mesh.position.set(el.x, el.z, el.y);
-        if (el.rotation) mesh.rotation.set(...el.rotation);
+        mesh.position.set(x, 8 + Math.random() * 3, z);
       }
 
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      mesh.userData = {
-        ...el,
-        selected: selectedElement?.id === el.id,
-        hovered: false
-      };
-
-      sceneRef.current.add(mesh);
-      meshesRef.current.set(el.id, mesh);
+      mesh.userData = { piece, status: piece.status3d, selected: false, hovered: false };
+      scene.add(mesh);
+      meshesRef.current.push(mesh);
     });
-  }, [elements, viewMode, activeFilters, highlightType, regionFilter, timelineDate, selectedElement]);
+  }, [pieces, colorMode, activeFilters, highlightType, regionFilter]);
+
+  // Camera view presets
+  useEffect(() => {
+    const camera = cameraRef.current;
+    if (!camera) return;
+    const preset = VIEW_PRESETS[viewMode] || VIEW_PRESETS['3d'];
+    camera.position.set(...preset.pos);
+    camera.lookAt(...preset.target);
+  }, [viewMode]);
+
+  // Mouse interaction handlers
+  const handleMouseDown = useCallback(e => {
+    isDraggingRef.current = true;
+    lastMouseRef.current = { x: e.clientX, y: e.clientY };
+  }, []);
+
+  const handleMouseMove = useCallback(e => {
+    if (isDraggingRef.current) {
+      const dx = e.clientX - lastMouseRef.current.x;
+      const dy = e.clientY - lastMouseRef.current.y;
+      rotationRef.current.y += dx * 0.005;
+      rotationRef.current.x = Math.max(-1.2, Math.min(0.5, rotationRef.current.x + dy * 0.005));
+      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+    }
+    if (!containerRef.current || !cameraRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+    const intersects = raycasterRef.current.intersectObjects(meshesRef.current);
+    meshesRef.current.forEach(m => (m.userData.hovered = false));
+    if (intersects.length > 0) {
+      intersects[0].object.userData.hovered = true;
+      containerRef.current.style.cursor = 'pointer';
+    } else {
+      containerRef.current.style.cursor = isDraggingRef.current ? 'grabbing' : 'grab';
+    }
+  }, []);
+
+  const handleMouseUp = useCallback(() => { isDraggingRef.current = false; }, []);
+
+  const handleClick = useCallback(e => {
+    if (!containerRef.current || !cameraRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
+    const intersects = raycasterRef.current.intersectObjects(meshesRef.current);
+    meshesRef.current.forEach(m => (m.userData.selected = false));
+    if (intersects.length > 0) {
+      intersects[0].object.userData.selected = true;
+      onSelectPiece(intersects[0].object.userData.piece);
+    } else {
+      onSelectPiece(null);
+    }
+  }, [onSelectPiece]);
+
+  const handleWheel = useCallback(e => {
+    e.preventDefault();
+    zoomRef.current = Math.max(0.3, Math.min(3, zoomRef.current - e.deltaY * 0.001));
+  }, []);
 
   return (
     <div className="w-full h-full relative">
-      <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" style={{ minHeight: '500px' }} />
-
-      {/* Camera Preset Buttons */}
-      <div className="absolute top-4 right-20 flex flex-col gap-1.5">
-        {[
-          { key: 'frontal', label: 'Frontal', icon: '🔲' },
-          { key: 'lateral', label: 'Lateral', icon: '📐' },
-          { key: 'superior', label: 'Top', icon: '⬆️' },
-          { key: 'isometrica', label: 'Iso', icon: '🔷' },
-          { key: 'perspectiva', label: '3D', icon: '🎯' }
-        ].map(({ key, label, icon }) => (
-          <button
-            key={key}
-            onClick={() => applyPreset(key)}
-            className="px-3 py-1.5 bg-black/60 hover:bg-blue-600 text-white text-xs rounded-lg transition-all border border-white/10 backdrop-blur-sm"
-            title={`Vista ${label}`}
-          >
-            {icon} {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Hover Tooltip - segue o mouse */}
-      {hoveredElement && (
-        <div
-          className="pointer-events-none fixed z-50 bg-black/90 backdrop-blur-md rounded-lg px-3 py-2 border border-orange-500/40 shadow-xl"
-          style={{
-            left: hoverPos.x + 16,
-            top: hoverPos.y - 10,
-            transform: 'translateY(-100%)'
-          }}
-        >
-          <div className="flex items-center gap-2 mb-1">
-            <div
-              className="w-3 h-3 rounded"
-              style={{ backgroundColor: `#${(STATUS_CONFIG[hoveredElement.status]?.color || 0x888888).toString(16).padStart(6, '0')}` }}
-            />
-            <span className="text-white text-xs font-bold">{hoveredElement.type}</span>
-            <span className="text-slate-300 text-xs">#{hoveredElement.id}</span>
-          </div>
-          <div className="text-xs space-y-0.5">
-            <p className="text-slate-200">Pos: <span className="text-orange-400 font-mono">{hoveredElement.posicao}</span></p>
-            <p className="text-slate-200">Peso: <span className="text-cyan-400 font-mono">{hoveredElement.peso} kg</span></p>
-            <p className="text-slate-200">Status: <span className="text-emerald-400">{STATUS_CONFIG[hoveredElement.status]?.label}</span></p>
-          </div>
-        </div>
-      )}
+      <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing"
+        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
+        onClick={handleClick} onWheel={handleWheel} />
     </div>
   );
-};
+}
 
-// ============================================
-// COMPONENTE TIMELINE COM ANIMAÇÃO
-// ============================================
+// ==============================================
+// MODAL DE IMPORTACAO IFC
+// ==============================================
 
-const TimelineControl = ({ currentDate, onDateChange, isPlaying, onTogglePlay }) => {
-  const startDate = new Date('2025-01-15');
-  const endDate = new Date('2025-05-30');
-  const totalDays = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
-  const currentDays = Math.ceil((new Date(currentDate) - startDate) / (1000 * 60 * 60 * 24));
-  const progressPercent = (currentDays / totalDays) * 100;
+function IFCImportModal({ isOpen, onClose, onImport }) {
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [progressText, setProgressText] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const fileInputRef = useRef(null);
 
-  const fases = [
-    { id: 1, nome: 'Colunas', cor: '#2563eb', inicio: 0 },
-    { id: 2, nome: 'Vigas', cor: '#059669', inicio: 15 },
-    { id: 3, nome: 'Tesouras', cor: '#dc2626', inicio: 30 },
-    { id: 4, nome: 'Terças', cor: '#d97706', inicio: 50 },
-    { id: 5, nome: 'Contraventamento', cor: '#7c3aed', inicio: 65 },
-    { id: 6, nome: 'Fechamentos', cor: '#0891b2', inicio: 80 }
-  ];
-
-  return (
-    <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-xl rounded-2xl p-5 border border-blue-500/20 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
-        <h4 className="text-white font-semibold flex items-center gap-2">
-          <span>📅</span> Timeline de Construção
-        </h4>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={onTogglePlay}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              isPlaying
-                ? 'bg-red-600 hover:bg-red-700 shadow-lg'
-                : 'bg-green-600 hover:bg-green-700 shadow-lg'
-            } text-white`}
-          >
-            {isPlaying ? '⏸️ Pausar' : '▶️ Play'}
-          </button>
-          <span className="text-white text-sm font-mono bg-white/10 px-3 py-1 rounded">{currentDate}</span>
-        </div>
-      </div>
-
-      {/* Barra de progresso visual */}
-      <div className="mb-4 space-y-2">
-        <div className="flex justify-between text-xs text-gray-400">
-          <span>Progresso</span>
-          <span>{progressPercent.toFixed(0)}%</span>
-        </div>
-        <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-gray-700">
-          <div
-            className="h-full bg-gradient-to-r from-blue-500 via-cyan-400 to-green-500 rounded-full transition-all duration-300"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Slider interativo */}
-      <input
-        type="range"
-        min={0}
-        max={totalDays}
-        value={Math.max(0, currentDays)}
-        onChange={(e) => {
-          const newDate = new Date(startDate);
-          newDate.setDate(startDate.getDate() + parseInt(e.target.value));
-          onDateChange(newDate.toISOString().split('T')[0]);
-        }}
-        className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
-      />
-
-      {/* Marcos de tempo */}
-      <div className="flex justify-between text-xs text-slate-400 mt-2 px-1">
-        <span>Jan 15</span>
-        <span>Fev 10</span>
-        <span>Mar 10</span>
-        <span>Abr 10</span>
-        <span>Mai 30</span>
-      </div>
-
-      {/* Legenda de fases com indicadores de progresso */}
-      <div className="mt-4 pt-3 border-t border-gray-700">
-        <div className="grid grid-cols-3 gap-2">
-          {fases.map(fase => {
-            const isActive = progressPercent >= fase.inicio;
-            return (
-              <div key={fase.id} className="flex items-center gap-2">
-                <div
-                  className={`w-2 h-2 rounded-full transition-all ${
-                    isActive ? 'scale-125 shadow-lg' : 'opacity-50'
-                  }`}
-                  style={{ backgroundColor: fase.cor }}
-                />
-                <span className={`text-xs ${isActive ? 'text-white font-medium' : 'text-slate-400'}`}>
-                  {fase.nome}
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================
-// COMPONENTE FILTRO DE REGIÃO
-// ============================================
-
-const RegionFilter = ({ value: _value, onChange, onClear }) => {
-  const [eixoMin, setEixoMin] = useState(1);
-  const [eixoMax, setEixoMax] = useState(17);
-  const [filaMin, setFilaMin] = useState('A');
-  const [filaMax, setFilaMax] = useState('H');
-
-  const handleApply = () => {
-    onChange({ eixoMin, eixoMax, filaMin, filaMax });
+  const handleFileSelect = (file) => {
+    if (file.name.match(/\.(ifc|ifcxml|ifczip)$/i)) setSelectedFile(file);
   };
 
-  return (
-    <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
-      <h4 className="text-white font-semibold mb-3 flex items-center gap-2">
-        <span>🗺️</span> Filtro por Região
-      </h4>
+  const formatSize = (bytes) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / 1048576).toFixed(1) + ' MB';
+  };
 
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className="text-slate-300 text-xs">Eixo Início</label>
-          <select value={eixoMin} onChange={e => setEixoMin(+e.target.value)}
-            className="w-full bg-slate-800 text-white rounded px-2 py-1 text-sm border border-slate-600">
-            {GRID.eixos.slice(0, 17).map(e => <option key={e} value={e} className="bg-slate-800 text-white">{e}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">Eixo Fim</label>
-          <select value={eixoMax} onChange={e => setEixoMax(+e.target.value)}
-            className="w-full bg-slate-800 text-white rounded px-2 py-1 text-sm border border-slate-600">
-            {GRID.eixos.slice(0, 17).map(e => <option key={e} value={e} className="bg-slate-800 text-white">{e}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">Fila Início</label>
-          <select value={filaMin} onChange={e => setFilaMin(e.target.value)}
-            className="w-full bg-slate-800 text-white rounded px-2 py-1 text-sm border border-slate-600">
-            {GRID.filas.map(f => <option key={f} value={f} className="bg-slate-800 text-white">{f}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="text-slate-300 text-xs">Fila Fim</label>
-          <select value={filaMax} onChange={e => setFilaMax(e.target.value)}
-            className="w-full bg-slate-800 text-white rounded px-2 py-1 text-sm border border-slate-600">
-            {GRID.filas.map(f => <option key={f} value={f} className="bg-slate-800 text-white">{f}</option>)}
-          </select>
-        </div>
-      </div>
+  const handleImport = async () => {
+    if (!selectedFile) return;
+    setIsProcessing(true);
+    const steps = [
+      { p: 10, t: '📖 Lendo arquivo IFC...' },
+      { p: 25, t: '🔍 Analisando geometrias...' },
+      { p: 40, t: '📐 Extraindo coordenadas...' },
+      { p: 55, t: '🏗️ Processando elementos estruturais...' },
+      { p: 70, t: '🔗 Mapeando pecas ao ERP...' },
+      { p: 85, t: '🎨 Aplicando cores por status...' },
+      { p: 95, t: '🖼️ Renderizando cena 3D...' },
+      { p: 100, t: '✅ Importacao concluida!' }
+    ];
+    for (const s of steps) {
+      await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
+      setProgress(s.p);
+      setProgressText(s.t);
+    }
+    await new Promise(r => setTimeout(r, 500));
+    onImport(selectedFile);
+    setIsProcessing(false);
+    setProgress(0);
+    setSelectedFile(null);
+    onClose();
+  };
 
-      <div className="flex gap-2 mt-3">
-        <button onClick={handleApply} className="flex-1 bg-blue-500 text-white rounded py-1.5 text-sm font-medium">
-          Aplicar
-        </button>
-        <button onClick={onClear} className="px-3 bg-gray-600 text-white rounded py-1.5 text-sm">
-          Limpar
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ============================================
-// PAINEL DE ESTATÍSTICAS COM PROGRESSO
-// ============================================
-
-const StatsPanel = ({ elements, obraData }) => {
-  const stats = useMemo(() => {
-    const byStatus = {}, byType = {};
-    let peso = 0, pesoByStatus = {};
-    Object.keys(STATUS_CONFIG).forEach(s => { byStatus[s] = 0; pesoByStatus[s] = 0; });
-    elements.forEach(e => {
-      if (byStatus[e.status] !== undefined) {
-        byStatus[e.status]++;
-        pesoByStatus[e.status] += e.peso || 0;
-      }
-      byType[e.type] = (byType[e.type] || 0) + 1;
-      peso += e.peso || 0;
-    });
-
-    // Calcular progresso de conclusão
-    const fabricado = byStatus.FABRICADO || 0;
-    const montado = byStatus.MONTADO || 0;
-    const emMontagem = byStatus.EM_MONTAGEM || 0;
-    const total = elements.length;
-    const percentualConclusao = total > 0 ? Math.round((montado + fabricado + emMontagem) / total * 100) : 0;
-    const percentualMontado = total > 0 ? Math.round(montado / total * 100) : 0;
-    const pesoMontado = pesoByStatus.MONTADO || 0;
-    const pesoFabricado = pesoByStatus.FABRICADO || 0;
-
-    return { byStatus, byType, peso, pesoByStatus, total, percentualConclusao, percentualMontado, montado, fabricado, emMontagem, pesoMontado, pesoFabricado };
-  }, [elements]);
+  if (!isOpen) return null;
 
   return (
-    <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10 space-y-4">
-      <div>
-        <h4 className="text-white font-semibold mb-3">Estatísticas da Obra</h4>
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-8 w-[90%] max-w-[700px] text-white">
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            <h2 className="text-2xl font-bold">📁 Importar Arquivo IFC</h2>
+            <p className="text-slate-400 text-sm mt-1">Carregue um modelo BIM/IFC para visualizacao 3D integrada ao ERP</p>
+          </div>
+          <button onClick={onClose} className="bg-white/10 hover:bg-white/20 w-9 h-9 rounded-lg text-lg flex items-center justify-center">✕</button>
+        </div>
 
-        {obraData && (
-          <div className="mb-3 p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
-            <p className="text-orange-400 text-xs font-medium">{obraData.codigo}</p>
-            <p className="text-white text-sm truncate">{obraData.nome}</p>
+        {!selectedFile && (
+          <div className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${isDragOver ? 'border-emerald-400 bg-emerald-500/15' : 'border-emerald-500/50 bg-emerald-500/5 hover:border-emerald-400'}`}
+            onClick={() => fileInputRef.current?.click()}
+            onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={e => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]); }}>
+            <div className="text-5xl mb-4">🏗️</div>
+            <p className="text-lg font-semibold">Arraste seu arquivo IFC aqui</p>
+            <p className="text-slate-400 text-sm mt-2">ou clique para selecionar</p>
+            <p className="text-slate-500 text-xs mt-4">Formatos: .ifc, .ifcxml, .ifczip</p>
+            <input ref={fileInputRef} type="file" accept=".ifc,.ifcxml,.ifczip" className="hidden"
+              onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
           </div>
         )}
-      </div>
 
-      {/* KPIs Principais - 4 cards */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-white/5 rounded-lg p-2 text-center border border-white/10">
-          <p className="text-2xl font-bold text-white">{stats.total}</p>
-          <p className="text-xs text-slate-300">Peças</p>
-        </div>
-        <div className="bg-white/5 rounded-lg p-2 text-center border border-white/10">
-          <p className="text-2xl font-bold text-orange-400">{(stats.peso/1000).toFixed(1)}t</p>
-          <p className="text-xs text-slate-300">Peso Total</p>
-        </div>
-        <div className="bg-emerald-500/10 rounded-lg p-2 text-center border border-emerald-500/20">
-          <p className="text-2xl font-bold text-emerald-400">{stats.montado}</p>
-          <p className="text-xs text-slate-300">Montadas</p>
-        </div>
-        <div className="bg-blue-500/10 rounded-lg p-2 text-center border border-blue-500/20">
-          <p className="text-2xl font-bold text-blue-400">{stats.fabricado}</p>
-          <p className="text-xs text-slate-300">Fabricadas</p>
-        </div>
-      </div>
-
-      {/* Barra de Progresso Principal */}
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <span className="text-slate-200 text-xs font-medium">Progresso Geral</span>
-          <span className="text-white font-bold text-sm">{stats.percentualConclusao}%</span>
-        </div>
-        <div className="w-full h-3 bg-gray-700 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-green-500 to-emerald-400 rounded-full transition-all duration-500"
-            style={{ width: `${stats.percentualConclusao}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Barra de Progresso por Peso */}
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <span className="text-slate-200 text-xs font-medium">Peso Montado</span>
-          <span className="text-emerald-400 font-bold text-sm">{(stats.pesoMontado/1000).toFixed(1)}t / {(stats.peso/1000).toFixed(1)}t</span>
-        </div>
-        <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-gradient-to-r from-emerald-600 to-green-400 rounded-full transition-all"
-            style={{ width: `${stats.peso > 0 ? (stats.pesoMontado / stats.peso * 100) : 0}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Distribuição por Status - com barras visuais */}
-      <div className="pt-2 border-t border-white/10">
-        <p className="text-slate-300 text-xs font-medium mb-2">Por Status</p>
-        <div className="space-y-2">
-          {Object.entries(stats.byStatus).map(([status, count]) => {
-            const cfg = STATUS_CONFIG[status];
-            if (!cfg) return null;
-            const percentage = stats.total > 0 ? Math.round(count / stats.total * 100) : 0;
-            const colorHex = `#${cfg.color.toString(16).padStart(6, '0')}`;
-            return (
-              <div key={status}>
-                <div className="flex items-center justify-between mb-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-2 h-2 rounded-full" style={{ backgroundColor: colorHex }} />
-                    <span className="text-slate-200 text-xs">{cfg.label}</span>
-                  </div>
-                  <span className="text-white font-mono text-xs">{count} ({percentage}%)</span>
-                </div>
-                <div className="w-full h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-500"
-                    style={{ width: `${percentage}%`, backgroundColor: colorHex }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Distribuição por Tipo - top 5 */}
-      <div className="pt-2 border-t border-white/10">
-        <p className="text-slate-300 text-xs font-medium mb-2">Por Tipo de Peça</p>
-        <div className="space-y-1.5">
-          {Object.entries(stats.byType)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 6)
-            .map(([type, count]) => {
-              const percentage = stats.total > 0 ? Math.round(count / stats.total * 100) : 0;
-              const cfg = TYPE_CONFIG[type];
-              const colorHex = cfg ? `#${cfg.color.toString(16).padStart(6, '0')}` : '#888';
-              return (
-                <div key={type} className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded" style={{ backgroundColor: colorHex }} />
-                  <span className="text-slate-200 text-xs flex-1 truncate">{type}</span>
-                  <div className="w-16 h-1.5 bg-gray-700/50 rounded-full overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${percentage}%`, backgroundColor: colorHex }} />
-                  </div>
-                  <span className="text-white font-mono text-xs w-6 text-right">{count}</span>
-                </div>
-              );
-            })}
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================
-// COMPONENTE PRINCIPAL - INTEGRADO COM ERP
-// ============================================
-
-export default function MontexERP3DPage() {
-  // Hooks do ERPContext
-  const { obraAtualData } = useObras();
-  const { pecasObraAtual } = useProducao();
-
-  // Estados locais
-  const [elements, setElements] = useState([]);
-  const [selectedElement, setSelectedElement] = useState(null);
-  const [viewMode, setViewMode] = useState('status');
-  const [activeFilters, setActiveFilters] = useState(Object.keys(STATUS_CONFIG));
-  const [highlightType, setHighlightType] = useState('ALL');
-  const [regionFilter, setRegionFilter] = useState(null);
-  const [timelineDate, setTimelineDate] = useState('2025-03-01');
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [isVRMode, setIsVRMode] = useState(false);
-  const [showTimeline, setShowTimeline] = useState(true);
-  const [useERPData, setUseERPData] = useState(true);
-
-  // Converter peças do ERP ou usar demo
-  useEffect(() => {
-    if (useERPData && pecasObraAtual && pecasObraAtual.length > 0) {
-      const convertedElements = convertPecasToElements(pecasObraAtual, obraAtualData);
-      setElements(convertedElements);
-    } else {
-      setElements(generateDemoElements());
-    }
-  }, [pecasObraAtual, obraAtualData, useERPData]);
-
-  // Timeline animation
-  useEffect(() => {
-    if (!isPlaying) return;
-    const interval = setInterval(() => {
-      setTimelineDate(prev => {
-        const d = new Date(prev);
-        d.setDate(d.getDate() + 1);
-        if (d > new Date('2025-05-30')) { setIsPlaying(false); return '2025-05-30'; }
-        return d.toISOString().split('T')[0];
-      });
-    }, 200);
-    return () => clearInterval(interval);
-  }, [isPlaying]);
-
-  const handleFilterToggle = (f) => setActiveFilters(prev => prev.includes(f) ? prev.filter(x => x !== f) : [...prev, f]);
-
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 -m-6">
-      {/* Header */}
-      <header className="bg-black/50 backdrop-blur-xl border-b border-white/10 px-6 py-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-gradient-to-br from-orange-500 to-red-600 rounded-xl flex items-center justify-center shadow-lg">
-              <span className="text-white font-black text-xl">M</span>
+        {selectedFile && (
+          <div className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-center gap-3">
+            <span className="text-2xl">📄</span>
+            <div className="flex-1">
+              <div className="font-semibold">{selectedFile.name}</div>
+              <div className="text-slate-400 text-xs">{formatSize(selectedFile.size)}</div>
             </div>
-            <div>
-              <h1 className="text-white font-bold text-xl">MONTEX ERP 3D</h1>
-              <p className="text-gray-400 text-xs">Visualização Estrutural em Tempo Real</p>
-            </div>
+            <button onClick={() => setSelectedFile(null)} className="bg-red-500/20 border border-red-500/30 text-red-400 px-3 py-1.5 rounded-md text-xs">Remover</button>
           </div>
+        )}
 
-          <div className="flex items-center gap-4">
-            {obraAtualData && (
-              <div className="text-right">
-                <p className="text-orange-400 font-semibold">{obraAtualData.codigo}</p>
-                <p className="text-gray-400 text-xs truncate max-w-[200px]">{obraAtualData.nome}</p>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={() => setUseERPData(!useERPData)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${
-                  useERPData ? 'bg-green-500 text-white' : 'bg-white/10 text-gray-300'
-                }`}
-              >
-                {useERPData ? '📊 ERP' : '🎮 Demo'}
-              </button>
-              {['status', 'tipo'].map(mode => (
-                <button key={mode} onClick={() => setViewMode(mode)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    viewMode === mode ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'
-                  }`}>
-                  {mode === 'status' ? '📊 Status' : '📦 Tipo'}
-                </button>
-              ))}
-              <button onClick={() => setIsVRMode(!isVRMode)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium ${isVRMode ? 'bg-purple-500 text-white' : 'bg-white/10 text-gray-300'}`}>
-                🥽 VR
-              </button>
+        {isProcessing && (
+          <div className="mt-4">
+            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+              <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-all" style={{ width: progress + '%' }} />
             </div>
+            <p className="text-slate-400 text-xs mt-2 text-center">{progressText}</p>
           </div>
-        </div>
-      </header>
+        )}
 
-      {/* Main Content */}
-      <div className="flex h-[calc(100vh-140px)]">
-        {/* Left Panel */}
-        <div className="w-80 p-4 space-y-4 overflow-y-auto">
-          <StatsPanel elements={elements} obraData={obraAtualData} />
-
-          {/* Legenda */}
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
-            <h4 className="text-white font-semibold mb-3">🎨 Legenda</h4>
-            <div className="space-y-2">
-              {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                <label key={key} className="flex items-center gap-2 cursor-pointer hover:bg-white/5 p-1 rounded">
-                  <input type="checkbox" checked={activeFilters.includes(key)} onChange={() => handleFilterToggle(key)} className="w-4 h-4" />
-                  <div className="w-4 h-4 rounded" style={{ backgroundColor: `#${cfg.color.toString(16).padStart(6, '0')}` }} />
-                  <span className="text-white text-xs">{cfg.label}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {/* Filtro Tipo */}
-          <div className="bg-black/60 backdrop-blur-xl rounded-2xl p-4 border border-white/10">
-            <h4 className="text-white font-semibold mb-3">🔍 Tipo</h4>
-            <select value={highlightType} onChange={e => setHighlightType(e.target.value)}
-              className="w-full bg-slate-800 text-white rounded-lg px-3 py-2 border border-slate-600">
-              <option value="ALL" className="bg-slate-800 text-white">Todos</option>
-              {Object.keys(TYPE_CONFIG).map(t => <option key={t} value={t} className="bg-slate-800 text-white">{t}</option>)}
-            </select>
-          </div>
-
-          <RegionFilter value={regionFilter} onChange={setRegionFilter} onClear={() => setRegionFilter(null)} />
-        </div>
-
-        {/* 3D Viewer */}
-        <div className="flex-1 relative">
-          <Viewer3D
-            elements={elements}
-            selectedElement={selectedElement}
-            onSelectElement={setSelectedElement}
-            viewMode={viewMode}
-            activeFilters={activeFilters}
-            highlightType={highlightType}
-            regionFilter={regionFilter}
-            timelineDate={showTimeline ? timelineDate : null}
-            isVRMode={isVRMode}
-          />
-
-          {/* Timeline */}
-          {showTimeline && (
-            <div className="absolute bottom-4 left-4 right-4 max-w-2xl">
-              <TimelineControl
-                currentDate={timelineDate}
-                onDateChange={setTimelineDate}
-                isPlaying={isPlaying}
-                onTogglePlay={() => setIsPlaying(!isPlaying)}
-              />
-            </div>
-          )}
-
-          {/* Toggle Timeline Button */}
-          <button
-            onClick={() => setShowTimeline(!showTimeline)}
-            className="absolute top-4 right-4 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-          >
-            {showTimeline ? '🙈 Ocultar' : '📅 Timeline'}
+        <div className="flex gap-3 mt-6">
+          <button onClick={handleImport} disabled={!selectedFile || isProcessing}
+            className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${selectedFile && !isProcessing ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white cursor-pointer' : 'bg-white/5 text-white/50 cursor-not-allowed'}`}>
+            {isProcessing ? '⏳ Processando...' : '🚀 Importar e Visualizar'}
           </button>
+          <button onClick={onClose} className="bg-white/10 border border-white/20 px-6 py-3 rounded-xl text-sm">Cancelar</button>
+        </div>
 
-          {/* Data Overlay - KPIs flutuantes no viewport */}
-          <div className="absolute top-4 left-4 flex gap-2 pointer-events-none">
-            {[
-              { label: 'Peças', value: elements.length, color: 'text-white', bg: 'bg-white/10' },
-              { label: 'Montadas', value: elements.filter(e => e.status === 'MONTADO').length, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-              { label: 'Fabricadas', value: elements.filter(e => e.status === 'FABRICADO').length, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-              { label: 'Peso', value: `${(elements.reduce((a, e) => a + (e.peso || 0), 0) / 1000).toFixed(1)}t`, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-            ].map((kpi, i) => (
-              <div key={i} className={`${kpi.bg} backdrop-blur-sm rounded-lg px-3 py-1.5 border border-white/10`}>
-                <p className={`${kpi.color} font-bold text-sm`}>{kpi.value}</p>
-                <p className="text-slate-300 text-[10px]">{kpi.label}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Info Panel - Elemento Selecionado (melhorado) */}
-          {selectedElement && (
-            <div className="absolute top-16 left-4 bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-xl rounded-xl p-4 text-sm border border-orange-500/30 shadow-2xl w-72">
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex items-center gap-2">
-                  <div
-                    className="w-4 h-4 rounded"
-                    style={{ backgroundColor: `#${(TYPE_CONFIG[selectedElement.type]?.color || 0x888888).toString(16).padStart(6, '0')}` }}
-                  />
-                  <h5 className="text-white font-bold text-base">{selectedElement.type}</h5>
-                  <span className="text-slate-400 text-xs">#{selectedElement.id}</span>
-                </div>
-                <button
-                  onClick={() => setSelectedElement(null)}
-                  className="text-gray-400 hover:text-white bg-white/10 rounded-full w-6 h-6 flex items-center justify-center text-xs"
-                >
-                  X
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="bg-white/5 rounded-lg p-2 text-center">
-                  <p className="text-orange-400 font-mono font-bold">{selectedElement.posicao}</p>
-                  <p className="text-slate-400 text-[10px]">Posição</p>
-                </div>
-                <div className="bg-white/5 rounded-lg p-2 text-center">
-                  <p className="text-cyan-400 font-mono font-bold">{selectedElement.peso} kg</p>
-                  <p className="text-slate-400 text-[10px]">Peso</p>
-                </div>
-              </div>
-
-              <div className="space-y-1.5 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-slate-300">Perfil</span>
-                  <span className="text-white font-mono">{selectedElement.profile || '-'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-300">Eixo / Fila</span>
-                  <span className="text-white font-mono">E{selectedElement.eixo} / {selectedElement.fila}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-300">Status</span>
-                  <div className="flex items-center gap-1.5">
-                    <span
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: `#${(STATUS_CONFIG[selectedElement.status]?.color || 0x888888).toString(16).padStart(6, '0')}` }}
-                    />
-                    <span className="text-white">{STATUS_CONFIG[selectedElement.status]?.label || 'Desconhecido'}</span>
-                  </div>
-                </div>
-                {selectedElement.marca && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-300">Marca</span>
-                    <span className="text-white font-mono">{selectedElement.marca}</span>
-                  </div>
-                )}
-                {selectedElement.data_fabricacao && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-300">Fabricação</span>
-                    <span className="text-emerald-400 font-mono">{selectedElement.data_fabricacao}</span>
-                  </div>
-                )}
-                {selectedElement.data_montagem && (
-                  <div className="flex justify-between">
-                    <span className="text-slate-300">Montagem</span>
-                    <span className="text-green-400 font-mono">{selectedElement.data_montagem}</span>
-                  </div>
-                )}
-              </div>
-
-              {/* Dimensões */}
-              <div className="mt-3 pt-2 border-t border-white/10">
-                <p className="text-slate-400 text-[10px] mb-1">DIMENSÕES</p>
-                <div className="flex gap-3 text-xs">
-                  <span className="text-gray-300">L: <span className="text-white font-mono">{selectedElement.length?.toFixed(2)}m</span></span>
-                  <span className="text-gray-300">W: <span className="text-white font-mono">{selectedElement.width?.toFixed(2)}m</span></span>
-                  <span className="text-gray-300">D: <span className="text-white font-mono">{selectedElement.depth?.toFixed(2)}m</span></span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Controls Help */}
-          <div className="absolute bottom-4 right-4 bg-black/70 backdrop-blur-sm rounded-lg p-3 text-xs text-gray-300 border border-white/10">
-            <p className="font-semibold text-white mb-2">Controles</p>
-            <p>🖱️ Arrastar: Rotacionar Vista</p>
-            <p>🔄 Scroll: Zoom In/Out</p>
-            <p>🖱️ Clique: Selecionar Peça</p>
-            <p className="mt-2 text-orange-400 font-medium">
-              {useERPData ? `${elements.length} peças` : 'Modo Demo'}
-            </p>
-          </div>
+        <div className="mt-5 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+          <h4 className="text-sm font-semibold text-blue-400 mb-2">ℹ️ Sobre a Importacao IFC</h4>
+          <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
+            <li>O modelo IFC sera parseado e as pecas mapeadas aos dados do ERP</li>
+            <li>As cores refletem o status de producao (fabricacao, montagem, etc)</li>
+            <li>Dados de geometria preservados do arquivo original</li>
+            <li>Suporte a IFC2x3 e IFC4</li>
+          </ul>
         </div>
       </div>
     </div>
   );
 }
+
+// ==============================================
+// PAINEL DE DETALHES DA PECA SELECIONADA
+// ==============================================
+
+function PieceDetailPanel({ piece, isOpen, onClose, isIFCMode }) {
+  if (!piece || !isOpen) return null;
+  const sc = STATUS_CONFIG[piece.status3d] || STATUS_CONFIG.NAO_INICIADO;
+
+  return (
+    <div className={`fixed top-[150px] w-[340px] max-h-[calc(100vh-200px)] overflow-y-auto z-50 bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-xl border border-white/10 rounded-l-2xl shadow-xl transition-all duration-300 text-white ${isOpen ? 'right-0' : '-right-[400px]'}`}>
+      <div className="sticky top-0 z-10 bg-slate-900/90 backdrop-blur p-5 border-b border-white/10 flex justify-between items-center">
+        <div>
+          <h3 className="text-lg font-bold">Peca Selecionada</h3>
+          <p className="text-xs text-slate-400">Detalhes do Elemento</p>
+        </div>
+        <button onClick={onClose} className="bg-white/10 hover:bg-white/20 w-8 h-8 rounded-lg text-sm flex items-center justify-center">✕</button>
+      </div>
+
+      <div className="p-5 border-b border-white/5">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center text-2xl">🔧</div>
+          <div>
+            <div className="text-lg font-bold">{piece.marca || piece.id}</div>
+            <div className="text-xs text-slate-400">{piece.tipo}</div>
+          </div>
+        </div>
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30">
+          {sc.icon} {sc.label}
+        </span>
+      </div>
+
+      <div className="p-5 border-b border-white/5">
+        <h4 className="font-semibold text-sm mb-3">📐 Propriedades</h4>
+        <div className="space-y-2 text-sm">
+          {piece.comprimento && <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Comprimento</span><span>{piece.comprimento} mm</span></div>}
+          {piece.perfil && <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Perfil</span><span>{piece.perfil}</span></div>}
+          {piece.peso && <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Peso</span><span>{piece.peso?.toFixed?.(1) || piece.peso} kg</span></div>}
+        </div>
+      </div>
+
+      <div className="p-5 border-b border-white/5">
+        <h4 className="font-semibold text-sm mb-3">📊 Status ERP</h4>
+        <div className="space-y-2 text-sm">
+          {['Corte','Furacao','Solda','Pintura','Expedicao','Montagem'].map(etapa => (
+            <div key={etapa} className="flex justify-between">
+              <span className="text-slate-500 text-xs uppercase">{etapa}</span>
+              <span className="text-slate-400">⬜ Pendente</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {isIFCMode && (
+        <div className="p-5 border-b border-white/5">
+          <h4 className="font-semibold text-sm mb-3">🔗 Dados IFC</h4>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">IFC Entity</span><span>IfcBeam</span></div>
+            <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Material</span><span>Aco ASTM A572</span></div>
+          </div>
+        </div>
+      )}
+
+      <div className="p-5">
+        <button className="w-full bg-gradient-to-r from-blue-500 to-blue-600 py-2.5 rounded-lg text-sm font-semibold">
+          📋 Ver no Kanban de Producao
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ==============================================
+// COMPONENTE PRINCIPAL - PAGINA MONTEX ERP 3D
+// ==============================================
+
+function MontexERP3DPage({ obraAtualData, pecasObraAtual }) {
+  const [viewMode, setViewMode] = useState('3d');
+  const [colorMode, setColorMode] = useState('status');
+  const [activeFilters, setActiveFilters] = useState(Object.keys(STATUS_CONFIG));
+  const [highlightType, setHighlightType] = useState('ALL');
+  const [selectedPiece, setSelectedPiece] = useState(null);
+  const [showDetail, setShowDetail] = useState(false);
+  const [showIFCModal, setShowIFCModal] = useState(false);
+  const [isIFCMode, setIsIFCMode] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(true);
+  const [timelineDate, setTimelineDate] = useState('2025-03-01');
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [eixoInicio, setEixoInicio] = useState(1);
+  const [eixoFim, setEixoFim] = useState(17);
+  const [filaInicio, setFilaInicio] = useState('A');
+  const [filaFim, setFilaFim] = useState('H');
+
+  // Transform ERP pieces to 3D pieces
+  const pieces3D = useMemo(() => {
+    if (!pecasObraAtual || pecasObraAtual.length === 0) {
+      // Demo mode - generate sample pieces
+      const types = Object.keys(TYPE_CONFIG);
+      return Array.from({ length: 136 }, (_, i) => ({
+        id: 'demo-' + i,
+        marca: types[i % types.length].charAt(0) + '-' + String(i + 1).padStart(2, '0'),
+        tipo: types[i % types.length],
+        peso: 50 + Math.random() * 500,
+        comprimento: 1000 + Math.random() * 8000,
+        perfil: 'W250x73',
+        status3d: Object.keys(STATUS_CONFIG)[Math.floor(Math.random() * 5)],
+        eixo: Math.floor(Math.random() * 17),
+        fila: GRID.filas[Math.floor(Math.random() * 8)]
+      }));
+    }
+    return pecasObraAtual.map(p => ({
+      ...p,
+      status3d: STATUS_MAP[p.etapaAtual] || STATUS_MAP[p.status] || 'NAO_INICIADO',
+      tipo: (p.tipo || p.descricao || 'COLUNA').toUpperCase().replace(/[ÇÃ]/g, c => c === 'Ç' ? 'C' : 'A'),
+      eixo: p.eixo,
+      fila: p.fila
+    }));
+  }, [pecasObraAtual]);
+
+  // Stats calculations
+  const stats = useMemo(() => {
+    const total = pieces3D.length;
+    const pesoTotal = pieces3D.reduce((s, p) => s + (p.peso || 0), 0);
+    const byStatus = {};
+    Object.keys(STATUS_CONFIG).forEach(k => { byStatus[k] = pieces3D.filter(p => p.status3d === k).length; });
+    const byType = {};
+    pieces3D.forEach(p => { byType[p.tipo] = (byType[p.tipo] || 0) + 1; });
+    const montadas = byStatus.MONTADO || 0;
+    const fabricadas = (byStatus.FABRICADO || 0) + (byStatus.EM_MONTAGEM || 0) + montadas;
+    return { total, pesoTotal, byStatus, byType, montadas, fabricadas };
+  }, [pieces3D]);
+
+  // Timeline auto-play
+  useEffect(() => {
+    if (!isPlaying) return;
+    const iv = setInterval(() => {
+      setTimelineDate(prev => {
+        const d = new Date(prev);
+        d.setDate(d.getDate() + 3);
+        if (d > new Date('2025-06-01')) { setIsPlaying(false); return '2025-06-01'; }
+        return d.toISOString().split('T')[0];
+      });
+    }, 200);
+    return () => clearInterval(iv);
+  }, [isPlaying]);
+
+  const handleSelectPiece = useCallback((piece) => {
+    setSelectedPiece(piece);
+    setShowDetail(!!piece);
+  }, []);
+
+  const handleIFCImport = useCallback((file) => {
+    setIsIFCMode(true);
+    console.log('IFC importado:', file.name);
+  }, []);
+
+  const toggleFilter = useCallback((status) => {
+    setActiveFilters(prev => prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]);
+  }, []);
+
+  const obraName = obraAtualData?.nome || 'SUPER LUNA - BELO VALE';
+  const obraCode = obraAtualData?.codigo || '2026-01';
+  const isDemo = !pecasObraAtual || pecasObraAtual.length === 0;
+
+  return (
+    <div className="p-4">
+      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 -m-6">
+
+        {/* Header */}
+        <header className="bg-black/50 backdrop-blur-xl border-b border-white/10 px-6 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-4 min-w-0">
+              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0">M</div>
+              <div className="min-w-0">
+                <h1 className="text-white font-bold text-lg whitespace-nowrap">MONTEX ERP 3D</h1>
+                <p className="text-slate-400 text-xs">Visualizacao Estrutural em Tempo Real</p>
+              </div>
+            </div>
+            <div className="text-right text-sm shrink-0 hidden sm:block">
+              <div className="text-orange-400 font-bold">{obraCode}</div>
+              <div className="text-slate-400 text-xs">{obraName}</div>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
+              {[
+                { key: 'demo', label: '🎮 Demo', active: isDemo },
+                { key: 'status', label: '📊 Status', active: colorMode === 'status' },
+                { key: 'type', label: '📦 Tipo', active: colorMode === 'type' },
+              ].map(btn => (
+                <button key={btn.key} onClick={() => setColorMode(btn.key === 'demo' ? 'status' : btn.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${btn.active ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'}`}>
+                  {btn.label}
+                </button>
+              ))}
+              <button onClick={() => setShowIFCModal(true)}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-600 transition-all">
+                📁 Importar IFC
+              </button>
+            </div>
+          </div>
+        </header>
+
+        {/* Main Content - FIXED LAYOUT */}
+        <div className="flex h-[calc(100vh-140px)] relative">
+
+          {/* Stats Toggle Button */}
+          <button onClick={() => setShowStats(!showStats)}
+            className="absolute left-2 top-2 z-30 bg-black/70 backdrop-blur-sm text-white w-9 h-9 rounded-lg border border-white/20 flex items-center justify-center text-lg hover:bg-blue-500/30 transition-all"
+            title="Estatisticas">
+            {showStats ? '✕' : '📊'}
+          </button>
+
+          {/* Stats Overlay Panel */}
+          <div className={`absolute left-0 top-0 bottom-0 w-[300px] z-20 bg-black/85 backdrop-blur-xl border-r border-white/10 overflow-y-auto transition-transform duration-300 ${showStats ? 'translate-x-0' : '-translate-x-full'}`}>
+            <div className="p-4 pt-14 space-y-4">
+              <h2 className="text-white font-bold text-sm">Estatisticas da Obra</h2>
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300">
+                <div className="font-bold">{obraCode}</div>
+                <div className="text-slate-400">{obraName}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <div className="text-white text-xl font-bold">{stats.total}</div>
+                  <div className="text-slate-400 text-xs">Pecas</div>
+                </div>
+                <div className="bg-white/5 rounded-lg p-3 text-center">
+                  <div className="text-orange-400 text-xl font-bold">{stats.pesoTotal.toFixed(1)}t</div>
+                  <div className="text-slate-400 text-xs">Peso Total</div>
+                </div>
+                <div className="bg-emerald-500/10 rounded-lg p-3 text-center">
+                  <div className="text-emerald-400 text-xl font-bold">{stats.montadas}</div>
+                  <div className="text-slate-400 text-xs">Montadas</div>
+                </div>
+                <div className="bg-blue-500/10 rounded-lg p-3 text-center">
+                  <div className="text-blue-400 text-xl font-bold">{stats.fabricadas}</div>
+                  <div className="text-slate-400 text-xs">Fabricadas</div>
+                </div>
+              </div>
+
+              {/* By Status */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">Por Status</h3>
+                {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                  <div key={key} className="flex items-center justify-between text-xs py-1">
+                    <div className="flex items-center gap-2">
+                      <span>{cfg.icon}</span><span className="text-slate-300">{cfg.label}</span>
+                    </div>
+                    <span className="text-slate-400">{stats.byStatus[key] || 0} ({stats.total ? Math.round((stats.byStatus[key] || 0) / stats.total * 100) : 0}%)</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* By Type */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">Por Tipo de Peca</h3>
+                {Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([tipo, count]) => (
+                  <div key={tipo} className="flex items-center justify-between text-xs py-1">
+                    <span className="text-slate-300">{tipo}</span>
+                    <span className="text-slate-400">{count}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Legend */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">🎨 Legenda</h3>
+                {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                  <label key={key} className="flex items-center gap-2 py-1 cursor-pointer">
+                    <input type="checkbox" checked={activeFilters.includes(key)} onChange={() => toggleFilter(key)} className="rounded" />
+                    <span className="text-slate-300 text-xs">{cfg.label}</span>
+                  </label>
+                ))}
+              </div>
+
+              {/* Type Filter */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">🔍 Tipo</h3>
+                <select value={highlightType} onChange={e => setHighlightType(e.target.value)}
+                  className="w-full bg-white/10 border border-white/20 rounded-lg p-2 text-white text-xs">
+                  <option value="ALL">Todos</option>
+                  {Object.keys(TYPE_CONFIG).map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              {/* Region Filter */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">🗺️ Filtro por Regiao</h3>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <label className="text-slate-400">Eixo Inicio</label>
+                    <select value={eixoInicio} onChange={e => setEixoInicio(Number(e.target.value))} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
+                      {Array.from({length:17},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-slate-400">Eixo Fim</label>
+                    <select value={eixoFim} onChange={e => setEixoFim(Number(e.target.value))} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
+                      {Array.from({length:17},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-slate-400">Fila Inicio</label>
+                    <select value={filaInicio} onChange={e => setFilaInicio(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
+                      {GRID.filas.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-slate-400">Fila Fim</label>
+                    <select value={filaFim} onChange={e => setFilaFim(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
+                      {GRID.filas.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* 3D Viewport - takes FULL space */}
+          <div className="flex-1 relative overflow-hidden">
+            <Scene3DViewer
+              pieces={pieces3D}
+              viewMode={viewMode}
+              colorMode={colorMode}
+              activeFilters={activeFilters}
+              highlightType={highlightType}
+              regionFilter={{ eixoInicio, eixoFim, filaInicio, filaFim }}
+              onSelectPiece={handleSelectPiece}
+              selectedPiece={selectedPiece}
+            />
+
+            {/* Stats badges */}
+            <div className="absolute top-2 left-12 flex gap-2 pointer-events-none">
+              {[
+                { val: stats.total, label: 'Pecas', bg: 'bg-slate-700/80' },
+                { val: stats.montadas, label: 'Montadas', bg: 'bg-emerald-700/80' },
+                { val: stats.fabricadas, label: 'Fabricadas', bg: 'bg-blue-700/80' },
+                { val: stats.pesoTotal.toFixed(1) + 't', label: 'Peso', bg: 'bg-orange-700/80' },
+              ].map((b, i) => (
+                <div key={i} className={`${b.bg} backdrop-blur rounded-lg px-3 py-1.5 text-center`}>
+                  <div className="text-white text-sm font-bold">{b.val}</div>
+                  <div className="text-slate-300 text-[10px]">{b.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* View preset buttons */}
+            <div className="absolute top-2 right-4 flex flex-col gap-1.5">
+              {[
+                { key: 'frontal', icon: '🔲', label: 'Frontal' },
+                { key: 'lateral', icon: '📐', label: 'Lateral' },
+                { key: 'top', icon: '⬆️', label: 'Top' },
+                { key: 'iso', icon: '🔷', label: 'Iso' },
+                { key: '3d', icon: '🎯', label: '3D' },
+              ].map(v => (
+                <button key={v.key} onClick={() => setViewMode(v.key)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${viewMode === v.key ? 'bg-blue-500 text-white' : 'bg-black/50 text-slate-300 hover:bg-black/70 border border-white/10'}`}>
+                  {v.icon} {v.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Toolbar */}
+            <div className="absolute top-14 left-2 flex flex-col gap-1 z-10">
+              {['🔍','📏','🎯','🔲','📸','📋'].map((icon, i) => (
+                <button key={i} className="w-8 h-8 bg-black/60 backdrop-blur border border-white/15 rounded-lg text-sm flex items-center justify-center hover:bg-blue-500/40 transition-all">{icon}</button>
+              ))}
+            </div>
+
+            {/* Timeline */}
+            {showTimeline && (
+              <div className="absolute bottom-4 left-4 max-w-lg">
+                <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-xl rounded-2xl p-4 border border-blue-500/20">
+                  <div className="flex items-center justify-between mb-2">
+                    <h3 className="text-white text-sm font-semibold flex items-center gap-2">📅 Timeline de Construcao</h3>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setIsPlaying(!isPlaying)}
+                        className="bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-medium">
+                        {isPlaying ? '⏸️ Pause' : '▶️ Play'}
+                      </button>
+                      <span className="text-slate-300 text-xs font-mono">{timelineDate}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                    <span>Progresso</span>
+                    <span>33%</span>
+                  </div>
+                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-blue-500 via-emerald-500 to-orange-500 rounded-full" style={{ width: '33%' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Controls info */}
+            <div className="absolute bottom-4 right-4">
+              <div className="bg-black/60 backdrop-blur rounded-xl p-3 border border-white/10 text-xs text-slate-300">
+                <div className="font-semibold text-white mb-1">Controles</div>
+                <div>🖱️ Arrastar: Rotacionar Vista</div>
+                <div>🔄 Scroll: Zoom In/Out</div>
+                <div>🖱️ Clique: Selecionar Peca</div>
+                <div className={`mt-1 font-medium ${isIFCMode ? 'text-emerald-400' : 'text-orange-400'}`}>
+                  {isIFCMode ? '✅ Modelo IFC' : isDemo ? 'Modo Demo' : 'Dados ERP'}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modals */}
+        <IFCImportModal isOpen={showIFCModal} onClose={() => setShowIFCModal(false)} onImport={handleIFCImport} />
+        <PieceDetailPanel piece={selectedPiece} isOpen={showDetail} onClose={() => setShowDetail(false)} isIFCMode={isIFCMode} />
+      </div>
+    </div>
+  );
+}
+
+export default MontexERP3DPage;
