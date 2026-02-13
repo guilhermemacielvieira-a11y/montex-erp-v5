@@ -145,6 +145,7 @@ const navigationCategories = [
     badge: '🏗️',
     items: [
       { name: 'Multi-Obras', href: 'MultiObrasPage', icon: Building, badge: 'ALL' },
+      { name: 'Gestão Obras', href: 'GestaoObrasPage', icon: Building2, badge: 'NEW' },
       { name: 'Montagem', href: 'MontagemPage', icon: HardHat },
     ]
   },
