@@ -1,16 +1,21 @@
 {
-  "versao": "2.0.0",
-  "build": 1770220512062,
-  "data": "2026-02-04",
-  "hora": "15:55:12",
-  "commit": "integração-estoque-kanban",
+  "versao": "2.1.0",
+  "build": 1770220513062,
+  "data": "2026-02-13",
+  "hora": "14:00:00",
+  "commit": "auditoria-e-melhorias-estruturais",
   "features": [
     "Integração Estoque Real ↔ Kanban Corte",
     "Dedução automática de peso ao iniciar corte",
     "KPIs em tempo real",
     "Sincronização entre módulos",
     "Widget de consumo no Kanban",
-    "Widget de consumo no Estoque"
+    "Widget de consumo no Estoque",
+    "Camada de Serviços (services/api.js)",
+    "Pipeline CI/CD com GitHub Actions",
+    "Testes automatizados (Vitest)",
+    "Documentação de API Supabase",
+    "CHANGELOG com versionamento semântico"
   ],
   "modulos": [
     "Dashboard",
@@ -19,6 +24,11 @@
     "Kanban Corte",
     "Kanban Produção",
     "Expedição",
-    "Romaneios"
+    "Romaneios",
+    "Financeiro",
+    "Medição",
+    "BI Analytics",
+    "Command Center",
+    "Gestão de Obras"
   ]
 }
