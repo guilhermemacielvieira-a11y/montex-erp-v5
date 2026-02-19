@@ -1,4 +1,4 @@
-// ============================================
+0// ============================================
 // USE COMMAND CENTER - Hook Central de Métricas em Tempo Real
 // ============================================
 // Agrega dados de: Corte, Produção, Estoque, Financeiro, Campo
