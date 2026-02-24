@@ -116,13 +116,14 @@ export default function KanbanCortePage() {
   const abaterEstoquePorCorte = useCallback((item) => {
     if (!item || !item.perfil || !item.peso) return;
 
-    // 1. Deduzir do EstoqueReal (em kg) - para histórico e movimentações
+    // 1. Deduzir do EstoqueReal (em kg) - para histórico e movimentações + baixa Supabase
     deduzirEstoque(
       item.perfil,
       item.peso,
       'obra-001',
       `MARCA-${item.marca}`,
-      `Corte Marca ${item.marca} - ${item.peca} (${item.perfil})`
+      `Corte Marca ${item.marca} - ${item.peca} (${item.perfil})`,
+      item.comprimento
     );
 
     // 2. Deduzir do ERPContext (em metros lineares) - atualiza a página de Estoque

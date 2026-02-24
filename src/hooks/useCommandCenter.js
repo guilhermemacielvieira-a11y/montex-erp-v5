@@ -102,10 +102,9 @@ export function useCommandCenter() {
   // ===== CARREGAR DADOS DE ESTOQUE =====
   const fetchEstoque = useCallback(async () => {
     try {
-      // Colunas reais: id, codigo, descricao, tipo, quantidade, unidade, minimo, localizacao, obra_id, updated_at
       const { data, error } = await supabase
         .from('estoque')
-        .select('quantidade, minimo, tipo, localizacao, updated_at');
+        .select('quantidade, minimo, tipo, categoria, localizacao, preco, comprado, updated_at');
       if (error) throw error;
 
       const items = data || [];
@@ -118,6 +117,8 @@ export function useCommandCenter() {
         return qty > 0 && min > 0 && qty <= min;
       }).length;
       const normal = totalItens - critico - baixo;
+      // Calcular valor total do estoque (quantidade * preço)
+      const valorTotalCalc = items.reduce((s, i) => s + ((parseFloat(i.quantidade) || 0) * (parseFloat(i.preco) || 0)), 0);
 
       // Movimentações de hoje
       const hoje = new Date().toISOString().slice(0, 10);
@@ -137,7 +138,7 @@ export function useCommandCenter() {
 
       return {
         totalItens,
-        valorTotal: 0, // sem coluna valor_unitario na tabela
+        valorTotal: Math.round(valorTotalCalc),
         normal,
         baixo,
         critico,
