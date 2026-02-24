@@ -17,14 +17,15 @@ import {
 // ERPContext - dados reais
 import { useObras, useProducao } from '../contexts/ERPContext';
 
-// Dados financeiros reais
+// Hook de métricas em tempo real via Supabase
+import { useCommandCenter } from '../hooks/useCommandCenter';
 
 // Componentes
 import { AnimatedCounter, AnimatedRadar } from '../components/bi/Dynamic3DCharts';
 
-// Mock data fallback para compatibilidade
+// Mock data fallback para compatibilidade (seções ainda não conectadas)
 import {
-  producaoTempoReal, maquinasStatus, kpisIndustriais, fluxoFinanceiro, pipelineVendas,
+  maquinasStatus, kpisIndustriais, pipelineVendas,
   recursosHumanos, qualidadeMetricas, logisticaMetricas,
   energiaMetricas, alertasInteligentes, indicadoresPorProjeto
 } from '../data/commandCenterData';
@@ -158,6 +159,15 @@ export default function CommandCenterUltra() {
   const { obras, obraAtualData } = useObras();
   const { pecas, maquinas } = useProducao();
 
+  // Hook de métricas em tempo real (Supabase direto)
+  const {
+    corte: corteMetrics,
+    producao: producaoMetrics,
+    estoque: estoqueMetrics,
+    financeiro: financeiroMetrics,
+    lastUpdate: ccLastUpdate
+  } = useCommandCenter();
+
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showBootSequence, setShowBootSequence] = useState(true);
   const [selectedMachine, setSelectedMachine] = useState(null);
@@ -172,16 +182,43 @@ export default function CommandCenterUltra() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Métricas consolidadas - integradas com dados reais do ERPContext
+  // Métricas consolidadas - integradas com dados reais do ERPContext + Supabase
   const metrics = useMemo(() => {
     const projetosAtivos = obras.filter(p => ['em_fabricacao', 'em_montagem', 'aprovado'].includes(p.status)).length;
-    const pesoTotal = obras.reduce((acc, p) => acc + (p.peso_total || 0), 0);
+    const pesoTotal = producaoMetrics?.pesoTotal || obras.reduce((acc, p) => acc + (p.peso_total || 0), 0);
     const valorTotal = obras.reduce((acc, p) => acc + (p.valor_total || 0), 0);
-    const progressoMedio = obras.filter(p => p.progresso && p.progresso.geral).reduce((acc, p, _, arr) => acc + (p.progresso.geral || 0) / arr.length, 0);
+    const progressoMedio = producaoMetrics?.progressoGeral || obras.filter(p => p.progresso && p.progresso.geral).reduce((acc, p, _, arr) => acc + (p.progresso.geral || 0) / arr.length, 0);
     const maquinasAtivas = maquinas.filter(m => m.status === 'operando').length;
     const oee = kpisIndustriais.oee.valor;
-    return { projetosAtivos, pesoTotal, valorTotal, progressoMedio, maquinasAtivas, oee };
-  }, [obras, maquinas]);
+    return {
+      projetosAtivos, pesoTotal, valorTotal, progressoMedio, maquinasAtivas, oee,
+      // Dados reais de produção
+      totalPecas: producaoMetrics?.total || 0,
+      fabricacao: producaoMetrics?.fabricacao || 0,
+      solda: producaoMetrics?.solda || 0,
+      pintura: producaoMetrics?.pintura || 0,
+      expedicao: producaoMetrics?.expedicao || 0,
+      movidasHoje: producaoMetrics?.movidasHoje || 0,
+      // Corte
+      corteTotal: corteMetrics?.total || 0,
+      corteAguardando: corteMetrics?.aguardando || 0,
+      corteCortando: corteMetrics?.cortando || 0,
+      corteFinalizado: corteMetrics?.finalizado || 0,
+      corteProgresso: corteMetrics?.progressoPeso || 0,
+    };
+  }, [obras, maquinas, producaoMetrics, corteMetrics]);
+
+  // Dados de produção reais para o gráfico
+  const producaoTempoReal = useMemo(() => {
+    if (!producaoMetrics) return [];
+    return [
+      { hora: 'Fabric.', producao: producaoMetrics.fabricacao || 0, meta: 10 },
+      { hora: 'Solda', producao: producaoMetrics.solda || 0, meta: 10 },
+      { hora: 'Pintura', producao: producaoMetrics.pintura || 0, meta: 10 },
+      { hora: 'Exped.', producao: producaoMetrics.expedicao || 0, meta: 10 },
+      { hora: 'Final.', producao: producaoMetrics.finalizado || 0, meta: 10 },
+    ];
+  }, [producaoMetrics]);
 
   const radarData = [
     { subject: 'Produção', value: kpisIndustriais.oee.valor, fullMark: 100 },
@@ -440,9 +477,9 @@ export default function CommandCenterUltra() {
               </div>
               <div className="grid grid-cols-3 gap-2 mt-3">
                 {[
-                  { label: 'Realizado', value: producaoTempoReal.reduce((a, b) => a + b.producao, 0), color: '#34d399' },
-                  { label: 'Meta', value: producaoTempoReal.reduce((a, b) => a + b.meta, 0), color: '#fbbf24' },
-                  { label: 'Eficiência', value: `${producaoTempoReal.length > 0 ? Math.round(producaoTempoReal.reduce((a, b) => a + b.producao, 0) / producaoTempoReal.reduce((a, b) => a + b.meta, 0) * 100) : 0}%`, color: '#22d3ee' },
+                  { label: 'Total Peças', value: metrics.totalPecas, color: '#34d399' },
+                  { label: 'Movidas Hoje', value: metrics.movidasHoje, color: '#fbbf24' },
+                  { label: 'Progresso', value: `${metrics.progressoMedio}%`, color: '#22d3ee' },
                 ].map(item => (
                   <div key={item.label} className="text-center p-2 rounded-lg" style={{ background: `${item.color}10` }}>
                     <div className="text-lg font-bold font-mono" style={{ color: item.color }}>{item.value}</div>

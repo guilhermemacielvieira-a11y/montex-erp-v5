@@ -21,10 +21,13 @@ import {
 // ERPContext - dados reais
 import { useObras, useProducao } from '../contexts/ERPContext';
 
+// Hook de métricas em tempo real via Supabase
+import { useCommandCenter } from '../hooks/useCommandCenter';
+
 // Dados financeiros reais
 import { LANCAMENTOS_DESPESAS, MEDICOES_RECEITAS, DRE_OBRA } from '../data/obraFinanceiraDatabase';
 
-// Dados simulados para complemento
+// Dados simulados para complemento (usado apenas para seções ainda não conectadas)
 import { commandCenterData } from '../data/commandCenterData';
 
 // Formatador de moeda
@@ -277,6 +280,17 @@ export default function CommandCenterUltrawide() {
   const { obras, obraAtualData } = useObras();
   const { pecas } = useProducao();
 
+  // Hook de métricas em tempo real (Supabase direto)
+  const {
+    corte: corteMetrics,
+    producao: producaoMetrics,
+    estoque: estoqueMetrics,
+    financeiro: financeiroMetrics,
+    campo: campoMetrics,
+    loading: ccLoading,
+    lastUpdate: ccLastUpdate
+  } = useCommandCenter();
+
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showBootScreen, setShowBootScreen] = useState(true);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -301,10 +315,42 @@ export default function CommandCenterUltrawide() {
   }, []);
 
   // ==================== DATA CALCULATIONS ====================
-  const { producaoTempoReal, maquinasStatus, kpisIndustriais, fluxoFinanceiro,
+  // Dados mock para seções que ainda não possuem dados reais (máquinas, pipeline, etc.)
+  const { maquinasStatus, kpisIndustriais,
           pipelineVendas, recursosHumanos, qualidadeMetricas, logisticaMetricas,
           energiaMetricas, alertasInteligentes, indicadoresPorProjeto,
           previsoesTendencias, comparativoPerformance } = commandCenterData;
+
+  // ==================== DADOS REAIS DE PRODUÇÃO ====================
+  // Construir dados de produção a partir do useCommandCenter (Supabase real-time)
+  const producaoTempoReal = useMemo(() => {
+    if (!producaoMetrics) return [];
+    // Gerar timeline baseada nos dados reais
+    return [{
+      hora: '08:00', producao: producaoMetrics.fabricacao || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
+    }, {
+      hora: '10:00', producao: producaoMetrics.solda || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
+    }, {
+      hora: '12:00', producao: producaoMetrics.pintura || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
+    }, {
+      hora: '14:00', producao: producaoMetrics.expedicao || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
+    }, {
+      hora: '16:00', producao: producaoMetrics.finalizado || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
+    }];
+  }, [producaoMetrics]);
+
+  // Dados financeiros reais do Supabase
+  const fluxoFinanceiro = useMemo(() => {
+    if (!financeiroMetrics) return commandCenterData.fluxoFinanceiro;
+    return {
+      receitasMes: financeiroMetrics.totalMedicoes || 0,
+      despesasMes: financeiroMetrics.totalDespesas || 0,
+      lucroMes: (financeiroMetrics.totalMedicoes || 0) - (financeiroMetrics.totalDespesas || 0),
+      receitasPorDia: [],
+      despesasPorDia: [],
+      fluxoCaixa: [],
+    };
+  }, [financeiroMetrics]);
 
   const metrics = useMemo(() => {
     // Dados da obra atual
@@ -314,18 +360,21 @@ export default function CommandCenterUltrawide() {
     const projetosAtivos = obras?.filter(p => ['em_fabricacao', 'em_montagem', 'aprovado'].includes(p.status))?.length || 0;
     const projetosTotal = obras?.length || 0;
 
-    // Dados financeiros reais
-    const receitas = MEDICOES_RECEITAS?.reduce((a, m) => a + (m.valor || 0), 0) || 0;
-    const despesas = LANCAMENTOS_DESPESAS?.reduce((a, m) => a + (m.valor || 0), 0) || 0;
+    // Dados financeiros - priorizar Supabase, fallback para estáticos
+    const receitas = financeiroMetrics?.totalMedicoes || MEDICOES_RECEITAS?.reduce((a, m) => a + (m.valor || 0), 0) || 0;
+    const despesas = financeiroMetrics?.totalDespesas || LANCAMENTOS_DESPESAS?.reduce((a, m) => a + (m.valor || 0), 0) || 0;
     const lucro = receitas - despesas;
 
     // Peso e valor da obra
-    const pesoTotal = obraAtual?.peso_total || 0;
+    const pesoTotal = obraAtual?.peso_total || producaoMetrics?.pesoTotal || 0;
     const valorTotal = obraAtual?.valor_total || DRE_OBRA?.valor_total || 0;
 
     const maquinasOperando = maquinasStatus.filter(m => m.status === 'operando').length;
     const eficienciaMedia = maquinasOperando > 0 ? maquinasStatus.filter(m => m.status === 'operando')
       .reduce((a, m) => a + m.eficiencia, 0) / maquinasOperando : 0;
+
+    // Alertas de estoque reais
+    const stockAlertsCount = estoqueMetrics?.alertas || 0;
 
     return {
       projetosAtivos, projetosTotal,
@@ -337,10 +386,32 @@ export default function CommandCenterUltrawide() {
       oee: kpisIndustriais.oee.valor,
       mtbf: kpisIndustriais.mtbf.valor,
       mttr: kpisIndustriais.mttr.valor,
-      stockAlerts: 0,
-      alertasCriticos: alertasInteligentes.filter(a => a.tipo === 'critico').length
+      stockAlerts: stockAlertsCount,
+      alertasCriticos: alertasInteligentes.filter(a => a.tipo === 'critico').length,
+      // Dados reais de produção do Supabase
+      totalPecasProducao: producaoMetrics?.total || 0,
+      pecasFabricacao: producaoMetrics?.fabricacao || 0,
+      pecasSolda: producaoMetrics?.solda || 0,
+      pecasPintura: producaoMetrics?.pintura || 0,
+      pecasExpedicao: producaoMetrics?.expedicao || 0,
+      pecasFinalizado: producaoMetrics?.finalizado || 0,
+      progressoProducao: producaoMetrics?.progressoGeral || 0,
+      pesoExpedido: producaoMetrics?.pesoExpedido || 0,
+      movidasHoje: producaoMetrics?.movidasHoje || 0,
+      // Dados reais de corte do Supabase
+      totalCorte: corteMetrics?.total || 0,
+      corteAguardando: corteMetrics?.aguardando || 0,
+      corteCortando: corteMetrics?.cortando || 0,
+      corteFinalizado: corteMetrics?.finalizado || 0,
+      corteProgressoPeso: corteMetrics?.progressoPeso || 0,
+      cortadasHoje: corteMetrics?.cortadasHoje || 0,
+      // Estoque real
+      estoqueTotal: estoqueMetrics?.totalItens || 0,
+      estoqueValor: estoqueMetrics?.valorTotal || 0,
+      estoqueCritico: estoqueMetrics?.critico || 0,
+      estoqueBaixo: estoqueMetrics?.baixo || 0,
     };
-  }, [refreshKey, obras, obraAtualData, pecas]);
+  }, [refreshKey, obras, obraAtualData, pecas, producaoMetrics, corteMetrics, estoqueMetrics, financeiroMetrics]);
 
   // Production trend data
   const productionTrendData = producaoTempoReal.map((item) => ({
@@ -796,16 +867,38 @@ export default function CommandCenterUltrawide() {
               <div className="flex items-center justify-between mb-2">
                 <div className="flex items-center gap-4">
                   <div>
-                    <div className="text-2xl font-bold text-white">{producaoTempoReal.unidadesHoje}</div>
-                    <div className="text-[9px] text-slate-500">Unidades Hoje</div>
+                    <div className="text-2xl font-bold text-white">{metrics.totalPecasProducao}</div>
+                    <div className="text-[9px] text-slate-500">Total Peças</div>
                   </div>
                   <div className="h-10 w-px bg-slate-700" />
                   <div>
-                    <div className="text-lg font-bold text-emerald-400">{producaoTempoReal.length > 0 ? Math.round(producaoTempoReal.reduce((acc, p) => acc + p.eficiencia, 0) / producaoTempoReal.length) : 0}%</div>
-                    <div className="text-[9px] text-slate-500">Eficiência</div>
+                    <div className="text-lg font-bold text-emerald-400">{metrics.progressoProducao}%</div>
+                    <div className="text-[9px] text-slate-500">Progresso</div>
+                  </div>
+                  <div className="h-10 w-px bg-slate-700" />
+                  <div>
+                    <div className="text-lg font-bold text-cyan-400">{metrics.movidasHoje}</div>
+                    <div className="text-[9px] text-slate-500">Movidas Hoje</div>
                   </div>
                 </div>
-                <Sparkline data={producaoTempoReal.map(p => p.producao)} color="#22d3ee" width={100} height={35} />
+                <div className="flex gap-2 text-[8px]">
+                  <div className="text-center px-2 py-1 rounded bg-blue-500/15 border border-blue-500/30">
+                    <div className="text-blue-400 font-mono font-bold">{metrics.pecasFabricacao}</div>
+                    <div className="text-slate-500">Fabric.</div>
+                  </div>
+                  <div className="text-center px-2 py-1 rounded bg-purple-500/15 border border-purple-500/30">
+                    <div className="text-purple-400 font-mono font-bold">{metrics.pecasSolda}</div>
+                    <div className="text-slate-500">Solda</div>
+                  </div>
+                  <div className="text-center px-2 py-1 rounded bg-pink-500/15 border border-pink-500/30">
+                    <div className="text-pink-400 font-mono font-bold">{metrics.pecasPintura}</div>
+                    <div className="text-slate-500">Pintura</div>
+                  </div>
+                  <div className="text-center px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/30">
+                    <div className="text-emerald-400 font-mono font-bold">{metrics.pecasExpedicao}</div>
+                    <div className="text-slate-500">Exped.</div>
+                  </div>
+                </div>
               </div>
               <ResponsiveContainer width="100%" height={150}>
                 <ComposedChart data={productionTrendData}>
@@ -950,27 +1043,53 @@ export default function CommandCenterUltrawide() {
               </div>
             </DataPanel>
 
-            <DataPanel title="ESTOQUE" icon={Package} color={metrics.stockAlerts > 0 ? '#ef4444' : '#34d399'}>
+            <DataPanel title="CORTE" icon={Gauge} color="#f59e0b" badge={`${metrics.corteFinalizado}/${metrics.totalCorte}`}>
+              <div className="grid grid-cols-3 gap-1 mb-2">
+                <div className="text-center p-1.5 rounded bg-amber-500/10 border border-amber-500/20">
+                  <div className="text-sm font-mono font-bold text-amber-400">{metrics.corteAguardando}</div>
+                  <div className="text-[7px] text-slate-500">Aguard.</div>
+                </div>
+                <div className="text-center p-1.5 rounded bg-cyan-500/10 border border-cyan-500/20">
+                  <div className="text-sm font-mono font-bold text-cyan-400">{metrics.corteCortando}</div>
+                  <div className="text-[7px] text-slate-500">Cortando</div>
+                </div>
+                <div className="text-center p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20">
+                  <div className="text-sm font-mono font-bold text-emerald-400">{metrics.corteFinalizado}</div>
+                  <div className="text-[7px] text-slate-500">Finaliz.</div>
+                </div>
+              </div>
+              <div className="flex justify-between text-[9px] mb-1">
+                <span className="text-slate-400">Progresso Peso</span>
+                <span className="text-amber-400 font-mono">{metrics.corteProgressoPeso}%</span>
+              </div>
+              <UltraProgress value={metrics.corteProgressoPeso} color="#f59e0b" height={4} />
+              <div className="flex justify-between mt-2 text-[8px]">
+                <span className="text-slate-500">Cortadas hoje: <span className="text-amber-400 font-mono">{metrics.cortadasHoje}</span></span>
+              </div>
+            </DataPanel>
+
+            <DataPanel title="ESTOQUE" icon={Package} color={metrics.stockAlerts > 0 ? '#ef4444' : '#34d399'} badge={metrics.estoqueTotal}>
+              <div className="grid grid-cols-2 gap-1 mb-2">
+                <div className="text-center p-1.5 rounded bg-slate-800/50">
+                  <div className="text-sm font-mono font-bold text-white">{metrics.estoqueTotal}</div>
+                  <div className="text-[7px] text-slate-500">Itens</div>
+                </div>
+                <div className="text-center p-1.5 rounded bg-slate-800/50">
+                  <div className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(metrics.estoqueValor)}</div>
+                  <div className="text-[7px] text-slate-500">Valor</div>
+                </div>
+              </div>
               {metrics.stockAlerts > 0 ? (
-                <div className="space-y-2">
+                <div className="space-y-1">
                   <div className="flex items-center gap-2 text-red-400 text-[10px]">
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>{metrics.stockAlerts} itens abaixo do mínimo</span>
+                    <span>{metrics.estoqueCritico} críticos, {metrics.estoqueBaixo} baixos</span>
                   </div>
-                  {pecas?.filter(p => p.quantidade < p.minimo)?.slice(0, 3).map((item) => (
-                    <div key={item.id} className="p-2 rounded bg-red-500/10 border border-red-500/30">
-                      <div className="flex justify-between">
-                        <span className="text-[10px] text-white truncate">{item.descricao}</span>
-                        <motion.span className="text-[8px] text-red-400" animate={{ opacity: [1, 0.5, 1] }} transition={{ duration: 1, repeat: Infinity }}>CRÍTICO</motion.span>
-                      </div>
-                      <div className="text-[8px] text-slate-500 mt-0.5">{item.quantidade}/{item.minimo} {item.unidade}</div>
-                    </div>
-                  ))}
                 </div>
               ) : (
-                <div className="text-center py-6">
-                  <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
-                  <span className="text-[11px] text-emerald-400">Estoque Normalizado</span>
+                <div className="text-center py-2">
+                  <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
+                  <span className="text-[10px] text-emerald-400">Estoque Normalizado</span>
                 </div>
               )}
             </DataPanel>
@@ -1146,7 +1265,7 @@ export default function CommandCenterUltrawide() {
             ))}
           </div>
           <div className="flex items-center gap-4">
-            <span className="text-[9px] text-slate-500">Atualizado: {currentTime.toLocaleTimeString('pt-BR')}</span>
+            <span className="text-[9px] text-slate-500">Atualizado: {ccLastUpdate ? ccLastUpdate.toLocaleTimeString('pt-BR') : currentTime.toLocaleTimeString('pt-BR')}</span>
             <span className="text-[9px] text-slate-600">|</span>
             <span className="text-[9px] text-slate-500">MONTEX ERP v6.0.1</span>
             <span className="text-[9px] text-slate-600">|</span>
