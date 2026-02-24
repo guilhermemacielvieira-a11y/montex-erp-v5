@@ -27,6 +27,26 @@ export function transformArray(records) {
   return (records || []).map(transformRecord);
 }
 
+// Transformar registro de estoque com aliases para compatibilidade
+export function transformEstoqueRecord(record) {
+  const base = transformRecord(record);
+  if (base) {
+    // Alias: preco → precoUnitario (EstoquePageV2 usa precoUnitario)
+    if (base.preco !== undefined && base.precoUnitario === undefined) {
+      base.precoUnitario = base.preco;
+    }
+    // Alias: minimo → minimoEstoque (compatibilidade)
+    if (base.descricao === undefined && base.nome) {
+      base.descricao = base.nome;
+    }
+  }
+  return base;
+}
+
+export function transformEstoqueArray(records) {
+  return (records || []).map(transformEstoqueRecord);
+}
+
 // Transformar peças com aliases (peso_total → peso para compatibilidade com mock)
 export function transformPecaRecord(record) {
   const base = transformRecord(record);

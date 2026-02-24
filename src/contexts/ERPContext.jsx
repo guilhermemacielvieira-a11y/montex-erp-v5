@@ -25,6 +25,7 @@ import { ACTIONS } from './actions';
 import {
   transformRecord,
   transformArray,
+  transformEstoqueArray,
   transformPecaArray,
   transformPecaRecord,
   pecaToSupabase,
@@ -233,7 +234,7 @@ export function ERPProvider({ children }) {
             obras: transformObraArray(obrasData),
             orcamentos: transformArray(orcamentosData),
             listas: transformArray(listasData),
-            estoque: transformArray(estoqueData),
+            estoque: transformEstoqueArray(estoqueData),
             pecas: transformPecaArray(pecasData),
             funcionarios: transformArray(funcionariosData),
             equipes: transformArray(equipesData),
