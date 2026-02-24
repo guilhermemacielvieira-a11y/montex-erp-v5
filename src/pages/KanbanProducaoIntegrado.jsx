@@ -101,6 +101,9 @@ export default function KanbanProducaoIntegrado() {
   const [busca, setBusca] = useState('');
   const [conjuntoSelecionado, setConjuntoSelecionado] = useState(null);
   const [modalAberto, setModalAberto] = useState(false);
+  // Estados para modal de edição por unidade
+  const [modalEdicaoAberto, setModalEdicaoAberto] = useState(false);
+  const [unidadesEdicao, setUnidadesEdicao] = useState([]);
 
   // Estados para Nova Ordem de Produção
   const [modalNovaOrdem, setModalNovaOrdem] = useState(false);
@@ -361,6 +364,91 @@ export default function KanbanProducaoIntegrado() {
       console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
       toast.error('Erro ao salvar movimentação');
     }
+  };
+
+
+  // ============================================================
+  // EDIÇÃO POR UNIDADE - Para peças com quantidade > 1
+  // ============================================================
+
+  // Abre o modal de edição por unidade
+  const handleAbrirEdicaoUnidades = (conjunto) => {
+    const qtd = conjunto.quantidade || 1;
+    // Se já existem unidades individuais salvas, usa; senão inicializa
+    const unidadesExistentes = conjunto.unidadesStatus || [];
+    const unidades = Array.from({ length: qtd }, (_, i) => ({
+      indice: i + 1,
+      status: unidadesExistentes[i]?.status || conjunto.status,
+      label: `Unidade ${i + 1}`,
+    }));
+    setUnidadesEdicao(unidades);
+    setModalEdicaoAberto(true);
+    setModalAberto(false);
+  };
+
+  // Salva as edições por unidade
+  const handleSalvarEdicaoUnidades = async () => {
+    if (!conjuntoSelecionado) return;
+
+    // Determinar o status predominante (o mais avançado entre as unidades)
+    const ordemEtapas = ['fabricacao', 'solda', 'pintura', 'expedido'];
+    const statusCounts = {};
+    unidadesEdicao.forEach(u => {
+      statusCounts[u.status] = (statusCounts[u.status] || 0) + 1;
+    });
+
+    // Status do conjunto = o status MENOS avançado (mais restritivo)
+    // Assim o card só avança quando TODAS as unidades estiverem na próxima etapa
+    let statusConjunto = conjuntoSelecionado.status;
+    const statusDasUnidades = unidadesEdicao.map(u => u.status);
+    const statusMaisAtrasado = ordemEtapas.find(e => statusDasUnidades.includes(e)) || conjuntoSelecionado.status;
+    statusConjunto = statusMaisAtrasado;
+
+    // Atualizar estado local com unidades individuais e novo status
+    const agora = new Date().toISOString();
+    const novoStatusProducao = { ...conjuntoSelecionado.statusProducao };
+    if (statusConjunto === 'solda') {
+      novoStatusProducao.fabricado = true;
+      novoStatusProducao.dataFabricacao = novoStatusProducao.dataFabricacao || agora;
+    } else if (statusConjunto === 'pintura') {
+      novoStatusProducao.fabricado = true;
+      novoStatusProducao.soldado = true;
+      novoStatusProducao.dataFabricacao = novoStatusProducao.dataFabricacao || agora;
+      novoStatusProducao.dataSolda = novoStatusProducao.dataSolda || agora;
+    } else if (statusConjunto === 'expedido') {
+      novoStatusProducao.fabricado = true;
+      novoStatusProducao.soldado = true;
+      novoStatusProducao.pintado = true;
+      novoStatusProducao.expedido = true;
+      novoStatusProducao.dataFabricacao = novoStatusProducao.dataFabricacao || agora;
+      novoStatusProducao.dataSolda = novoStatusProducao.dataSolda || agora;
+      novoStatusProducao.dataPintura = novoStatusProducao.dataPintura || agora;
+      novoStatusProducao.dataExpedicao = novoStatusProducao.dataExpedicao || agora;
+    }
+
+    setProducaoFabrica(prev => prev.map(c => {
+      if (c.id === conjuntoSelecionado.id) {
+        return {
+          ...c,
+          status: statusConjunto,
+          statusProducao: novoStatusProducao,
+          unidadesStatus: unidadesEdicao,
+        };
+      }
+      return c;
+    }));
+
+    // Persistir no Supabase
+    try {
+      await moverPecaEtapaContext(conjuntoSelecionado.id, statusConjunto, null);
+      console.log(`[Kanban] ✅ Unidades de ${conjuntoSelecionado.conjunto} atualizadas no Supabase`);
+      toast.success(`${conjuntoSelecionado.conjunto}: ${unidadesEdicao.length} unidades atualizadas!`);
+    } catch (err) {
+      console.error('[Kanban] ❌ Erro ao persistir edição:', err);
+      toast.error('Erro ao salvar edição das unidades');
+    }
+
+    setModalEdicaoAberto(false);
   };
 
   // Agrupar conjuntos por coluna
@@ -1409,12 +1497,135 @@ export default function KanbanProducaoIntegrado() {
                 </div>
 
                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700">
-                  <Button variant="outline" className="border-slate-700 text-slate-300">
-                    <Edit className="h-4 w-4 mr-2" /> Editar
+                  <Button 
+                    variant="outline" 
+                    className="border-slate-700 text-slate-300"
+                    onClick={() => handleAbrirEdicaoUnidades(conjuntoSelecionado)}
+                  >
+                    <Edit className="h-4 w-4 mr-2" />
+                    {conjuntoSelecionado.quantidade > 1 ? `Editar Unidades (${conjuntoSelecionado.quantidade})` : 'Editar'}
                   </Button>
                   <Dialog.Close asChild>
                     <Button className="bg-blue-600 hover:bg-blue-700">Fechar</Button>
                   </Dialog.Close>
+                </div>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+
+      {/* ===== MODAL EDIÇÃO POR UNIDADE ===== */}
+      <Dialog.Root open={modalEdicaoAberto} onOpenChange={setModalEdicaoAberto}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl p-6 z-[60]">
+            {conjuntoSelecionado && (
+              <>
+                <Dialog.Title className="text-xl font-bold text-white flex items-center gap-3 mb-2">
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Edit className="h-5 w-5 text-blue-400" />
+                  </div>
+                  <div>
+                    <span className="text-white">Editar por Unidade</span>
+                    <p className="text-sm text-slate-400 font-normal mt-0.5">
+                      {conjuntoSelecionado.conjunto} — {conjuntoSelecionado.descricao}
+                    </p>
+                  </div>
+                </Dialog.Title>
+
+                <div className="mt-1 mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+                  <p className="text-blue-300 text-sm">
+                    <strong>{conjuntoSelecionado.quantidade} unidades</strong> deste conjunto. 
+                    Defina a etapa de produção de cada uma individualmente.
+                    O card no Kanban ficará na etapa <strong>menos avançada</strong> entre as unidades.
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {unidadesEdicao.map((unidade, idx) => (
+                    <div key={idx} className="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
+                      <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
+                            {unidade.indice}
+                          </div>
+                          <div>
+                            <p className="text-white font-medium text-sm">{unidade.label}</p>
+                            <p className="text-slate-400 text-xs">{conjuntoSelecionado.conjunto} — unidade {unidade.indice}</p>
+                          </div>
+                        </div>
+
+                        <div className="flex gap-1.5 flex-wrap justify-end">
+                          {[
+                            { id: 'fabricacao', label: 'Fabricação', color: 'blue' },
+                            { id: 'solda', label: 'Solda', color: 'yellow' },
+                            { id: 'pintura', label: 'Pintura', color: 'pink' },
+                            { id: 'expedido', label: 'Expedido', color: 'green' },
+                          ].map(etapa => (
+                            <button
+                              key={etapa.id}
+                              onClick={() => {
+                                const novasUnidades = [...unidadesEdicao];
+                                novasUnidades[idx] = { ...novasUnidades[idx], status: etapa.id };
+                                setUnidadesEdicao(novasUnidades);
+                              }}
+                              className={cn(
+                                "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
+                                unidade.status === etapa.id
+                                  ? etapa.color === 'blue' ? "bg-blue-500/30 border-blue-400 text-blue-300"
+                                  : etapa.color === 'yellow' ? "bg-yellow-500/30 border-yellow-400 text-yellow-300"
+                                  : etapa.color === 'pink' ? "bg-pink-500/30 border-pink-400 text-pink-300"
+                                  : "bg-emerald-500/30 border-emerald-400 text-emerald-300"
+                                  : "bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-400"
+                              )}
+                            >
+                              {etapa.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Resumo */}
+                <div className="mt-4 p-3 bg-slate-800/40 rounded-lg">
+                  <p className="text-slate-400 text-xs mb-2 font-medium">RESUMO DAS UNIDADES</p>
+                  <div className="flex gap-3 flex-wrap">
+                    {['fabricacao', 'solda', 'pintura', 'expedido'].map(etapa => {
+                      const count = unidadesEdicao.filter(u => u.status === etapa).length;
+                      if (count === 0) return null;
+                      const etapaLabel = { fabricacao: 'Fabricação', solda: 'Solda', pintura: 'Pintura', expedido: 'Expedido' };
+                      const etapaCor = { fabricacao: 'text-blue-400', solda: 'text-yellow-400', pintura: 'text-pink-400', expedido: 'text-emerald-400' };
+                      return (
+                        <span key={etapa} className={cn("text-sm font-medium", etapaCor[etapa])}>
+                          {count}× {etapaLabel[etapa]}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700">
+                  <Button
+                    variant="outline"
+                    className="border-slate-700 text-slate-300"
+                    onClick={() => {
+                      setModalEdicaoAberto(false);
+                      setModalAberto(true);
+                    }}
+                  >
+                    Voltar
+                  </Button>
+                  <Button
+                    className="bg-emerald-600 hover:bg-emerald-700"
+                    onClick={handleSalvarEdicaoUnidades}
+                  >
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                    Salvar Alterações
+                  </Button>
                 </div>
               </>
             )}
