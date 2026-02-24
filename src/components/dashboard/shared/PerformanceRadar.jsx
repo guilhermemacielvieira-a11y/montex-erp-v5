@@ -11,7 +11,6 @@
 import React from 'react';
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from 'recharts';
 import ChartWrapper from './ChartWrapper';
-import { cn } from '@/lib/utils';
 import { Zap } from 'lucide-react';
 
 export default function PerformanceRadar({

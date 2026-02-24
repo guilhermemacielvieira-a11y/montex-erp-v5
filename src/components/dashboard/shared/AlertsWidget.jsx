@@ -10,7 +10,7 @@
  */
 import React from 'react';
 import { motion } from 'framer-motion';
-import { AlertCircle, AlertTriangle, Info, CheckCircle, X } from 'lucide-react';
+import { AlertCircle, AlertTriangle, Info, CheckCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const SEVERITY_CONFIG = {

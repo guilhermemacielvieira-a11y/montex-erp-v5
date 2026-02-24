@@ -6,10 +6,9 @@
 // ============================================
 
 import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-  Scissors, Factory, Package, DollarSign, Truck,
-  TrendingUp, TrendingDown, RefreshCw, Clock,
+  Scissors, Factory, Package, DollarSign, Truck, RefreshCw, Clock,
   AlertTriangle, CheckCircle2, Activity, BarChart3,
   ArrowUpRight, ArrowDownRight, Minus, Eye,
   Layers, Target, Zap, Shield

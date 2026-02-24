@@ -34,8 +34,8 @@ import {
 import { useObras, useProducao } from '@/contexts/ERPContext';
 import { listasMaterial, obras as obrasDB } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
-import { getEMByConjunto, getEMInfoByConjunto, getTipoByConjunto, ETAPAS_PRODUCAO_DETALHADAS } from '@/data/producaoMapping';
-import { getBOMByConjunto, getTotalPecasByConjunto } from '@/data/conjuntoBOM';
+import { getEMInfoByConjunto } from '@/data/producaoMapping';
+import { getBOMByConjunto } from '@/data/conjuntoBOM';
 import { getCroquiByMarca } from '@/data/croquiDatabase';
 import { contarCortadasParaConjunto, isMarcaCortada, subscribeCorteChanges } from '@/data/corteStatusStore';
 

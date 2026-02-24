@@ -36,7 +36,6 @@ import {
   Receipt,
   Truck,
   ChevronDown,
-  ChevronLeft,
   ChevronRight,
   Search,
   Scissors,

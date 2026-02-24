@@ -5,7 +5,6 @@
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
-import { useObras, useProducao } from '@/contexts/ERPContext';
 import { ETAPAS_PRODUCAO } from '@/data/database';
 
 // ==============================================

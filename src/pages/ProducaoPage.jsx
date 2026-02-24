@@ -28,7 +28,6 @@ import {
   Hammer,
   ArrowRight,
   ChevronRight,
-  SkipForward,
   Play
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -61,7 +60,6 @@ import {
 // Importar ERPContext - dados reais
 import { useObras, useProducao } from '../contexts/ERPContext';
 // Importar API Supabase para persistência
-import { pecasApi } from '@/api/supabaseClient';
 // Importar hook de paginação inteligente
 import { useSmartPagination } from '@/hooks/useSmartPagination';
 // Importar controles de paginação

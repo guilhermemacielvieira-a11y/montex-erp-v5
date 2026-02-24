@@ -12,9 +12,6 @@ import {
   TrendingDown,
   PieChart,
   BarChart3,
-  Users,
-  Wrench,
-  Truck,
   FileText,
   Download
 } from 'lucide-react';

@@ -3,7 +3,7 @@
  * Versão atualizada e integrada ao DashboardPremium
  * Widgets para Premium: stats, producao, financeiro, globe, alertas, radar, projetos, rh, maquinas, obrasProgress, estoque
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Settings, X, RotateCcw, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';

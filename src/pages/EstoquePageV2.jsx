@@ -5,27 +5,25 @@
  */
 
 import React, { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   Package, Warehouse, AlertTriangle, AlertCircle, CheckCircle2,
-  Search, Filter, Plus, Download, Upload, Edit, Trash2, Eye,
+  Search, Filter, Plus, Download, Upload, Edit, Eye,
   ChevronDown, TrendingDown, TrendingUp, BarChart3, Bell,
-  Building2, Scissors, RefreshCw, FileSpreadsheet, Clock,
-  ArrowRight, ArrowDown, Box, Layers, Settings, X, Save, Link2
+  Building2, RefreshCw, ArrowDown, Layers, X, Link2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Select from '@radix-ui/react-select';
-import * as Dialog from '@radix-ui/react-dialog';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, PieChart, Pie, Cell, LineChart, Line, Legend
+  ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 
 // Importa o contexto ERP
-import { useERP, useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
+import { useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
 // Importar hook de paginação inteligente
 import { useSmartPagination } from '@/hooks/useSmartPagination';

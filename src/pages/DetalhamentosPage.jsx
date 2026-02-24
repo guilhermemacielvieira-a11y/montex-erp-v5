@@ -5,19 +5,15 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search, Download, Eye, FileText, ChevronLeft, ChevronRight,
-  LayoutGrid, Table2, Filter, Layers, X as XIcon, ExternalLink
+  LayoutGrid, Table2, Filter, Layers, X as XIcon
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   DETALHAMENTO_INDEX,
   DETALHAMENTO_FOLDERS,
-  getDetalhamentoByNumero,
-  getDetalhamentosByTipo,
   DETALHAMENTO_METADATA
 } from '../data/detalhamentoDatabase';
 import { getCroquiByMarca } from '../data/croquiDatabase';

@@ -4,15 +4,15 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  Search, Download, Eye, FileText, FolderOpen,
+  Search, Download, Eye, FileText,
   ChevronLeft, ChevronRight, X as XIcon,
-  LayoutGrid, Table2, Filter, Package, Layers
+  LayoutGrid, Table2, Filter
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import * as Dialog from '@radix-ui/react-dialog';
-import { CROQUI_INDEX, CROQUI_FOLDERS, getCroquiByMarca, getCroquisByTipo, CROQUI_METADATA } from '../data/croquiDatabase';
+import { CROQUI_INDEX, CROQUI_FOLDERS, CROQUI_METADATA } from '../data/croquiDatabase';
 import { pecasProducao } from '../data/database';
 
 // Cores por tipo de peça

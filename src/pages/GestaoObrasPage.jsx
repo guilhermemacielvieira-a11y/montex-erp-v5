@@ -14,13 +14,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   Building2, Plus, Upload, Download, FileJson, FileSpreadsheet,
-  Search, Filter, Eye, Edit3, Trash2, CheckCircle2, Clock,
-  Factory, Truck, Hammer, AlertCircle, Check, X, Copy,
-  BarChart3, TrendingUp, Package, DollarSign, ChevronRight,
-  ArrowUpDown, RefreshCw, Globe, Calendar, MapPin, Users,
-  FileText, Settings, Archive, Play, Pause, XCircle
+  Search, Edit3, CheckCircle2, Clock,
+  Factory, Truck, Hammer, AlertCircle, Check, X, TrendingUp, Package, DollarSign, RefreshCw,
+  FileText, Play, Pause, XCircle
 } from 'lucide-react';
-import { useObras, useERP } from '@/contexts/ERPContext';
+import { useObras } from '@/contexts/ERPContext';
 import { obrasApi, pecasApi, lancamentosApi, medicoesApi } from '@/api/supabaseClient';
 import { STATUS_OBRA } from '@/data/database';
 

@@ -9,18 +9,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useResolution } from '../hooks/useResolution';
 import { useDashboardMetrics } from '../hooks/useDashboardMetrics';
 import {
-  Building2, DollarSign, Bell, Activity, Target, Globe, Layers,
-  Clock, Users, Factory, Truck, Shield, BarChart3, Settings,
+  Building2, DollarSign, Activity, Target, Globe, Layers,
+  Clock, BarChart3, Settings,
   Cpu, HardDrive, Wifi, Play, Pause,
-  ArrowUp, ArrowDown, Gauge, Database, Server, Radio,
-  Download, Grid3X3, Monitor
+  ArrowUp, ArrowDown, Gauge, Radio,
+  Download, Monitor
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
   AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
-  ComposedChart, Line, CartesianGrid,
-  RadarChart, Radar, PolarGrid, PolarAngleAxis
+  ComposedChart, Line, CartesianGrid
 } from 'recharts';
 
 // Import 3D Components
@@ -30,11 +29,10 @@ import {
 } from '@/components/ui/Ultra3DComponents';
 
 // ===== COMPONENTES COMPARTILHADOS (Consolidação) =====
-import {
-  KPICard, ChartWrapper, PeriodSelector, ObraProgressWidget,
+import { PeriodSelector, ObraProgressWidget,
   EstoqueResumoWidget, DashboardWidgetCustomizer, useWidgetVisibility,
-  AlertsWidget, PerformanceRadar, FinancialSummary, StatusBar,
-  MachineStatusGrid, TeamPanel, ProgressRing
+  AlertsWidget, PerformanceRadar, StatusBar,
+  MachineStatusGrid, TeamPanel
 } from '@/components/dashboard/shared';
 
 // ===== NOVOS COMPONENTES (4 Features) =====

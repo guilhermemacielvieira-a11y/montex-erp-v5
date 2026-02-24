@@ -18,8 +18,6 @@ import {
   ArrowDown,
   Layers,
   Building2,
-  Users,
-  Truck,
   Wrench,
   FileText
 } from 'lucide-react';
