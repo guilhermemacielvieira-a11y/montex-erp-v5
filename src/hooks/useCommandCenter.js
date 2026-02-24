@@ -64,7 +64,7 @@ export function useCommandCenter() {
     try {
       const { data, error } = await supabase
         .from('pecas_producao')
-        .select('etapa, status_corte, percentual_conclusao, peso, quantidade_produzida, updated_at');
+        .select('etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida');
       if (error) throw error;
 
       const items = data || [];
@@ -74,12 +74,12 @@ export function useCommandCenter() {
       const expedicao = items.filter(i => i.etapa === 'expedicao' || i.etapa === 'expedido');
       const finalizado = items.filter(i => i.etapa === 'finalizado');
 
-      const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso) || 0), 0);
-      const pesoExpedido = [...expedicao, ...finalizado].reduce((s, i) => s + (parseFloat(i.peso) || 0), 0);
+      const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
+      const pesoExpedido = [...expedicao, ...finalizado].reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
 
-      // Hoje movidas
-      const hoje = new Date().toISOString().slice(0, 10);
-      const movidasHoje = items.filter(i => i.updated_at && i.updated_at.slice(0, 10) === hoje && i.etapa !== 'fabricacao').length;
+      // Progresso baseado em etapas avançadas (solda+pintura+expedicao+finalizado)
+      const avancados = solda.length + pintura.length + expedicao.length + finalizado.length;
+      const movidasHoje = avancados; // sem updated_at, usamos total avançado
 
       return {
         total: items.length,
@@ -102,31 +102,42 @@ export function useCommandCenter() {
   // ===== CARREGAR DADOS DE ESTOQUE =====
   const fetchEstoque = useCallback(async () => {
     try {
+      // Colunas reais: id, codigo, descricao, tipo, quantidade, unidade, minimo, localizacao, obra_id, updated_at
       const { data, error } = await supabase
         .from('estoque')
-        .select('quantidade_atual, quantidade_minima, quantidade_reservada, valor_unitario, tipo, categoria, status');
+        .select('quantidade, minimo, tipo, localizacao, updated_at');
       if (error) throw error;
 
       const items = data || [];
-      const valorTotal = items.reduce((s, i) => s + ((parseFloat(i.quantidade_atual) || 0) * (parseFloat(i.valor_unitario) || 0)), 0);
-      const normal = items.filter(i => !i.status || i.status === 'normal' || i.status === 'disponivel').length;
-      const baixo = items.filter(i => i.status === 'baixo' || (i.quantidade_minima && (parseFloat(i.quantidade_atual) || 0) <= (parseFloat(i.quantidade_minima) || 0))).length;
-      const critico = items.filter(i => i.status === 'critico' || (parseFloat(i.quantidade_atual) || 0) === 0).length;
+      const totalItens = items.length;
+      // Classificar por nível de estoque
+      const critico = items.filter(i => (parseFloat(i.quantidade) || 0) === 0).length;
+      const baixo = items.filter(i => {
+        const qty = parseFloat(i.quantidade) || 0;
+        const min = parseFloat(i.minimo) || 0;
+        return qty > 0 && min > 0 && qty <= min;
+      }).length;
+      const normal = totalItens - critico - baixo;
 
       // Movimentações de hoje
       const hoje = new Date().toISOString().slice(0, 10);
-      const { data: movHoje } = await supabase
-        .from('movimentacoes_estoque')
-        .select('tipo, quantidade')
-        .gte('data', hoje + 'T00:00:00')
-        .lte('data', hoje + 'T23:59:59');
-
-      const entradas = (movHoje || []).filter(m => m.tipo === 'entrada').length;
-      const saidas = (movHoje || []).filter(m => m.tipo === 'saida' || m.tipo === 'corte').length;
+      let entradas = 0;
+      let saidas = 0;
+      try {
+        const { data: movHoje } = await supabase
+          .from('movimentacoes_estoque')
+          .select('tipo, quantidade')
+          .gte('data', hoje + 'T00:00:00')
+          .lte('data', hoje + 'T23:59:59');
+        entradas = (movHoje || []).filter(m => m.tipo === 'entrada').length;
+        saidas = (movHoje || []).filter(m => m.tipo === 'saida' || m.tipo === 'corte').length;
+      } catch (movErr) {
+        // movimentacoes_estoque pode não existir ainda
+      }
 
       return {
-        totalItens: items.length,
-        valorTotal: Math.round(valorTotal),
+        totalItens,
+        valorTotal: 0, // sem coluna valor_unitario na tabela
         normal,
         baixo,
         critico,
@@ -195,19 +206,25 @@ export function useCommandCenter() {
   // ===== CARREGAR DADOS DE CAMPO (Expedição/Montagem) =====
   const fetchCampo = useCallback(async () => {
     try {
+      // Colunas reais: id, obra_id, numero_romaneio, data_expedicao, status, transportadora, motorista, placa, peso_total, pecas, destino, observacoes, created_at, updated_at
       const { data: expedicoes } = await supabase
         .from('expedicoes')
-        .select('status, peso_total, quantidade_pecas, data_envio, created_at');
+        .select('status, peso_total, pecas, data_expedicao, created_at');
 
       const items = expedicoes || [];
       const enviados = items.filter(i => i.status === 'enviado' || i.status === 'entregue');
       const pendentes = items.filter(i => i.status === 'pendente' || i.status === 'preparando');
 
       const pesoEnviado = enviados.reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
-      const pecasEnviadas = enviados.reduce((s, i) => s + (parseInt(i.quantidade_pecas) || 0), 0);
+      // pecas pode ser integer ou jsonb - tratar ambos
+      const pecasEnviadas = enviados.reduce((s, i) => {
+        if (typeof i.pecas === 'number') return s + i.pecas;
+        if (Array.isArray(i.pecas)) return s + i.pecas.length;
+        return s + (parseInt(i.pecas) || 0);
+      }, 0);
 
       const hoje = new Date().toISOString().slice(0, 10);
-      const enviosHoje = items.filter(i => (i.data_envio || i.created_at || '').slice(0, 10) === hoje).length;
+      const enviosHoje = items.filter(i => (i.data_expedicao || i.created_at || '').slice(0, 10) === hoje).length;
 
       return {
         totalEnvios: items.length,
