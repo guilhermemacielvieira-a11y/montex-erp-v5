@@ -1,17 +1,23 @@
 /**
  * MONTEX ERP Premium - Reducer de RH (Recursos Humanos)
  *
- * Gerencia operações relacionadas a recursos humanos:
- * - Atualização de funcionários
- * - Atualização de equipes
- * - Alocação de equipes a obras
- * - Atualização de máquinas (equipamentos)
+ * Gerencia operações CRUD de:
+ * - Funcionários (add, update, delete)
+ * - Equipes (add, update, delete, alocar)
+ * - Máquinas (equipamentos)
  */
 
 import { ACTIONS } from '../actions';
 
 export function rhReducer(state, action) {
   switch (action.type) {
+    // ====== FUNCIONÁRIOS ======
+    case ACTIONS.ADD_FUNCIONARIO:
+      return {
+        ...state,
+        funcionarios: [...state.funcionarios, action.payload]
+      };
+
     case ACTIONS.UPDATE_FUNCIONARIO:
       return {
         ...state,
@@ -20,12 +26,31 @@ export function rhReducer(state, action) {
         )
       };
 
+    case ACTIONS.DELETE_FUNCIONARIO:
+      return {
+        ...state,
+        funcionarios: state.funcionarios.filter(f => f.id !== action.payload)
+      };
+
+    // ====== EQUIPES ======
+    case ACTIONS.ADD_EQUIPE:
+      return {
+        ...state,
+        equipes: [...state.equipes, action.payload]
+      };
+
     case ACTIONS.UPDATE_EQUIPE:
       return {
         ...state,
         equipes: state.equipes.map(e =>
           e.id === action.payload.id ? { ...e, ...action.payload.data } : e
         )
+      };
+
+    case ACTIONS.DELETE_EQUIPE:
+      return {
+        ...state,
+        equipes: state.equipes.filter(e => e.id !== action.payload)
       };
 
     case ACTIONS.ALOCAR_EQUIPE: {
@@ -38,6 +63,7 @@ export function rhReducer(state, action) {
       };
     }
 
+    // ====== MÁQUINAS ======
     case ACTIONS.UPDATE_MAQUINA:
       return {
         ...state,

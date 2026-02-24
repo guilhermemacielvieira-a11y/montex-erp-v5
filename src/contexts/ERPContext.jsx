@@ -761,6 +761,86 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  // ===== AÇÕES - FUNCIONÁRIOS CRUD =====
+  const addFuncionario = useCallback(async (funcionario) => {
+    dispatch({ type: ACTIONS.ADD_FUNCIONARIO, payload: funcionario });
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(funcionario);
+        await funcionariosApi.upsert(snakeData);
+        console.log(`✅ Funcionário ${funcionario.nome} criado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar funcionário no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const updateFuncionario = useCallback(async (id, data) => {
+    dispatch({ type: ACTIONS.UPDATE_FUNCIONARIO, payload: { id, data } });
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        await funcionariosApi.update(id, snakeData);
+        console.log(`✅ Funcionário ${id} atualizado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar funcionário no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const deleteFuncionario = useCallback(async (id) => {
+    dispatch({ type: ACTIONS.DELETE_FUNCIONARIO, payload: id });
+    if (dataSource === 'supabase') {
+      try {
+        await funcionariosApi.delete(id);
+        console.log(`✅ Funcionário ${id} removido do Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao remover funcionário no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  // ===== AÇÕES - EQUIPES CRUD =====
+  const addEquipe = useCallback(async (equipe) => {
+    dispatch({ type: ACTIONS.ADD_EQUIPE, payload: equipe });
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(equipe);
+        await equipesApi.upsert(snakeData);
+        console.log(`✅ Equipe ${equipe.nome} criada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao criar equipe no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const updateEquipe = useCallback(async (id, data) => {
+    dispatch({ type: ACTIONS.UPDATE_EQUIPE, payload: { id, data } });
+    if (dataSource === 'supabase') {
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        await equipesApi.update(id, snakeData);
+        console.log(`✅ Equipe ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar equipe no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const deleteEquipe = useCallback(async (id) => {
+    dispatch({ type: ACTIONS.DELETE_EQUIPE, payload: id });
+    if (dataSource === 'supabase') {
+      try {
+        await equipesApi.delete(id);
+        console.log(`✅ Equipe ${id} removida do Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao remover equipe no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
   // ===== AÇÕES - MÁQUINAS =====
   const updateMaquina = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_MAQUINA, payload: { id, data } });
@@ -1082,7 +1162,13 @@ export function ERPProvider({ children }) {
     updateLancamento,
     funcionarios: state.funcionarios,
     equipes: state.equipes,
-    alocarEquipe
+    alocarEquipe,
+    addFuncionario,
+    updateFuncionario,
+    deleteFuncionario,
+    addEquipe,
+    updateEquipe,
+    deleteEquipe
   }), [
     state.expedicoes,
     expedicoesObraAtual,
@@ -1098,7 +1184,13 @@ export function ERPProvider({ children }) {
     updateLancamento,
     state.funcionarios,
     state.equipes,
-    alocarEquipe
+    alocarEquipe,
+    addFuncionario,
+    updateFuncionario,
+    deleteFuncionario,
+    addEquipe,
+    updateEquipe,
+    deleteEquipe
   ]);
 
   // Legacy unified value for backward compatibility
@@ -1159,8 +1251,14 @@ export function ERPProvider({ children }) {
     addLancamento,
     updateLancamento,
 
-    // Ações - Equipes
+    // Ações - Equipes / Funcionários
     alocarEquipe,
+    addFuncionario,
+    updateFuncionario,
+    deleteFuncionario,
+    addEquipe,
+    updateEquipe,
+    deleteEquipe,
 
     // Ações - Máquinas
     updateMaquina,
@@ -1214,6 +1312,12 @@ export function ERPProvider({ children }) {
     addLancamento,
     updateLancamento,
     alocarEquipe,
+    addFuncionario,
+    updateFuncionario,
+    deleteFuncionario,
+    addEquipe,
+    updateEquipe,
+    deleteEquipe,
     updateMaquina,
     importarLista,
     importarMateriais,
@@ -1366,7 +1470,13 @@ export function useEquipes() {
   return {
     equipes: context.equipes,
     funcionarios: context.funcionarios,
-    alocarEquipe: context.alocarEquipe
+    alocarEquipe: context.alocarEquipe,
+    addFuncionario: context.addFuncionario,
+    updateFuncionario: context.updateFuncionario,
+    deleteFuncionario: context.deleteFuncionario,
+    addEquipe: context.addEquipe,
+    updateEquipe: context.updateEquipe,
+    deleteEquipe: context.deleteEquipe,
   };
 }
 
