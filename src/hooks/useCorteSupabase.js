@@ -60,21 +60,27 @@ export function useCorteSupabase() {
       status: normalizeStatus(p.status_corte),
       dataInicio: p.data_inicio || null,
       dataFim: p.data_fim || null,
-      maquina: p.maquina || null
+      maquina: p.maquina || null,
+      funcionarioCorte: p.funcionario_corte || null
     }));
   }, [rawItems]);
 
   // ===== AÇÕES DE CORTE (com persistência Supabase) =====
 
-  const iniciarCorte = useCallback(async (id) => {
+  const iniciarCorte = useCallback(async (id, funcionarioId = null) => {
     try {
+      const agora = new Date().toISOString();
+      const updateData = {
+        status_corte: 'cortando',
+        data_inicio: agora,
+        updated_at: agora
+      };
+      if (funcionarioId) {
+        updateData.funcionario_corte = funcionarioId;
+      }
       const { error } = await supabase
         .from('materiais_corte')
-        .update({
-          status_corte: 'cortando',
-          data_inicio: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
+        .update(updateData)
         .eq('id', id);
       if (error) throw error;
       await fetchData();

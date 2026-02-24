@@ -14,6 +14,8 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { useCorteSupabase } from '../hooks/useCorteSupabase';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
+import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
+import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
 
 // ==========================================
 // CONSTANTES DE VISUAL
@@ -99,6 +101,12 @@ export default function KanbanCortePage() {
 
   // --- Integração Estoque Real ---
   const { deduzirEstoque } = useEstoqueReal();
+
+  // --- Modal de seleção de funcionário ---
+  const [modalFuncionario, setModalFuncionario] = useState(false);
+  const [itemPendenteCorte, setItemPendenteCorte] = useState(null);
+  const [acaoPendenteCorte, setAcaoPendenteCorte] = useState(null); // 'iniciar' | 'finalizar_direto'
+  const { registrarTransicao } = useProducaoHistorico();
 
   // Abater peso do estoque quando peça entra em corte
   const abaterEstoquePorCorte = useCallback((item) => {
@@ -239,20 +247,60 @@ export default function KanbanCortePage() {
     const sourceStatus = source.droppableId;
     const destStatus = destination.droppableId;
 
-    // Determine what functions to call based on transition
-    if (sourceStatus === 'aguardando' && destStatus === 'cortando') {
-      abaterEstoquePorCorte(item);
-      iniciarCorte(id);
-    } else if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
-      abaterEstoquePorCorte(item);
-      finalizarCorte(id);
-    } else if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
+    // Se destino é 'cortando' → abrir modal para selecionar funcionário
+    if (destStatus === 'cortando' && sourceStatus === 'aguardando') {
+      setItemPendenteCorte(item);
+      setAcaoPendenteCorte('iniciar');
+      setModalFuncionario(true);
+      return;
+    }
+
+    // Se vai direto de aguardando para finalizado → também pedir funcionário
+    if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
+      setItemPendenteCorte(item);
+      setAcaoPendenteCorte('finalizar_direto');
+      setModalFuncionario(true);
+      return;
+    }
+
+    // Demais transições sem modal
+    if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
       finalizarCorte(id);
     } else if (sourceStatus === 'cortando' && destStatus === 'aguardando') {
       resetarCorte(id);
     } else if (sourceStatus === 'finalizado' && destStatus === 'aguardando') {
       resetarCorte(id);
     }
+  };
+
+  // Callback quando funcionário é selecionado no modal (KanbanCortePage)
+  const handleFuncionarioCorteConfirm = (funcionarioId, funcionarioNome) => {
+    if (!itemPendenteCorte) return;
+
+    const item = itemPendenteCorte;
+
+    if (acaoPendenteCorte === 'iniciar') {
+      abaterEstoquePorCorte(item);
+      iniciarCorte(item.id, funcionarioId);
+    } else if (acaoPendenteCorte === 'finalizar_direto') {
+      abaterEstoquePorCorte(item);
+      iniciarCorte(item.id, funcionarioId);
+      finalizarCorte(item.id);
+    }
+
+    // Registrar no histórico
+    registrarTransicao(
+      item.id,
+      'aguardando',
+      acaoPendenteCorte === 'finalizar_direto' ? 'finalizado' : 'cortando',
+      funcionarioId,
+      funcionarioNome,
+      `Corte ${item.perfil} Marca ${item.marca} - ${item.peso?.toFixed(1)} kg`
+    );
+
+    setModalFuncionario(false);
+    setItemPendenteCorte(null);
+    setAcaoPendenteCorte(null);
   };
 
   // Conjuntos derivados
@@ -675,11 +723,11 @@ export default function KanbanCortePage() {
                       <div style={{ display: 'flex', gap: 3 }} onClick={e => e.stopPropagation()}>
                         {item.status === 'aguardando' && (
                           <>
-                            <button onClick={() => { abaterEstoquePorCorte(item); iniciarCorte(item.id); }} title="Iniciar Corte (abate estoque)"
+                            <button onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('iniciar'); setModalFuncionario(true); }} title="Iniciar Corte (selecionar funcionário)"
                               style={actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa')}>
                               ▶
                             </button>
-                            <button onClick={() => { abaterEstoquePorCorte(item); finalizarCorte(item.id); }} title="Finalizar Corte (abate estoque)"
+                            <button onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('finalizar_direto'); setModalFuncionario(true); }} title="Finalizar Corte (selecionar funcionário)"
                               style={actionBtnStyle('#064e3b', '#22c55e', '#4ade80')}>
                               ✅
                             </button>
@@ -1186,6 +1234,16 @@ export default function KanbanCortePage() {
         input[type="checkbox"] { accent-color: #8b5cf6; }
         select:focus, input:focus { border-color: #6366f1 !important; }
       `}</style>
+
+      {/* Modal de seleção de funcionário para corte */}
+      <FuncionarioSelectorModal
+        isOpen={modalFuncionario}
+        onClose={() => { setModalFuncionario(false); setItemPendenteCorte(null); setAcaoPendenteCorte(null); }}
+        onConfirm={handleFuncionarioCorteConfirm}
+        setor="corte"
+        etapaLabel="Corte"
+        pecaInfo={itemPendenteCorte ? `Marca ${itemPendenteCorte.marca} - ${itemPendenteCorte.perfil}` : ''}
+      />
     </div>
   );
 }

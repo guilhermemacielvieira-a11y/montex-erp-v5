@@ -32,6 +32,8 @@ import {
 
 // Contexto ERP e Database
 import { useObras, useProducao } from '@/contexts/ERPContext';
+import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 import { listasMaterial, obras as obrasDB } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
 import { getEMInfoByConjunto } from '@/data/producaoMapping';
@@ -114,6 +116,14 @@ export default function KanbanProducaoIntegrado() {
 
   // Estado para modo de visualização (kanban ou lista)
   const [modoVisualizacao, setModoVisualizacao] = useState('kanban');
+
+  // Hook de histórico de produção
+  const { registrarTransicao } = useProducaoHistorico();
+
+  // Estado para modal de seleção de funcionário
+  const [modalFuncionarioProd, setModalFuncionarioProd] = useState(false);
+  const [conjuntoPendente, setConjuntoPendente] = useState(null);
+  const [statusPendenteProd, setStatusPendenteProd] = useState(null);
 
   // Estado para forçar re-render quando corte muda
   const [corteVersion, setCorteVersion] = useState(0);
@@ -331,7 +341,25 @@ export default function KanbanProducaoIntegrado() {
   // GESTÃO DE PRODUÇÃO
   // ========================================
 
-  const moverConjunto = async (conjuntoId, novoStatus) => {
+  // Abre modal para selecionar funcionário antes de mover
+  const moverConjunto = (conjuntoId, novoStatus) => {
+    const conjunto = producaoFabrica.find(c => c.id === conjuntoId);
+    setConjuntoPendente(conjunto || { id: conjuntoId });
+    setStatusPendenteProd(novoStatus);
+    setModalFuncionarioProd(true);
+  };
+
+  // Executar movimentação após seleção de funcionário
+  const handleFuncionarioProducaoConfirm = async (funcionarioId, funcionarioNome) => {
+    if (!conjuntoPendente || !statusPendenteProd) return;
+
+    const conjuntoId = conjuntoPendente.id;
+    const novoStatus = statusPendenteProd;
+    const statusAnterior = conjuntoPendente.status || 'fabricacao';
+
+    // Fechar modal
+    setModalFuncionarioProd(false);
+
     // Atualizar estado local
     setProducaoFabrica(prev => prev.map(c => {
       if (c.id === conjuntoId) {
@@ -356,14 +384,31 @@ export default function KanbanProducaoIntegrado() {
       return c;
     }));
 
-    // Persistir no Supabase via ERPContext
+    // Persistir no Supabase via ERPContext (agora com funcionarioId)
     try {
-      await moverPecaEtapaContext(conjuntoId, novoStatus, null);
-      console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} salva no Supabase`);
+      await moverPecaEtapaContext(conjuntoId, novoStatus, funcionarioId);
+      console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} (${funcionarioNome}) salva no Supabase`);
     } catch (err) {
       console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
       toast.error('Erro ao salvar movimentação');
     }
+
+    // Registrar no histórico de produção
+    await registrarTransicao(
+      conjuntoId,
+      statusAnterior,
+      novoStatus,
+      funcionarioId,
+      funcionarioNome,
+      `Movido de ${statusAnterior} para ${novoStatus}`
+    );
+
+    const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
+    toast.success(`${conjuntoPendente.conjunto || conjuntoId} → ${colDestino?.title || novoStatus} (${funcionarioNome})`);
+
+    // Limpar pendências
+    setConjuntoPendente(null);
+    setStatusPendenteProd(null);
   };
 
 
@@ -1851,6 +1896,16 @@ export default function KanbanProducaoIntegrado() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* Modal de seleção de funcionário para produção */}
+      <FuncionarioSelectorModal
+        isOpen={modalFuncionarioProd}
+        onClose={() => { setModalFuncionarioProd(false); setConjuntoPendente(null); setStatusPendenteProd(null); }}
+        onConfirm={handleFuncionarioProducaoConfirm}
+        setor={statusPendenteProd || 'fabricacao'}
+        etapaLabel={COLUNAS_PRODUCAO.find(c => c.id === statusPendenteProd)?.title?.replace(/[^\w\sÀ-ú]/g, '').trim() || 'Produção'}
+        pecaInfo={conjuntoPendente ? `${conjuntoPendente.conjunto || conjuntoPendente.id} - ${conjuntoPendente.tipo || ''}` : ''}
+      />
     </div>
   );
 }

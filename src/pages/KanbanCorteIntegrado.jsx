@@ -25,6 +25,8 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { useERP, useProducao, useEstoque, useObras } from '@/contexts/ERPContext';
 import { useEstoqueReal } from '@/contexts/EstoqueRealContext';
 import { STATUS_CORTE, ETAPAS_PRODUCAO } from '@/data/database';
+import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 
 // Configuração das colunas do Kanban
 const COLUNAS_CORTE = [
@@ -312,11 +314,19 @@ export default function KanbanCorteIntegrado() {
   // Integração Estoque Real - dedução automática ao iniciar corte
   const { deduzirEstoque, reconciliarCorte, reconciliado } = useEstoqueReal();
 
+  // Hook de histórico de produção
+  const { registrarTransicao } = useProducaoHistorico();
+
   // Estado local
   const [filtroObra, setFiltroObra] = useState('atual');
   const [filtroPrioridade, setFiltroPrioridade] = useState('todas');
   const [busca, setBusca] = useState('');
   const reconciliacaoERPRef = useRef(false);
+
+  // Estado do modal de seleção de funcionário
+  const [modalFuncionario, setModalFuncionario] = useState(false);
+  const [pecaPendente, setPecaPendente] = useState(null);
+  const [statusPendente, setStatusPendente] = useState(null);
 
   // Reconciliação retroativa: peças do ERPContext que já foram cortadas
   useEffect(() => {
@@ -411,38 +421,63 @@ export default function KanbanCorteIntegrado() {
 
     if (!peca) return;
 
-    // Atualiza status de corte
+    // Se iniciou corte → abrir modal para selecionar funcionário
+    if (novoStatus === STATUS_CORTE.EM_CORTE) {
+      setPecaPendente(peca);
+      setStatusPendente(novoStatus);
+      setModalFuncionario(true);
+      return; // Aguardar seleção do funcionário
+    }
+
+    // Demais transições: executar diretamente
     updateStatusCorte(draggableId, novoStatus);
 
-    // Se iniciou corte, deduz material do estoque real
-    if (novoStatus === STATUS_CORTE.EM_CORTE) {
-      // Deduzir peso do estoque real (matching inteligente por perfil)
-      if (peca.perfil && peca.peso) {
-        deduzirEstoque(
-          peca.perfil,
-          peca.peso,
-          obraAtual || 'obra-001',
-          `MARCA-${peca.marca}`,
-          `Corte Marca ${peca.marca} - ${peca.tipo} (${peca.perfil})`
-        );
-        toast.success(`Estoque abatido: ${peca.peso.toFixed(1)} kg de ${peca.perfil}`);
-      }
-
-      addNotificacao({
-        tipo: 'info',
-        mensagem: `MARCA ${peca.marca} iniciou corte - estoque abatido`
-      });
-    }
-
-    // Se liberou para fabricação, move etapa
     if (novoStatus === STATUS_CORTE.LIBERADO) {
       moverPecaEtapa(draggableId, ETAPAS_PRODUCAO.FABRICACAO);
-
-      addNotificacao({
-        tipo: 'sucesso',
-        mensagem: `MARCA ${peca.marca} liberada para Fabricação!`
-      });
+      addNotificacao({ tipo: 'sucesso', mensagem: `MARCA ${peca.marca} liberada para Fabricação!` });
     }
+  };
+
+  // Callback quando funcionário é selecionado no modal
+  const handleFuncionarioSelecionado = (funcionarioId, funcionarioNome) => {
+    if (!pecaPendente || !statusPendente) return;
+
+    const peca = pecaPendente;
+
+    // Atualizar status com funcionário vinculado
+    updateStatusCorte(peca.id, statusPendente, null, funcionarioId);
+
+    // Deduzir peso do estoque real
+    if (peca.perfil && peca.peso) {
+      deduzirEstoque(
+        peca.perfil,
+        peca.peso,
+        obraAtual || 'obra-001',
+        `MARCA-${peca.marca}`,
+        `Corte Marca ${peca.marca} - ${peca.tipo} (${peca.perfil})`
+      );
+    }
+
+    // Registrar no histórico de produção
+    registrarTransicao(
+      peca.id,
+      peca.statusCorte || 'aguardando',
+      statusPendente,
+      funcionarioId,
+      funcionarioNome,
+      `Corte ${peca.perfil} - ${peca.peso?.toFixed(1)} kg`
+    );
+
+    toast.success(`${funcionarioNome} iniciou corte da MARCA ${peca.marca} (${peca.peso?.toFixed(1)} kg)`);
+    addNotificacao({
+      tipo: 'info',
+      mensagem: `MARCA ${peca.marca} em corte por ${funcionarioNome}`
+    });
+
+    // Limpar estado pendente
+    setModalFuncionario(false);
+    setPecaPendente(null);
+    setStatusPendente(null);
   };
 
   return (
@@ -621,6 +656,16 @@ export default function KanbanCorteIntegrado() {
           </div>
         </div>
       </div>
+
+      {/* Modal de seleção de funcionário */}
+      <FuncionarioSelectorModal
+        isOpen={modalFuncionario}
+        onClose={() => { setModalFuncionario(false); setPecaPendente(null); setStatusPendente(null); }}
+        onConfirm={handleFuncionarioSelecionado}
+        setor="em_corte"
+        etapaLabel="Corte"
+        pecaInfo={pecaPendente}
+      />
     </div>
   );
 }
