@@ -11,7 +11,8 @@
  * - Sincronização entre páginas
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
+import { movEstoqueApi, estoqueApi, isSupabaseConfigured } from '@/api/supabaseClient';
 
 // ========================================
 // DADOS INICIAIS DE ESTOQUE REAL
@@ -411,23 +412,108 @@ const EstoqueRealContext = createContext(null);
 
 export function EstoqueRealProvider({ children }) {
   const [state, dispatch] = useReducer(estoqueRealReducer, initialState);
+  const [supabaseSync, setSupabaseSync] = useState(false);
+
+  // ===== SINCRONIZAÇÃO SUPABASE =====
+  // Carrega estoque e movimentações do Supabase na inicialização (se disponível)
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+
+    async function syncFromSupabase() {
+      try {
+        // Carregar estoque do Supabase
+        const estoqueData = await estoqueApi.getAll();
+        if (estoqueData && estoqueData.length > 0) {
+          dispatch({ type: ACTIONS.SET_ESTOQUE, payload: estoqueData });
+        }
+
+        // Carregar movimentações recentes (últimos 30 dias)
+        const movData = await movEstoqueApi.getAll();
+        if (movData && movData.length > 0) {
+          const movFormatadas = movData.map(m => ({
+            id: m.id,
+            data: m.data || m.created_at,
+            tipo: m.tipo,
+            materialId: m.material_id || m.material_perfil,
+            quantidade: m.quantidade,
+            obra: m.obra_id || '',
+            setor: m.setor || '',
+            usuario: m.usuario || '',
+            nf: m.nf || '',
+            motivo: m.motivo || '',
+            pecaId: m.peca_id || '',
+            perfil: m.material_perfil || ''
+          }));
+          // Merge com movimentações existentes (evitar duplicatas)
+          movFormatadas.forEach(mov => {
+            dispatch({ type: ACTIONS.ADD_MOVIMENTACAO, payload: mov });
+          });
+        }
+
+        setSupabaseSync(true);
+        console.log('[EstoqueReal] Sincronizado com Supabase');
+      } catch (err) {
+        console.warn('[EstoqueReal] Falha ao sincronizar com Supabase, usando dados locais:', err);
+      }
+    }
+
+    syncFromSupabase();
+  }, []);
 
   // ===== AÇÕES =====
 
   // Deduzir peso do estoque (chamado quando peça entra em corte)
+  // Atualiza in-memory E persiste no Supabase quando disponível
   const deduzirEstoque = useCallback((perfil, peso, obraId, pecaId, motivo) => {
     dispatch({
       type: ACTIONS.DEDUZIR_ESTOQUE,
       payload: { perfil, peso, obraId, pecaId, motivo }
     });
+
+    // Persistir movimentação no Supabase (async, fire-and-forget)
+    if (isSupabaseConfigured()) {
+      const agora = new Date().toISOString();
+      movEstoqueApi.create({
+        tipo: 'saida',
+        material_perfil: perfil,
+        quantidade: peso,
+        unidade: 'kg',
+        obra_id: obraId || null,
+        peca_id: pecaId || null,
+        motivo: motivo || 'Entrada em Corte',
+        setor: 'Corte',
+        usuario: 'Sistema Kanban',
+        data: agora,
+      }).catch(err => {
+        console.warn('[EstoqueReal] Falha ao persistir movimentação no Supabase:', err);
+      });
+    }
   }, []);
 
   // Adicionar peso ao estoque (entrada de material)
+  // Atualiza in-memory E persiste no Supabase quando disponível
   const adicionarEstoque = useCallback((itemId, quantidade, nf, setor, usuario) => {
     dispatch({
       type: ACTIONS.ADICIONAR_ESTOQUE,
       payload: { itemId, quantidade, nf, setor, usuario }
     });
+
+    // Persistir entrada no Supabase (async, fire-and-forget)
+    if (isSupabaseConfigured()) {
+      const agora = new Date().toISOString();
+      movEstoqueApi.create({
+        tipo: 'entrada',
+        material_id: itemId,
+        quantidade: quantidade,
+        unidade: 'kg',
+        nf: nf || null,
+        setor: setor || 'Recebimento',
+        usuario: usuario || 'Usuário',
+        data: agora,
+      }).catch(err => {
+        console.warn('[EstoqueReal] Falha ao persistir entrada no Supabase:', err);
+      });
+    }
   }, []);
 
   // Atualizar item do estoque

@@ -23,6 +23,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 // Contexto ERP
 import { useERP, useProducao, useEstoque, useObras } from '@/contexts/ERPContext';
+import { useEstoqueReal } from '@/contexts/EstoqueRealContext';
 import { STATUS_CORTE, ETAPAS_PRODUCAO } from '@/data/database';
 
 // Configuração das colunas do Kanban
@@ -308,6 +309,9 @@ export default function KanbanCorteIntegrado() {
   const { obras, obraAtual, obraAtualData } = useObras();
   const { funcionarios } = useERP();
 
+  // Integração Estoque Real - dedução automática ao iniciar corte
+  const { deduzirEstoque } = useEstoqueReal();
+
   // Estado local
   const [filtroObra, setFiltroObra] = useState('atual');
   const [filtroPrioridade, setFiltroPrioridade] = useState('todas');
@@ -376,22 +380,33 @@ export default function KanbanCorteIntegrado() {
     // Atualiza status de corte
     updateStatusCorte(draggableId, novoStatus);
 
-    // Se liberou para fabricação, move etapa e consome estoque
-    if (novoStatus === STATUS_CORTE.LIBERADO) {
-      moverPecaEtapa(draggableId, ETAPAS_PRODUCAO.FABRICACAO);
+    // Se iniciou corte, deduz material do estoque real
+    if (novoStatus === STATUS_CORTE.EM_CORTE) {
+      // Deduzir peso do estoque real (matching inteligente por perfil)
+      if (peca.perfil && peca.peso) {
+        deduzirEstoque(
+          peca.perfil,
+          peca.peso,
+          obraAtual || 'obra-001',
+          `MARCA-${peca.marca}`,
+          `Corte Marca ${peca.marca} - ${peca.tipo} (${peca.perfil})`
+        );
+        toast.success(`Estoque abatido: ${peca.peso.toFixed(1)} kg de ${peca.perfil}`);
+      }
 
-      // Simula consumo de estoque
       addNotificacao({
-        tipo: 'sucesso',
-        mensagem: `MARCA ${peca.marca} liberada para Fabricação!`
+        tipo: 'info',
+        mensagem: `MARCA ${peca.marca} iniciou corte - estoque abatido`
       });
     }
 
-    // Se iniciou corte, notifica
-    if (novoStatus === STATUS_CORTE.EM_CORTE) {
+    // Se liberou para fabricação, move etapa
+    if (novoStatus === STATUS_CORTE.LIBERADO) {
+      moverPecaEtapa(draggableId, ETAPAS_PRODUCAO.FABRICACAO);
+
       addNotificacao({
-        tipo: 'info',
-        mensagem: `MARCA ${peca.marca} iniciou corte`
+        tipo: 'sucesso',
+        mensagem: `MARCA ${peca.marca} liberada para Fabricação!`
       });
     }
   };
