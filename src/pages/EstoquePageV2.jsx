@@ -120,7 +120,7 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
           <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
             <span>📍 {item.localizacao}</span>
             <span>📦 {item.categoria || item.tipo}</span>
-            <span>💰 R$ {(item.precoUnitario || 0).toFixed(2)}/{item.unidade}</span>
+            <span>💰 R$ {(item.preco || item.precoUnitario || 0).toFixed(2)}/{item.unidade}</span>
           </div>
         </div>
 
@@ -242,7 +242,7 @@ export default function EstoquePageV2() {
     const critico = estoque.filter(i => getStatusEstoque(i).label === 'Crítico').length;
     const zerado = estoque.filter(i => getStatusEstoque(i).label === 'Zerado').length;
 
-    const valorTotal = estoque.reduce((acc, item) => acc + ((Number(item.quantidade) || 0) * (Number(item.precoUnitario) || 0)), 0);
+    const valorTotal = estoque.reduce((acc, item) => acc + ((Number(item.quantidade) || 0) * (Number(item.preco || item.precoUnitario) || 0)), 0);
     const itensReservados = estoque.filter(i => i.reservado > 0).length;
 
     return { total, normal, baixo, critico, zerado, valorTotal, itensReservados };
@@ -259,7 +259,7 @@ export default function EstoquePageV2() {
   const dadosCategoriaBar = CATEGORIAS_MATERIAL.map(cat => ({
     name: cat.nome.substring(0, 8),
     quantidade: estoque.filter(i => (i.categoria || i.tipo) === cat.id).length,
-    valor: estoque.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.precoUnitario) || 0)), 0) / 1000
+    valor: estoque.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.preco || i.precoUnitario) || 0)), 0) / 1000
   }));
 
   const handleEdit = (item) => {
