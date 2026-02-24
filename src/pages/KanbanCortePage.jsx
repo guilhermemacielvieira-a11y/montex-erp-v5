@@ -14,6 +14,7 @@ import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 import { useCorteSupabase } from '../hooks/useCorteSupabase';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
+import { useEstoque } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
 
@@ -101,6 +102,7 @@ export default function KanbanCortePage() {
 
   // --- Integração Estoque Real ---
   const { deduzirEstoque } = useEstoqueReal();
+  const { estoque: estoqueItems, consumirEstoque } = useEstoque();
 
   // --- Modal de seleção de funcionário ---
   const [modalFuncionario, setModalFuncionario] = useState(false);
@@ -109,8 +111,12 @@ export default function KanbanCortePage() {
   const { registrarTransicao } = useProducaoHistorico();
 
   // Abater peso do estoque quando peça entra em corte
+  // 1. deduzirEstoque → EstoqueRealContext (histórico/movimentações interno)
+  // 2. consumirEstoque → ERPContext (estoque visível na página de Estoque)
   const abaterEstoquePorCorte = useCallback((item) => {
     if (!item || !item.perfil || !item.peso) return;
+
+    // 1. Deduzir do EstoqueReal (em kg) - para histórico e movimentações
     deduzirEstoque(
       item.perfil,
       item.peso,
@@ -118,7 +124,46 @@ export default function KanbanCortePage() {
       `MARCA-${item.marca}`,
       `Corte Marca ${item.marca} - ${item.peca} (${item.perfil})`
     );
-  }, [deduzirEstoque]);
+
+    // 2. Deduzir do ERPContext (em metros lineares) - atualiza a página de Estoque
+    // Busca o item no estoque pelo código do perfil (ex: W410X53-6M ou W410X53-12M)
+    if (estoqueItems && consumirEstoque) {
+      const perfilUpper = (item.perfil || '').toUpperCase();
+      const comprimento = item.comprimento || 0;
+
+      // Buscar item correspondente no estoque pelo perfil
+      const itemEstoque = estoqueItems.find(est => {
+        const codPrefix = (est.codigo || est.descricao || '').toUpperCase().split('-')[0];
+        return codPrefix === perfilUpper;
+      }) || estoqueItems.find(est => {
+        const cod = (est.codigo || est.descricao || est.nome || '').toUpperCase();
+        return cod.includes(perfilUpper);
+      });
+
+      if (itemEstoque) {
+        // Calcular quantidade a deduzir na unidade do item do estoque
+        let qtdDeduzir = 0;
+        const unidade = (itemEstoque.unidade || '').toLowerCase();
+        if (unidade === 'm' || unidade === 'metro' || unidade === 'metros') {
+          // Estoque em metros lineares → comprimento em mm ÷ 1000
+          qtdDeduzir = comprimento > 0 ? comprimento / 1000 : item.peso / 53; // fallback: estimar pelo peso
+        } else if (unidade === 'kg') {
+          // Estoque em kg → usar o peso diretamente
+          qtdDeduzir = item.peso;
+        } else {
+          // Unidade desconhecida → usar comprimento em metros
+          qtdDeduzir = comprimento > 0 ? comprimento / 1000 : item.peso;
+        }
+
+        if (qtdDeduzir > 0) {
+          consumirEstoque(itemEstoque.id, qtdDeduzir, 'obra-001');
+          console.log(`[KanbanCorte] ✅ Estoque deduzido: ${perfilUpper} → ${qtdDeduzir.toFixed(3)} ${unidade} (Marca ${item.marca})`);
+        }
+      } else {
+        console.warn(`[KanbanCorte] ⚠️ Item não encontrado no estoque: ${perfilUpper}`);
+      }
+    }
+  }, [deduzirEstoque, estoqueItems, consumirEstoque]);
 
   // --- Conjuntos (BOM) prontidão - computado reativamente ---
   const conjuntosInfo = useMemo(() => {
@@ -265,6 +310,8 @@ export default function KanbanCortePage() {
 
     // Demais transições sem modal
     if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
+      // Nota: o estoque já foi deduzido ao iniciar o corte (aguardando→cortando)
+      // Não deduzir novamente aqui para evitar dupla dedução
       finalizarCorte(id);
     } else if (sourceStatus === 'cortando' && destStatus === 'aguardando') {
       resetarCorte(id);
