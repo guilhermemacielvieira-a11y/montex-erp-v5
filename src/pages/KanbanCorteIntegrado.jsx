@@ -7,7 +7,7 @@
  * - Envia para próxima etapa (Fabricação)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -310,12 +310,46 @@ export default function KanbanCorteIntegrado() {
   const { funcionarios } = useERP();
 
   // Integração Estoque Real - dedução automática ao iniciar corte
-  const { deduzirEstoque } = useEstoqueReal();
+  const { deduzirEstoque, reconciliarCorte, reconciliado } = useEstoqueReal();
 
   // Estado local
   const [filtroObra, setFiltroObra] = useState('atual');
   const [filtroPrioridade, setFiltroPrioridade] = useState('todas');
   const [busca, setBusca] = useState('');
+  const reconciliacaoERPRef = useRef(false);
+
+  // Reconciliação retroativa: peças do ERPContext que já foram cortadas
+  useEffect(() => {
+    if (reconciliacaoERPRef.current) return;
+    if (!pecas || pecas.length === 0) return;
+
+    // Peças que já estão em status avançado (já passaram pelo corte)
+    const pecasJaCortadasERP = pecas.filter(p =>
+      p.statusCorte === 'em_corte' ||
+      p.statusCorte === 'conferencia' ||
+      p.statusCorte === 'liberado'
+    );
+
+    if (pecasJaCortadasERP.length > 0) {
+      const pecasFormatadas = pecasJaCortadasERP
+        .filter(p => p.perfil && p.peso > 0)
+        .map(p => ({
+          pecaId: `ERP-MARCA-${p.marca}`,
+          perfil: p.perfil,
+          peso: p.peso,
+          comprimento: p.comprimento || 0,
+          obraId: obraAtual || 'obra-001',
+          motivo: `Corte Marca ${p.marca} - ${p.tipo} (${p.perfil}) - já executado via ERPContext`
+        }));
+
+      if (pecasFormatadas.length > 0) {
+        reconciliarCorte(pecasFormatadas);
+        console.log(`[KanbanCorteIntegrado] Reconciliação ERP: ${pecasFormatadas.length} peças já cortadas`);
+      }
+    }
+
+    reconciliacaoERPRef.current = true;
+  }, [pecas, obraAtual, reconciliarCorte]);
 
   // Filtra peças na etapa de corte ou aguardando
   const pecasCorte = useMemo(() => {

@@ -12,7 +12,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
-import { movEstoqueApi, estoqueApi, isSupabaseConfigured } from '@/api/supabaseClient';
+import { movEstoqueApi, estoqueApi, isSupabaseConfigured, supabase } from '@/api/supabaseClient';
 
 // ========================================
 // DADOS INICIAIS DE ESTOQUE REAL
@@ -89,6 +89,9 @@ const ACTIONS = {
 
   // Importar Previsto
   IMPORTAR_PREVISTO: 'IMPORTAR_PREVISTO',
+
+  // Reconciliação retroativa - abater peças já cortadas
+  RECONCILIAR_CORTE: 'RECONCILIAR_CORTE',
 };
 
 // ========================================
@@ -399,6 +402,145 @@ function estoqueRealReducer(state, action) {
       };
     }
 
+    // Reconciliação retroativa: abater peças já cortadas que não foram deduzidas
+    case ACTIONS.RECONCILIAR_CORTE: {
+      const { pecasJaCortadas } = action.payload;
+      const agora = new Date().toISOString();
+
+      // IDs de peças já registradas no consumoCorte (evitar duplicatas)
+      const idsJaConsumidos = new Set(state.consumoCorte.map(c => c.pecaId));
+
+      // Filtrar apenas peças que ainda não foram processadas
+      const pecasPendentes = pecasJaCortadas.filter(p => !idsJaConsumidos.has(p.pecaId));
+
+      if (pecasPendentes.length === 0) {
+        return state; // Nada a reconciliar
+      }
+
+      let estoqueAtualizado = [...state.estoqueReal];
+      const novasMovimentacoes = [];
+      const novosConsumos = [];
+
+      // Reutilizar a mesma lógica de findBestMatch para cada peça
+      pecasPendentes.forEach(peca => {
+        const perfilUpper = (peca.perfil || '').toUpperCase();
+
+        // findBestMatch inline (mesma lógica do DEDUZIR_ESTOQUE)
+        function findMatch(items) {
+          if (perfilUpper.startsWith('W') || perfilUpper.startsWith('HP')) {
+            const matches = items.filter(item => {
+              const codPrefix = (item.codigo || '').split('-')[0].toUpperCase();
+              return codPrefix === perfilUpper;
+            });
+            if (matches.length === 1) return matches[0];
+            if (matches.length > 1) {
+              const comp = peca.comprimento || 0;
+              if (comp > 0 && comp <= 6500) {
+                return matches.find(m => m.codigo.includes('6M')) || matches[0];
+              }
+              return matches.find(m => m.codigo.includes('12M')) || matches[0];
+            }
+          }
+          if (perfilUpper.startsWith('CH')) {
+            const espMatch = perfilUpper.match(/^CH([\d.]+)/);
+            if (espMatch) {
+              const espessura = parseFloat(espMatch[1]);
+              const chapas = items.filter(i => i.categoria === 'chapas');
+              const exato = chapas.find(item => (item.codigo || '').includes('-' + espMatch[1] + 'X'));
+              if (exato) return exato;
+              const tolerancia = chapas.find(item => {
+                const codMatch = (item.codigo || '').match(/CH-(?:LQ-)?([\d.]+)X/);
+                if (!codMatch) return false;
+                return Math.abs(parseFloat(codMatch[1]) - espessura) <= 0.35;
+              });
+              if (tolerancia) return tolerancia;
+              return chapas.find(item => (item.nome || '').includes(espMatch[1] + 'mm'));
+            }
+          }
+          if (perfilUpper.includes('FERRO')) {
+            const diaMatch = perfilUpper.match(/Ø([\d/]+)/);
+            if (diaMatch) {
+              const dia = diaMatch[1];
+              const barras = items.filter(i => i.categoria === 'barras');
+              const barraMatch = barras.find(item => {
+                const cod = (item.codigo || '');
+                return cod.includes('-' + dia + '-') || cod.endsWith('-' + dia);
+              });
+              if (barraMatch) return barraMatch;
+              return barras.find(item => (item.nome || '').includes(dia + '"'));
+            }
+          }
+          if (perfilUpper.startsWith('L')) {
+            const dimMatch = perfilUpper.match(/^L([\d.]+)X([\d.]+)X([\d.]+)/);
+            if (dimMatch) {
+              const lado = parseFloat(dimMatch[1]);
+              if (lado <= 45) return items.find(i => i.id === 'ER018');
+              if (lado <= 70) return items.find(i => i.id === 'ER020');
+              return items.find(i => i.id === 'ER019');
+            }
+            return items.find(item => item.categoria === 'cantoneiras');
+          }
+          if (perfilUpper.startsWith('UE') || perfilUpper.startsWith('US') || perfilUpper.startsWith('TUBO')) {
+            return null;
+          }
+          return items.find(item => {
+            const cod = (item.codigo || '').toUpperCase();
+            return cod.startsWith(perfilUpper.split('X')[0]);
+          }) || null;
+        }
+
+        const itemEncontrado = findMatch(estoqueAtualizado);
+
+        if (itemEncontrado) {
+          estoqueAtualizado = estoqueAtualizado.map(item => {
+            if (item.id === itemEncontrado.id) {
+              return {
+                ...item,
+                quantidade: Math.max(0, item.quantidade - peca.peso),
+                ultimaSaida: agora.split('T')[0]
+              };
+            }
+            return item;
+          });
+        }
+
+        novasMovimentacoes.push({
+          id: `MOV-RECONC-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          data: agora.replace('T', ' ').slice(0, 16),
+          tipo: 'saida',
+          materialId: itemEncontrado?.id || 'GENERICO',
+          quantidade: peca.peso,
+          obra: peca.obraId || 'CORTE',
+          setor: 'Corte',
+          usuario: 'Reconciliação Retroativa',
+          nf: '',
+          motivo: `[RECONCILIAÇÃO] ${peca.motivo || 'Corte já executado'}`,
+          pecaId: peca.pecaId,
+          perfil: peca.perfil
+        });
+
+        novosConsumos.push({
+          id: `CONS-RECONC-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          data: agora,
+          perfil: peca.perfil,
+          peso: peca.peso,
+          pecaId: peca.pecaId,
+          obraId: peca.obraId,
+          materialId: itemEncontrado?.id,
+          materialCodigo: itemEncontrado?.codigo
+        });
+      });
+
+      console.log(`[EstoqueReal] Reconciliação retroativa: ${pecasPendentes.length} peças, ${novasMovimentacoes.length} movimentações registradas`);
+
+      return {
+        ...state,
+        estoqueReal: estoqueAtualizado,
+        movimentacoes: [...novasMovimentacoes, ...state.movimentacoes],
+        consumoCorte: [...novosConsumos, ...state.consumoCorte]
+      };
+    }
+
     default:
       return state;
   }
@@ -540,6 +682,77 @@ export function EstoqueRealProvider({ children }) {
     });
   }, []);
 
+  // Reconciliar peças já cortadas (chamado manualmente ou na inicialização)
+  const reconciliarCorte = useCallback((pecasJaCortadas) => {
+    if (!pecasJaCortadas || pecasJaCortadas.length === 0) return;
+    dispatch({
+      type: ACTIONS.RECONCILIAR_CORTE,
+      payload: { pecasJaCortadas }
+    });
+  }, []);
+
+  // ===== RECONCILIAÇÃO AUTOMÁTICA NA INICIALIZAÇÃO =====
+  // Busca peças já cortadas de materiais_corte (Supabase) e aplica deduções retroativas
+  const [reconciliado, setReconciliado] = useState(false);
+
+  useEffect(() => {
+    if (reconciliado) return;
+
+    async function reconciliarPecasExistentes() {
+      try {
+        let pecasJaCortadas = [];
+
+        // 1. Buscar de materiais_corte (KanbanCortePage - Sistema B)
+        if (isSupabaseConfigured()) {
+          try {
+            const { data: materiaisCorte, error } = await supabase
+              .from('materiais_corte')
+              .select('*')
+              .in('status_corte', ['cortando', 'em_corte', 'finalizado', 'liberado', 'conferencia']);
+
+            if (!error && materiaisCorte && materiaisCorte.length > 0) {
+              const pecasSupabase = materiaisCorte.map(p => ({
+                pecaId: `MARCA-${p.marca}`,
+                perfil: p.perfil || '',
+                peso: parseFloat(p.peso_teorico) || 0,
+                comprimento: p.comprimento_mm || 0,
+                obraId: 'SUPER-LUNA-BELO-VALE',
+                motivo: `Corte ${p.peca || ''} Marca ${p.marca} (${p.perfil}) - já executado`
+              }));
+              pecasJaCortadas = [...pecasJaCortadas, ...pecasSupabase];
+            }
+          } catch (err) {
+            console.warn('[EstoqueReal] Não foi possível buscar materiais_corte do Supabase:', err);
+          }
+        }
+
+        // 2. Se não encontrou no Supabase, usar dados locais do ERPContext
+        // (isso será feito via reconciliarCorte chamado externamente pelo KanbanCorteIntegrado)
+
+        if (pecasJaCortadas.length > 0) {
+          // Filtrar peças com peso válido
+          const pecasValidas = pecasJaCortadas.filter(p => p.peso > 0 && p.perfil);
+          if (pecasValidas.length > 0) {
+            dispatch({
+              type: ACTIONS.RECONCILIAR_CORTE,
+              payload: { pecasJaCortadas: pecasValidas }
+            });
+            console.log(`[EstoqueReal] Reconciliação automática: ${pecasValidas.length} peças já cortadas processadas`);
+          }
+        }
+
+        setReconciliado(true);
+      } catch (err) {
+        console.warn('[EstoqueReal] Erro na reconciliação automática:', err);
+        setReconciliado(true);
+      }
+    }
+
+    // Aguardar um ciclo para o estado inicial estar pronto
+    const timer = setTimeout(reconciliarPecasExistentes, 500);
+    return () => clearTimeout(timer);
+  }, [reconciliado]);
+
   // ===== SELETORES/KPIS =====
 
   // KPIs calculados do estoque
@@ -612,6 +825,7 @@ export function EstoqueRealProvider({ children }) {
     movimentacoes: state.movimentacoes,
     consumoCorte: state.consumoCorte,
     consumoHoje: state.consumoHoje,
+    reconciliado,
 
     // KPIs
     kpisEstoque,
@@ -624,8 +838,10 @@ export function EstoqueRealProvider({ children }) {
     updateItemEstoque,
     importarPrevisto,
     addMovimentacao,
+    reconciliarCorte,
   }), [
     state,
+    reconciliado,
     kpisEstoque,
     consumoCorte24h,
     totalConsumoCorte24h,
@@ -634,6 +850,7 @@ export function EstoqueRealProvider({ children }) {
     updateItemEstoque,
     importarPrevisto,
     addMovimentacao,
+    reconciliarCorte,
   ]);
 
   return (
