@@ -30,6 +30,7 @@ import {
   transformPecaRecord,
   pecaToSupabase,
   reverseTransformRecord,
+  lancamentoToSupabase,
   transformObraArray,
   calcularProgressoObra,
   STATUS_MAP_SUPABASE
@@ -727,7 +728,7 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.ADD_LANCAMENTO, payload: lancamentoComId });
     if (dataSource === 'supabase') {
       try {
-        const record = reverseTransformRecord(lancamentoComId);
+        const record = lancamentoToSupabase(lancamentoComId);
         await lancamentosApi.create(record);
         console.log(`✅ Lançamento ${lancamentoComId.id} criado no Supabase`);
       } catch (err) {
@@ -740,7 +741,7 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.UPDATE_LANCAMENTO, payload: { id, data } });
     if (dataSource === 'supabase') {
       try {
-        const snakeData = reverseTransformRecord(data);
+        const snakeData = lancamentoToSupabase(data);
         await lancamentosApi.update(id, snakeData);
         console.log(`✅ Lançamento ${id} atualizado no Supabase`);
       } catch (err) {
