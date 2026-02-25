@@ -52,12 +52,7 @@ import {
   Tooltip,
   ResponsiveContainer
 } from 'recharts';
-
-// Receitas - dados limpos (cadastrar via formulário)
-const mockReceitas = [];
-
-// Evolução Mensal - dados limpos
-const evolucaoMensal = [];
+import { useLancamentos } from '../contexts/ERPContext';
 
 const formatCurrency = (value) => {
   return new Intl.NumberFormat('pt-BR', {
@@ -86,11 +81,13 @@ const getStatusText = (status) => {
 };
 
 export default function ReceitasPage() {
+  // ERPContext - dados financeiros (independente de obra)
+  const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [receitas, setReceitas] = useState(mockReceitas);
   const [formData, setFormData] = useState({
     descricao: '',
     cliente: '',
@@ -100,47 +97,56 @@ export default function ReceitasPage() {
     formaPagto: ''
   });
 
-  // KPIs
+  // Receitas do Supabase: APENAS tipo=receita e SEM obra_id (independente de obra)
+  const receitas = useMemo(() => {
+    return (lancamentosDespesas || [])
+      .filter(l => l.tipo === 'receita' && !l.obraId && !l.obra_id)
+      .sort((a, b) => new Date(b.data) - new Date(a.data));
+  }, [lancamentosDespesas]);
+
+  // KPIs calculados a partir das receitas reais
   const kpis = useMemo(() => {
-    const totalRecebido = mockReceitas.filter(r => r.status === 'recebido').reduce((sum, r) => sum + r.valor, 0);
-    const totalPendente = mockReceitas.filter(r => r.status === 'pendente').reduce((sum, r) => sum + r.valor, 0);
-    const totalAtrasado = mockReceitas.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + r.valor, 0);
-    const total = mockReceitas.reduce((sum, r) => sum + r.valor, 0);
+    const totalRecebido = receitas.filter(r => r.status === 'recebido' || r.status === 'confirmado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalPendente = receitas.filter(r => r.status === 'pendente').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalAtrasado = receitas.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const total = receitas.reduce((sum, r) => sum + (r.valor || 0), 0);
 
     return { totalRecebido, totalPendente, totalAtrasado, total };
-  }, []);
+  }, [receitas]);
 
   // Filtrar receitas
   const receitasFiltradas = useMemo(() => {
     return receitas.filter(r => {
-      if (searchTerm && !r.descricao.toLowerCase().includes(searchTerm.toLowerCase()) &&
-          !r.cliente.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+      if (searchTerm && !r.descricao?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+          !r.cliente?.toLowerCase().includes(searchTerm.toLowerCase()) &&
+          !r.fornecedor?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos' && r.status !== filtroStatus) return false;
       if (filtroCategoria !== 'todos' && r.categoria !== filtroCategoria) return false;
       return true;
     });
   }, [receitas, searchTerm, filtroStatus, filtroCategoria]);
 
-  const handleSaveReceita = () => {
-    if (!formData.descricao || !formData.cliente || !formData.categoria || !formData.valor || !formData.vencimento || !formData.formaPagto) {
-      toast.error('Preenchear todos os campos');
+  const handleSaveReceita = async () => {
+    if (!formData.descricao || !formData.valor) {
+      toast.error('Preencha descrição e valor');
       return;
     }
 
     const novaReceita = {
-      id: Date.now(),
-      data: new Date().toISOString().split('T')[0],
+      id: `REC-${Date.now()}`,
+      tipo: 'receita',
+      data: formData.vencimento || new Date().toISOString().split('T')[0],
       descricao: formData.descricao,
-      cliente: formData.cliente,
-      obra: `${formData.cliente} - ${formData.descricao}`,
+      fornecedor: formData.cliente || '',
       valor: parseFloat(formData.valor),
       status: 'pendente',
-      formaPagto: formData.formaPagto,
-      vencimento: formData.vencimento,
-      categoria: formData.categoria
+      formaPagto: formData.formaPagto || 'boleto',
+      categoria: formData.categoria || 'venda',
+      obra_id: null, // Independente de obra
+      obraId: null,
     };
 
-    setReceitas([...receitas, novaReceita]);
+    await addLancamento(novaReceita);
     toast.success('Receita criada com sucesso!');
     setDialogOpen(false);
     setFormData({

@@ -21,7 +21,6 @@ import {
   Eye,
   Edit,
   FileText,
-  Building2,
   CheckCircle2,
   Clock,
   X,
@@ -65,7 +64,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Textarea } from '@/components/ui/textarea';
 
 // ERPContext - dados reais
-import { useObras, useLancamentos } from '../contexts/ERPContext';
+import { useLancamentos } from '../contexts/ERPContext';
 
 // PAINEL FINANCEIRO GERAL DA EMPRESA
 // Independente do módulo Gestão Financeira da Obra
@@ -155,15 +154,14 @@ const CustomTooltip = ({ active, payload, label }) => {
 
 // Componente Principal
 export default function FinanceiroPage() {
-  // ERPContext - dados reais
-  const { obras } = useObras();
+  // ERPContext - dados financeiros gerais (independente de obra)
   const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
 
   // Estados de filtros
   const [periodo, setPeriodo] = useState('mes');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroObra, setFiltroObra] = useState('todas');
+  // Nota: Sem filtro por obra - Painel Financeiro é independente da Gestão de Obra
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('visao-geral');
 
@@ -173,7 +171,7 @@ export default function FinanceiroPage() {
   const [formData, setFormData] = useState({
     tipo: 'despesa', descricao: '', valor: '', categoria: 'material',
     data: new Date().toISOString().split('T')[0], status: 'pendente',
-    obraId: '', fornecedor: '', nf: '', observacao: '', formaPagto: 'boleto'
+    fornecedor: '', nf: '', observacao: '', formaPagto: 'boleto'
   });
 
   // Importação
@@ -181,11 +179,12 @@ export default function FinanceiroPage() {
   const [importData, setImportData] = useState([]);
   const [importFile, setImportFile] = useState(null);
 
-  // Movimentações combinadas: lançamentos do ERPContext
+  // Movimentações do Painel Financeiro: APENAS lançamentos SEM obra_id
+  // Completamente independente da Gestão Financeira de Obra
   const movimentacoes = useMemo(() => {
-    return [...(lancamentosDespesas || [])].sort((a, b) =>
-      new Date(b.data) - new Date(a.data)
-    );
+    return [...(lancamentosDespesas || [])]
+      .filter(l => !l.obraId && !l.obra_id)
+      .sort((a, b) => new Date(b.data) - new Date(a.data));
   }, [lancamentosDespesas]);
 
   // Funções do modal
@@ -208,7 +207,6 @@ export default function FinanceiroPage() {
       categoria: mov.categoria || 'material',
       data: mov.data ? new Date(mov.data).toISOString().split('T')[0] : '',
       status: mov.status || 'pendente',
-      obraId: mov.obraId || mov.obra_id || '',
       fornecedor: mov.fornecedor || '',
       nf: mov.nf || '',
       observacao: mov.observacao || '',
@@ -223,7 +221,8 @@ export default function FinanceiroPage() {
     const dados = {
       ...formData,
       valor: parseFloat(formData.valor) || 0,
-      obra_id: formData.obraId || null,
+      obra_id: null, // Painel Financeiro é independente - sem vínculo com obra
+      obraId: null,
     };
 
     if (editandoId) {
@@ -290,10 +289,6 @@ export default function FinanceiroPage() {
       movs = movs.filter(m => m.categoria === filtroCategoria);
     }
 
-    if (filtroObra !== 'todas') {
-      movs = movs.filter(m => m.obraId === filtroObra);
-    }
-
     if (search) {
       const searchLower = search.toLowerCase();
       movs = movs.filter(m =>
@@ -302,7 +297,7 @@ export default function FinanceiroPage() {
     }
 
     return movs;
-  }, [movimentacoes, filtroTipo, filtroCategoria, filtroObra, search]);
+  }, [movimentacoes, filtroTipo, filtroCategoria, search]);
 
   // Calcular resumos a partir das movimentações próprias
   const resumo = useMemo(() => {
@@ -442,10 +437,6 @@ export default function FinanceiroPage() {
             <TabsTrigger value="movimentacoes" className="data-[state=active]:bg-emerald-500">
               <FileText className="h-4 w-4 mr-2" />
               Movimentações
-            </TabsTrigger>
-            <TabsTrigger value="por-obra" className="data-[state=active]:bg-emerald-500">
-              <Building2 className="h-4 w-4 mr-2" />
-              Por Obra
             </TabsTrigger>
             <TabsTrigger value="importacao" className="data-[state=active]:bg-emerald-500">
               <Upload className="h-4 w-4 mr-2" />
@@ -587,7 +578,6 @@ export default function FinanceiroPage() {
                 {movimentacoes.slice(0, 8).map((mov, index) => {
                   const catInfo = categoriasCores[mov.categoria] || categoriasCores.outros;
                   const Icon = catInfo.icon;
-                  const obra = obras.find(o => o.id === mov.obraId);
 
                   return (
                     <motion.div
@@ -610,10 +600,10 @@ export default function FinanceiroPage() {
                             <span className="text-xs text-slate-500">
                               {formatDate(mov.data)}
                             </span>
-                            {obra && (
+                            {mov.fornecedor && (
                               <>
                                 <span className="text-xs text-slate-600">•</span>
-                                <span className="text-xs text-slate-500">{obra.nome}</span>
+                                <span className="text-xs text-slate-500">{mov.fornecedor}</span>
                               </>
                             )}
                           </div>
@@ -680,19 +670,6 @@ export default function FinanceiroPage() {
                   ))}
                 </SelectContent>
               </Select>
-              <Select value={filtroObra} onValueChange={setFiltroObra}>
-                <SelectTrigger className="w-[200px] bg-slate-800/60 border-slate-700 text-white">
-                  <SelectValue placeholder="Obra" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="todas" className="text-white">Todas as obras</SelectItem>
-                  {obras.map(obra => (
-                    <SelectItem key={obra.id} value={obra.id} className="text-white">
-                      {obra.nome}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
             {/* Tabela */}
@@ -704,7 +681,7 @@ export default function FinanceiroPage() {
                       <th className="text-left p-4 text-sm font-medium text-slate-400">Data</th>
                       <th className="text-left p-4 text-sm font-medium text-slate-400">Descrição</th>
                       <th className="text-left p-4 text-sm font-medium text-slate-400">Categoria</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-400">Obra</th>
+                      <th className="text-left p-4 text-sm font-medium text-slate-400">Fornecedor</th>
                       <th className="text-center p-4 text-sm font-medium text-slate-400">Status</th>
                       <th className="text-right p-4 text-sm font-medium text-slate-400">Valor</th>
                       <th className="text-center p-4 text-sm font-medium text-slate-400">Ações</th>
@@ -713,7 +690,6 @@ export default function FinanceiroPage() {
                   <tbody>
                     {movimentacoesFiltradas.map((mov, index) => {
                       const catInfo = categoriasCores[mov.categoria] || categoriasCores.outros;
-                      const obra = obras.find(o => o.id === mov.obraId);
 
                       return (
                         <motion.tr
@@ -741,7 +717,7 @@ export default function FinanceiroPage() {
                             </Badge>
                           </td>
                           <td className="p-4 text-slate-400 text-sm">
-                            {obra?.nome || '-'}
+                            {mov.fornecedor || '-'}
                           </td>
                           <td className="p-4 text-center">
                             <Badge
@@ -905,91 +881,6 @@ export default function FinanceiroPage() {
             )}
           </TabsContent>
 
-          {/* Tab: Por Obra */}
-          <TabsContent value="por-obra" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {obras.map((obra, index) => {
-                const receitas = movimentacoes
-                  .filter(m => m.obraId === obra.id && m.tipo === 'receita')
-                  .reduce((acc, m) => acc + (m.valor || 0), 0);
-                const despesas = movimentacoes
-                  .filter(m => m.obraId === obra.id && m.tipo === 'despesa')
-                  .reduce((acc, m) => acc + (m.valor || 0), 0);
-                const saldo = receitas - despesas;
-                const margem = receitas > 0 ? (saldo / receitas) * 100 : 0;
-
-                return (
-                  <motion.div
-                    key={obra.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.05 }}
-                    className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
-                  >
-                    <div className="flex items-start justify-between mb-4">
-                      <div>
-                        <h3 className="text-lg font-semibold text-white">{obra.nome}</h3>
-                        <p className="text-sm text-slate-400">{obra.clienteNome}</p>
-                      </div>
-                      <Badge
-                        className={cn(
-                          "text-xs border-0",
-                          obra.status === 'em_fabricacao' && "bg-orange-500/20 text-orange-400",
-                          obra.status === 'em_montagem' && "bg-emerald-500/20 text-emerald-400",
-                          obra.status === 'aprovado' && "bg-blue-500/20 text-blue-400",
-                        )}
-                      >
-                        {obra.status?.replace('_', ' ') || 'ativo'}
-                      </Badge>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4 mb-4">
-                      <div>
-                        <p className="text-xs text-slate-500 mb-1">Receitas</p>
-                        <p className="text-lg font-bold text-emerald-400">
-                          {formatCurrency(receitas)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500 mb-1">Despesas</p>
-                        <p className="text-lg font-bold text-red-400">
-                          {formatCurrency(despesas)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-slate-500 mb-1">Saldo</p>
-                        <p className={cn(
-                          "text-lg font-bold",
-                          saldo >= 0 ? "text-emerald-400" : "text-red-400"
-                        )}>
-                          {formatCurrency(saldo)}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-slate-400">Margem de Lucro</span>
-                      <span className={cn(
-                        "font-medium",
-                        margem >= 0 ? "text-emerald-400" : "text-red-400"
-                      )}>
-                        {margem.toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-2 bg-slate-700 rounded-full overflow-hidden mt-2">
-                      <div
-                        className={cn(
-                          "h-full rounded-full transition-all",
-                          margem >= 0 ? "bg-emerald-500" : "bg-red-500"
-                        )}
-                        style={{ width: `${Math.min(Math.abs(margem), 100)}%` }}
-                      />
-                    </div>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </TabsContent>
         </Tabs>
       </div>
 
@@ -1095,22 +986,6 @@ export default function FinanceiroPage() {
                   </SelectContent>
                 </Select>
               </div>
-            </div>
-
-            {/* Obra */}
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Obra</label>
-              <Select value={formData.obraId || 'nenhuma'} onValueChange={v => setFormData(p => ({ ...p, obraId: v === 'nenhuma' ? '' : v }))}>
-                <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
-                  <SelectValue placeholder="Selecione a obra" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="nenhuma" className="text-white">Nenhuma / Geral</SelectItem>
-                  {obras.map(o => (
-                    <SelectItem key={o.id} value={o.id} className="text-white">{o.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
             </div>
 
             {/* Fornecedor + NF */}
