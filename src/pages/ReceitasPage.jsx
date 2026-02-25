@@ -54,6 +54,9 @@ import {
 } from 'recharts';
 import { useLancamentos } from '../contexts/ERPContext';
 
+// Evolução Mensal - dados dinâmicos (preenchidos a partir do Supabase)
+const evolucaoMensal = [];
+
 const formatCurrency = (value) => {
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
@@ -405,13 +408,13 @@ export default function ReceitasPage() {
             <TableBody>
               {receitasFiltradas.map(receita => (
                 <TableRow key={receita.id} className="border-slate-800 hover:bg-slate-800/50">
-                  <TableCell className="text-slate-300">{new Date(receita.data).toLocaleDateString('pt-BR')}</TableCell>
+                  <TableCell className="text-slate-300">{receita.data ? new Date(receita.data).toLocaleDateString('pt-BR') : '-'}</TableCell>
                   <TableCell className="text-white font-medium">{receita.descricao}</TableCell>
-                  <TableCell className="text-slate-300">{receita.cliente}</TableCell>
+                  <TableCell className="text-slate-300">{receita.cliente || receita.fornecedor || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="border-slate-600 text-slate-300">{receita.categoria}</Badge>
+                    <Badge variant="outline" className="border-slate-600 text-slate-300">{receita.categoria || '-'}</Badge>
                   </TableCell>
-                  <TableCell className="text-slate-400">{new Date(receita.vencimento).toLocaleDateString('pt-BR')}</TableCell>
+                  <TableCell className="text-slate-400">{receita.vencimento ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : (receita.data ? new Date(receita.data).toLocaleDateString('pt-BR') : '-')}</TableCell>
                   <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(receita.valor)}</TableCell>
                   <TableCell>
                     <Badge className={cn("border", getStatusColor(receita.status))}>
