@@ -1402,7 +1402,8 @@ export function useEstoque() {
     alertasEstoque: context.alertasEstoque,
     consumirEstoque: context.consumirEstoque,
     adicionarEstoque: context.adicionarEstoque,
-    reservarEstoque: context.reservarEstoque
+    reservarEstoque: context.reservarEstoque,
+    movimentacoesEstoque: context.movimentacoesEstoque
   };
 }
 

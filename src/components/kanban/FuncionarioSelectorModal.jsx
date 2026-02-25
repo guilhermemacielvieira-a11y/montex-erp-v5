@@ -36,25 +36,29 @@ export function FuncionarioSelectorModal({
   const [selecionado, setSelecionado] = useState(null);
   const { funcionarios } = useERP();
 
-  // Filtrar funcionários por setor e busca
+  // Filtrar funcionários ativos e por busca (todos os funcionários disponíveis)
   const funcionariosDisponiveis = useMemo(() => {
     let filtered = (funcionarios || []).filter(f => f.ativo !== false);
-
-    // Filtrar por setor se especificado
-    if (setor) {
-      const setoresValidos = SETORES_POR_ETAPA[setor] || [setor];
-      filtered = filtered.filter(f =>
-        setoresValidos.includes(f.setor) || f.setor === 'geral'
-      );
-    }
 
     // Filtrar por busca
     if (busca.trim()) {
       const termo = busca.toLowerCase();
       filtered = filtered.filter(f =>
         f.nome?.toLowerCase().includes(termo) ||
-        f.cargo?.toLowerCase().includes(termo)
+        f.cargo?.toLowerCase().includes(termo) ||
+        f.setor?.toLowerCase().includes(termo)
       );
+    }
+
+    // Ordenar: funcionários do setor da etapa primeiro, depois os demais
+    if (setor) {
+      const setoresValidos = SETORES_POR_ETAPA[setor] || [setor];
+      filtered.sort((a, b) => {
+        const aMatch = setoresValidos.includes(a.setor) || a.setor === 'geral' ? 0 : 1;
+        const bMatch = setoresValidos.includes(b.setor) || b.setor === 'geral' ? 0 : 1;
+        if (aMatch !== bMatch) return aMatch - bMatch;
+        return (a.nome || '').localeCompare(b.nome || '');
+      });
     }
 
     return filtered;
@@ -138,6 +142,11 @@ export function FuncionarioSelectorModal({
                   <p className="text-xs text-slate-500 flex items-center gap-1">
                     <Briefcase className="w-3 h-3" />
                     {func.cargo || 'Sem cargo'}
+                    {func.setor && (
+                      <span className="ml-1 px-1.5 py-0.5 rounded bg-slate-700/50 text-[10px] uppercase">
+                        {func.setor}
+                      </span>
+                    )}
                   </p>
                 </div>
                 {selecionado?.id === func.id && (

@@ -10,7 +10,8 @@ import {
   Package, Warehouse, AlertTriangle, AlertCircle, CheckCircle2,
   Search, Filter, Plus, Download, Upload, Edit, Eye,
   ChevronDown, TrendingDown, TrendingUp, BarChart3, Bell,
-  Building2, RefreshCw, ArrowDown, Layers, X, Link2
+  Building2, RefreshCw, ArrowDown, Layers, X, Link2,
+  ArrowUpRight, ArrowDownLeft, Calendar, Hash
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -175,7 +176,7 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
 
 export default function EstoquePageV2() {
   // Contexto ERP
-  const { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, addNotificacao } = useEstoque();
+  const { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, addNotificacao, movimentacoesEstoque } = useEstoque();
   const { obras, obraAtual, obraAtualData } = useObras();
   const { pecasObraAtual } = useProducao();
 
@@ -187,6 +188,9 @@ export default function EstoquePageV2() {
   const [busca, setBusca] = useState('');
   const [itemSelecionado, setItemSelecionado] = useState(null);
   const [modalAberto, setModalAberto] = useState(false);
+  const [filtroMovTipo, setFiltroMovTipo] = useState('todos');
+  const [filtroMovMaterial, setFiltroMovMaterial] = useState('');
+  const [filtroMovPeriodo, setFiltroMovPeriodo] = useState('todos');
 
   // Filtra estoque
   const estoqueFiltrado = useMemo(() => {
@@ -261,6 +265,78 @@ export default function EstoquePageV2() {
     quantidade: estoque.filter(i => (i.categoria || i.tipo) === cat.id).length,
     valor: estoque.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.preco || i.precoUnitario) || 0)), 0) / 1000
   }));
+
+  // Movimentações filtradas
+  const movimentacoesFiltradas = useMemo(() => {
+    let movs = [...(movimentacoesEstoque || [])];
+
+    // Filtro por tipo
+    if (filtroMovTipo !== 'todos') {
+      movs = movs.filter(m => m.tipo === filtroMovTipo);
+    }
+
+    // Filtro por material
+    if (filtroMovMaterial.trim()) {
+      const termo = filtroMovMaterial.toLowerCase();
+      movs = movs.filter(m =>
+        m.materialPerfil?.toLowerCase().includes(termo) ||
+        m.itemId?.toLowerCase().includes(termo) ||
+        m.motivo?.toLowerCase().includes(termo)
+      );
+    }
+
+    // Filtro por período
+    if (filtroMovPeriodo !== 'todos') {
+      const now = new Date();
+      let dataLimite;
+      if (filtroMovPeriodo === '7d') dataLimite = new Date(now.setDate(now.getDate() - 7));
+      else if (filtroMovPeriodo === '30d') dataLimite = new Date(now.setDate(now.getDate() - 30));
+      else if (filtroMovPeriodo === '90d') dataLimite = new Date(now.setDate(now.getDate() - 90));
+      if (dataLimite) {
+        movs = movs.filter(m => new Date(m.data) >= dataLimite);
+      }
+    }
+
+    // Ordenar por data decrescente
+    movs.sort((a, b) => new Date(b.data) - new Date(a.data));
+    return movs;
+  }, [movimentacoesEstoque, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
+
+  // Resumo das movimentações
+  const resumoMovimentacoes = useMemo(() => {
+    const entradas = (movimentacoesEstoque || []).filter(m => m.tipo === 'entrada');
+    const saidas = (movimentacoesEstoque || []).filter(m => m.tipo === 'saida');
+    const totalEntrada = entradas.reduce((acc, m) => acc + (Number(m.quantidade) || 0), 0);
+    const totalSaida = saidas.reduce((acc, m) => acc + (Number(m.quantidade) || 0), 0);
+
+    // Agrupar saídas por material
+    const porMaterial = {};
+    saidas.forEach(m => {
+      const key = m.materialPerfil || m.itemId || 'Outro';
+      if (!porMaterial[key]) porMaterial[key] = { material: key, quantidade: 0, pecas: 0 };
+      porMaterial[key].quantidade += Number(m.quantidade) || 0;
+      porMaterial[key].pecas += 1;
+    });
+
+    // Agrupar por dia
+    const porDia = {};
+    (movimentacoesEstoque || []).forEach(m => {
+      const dia = m.data ? new Date(m.data).toISOString().split('T')[0] : 'sem-data';
+      if (!porDia[dia]) porDia[dia] = { dia, entradas: 0, saidas: 0 };
+      if (m.tipo === 'entrada') porDia[dia].entradas += Number(m.quantidade) || 0;
+      else porDia[dia].saidas += Number(m.quantidade) || 0;
+    });
+
+    return {
+      totalEntrada,
+      totalSaida,
+      saldo: totalEntrada - totalSaida,
+      qtdEntradas: entradas.length,
+      qtdSaidas: saidas.length,
+      porMaterial: Object.values(porMaterial).sort((a, b) => b.quantidade - a.quantidade),
+      porDia: Object.values(porDia).sort((a, b) => a.dia.localeCompare(b.dia)),
+    };
+  }, [movimentacoesEstoque]);
 
   const handleEdit = (item) => {
     setItemSelecionado(item);
@@ -571,9 +647,201 @@ export default function EstoquePageV2() {
 
           {/* Movimentações */}
           <Tabs.Content value="movimentacoes">
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-6">
-              <h3 className="text-white font-semibold mb-4">Movimentações Recentes</h3>
-              <p className="text-slate-400">Em desenvolvimento - integração com fluxo de produção</p>
+            <div className="space-y-4">
+              {/* KPIs de Movimentação */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-emerald-400 mb-1">
+                    <ArrowDownLeft className="w-4 h-4" />
+                    <span className="text-xs font-medium uppercase">Entradas</span>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{resumoMovimentacoes.qtdEntradas}</p>
+                  <p className="text-xs text-slate-400">{(resumoMovimentacoes.totalEntrada / 1000).toFixed(1)}t recebidas</p>
+                </div>
+                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-red-400 mb-1">
+                    <ArrowUpRight className="w-4 h-4" />
+                    <span className="text-xs font-medium uppercase">Saídas</span>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{resumoMovimentacoes.qtdSaidas}</p>
+                  <p className="text-xs text-slate-400">{(resumoMovimentacoes.totalSaida / 1000).toFixed(1)}t consumidas</p>
+                </div>
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-blue-400 mb-1">
+                    <BarChart3 className="w-4 h-4" />
+                    <span className="text-xs font-medium uppercase">Saldo</span>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{(resumoMovimentacoes.saldo / 1000).toFixed(1)}t</p>
+                  <p className="text-xs text-slate-400">Entrada - Saída</p>
+                </div>
+                <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4">
+                  <div className="flex items-center gap-2 text-orange-400 mb-1">
+                    <Hash className="w-4 h-4" />
+                    <span className="text-xs font-medium uppercase">Materiais</span>
+                  </div>
+                  <p className="text-2xl font-bold text-white">{resumoMovimentacoes.porMaterial.length}</p>
+                  <p className="text-xs text-slate-400">Tipos consumidos</p>
+                </div>
+              </div>
+
+              {/* Filtros */}
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-4">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="relative flex-1 min-w-[200px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="Buscar por material, código..."
+                      value={filtroMovMaterial}
+                      onChange={e => setFiltroMovMaterial(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 bg-slate-900/50 border border-slate-600 rounded-lg text-white text-sm placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                    />
+                  </div>
+                  <select
+                    value={filtroMovTipo}
+                    onChange={e => setFiltroMovTipo(e.target.value)}
+                    className="bg-slate-900/50 border border-slate-600 rounded-lg text-white text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  >
+                    <option value="todos">Todos Tipos</option>
+                    <option value="entrada">Entradas</option>
+                    <option value="saida">Saídas</option>
+                  </select>
+                  <select
+                    value={filtroMovPeriodo}
+                    onChange={e => setFiltroMovPeriodo(e.target.value)}
+                    className="bg-slate-900/50 border border-slate-600 rounded-lg text-white text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                  >
+                    <option value="todos">Todo Período</option>
+                    <option value="7d">Últimos 7 dias</option>
+                    <option value="30d">Últimos 30 dias</option>
+                    <option value="90d">Últimos 90 dias</option>
+                  </select>
+                  <span className="text-xs text-slate-500">{movimentacoesFiltradas.length} registros</span>
+                </div>
+              </div>
+
+              {/* Gráfico de Movimentações por Dia */}
+              {resumoMovimentacoes.porDia.length > 0 && (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-4">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                    <Calendar className="w-4 h-4 text-orange-400" />
+                    Movimentações por Dia
+                  </h3>
+                  <div className="h-48">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={resumoMovimentacoes.porDia} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                        <XAxis dataKey="dia" tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => v.slice(5)} />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}t`} />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
+                          labelStyle={{ color: '#fff' }}
+                          formatter={(v, name) => [`${(v/1000).toFixed(1)}t`, name === 'entradas' ? 'Entradas' : 'Saídas']}
+                          labelFormatter={v => `Data: ${v}`}
+                        />
+                        <Bar dataKey="entradas" fill="#10b981" name="entradas" radius={[4, 4, 0, 0]} />
+                        <Bar dataKey="saidas" fill="#ef4444" name="saidas" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
+
+              {/* Tabela de Movimentações */}
+              <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-700/50">
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Data</th>
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Tipo</th>
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Material</th>
+                        <th className="text-right text-slate-400 font-medium px-4 py-3">Quantidade</th>
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Motivo</th>
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Responsável</th>
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Setor</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {movimentacoesFiltradas.length === 0 ? (
+                        <tr>
+                          <td colSpan={7} className="text-center py-12 text-slate-500">
+                            <Package className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                            Nenhuma movimentação encontrada
+                          </td>
+                        </tr>
+                      ) : (
+                        movimentacoesFiltradas.slice(0, 50).map((mov, idx) => (
+                          <tr key={mov.id || idx} className="border-b border-slate-700/30 hover:bg-slate-700/20 transition-colors">
+                            <td className="px-4 py-3 text-slate-300 whitespace-nowrap">
+                              {mov.data ? new Date(mov.data).toLocaleDateString('pt-BR') : '-'}
+                            </td>
+                            <td className="px-4 py-3">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
+                                mov.tipo === 'entrada'
+                                  ? 'bg-emerald-500/20 text-emerald-400'
+                                  : 'bg-red-500/20 text-red-400'
+                              }`}>
+                                {mov.tipo === 'entrada' ? <ArrowDownLeft className="w-3 h-3" /> : <ArrowUpRight className="w-3 h-3" />}
+                                {mov.tipo === 'entrada' ? 'Entrada' : 'Saída'}
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-white font-medium">
+                              {mov.materialPerfil || mov.itemId || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono">
+                              <span className={mov.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}>
+                                {mov.tipo === 'entrada' ? '+' : '-'}{Number(mov.quantidade || 0).toLocaleString('pt-BR', { minimumFractionDigits: 1 })} kg
+                              </span>
+                            </td>
+                            <td className="px-4 py-3 text-slate-400 max-w-[250px] truncate" title={mov.motivo}>
+                              {mov.motivo || '-'}
+                            </td>
+                            <td className="px-4 py-3 text-slate-300">{mov.responsavel || '-'}</td>
+                            <td className="px-4 py-3">
+                              <span className="px-2 py-0.5 rounded bg-slate-700/50 text-xs text-slate-400 uppercase">
+                                {mov.setor || '-'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                {movimentacoesFiltradas.length > 50 && (
+                  <div className="px-4 py-3 border-t border-slate-700/30 text-center text-sm text-slate-500">
+                    Mostrando 50 de {movimentacoesFiltradas.length} registros
+                  </div>
+                )}
+              </div>
+
+              {/* Consumo por Material */}
+              {resumoMovimentacoes.porMaterial.length > 0 && (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-4">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                    <Layers className="w-4 h-4 text-orange-400" />
+                    Consumo por Material (Saídas)
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {resumoMovimentacoes.porMaterial.map((mat, idx) => (
+                      <div key={idx} className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/30">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-white font-medium text-sm truncate">{mat.material}</span>
+                          <span className="text-red-400 font-mono text-sm">{(mat.quantidade / 1000).toFixed(1)}t</span>
+                        </div>
+                        <div className="w-full bg-slate-700/50 rounded-full h-1.5">
+                          <div
+                            className="bg-red-500 h-1.5 rounded-full"
+                            style={{ width: `${Math.min(100, (mat.quantidade / resumoMovimentacoes.totalSaida) * 100)}%` }}
+                          />
+                        </div>
+                        <p className="text-xs text-slate-500 mt-1">{mat.pecas} movimentação(ões)</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </Tabs.Content>
 
