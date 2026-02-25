@@ -735,11 +735,10 @@ export default function KanbanProducaoIntegrado() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
           { label: 'Total Conjuntos', value: kpis.totalConjuntos.toLocaleString(), icon: Package, cor: 'blue' },
           { label: 'Peso Total', value: formatPeso(kpis.pesoTotal), icon: Layers, cor: 'purple' },
-          { label: 'Medição', value: formatValor(kpis.valorTotal), icon: DollarSign, cor: 'emerald' },
           { label: 'Em Fabricação', value: formatPeso(kpis.pesoFabricacao), icon: Wrench, cor: 'blue' },
           { label: 'Expedido', value: formatPeso(kpis.pesoExpedido), icon: Truck, cor: 'emerald' },
           { label: 'Alta Prioridade', value: kpis.altaPrioridade, icon: AlertTriangle, cor: 'red' },
