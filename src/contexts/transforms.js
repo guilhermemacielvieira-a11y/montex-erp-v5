@@ -1,14 +1,14 @@
 /**
  * MONTEX ERP Premium - Transformadores de Dados
  *
- * Funções para converter entre formatos:
- * - snake_case (Supabase) ↔ camelCase (frontend)
- * - Validação de campos por tabela
+ * FunÃ§Ãµes para converter entre formatos:
+ * - snake_case (Supabase) â camelCase (frontend)
+ * - ValidaÃ§Ã£o de campos por tabela
  * - Aliases para compatibilidade com mock data
  */
 
 // ========================================
-// TRANSFORMADOR: snake_case → camelCase
+// TRANSFORMADOR: snake_case â camelCase
 // ========================================
 function snakeToCamel(str) {
   return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -31,11 +31,11 @@ export function transformArray(records) {
 export function transformEstoqueRecord(record) {
   const base = transformRecord(record);
   if (base) {
-    // Alias: preco → precoUnitario (EstoquePageV2 usa precoUnitario)
+    // Alias: preco â precoUnitario (EstoquePageV2 usa precoUnitario)
     if (base.preco !== undefined && base.precoUnitario === undefined) {
       base.precoUnitario = base.preco;
     }
-    // Alias: minimo → minimoEstoque (compatibilidade)
+    // Alias: minimo â minimoEstoque (compatibilidade)
     if (base.descricao === undefined && base.nome) {
       base.descricao = base.nome;
     }
@@ -47,11 +47,11 @@ export function transformEstoqueArray(records) {
   return (records || []).map(transformEstoqueRecord);
 }
 
-// Transformar peças com aliases (peso_total → peso para compatibilidade com mock)
+// Transformar peÃ§as com aliases (peso_total â peso para compatibilidade com mock)
 export function transformPecaRecord(record) {
   const base = transformRecord(record);
   if (base) {
-    // Aliases para compatibilidade com código que usa nomes do mock
+    // Aliases para compatibilidade com cÃ³digo que usa nomes do mock
     if (base.pesoTotal !== undefined && base.peso === undefined) {
       base.peso = base.pesoTotal;
     }
@@ -77,13 +77,13 @@ export function transformPecaArray(records) {
 }
 
 // ========================================
-// TRANSFORMADOR: camelCase → snake_case
+// TRANSFORMADOR: camelCase â snake_case
 // ========================================
 function camelToSnake(str) {
   return str.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`);
 }
 
-// Mapeamento especial de campos do código → colunas reais do Supabase
+// Mapeamento especial de campos do cÃ³digo â colunas reais do Supabase
 const PECAS_FIELD_MAP = {
   peso: 'peso_total',
   pesoUnit: 'peso_unitario',
@@ -102,7 +102,7 @@ const PECAS_FIELD_MAP = {
   updatedAt: 'updated_at',
 };
 
-// Colunas válidas na tabela pecas_producao
+// Colunas vÃ¡lidas na tabela pecas_producao
 const PECAS_VALID_COLUMNS = new Set([
   'id', 'nome', 'obra_id', 'obra_nome', 'marca', 'tipo', 'perfil',
   'comprimento', 'quantidade', 'material', 'peso_total', 'peso_unitario',
@@ -116,9 +116,9 @@ export function pecaToSupabase(record) {
   const result = {};
   for (const [key, value] of Object.entries(record)) {
     if (key.startsWith('_')) continue;
-    // Usar mapeamento especial ou fallback para camelToSnake genérico
+    // Usar mapeamento especial ou fallback para camelToSnake genÃ©rico
     const snakeKey = PECAS_FIELD_MAP[key] || camelToSnake(key);
-    // Só incluir colunas que existem na tabela
+    // SÃ³ incluir colunas que existem na tabela
     if (PECAS_VALID_COLUMNS.has(snakeKey)) {
       result[snakeKey] = value;
     }
@@ -132,6 +132,45 @@ export function reverseTransformRecord(record) {
   for (const [key, value] of Object.entries(record)) {
     if (key.startsWith('_')) continue;
     result[camelToSnake(key)] = value;
+  }
+  return result;
+}
+
+// ========================================
+// LANCAMENTOS: camelCase â snake_case com validaÃ§Ã£o
+// ========================================
+const LANCAMENTOS_FIELD_MAP = {
+  obraId: 'obra_id',
+  dataEmissao: 'data_emissao',
+  dataVencimento: 'data_vencimento',
+  dataPagamento: 'data_pagamento',
+  notaFiscal: 'nota_fiscal',
+  nf: 'nota_fiscal',
+  formaPagto: 'forma_pagto',
+  pesoKg: 'peso_kg',
+  prePedidoRef: 'pre_pedido_ref',
+  createdAt: 'created_at',
+  updatedAt: 'updated_at',
+};
+
+// Colunas vÃ¡lidas na tabela lancamentos_despesas
+const LANCAMENTOS_VALID_COLUMNS = new Set([
+  'id', 'obra_id', 'tipo', 'categoria', 'descricao', 'fornecedor',
+  'nota_fiscal', 'valor', 'data_emissao', 'data_vencimento',
+  'data_pagamento', 'status', 'pre_pedido_ref', 'peso_kg',
+  'observacao', 'setor', 'forma_pagto', 'created_at', 'updated_at'
+]);
+
+export function lancamentoToSupabase(record) {
+  if (!record || typeof record !== 'object') return record;
+  const result = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (key.startsWith('_')) continue;
+    if (value === undefined || value === '') continue; // NÃ£o enviar campos vazios
+    const snakeKey = LANCAMENTOS_FIELD_MAP[key] || camelToSnake(key);
+    if (LANCAMENTOS_VALID_COLUMNS.has(snakeKey)) {
+      result[snakeKey] = value;
+    }
   }
   return result;
 }
