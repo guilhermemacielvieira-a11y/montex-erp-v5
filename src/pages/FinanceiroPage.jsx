@@ -23,7 +23,13 @@ import {
   FileText,
   Building2,
   CheckCircle2,
-  Clock
+  Clock,
+  X,
+  Save,
+  Trash2,
+  Upload,
+  FileUp,
+  AlertCircle
 } from 'lucide-react';
 import {
   AreaChart,
@@ -55,9 +61,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 
 // ERPContext - dados reais
-import { useObras } from '../contexts/ERPContext';
+import { useObras, useLancamentos } from '../contexts/ERPContext';
 
 // PAINEL FINANCEIRO GERAL DA EMPRESA
 // Independente do módulo Gestão Financeira da Obra
@@ -149,6 +157,7 @@ const CustomTooltip = ({ active, payload, label }) => {
 export default function FinanceiroPage() {
   // ERPContext - dados reais
   const { obras } = useObras();
+  const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
 
   // Estados de filtros
   const [periodo, setPeriodo] = useState('mes');
@@ -158,17 +167,116 @@ export default function FinanceiroPage() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('visao-geral');
 
-  // PAINEL FINANCEIRO GERAL - Independente da Gestão Financeira da Obra
-  // Movimentações da empresa (não inclui lançamentos específicos de obra)
-  // Para ver dados financeiros por obra: use o módulo "Gestão Financeira Obra"
-  const [movimentacoesGeral, setMovimentacoesGeral] = useState([]);
+  // Modal de nova movimentação / edição
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editandoId, setEditandoId] = useState(null);
+  const [formData, setFormData] = useState({
+    tipo: 'despesa', descricao: '', valor: '', categoria: 'material',
+    data: new Date().toISOString().split('T')[0], status: 'pendente',
+    obraId: '', fornecedor: '', nf: '', observacao: '', formaPagto: 'boleto'
+  });
 
-  // Movimentações combinadas (empresa geral)
+  // Importação
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importFile, setImportFile] = useState(null);
+
+  // Movimentações combinadas: lançamentos do ERPContext
   const movimentacoes = useMemo(() => {
-    return movimentacoesGeral.sort((a, b) =>
+    return [...(lancamentosDespesas || [])].sort((a, b) =>
       new Date(b.data) - new Date(a.data)
     );
-  }, [movimentacoesGeral]);
+  }, [lancamentosDespesas]);
+
+  // Funções do modal
+  const abrirNovaMovimentacao = (tipo = 'despesa') => {
+    setEditandoId(null);
+    setFormData({
+      tipo, descricao: '', valor: '', categoria: 'material',
+      data: new Date().toISOString().split('T')[0], status: 'pendente',
+      obraId: '', fornecedor: '', nf: '', observacao: '', formaPagto: 'boleto'
+    });
+    setModalOpen(true);
+  };
+
+  const abrirEdicao = (mov) => {
+    setEditandoId(mov.id);
+    setFormData({
+      tipo: mov.tipo || 'despesa',
+      descricao: mov.descricao || '',
+      valor: mov.valor?.toString() || '',
+      categoria: mov.categoria || 'material',
+      data: mov.data ? new Date(mov.data).toISOString().split('T')[0] : '',
+      status: mov.status || 'pendente',
+      obraId: mov.obraId || mov.obra_id || '',
+      fornecedor: mov.fornecedor || '',
+      nf: mov.nf || '',
+      observacao: mov.observacao || '',
+      formaPagto: mov.formaPagto || 'boleto'
+    });
+    setModalOpen(true);
+  };
+
+  const salvarMovimentacao = async () => {
+    if (!formData.descricao || !formData.valor) return;
+
+    const dados = {
+      ...formData,
+      valor: parseFloat(formData.valor) || 0,
+      obra_id: formData.obraId || null,
+    };
+
+    if (editandoId) {
+      await updateLancamento(editandoId, dados);
+    } else {
+      dados.id = `FIN-${Date.now()}`;
+      await addLancamento(dados);
+    }
+    setModalOpen(false);
+    setEditandoId(null);
+  };
+
+  const handleImportCSV = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImportFile(file);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) return;
+      const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
+      const rows = lines.slice(1).map((line, idx) => {
+        const cols = line.split(';').map(c => c.trim());
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = cols[i] || ''; });
+        return {
+          id: `IMP-${idx}`,
+          descricao: obj['descricao'] || obj['descrição'] || obj['historico'] || obj['histórico'] || '',
+          valor: parseFloat((obj['valor'] || obj['debito'] || obj['débito'] || '0').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0,
+          data: obj['data'] || obj['dt_lancamento'] || new Date().toISOString().split('T')[0],
+          tipo: (obj['tipo'] || 'despesa').toLowerCase().includes('receita') ? 'receita' : 'despesa',
+          categoria: obj['categoria'] || 'outros',
+          fornecedor: obj['fornecedor'] || '',
+          status: 'pendente',
+        };
+      }).filter(r => r.descricao && r.valor > 0);
+      setImportData(rows);
+    };
+    reader.readAsText(file, 'UTF-8');
+  };
+
+  const confirmarImportacao = async () => {
+    for (const item of importData) {
+      await addLancamento({
+        ...item,
+        id: `FIN-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      });
+    }
+    setImportModalOpen(false);
+    setImportData([]);
+    setImportFile(null);
+  };
 
   // Filtrar movimentações
   const movimentacoesFiltradas = useMemo(() => {
@@ -276,11 +384,11 @@ export default function FinanceiroPage() {
                 </button>
               ))}
             </div>
-            <Button variant="outline" className="border-slate-700 text-white">
-              <Download className="h-4 w-4 mr-2" />
-              Exportar
+            <Button variant="outline" className="border-slate-700 text-white" onClick={() => setImportModalOpen(true)}>
+              <Upload className="h-4 w-4 mr-2" />
+              Importar
             </Button>
-            <Button className="bg-emerald-500 hover:bg-emerald-600 text-white">
+            <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => abrirNovaMovimentacao('despesa')}>
               <Plus className="h-4 w-4 mr-2" />
               Nova Movimentação
             </Button>
@@ -338,6 +446,10 @@ export default function FinanceiroPage() {
             <TabsTrigger value="por-obra" className="data-[state=active]:bg-emerald-500">
               <Building2 className="h-4 w-4 mr-2" />
               Por Obra
+            </TabsTrigger>
+            <TabsTrigger value="importacao" className="data-[state=active]:bg-emerald-500">
+              <Upload className="h-4 w-4 mr-2" />
+              Importação
             </TabsTrigger>
           </TabsList>
 
@@ -465,7 +577,7 @@ export default function FinanceiroPage() {
               <div className="p-5 border-b border-slate-700/50">
                 <div className="flex items-center justify-between">
                   <h3 className="text-lg font-semibold text-white">Últimas Movimentações</h3>
-                  <Button variant="ghost" className="text-emerald-400 hover:text-emerald-300">
+                  <Button variant="ghost" className="text-emerald-400 hover:text-emerald-300" onClick={() => setActiveTab('movimentacoes')}>
                     Ver todas
                     <ArrowUpRight className="h-4 w-4 ml-1" />
                   </Button>
@@ -663,13 +775,22 @@ export default function FinanceiroPage() {
                                 </Button>
                               </DropdownMenuTrigger>
                               <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                                <DropdownMenuItem className="text-white hover:bg-slate-700">
-                                  <Eye className="h-4 w-4 mr-2" />
-                                  Ver detalhes
-                                </DropdownMenuItem>
-                                <DropdownMenuItem className="text-white hover:bg-slate-700">
+                                <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => abrirEdicao(mov)}>
                                   <Edit className="h-4 w-4 mr-2" />
                                   Editar
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => {
+                                  const novoStatus = mov.status === 'confirmado' ? 'pendente' : 'confirmado';
+                                  updateLancamento(mov.id, { status: novoStatus });
+                                }}>
+                                  <CheckCircle2 className="h-4 w-4 mr-2" />
+                                  {mov.status === 'confirmado' ? 'Marcar Pendente' : 'Confirmar'}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem className="text-red-400 hover:bg-slate-700" onClick={() => {
+                                  updateLancamento(mov.id, { status: 'cancelado' });
+                                }}>
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Cancelar
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -681,6 +802,107 @@ export default function FinanceiroPage() {
                 </table>
               </div>
             </div>
+          </TabsContent>
+
+          {/* Tab: Importação */}
+          <TabsContent value="importacao" className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Card de importação CSV */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border-2 border-dashed border-emerald-500/30 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-emerald-500/60 transition-colors"
+                onClick={() => document.getElementById('import-csv-inline')?.click()}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-4">
+                  <FileUp className="w-8 h-8 text-emerald-400" />
+                </div>
+                <h3 className="text-white font-semibold mb-1">Importar CSV / Excel</h3>
+                <p className="text-slate-400 text-sm mb-3">
+                  Arraste ou clique para importar planilhas com lançamentos
+                </p>
+                <p className="text-xs text-slate-500">Formato: Data;Descrição;Valor;Tipo;Categoria</p>
+                <input
+                  id="import-csv-inline"
+                  type="file"
+                  accept=".csv,.xlsx,.xls,.tsv"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleImportCSV(e);
+                    setImportModalOpen(true);
+                  }}
+                />
+              </motion.div>
+
+              {/* Card Extrato Bancário */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border-2 border-dashed border-blue-500/30 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-500/60 transition-colors"
+                onClick={() => {
+                  document.getElementById('import-extrato')?.click();
+                }}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-blue-500/20 flex items-center justify-center mb-4">
+                  <CreditCard className="w-8 h-8 text-blue-400" />
+                </div>
+                <h3 className="text-white font-semibold mb-1">Extrato Bancário</h3>
+                <p className="text-slate-400 text-sm mb-3">
+                  Importe extratos de Itaú, BB, Caixa ou genérico
+                </p>
+                <p className="text-xs text-slate-500">Formatos: CSV, XLSX</p>
+                <input
+                  id="import-extrato"
+                  type="file"
+                  accept=".csv,.xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    handleImportCSV(e);
+                    setImportModalOpen(true);
+                  }}
+                />
+              </motion.div>
+
+              {/* Card Nota Fiscal */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 }}
+                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border-2 border-dashed border-orange-500/30 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-orange-500/60 transition-colors"
+                onClick={() => abrirNovaMovimentacao('despesa')}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-orange-500/20 flex items-center justify-center mb-4">
+                  <Receipt className="w-8 h-8 text-orange-400" />
+                </div>
+                <h3 className="text-white font-semibold mb-1">Lançamento Manual</h3>
+                <p className="text-slate-400 text-sm mb-3">
+                  Crie um lançamento de receita ou despesa manualmente
+                </p>
+                <p className="text-xs text-slate-500">Preencha o formulário completo</p>
+              </motion.div>
+            </div>
+
+            {/* Últimas importações */}
+            {movimentacoes.length > 0 && (
+              <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5">
+                <h3 className="text-lg font-semibold text-white mb-3">Últimos Lançamentos</h3>
+                <div className="space-y-2">
+                  {movimentacoes.slice(0, 5).map((mov, idx) => (
+                    <div key={mov.id || idx} className="flex items-center justify-between py-2 border-b border-slate-700/30 last:border-0">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-2 h-2 rounded-full ${mov.tipo === 'receita' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                        <span className="text-white text-sm">{mov.descricao}</span>
+                        <span className="text-xs text-slate-500">{formatDate(mov.data)}</span>
+                      </div>
+                      <span className={cn("font-medium text-sm", mov.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400')}>
+                        {mov.tipo === 'receita' ? '+' : '-'}{formatCurrency(mov.valor)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           {/* Tab: Por Obra */}
@@ -770,6 +992,318 @@ export default function FinanceiroPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Modal Nova Movimentação / Editar */}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="max-w-lg bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
+              <DollarSign className="w-5 h-5 text-emerald-400" />
+              {editandoId ? 'Editar Movimentação' : 'Nova Movimentação'}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            {/* Tipo */}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => setFormData(p => ({ ...p, tipo: 'despesa' }))}
+                className={cn(
+                  "px-4 py-2.5 rounded-lg text-sm font-medium transition-all",
+                  formData.tipo === 'despesa'
+                    ? "bg-red-500/20 border border-red-500/50 text-red-300"
+                    : "bg-slate-800 border border-slate-600 text-slate-400 hover:bg-slate-700"
+                )}
+              >
+                <ArrowDownRight className="w-4 h-4 inline mr-2" />
+                Despesa
+              </button>
+              <button
+                onClick={() => setFormData(p => ({ ...p, tipo: 'receita' }))}
+                className={cn(
+                  "px-4 py-2.5 rounded-lg text-sm font-medium transition-all",
+                  formData.tipo === 'receita'
+                    ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-300"
+                    : "bg-slate-800 border border-slate-600 text-slate-400 hover:bg-slate-700"
+                )}
+              >
+                <ArrowUpRight className="w-4 h-4 inline mr-2" />
+                Receita
+              </button>
+            </div>
+
+            {/* Descrição */}
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Descrição *</label>
+              <Input
+                placeholder="Ex: Compra de aço para estrutura"
+                value={formData.descricao}
+                onChange={e => setFormData(p => ({ ...p, descricao: e.target.value }))}
+                className="bg-slate-800 border-slate-600 text-white"
+              />
+            </div>
+
+            {/* Valor + Data */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Valor (R$) *</label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  placeholder="0,00"
+                  value={formData.valor}
+                  onChange={e => setFormData(p => ({ ...p, valor: e.target.value }))}
+                  className="bg-slate-800 border-slate-600 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Data</label>
+                <Input
+                  type="date"
+                  value={formData.data}
+                  onChange={e => setFormData(p => ({ ...p, data: e.target.value }))}
+                  className="bg-slate-800 border-slate-600 text-white"
+                />
+              </div>
+            </div>
+
+            {/* Categoria + Status */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
+                <Select value={formData.categoria} onValueChange={v => setFormData(p => ({ ...p, categoria: v }))}>
+                  <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    {Object.entries(categoriasCores).map(([key, val]) => (
+                      <SelectItem key={key} value={key} className="text-white">{val.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Status</label>
+                <Select value={formData.status} onValueChange={v => setFormData(p => ({ ...p, status: v }))}>
+                  <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    <SelectItem value="pendente" className="text-white">Pendente</SelectItem>
+                    <SelectItem value="confirmado" className="text-white">Confirmado</SelectItem>
+                    <SelectItem value="cancelado" className="text-white">Cancelado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Obra */}
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Obra</label>
+              <Select value={formData.obraId || 'nenhuma'} onValueChange={v => setFormData(p => ({ ...p, obraId: v === 'nenhuma' ? '' : v }))}>
+                <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
+                  <SelectValue placeholder="Selecione a obra" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="nenhuma" className="text-white">Nenhuma / Geral</SelectItem>
+                  {obras.map(o => (
+                    <SelectItem key={o.id} value={o.id} className="text-white">{o.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Fornecedor + NF */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Fornecedor</label>
+                <Input
+                  placeholder="Nome do fornecedor"
+                  value={formData.fornecedor}
+                  onChange={e => setFormData(p => ({ ...p, fornecedor: e.target.value }))}
+                  className="bg-slate-800 border-slate-600 text-white"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Nota Fiscal</label>
+                <Input
+                  placeholder="Nº NF"
+                  value={formData.nf}
+                  onChange={e => setFormData(p => ({ ...p, nf: e.target.value }))}
+                  className="bg-slate-800 border-slate-600 text-white"
+                />
+              </div>
+            </div>
+
+            {/* Forma de Pagamento */}
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Forma de Pagamento</label>
+              <Select value={formData.formaPagto} onValueChange={v => setFormData(p => ({ ...p, formaPagto: v }))}>
+                <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="boleto" className="text-white">Boleto</SelectItem>
+                  <SelectItem value="pix" className="text-white">PIX</SelectItem>
+                  <SelectItem value="cartao" className="text-white">Cartão</SelectItem>
+                  <SelectItem value="transferencia" className="text-white">Transferência</SelectItem>
+                  <SelectItem value="dinheiro" className="text-white">Dinheiro</SelectItem>
+                  <SelectItem value="cheque" className="text-white">Cheque</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Observação */}
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Observação</label>
+              <Textarea
+                placeholder="Observações adicionais..."
+                value={formData.observacao}
+                onChange={e => setFormData(p => ({ ...p, observacao: e.target.value }))}
+                className="bg-slate-800 border-slate-600 text-white min-h-[60px]"
+              />
+            </div>
+
+            {/* Botões */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                onClick={() => setModalOpen(false)}
+                className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancelar
+              </Button>
+              <Button
+                onClick={salvarMovimentacao}
+                disabled={!formData.descricao || !formData.valor}
+                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
+              >
+                <Save className="w-4 h-4 mr-2" />
+                {editandoId ? 'Salvar Alterações' : 'Criar Lançamento'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal de Importação - Preview e Confirmação */}
+      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
+        <DialogContent className="max-w-2xl bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
+              <Upload className="w-5 h-5 text-emerald-400" />
+              Importar Lançamentos
+            </DialogTitle>
+          </DialogHeader>
+
+          {importData.length === 0 ? (
+            <div className="space-y-4 pt-2">
+              <div
+                className="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center cursor-pointer hover:border-emerald-500/50 transition-colors"
+                onClick={() => document.getElementById('import-csv-modal')?.click()}
+              >
+                <FileUp className="w-12 h-12 text-slate-500 mx-auto mb-3" />
+                <p className="text-white font-medium">Clique para selecionar arquivo</p>
+                <p className="text-sm text-slate-400 mt-1">CSV ou Excel com separador ; (ponto e vírgula)</p>
+                <p className="text-xs text-slate-500 mt-2">Colunas: Data; Descrição; Valor; Tipo; Categoria; Fornecedor</p>
+              </div>
+              <input
+                id="import-csv-modal"
+                type="file"
+                accept=".csv,.xlsx,.xls,.tsv"
+                className="hidden"
+                onChange={handleImportCSV}
+              />
+            </div>
+          ) : (
+            <div className="space-y-4 pt-2">
+              <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                <div>
+                  <p className="text-emerald-300 font-medium text-sm">
+                    {importData.length} lançamento{importData.length > 1 ? 's' : ''} encontrado{importData.length > 1 ? 's' : ''}
+                  </p>
+                  {importFile && (
+                    <p className="text-xs text-slate-400">Arquivo: {importFile.name}</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Preview table */}
+              <div className="overflow-x-auto rounded-lg border border-slate-700">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-800">
+                      <th className="text-left p-2.5 text-slate-400 font-medium">Data</th>
+                      <th className="text-left p-2.5 text-slate-400 font-medium">Descrição</th>
+                      <th className="text-left p-2.5 text-slate-400 font-medium">Tipo</th>
+                      <th className="text-right p-2.5 text-slate-400 font-medium">Valor</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importData.slice(0, 10).map((item, idx) => (
+                      <tr key={idx} className="border-t border-slate-700/50">
+                        <td className="p-2.5 text-slate-300">{item.data}</td>
+                        <td className="p-2.5 text-white truncate max-w-[200px]">{item.descricao}</td>
+                        <td className="p-2.5">
+                          <span className={cn(
+                            "text-xs px-2 py-0.5 rounded",
+                            item.tipo === 'receita' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
+                          )}>
+                            {item.tipo}
+                          </span>
+                        </td>
+                        <td className="p-2.5 text-right font-medium text-white">{formatCurrency(item.valor)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {importData.length > 10 && (
+                  <div className="p-2 text-center text-xs text-slate-500 bg-slate-800/50">
+                    ... e mais {importData.length - 10} lançamentos
+                  </div>
+                )}
+              </div>
+
+              {/* Resumo */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-emerald-500/10 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Total Receitas</p>
+                  <p className="text-lg font-bold text-emerald-400">
+                    {formatCurrency(importData.filter(i => i.tipo === 'receita').reduce((s, i) => s + i.valor, 0))}
+                  </p>
+                </div>
+                <div className="bg-red-500/10 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Total Despesas</p>
+                  <p className="text-lg font-bold text-red-400">
+                    {formatCurrency(importData.filter(i => i.tipo === 'despesa').reduce((s, i) => s + i.valor, 0))}
+                  </p>
+                </div>
+              </div>
+
+              {/* Botões */}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => { setImportData([]); setImportFile(null); }}
+                  className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800"
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={confirmarImportacao}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Importar {importData.length} Lançamento{importData.length > 1 ? 's' : ''}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
