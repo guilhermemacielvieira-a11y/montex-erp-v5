@@ -234,15 +234,22 @@ export default function GestaoFinanceiraObra() {
       const novosDoSupabase = lancamentosSupabase.filter(l => !idsEstaticos.has(l.id)).map(l => ({
         id: l.id,
         tipo: l.tipo || 'despesa',
-        data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
+        data: l.dataEmissao || l.data || l.createdAt || new Date().toISOString().split('T')[0],
+        dataEmissao: l.dataEmissao || l.data || new Date().toISOString().split('T')[0],
+        dataVencimento: l.dataVencimento || null,
+        dataPagamento: l.dataPagamento || null,
         descricao: l.descricao || l.nome || '-',
         fornecedor: l.fornecedor || '-',
         categoria: l.categoria || 'outros',
         valor: l.valor || 0,
         status: l.status || 'pendente',
-        nf: l.nf || null,
+        nf: l.notaFiscal || l.nf || null,
+        notaFiscal: l.notaFiscal || l.nf || null,
         observacao: l.observacao || '',
         obraId: l.obraId || obra.id,
+        setor: l.setor || '',
+        formaPagto: l.formaPagto || '',
+        pesoKg: l.pesoKg || null,
       }));
       // Mesclar: modelo estático + novos do Supabase
       setLancamentos([...LANCAMENTOS_DESPESAS, ...novosDoSupabase]);
@@ -396,11 +403,13 @@ export default function GestaoFinanceiraObra() {
   // Adicionar lançamento - persiste no Supabase
   const adicionarLancamento = useCallback(async (novoLanc) => {
     const lancamento = {
-      id: `lanc-${Date.now()}`,
-      obraId: obra.id,
-      ...novoLanc,
-      status: STATUS_LANCAMENTO.PENDENTE
-    };
+        id: `lanc-${Date.now()}`,
+        obraId: obra.id,
+        ...novoLanc,
+        data: novoLanc.dataEmissao || new Date().toISOString().split('T')[0],
+        nf: novoLanc.notaFiscal || novoLanc.nf || null,
+        status: STATUS_LANCAMENTO.PENDENTE
+      };
     setLancamentos(prev => [...prev, lancamento]);
     setShowNovoLancamento(false);
     // Persistir no Supabase via ERPContext
