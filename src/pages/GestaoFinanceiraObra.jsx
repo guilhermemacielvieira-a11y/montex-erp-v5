@@ -41,7 +41,13 @@ import {
   ClipboardList,
   ArrowRight,
   Check,
-  Info
+  Info,
+  Edit,
+  Upload,
+  FileUp,
+  Save,
+  X,
+  Trash2
 } from 'lucide-react';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Select from '@radix-ui/react-select';
@@ -211,6 +217,10 @@ export default function GestaoFinanceiraObra() {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [searchTerm, setSearchTerm] = useState('');
   const [showNovoLancamento, setShowNovoLancamento] = useState(false);
+  const [editandoLancamento, setEditandoLancamento] = useState(null);
+  const [showImportacao, setShowImportacao] = useState(false);
+  const [importData, setImportData] = useState([]);
+  const [importFile, setImportFile] = useState(null);
   const [showNovaMedicao, setShowNovaMedicao] = useState(false);
   const [setorSelecionado, setSetorSelecionado] = useState('todos');
   const [viewMode, setViewMode] = useState('real'); // 'real', 'futuro', 'projecao'
@@ -413,10 +423,81 @@ export default function GestaoFinanceiraObra() {
     // Persistir no Supabase via ERPContext
     try {
       await updateLancamentoCtx(id, updateData);
-    } catch (err) {
-      console.error('Erro ao atualizar lançamento:', err);
+    } catch (err2) {
+      console.error('Erro ao atualizar lançamento:', err2);
     }
   }, [updateLancamentoCtx]);
+
+  // Editar lançamento completo - persiste no Supabase
+  const editarLancamento = useCallback(async (lancAtualizado) => {
+    const { id, ...dados } = lancAtualizado;
+    setLancamentos(prev => prev.map(l => l.id === id ? { ...l, ...dados } : l));
+    setEditandoLancamento(null);
+    setShowNovoLancamento(false);
+    try {
+      await updateLancamentoCtx(id, dados);
+    } catch (err3) {
+      console.error('Erro ao editar lançamento:', err3);
+    }
+  }, [updateLancamentoCtx]);
+
+  // Abrir edição de um lançamento
+  const abrirEdicaoLancamento = useCallback((lanc) => {
+    setEditandoLancamento(lanc);
+    setShowNovoLancamento(true);
+  }, []);
+
+  // Importação CSV
+  const handleImportCSV = useCallback((e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImportFile(file);
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const text = evt.target.result;
+      const lines = text.split('\n').filter(l => l.trim());
+      if (lines.length < 2) return;
+      const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
+      const rows = lines.slice(1).map((line, idx) => {
+        const cols = line.split(';').map(c => c.trim());
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = cols[i] || ''; });
+        return {
+          id: `IMP-${Date.now()}-${idx}`,
+          descricao: obj['descricao'] || obj['descrição'] || obj['historico'] || obj['histórico'] || '',
+          valor: parseFloat((obj['valor'] || obj['debito'] || obj['débito'] || '0').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0,
+          data: obj['data'] || obj['dt_lancamento'] || obj['data_emissao'] || new Date().toISOString().split('T')[0],
+          dataVencimento: obj['vencimento'] || obj['data_vencimento'] || '',
+          tipo: (obj['tipo'] || 'despesa').toLowerCase().includes('receita') ? TIPO_LANCAMENTO.RECEITA || 'receita' : TIPO_LANCAMENTO.DESPESA || 'despesa',
+          categoria: obj['categoria'] || CATEGORIA_DESPESA.OUTROS || 'outros',
+          fornecedor: obj['fornecedor'] || '',
+          notaFiscal: obj['nota_fiscal'] || obj['nf'] || '',
+          observacao: obj['observacao'] || obj['observação'] || '',
+          formaPagto: obj['forma_pagto'] || obj['pagamento'] || '',
+          setor: obj['setor'] || '',
+          status: STATUS_LANCAMENTO.PENDENTE || 'pendente',
+        };
+      }).filter(r => r.descricao && r.valor > 0);
+      setImportData(rows);
+      setShowImportacao(true);
+    };
+    reader.readAsText(file, 'UTF-8');
+  }, []);
+
+  const confirmarImportacao = useCallback(async () => {
+    for (const item of importData) {
+      const lancamento = { ...item, obraId: obra.id };
+      setLancamentos(prev => [...prev, lancamento]);
+      try {
+        await addLancamentoCtx(lancamento);
+      } catch (errImp) {
+        console.error('Erro ao importar lançamento:', errImp);
+      }
+    }
+    setShowImportacao(false);
+    setImportData([]);
+    setImportFile(null);
+  }, [importData, obra.id, addLancamentoCtx]);
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -1048,7 +1129,22 @@ export default function GestaoFinanceiraObra() {
                   </Select.Root>
 
                   <button
-                    onClick={() => setShowNovoLancamento(true)}
+                    onClick={() => document.getElementById('import-csv-obra')?.click()}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-500/20 text-blue-400
+                             rounded-lg hover:bg-blue-500/30 transition-colors text-sm"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Importar
+                  </button>
+                  <input
+                    id="import-csv-obra"
+                    type="file"
+                    accept=".csv,.xlsx,.xls,.tsv"
+                    className="hidden"
+                    onChange={handleImportCSV}
+                  />
+                  <button
+                    onClick={() => { setEditandoLancamento(null); setShowNovoLancamento(true); }}
                     className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 text-emerald-400
                              rounded-lg hover:bg-emerald-500/30 transition-colors text-sm"
                   >
@@ -1126,8 +1222,12 @@ export default function GestaoFinanceiraObra() {
                                   <DollarSign className="w-4 h-4" />
                                 </button>
                               )}
-                              <button className="p-1.5 text-slate-400 hover:bg-slate-500/20 rounded transition-colors">
-                                <Eye className="w-4 h-4" />
+                              <button
+                                onClick={() => abrirEdicaoLancamento(lanc)}
+                                className="p-1.5 text-cyan-400 hover:bg-cyan-500/20 rounded transition-colors"
+                                title="Editar"
+                              >
+                                <Edit className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
@@ -2045,23 +2145,113 @@ export default function GestaoFinanceiraObra() {
           </Tabs.Content>
         </Tabs.Root>
 
-        {/* Modal Novo Lançamento */}
-        <Dialog.Root open={showNovoLancamento} onOpenChange={setShowNovoLancamento}>
+        {/* Modal Novo / Editar Lançamento */}
+        <Dialog.Root open={showNovoLancamento} onOpenChange={(open) => { setShowNovoLancamento(open); if (!open) setEditandoLancamento(null); }}>
           <Dialog.Portal>
             <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
             <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
                                       w-full max-w-lg bg-slate-800 border border-slate-700
-                                      rounded-2xl p-6 z-50">
-              <Dialog.Title className="text-xl font-bold text-white mb-4">
-                Novo Lançamento
+                                      rounded-2xl p-6 z-50 max-h-[90vh] overflow-y-auto">
+              <Dialog.Title className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                {editandoLancamento ? <Edit className="w-5 h-5 text-cyan-400" /> : <Plus className="w-5 h-5 text-emerald-400" />}
+                {editandoLancamento ? 'Editar Lançamento' : 'Novo Lançamento'}
               </Dialog.Title>
 
               <NovoLancamentoForm
                 categorias={CATEGORIA_DESPESA}
                 setores={obra.setores}
-                onSubmit={adicionarLancamento}
-                onCancel={() => setShowNovoLancamento(false)}
+                lancamentoInicial={editandoLancamento}
+                onSubmit={(dados) => {
+                  if (editandoLancamento) {
+                    editarLancamento({ id: editandoLancamento.id, ...dados });
+                  } else {
+                    adicionarLancamento(dados);
+                  }
+                }}
+                onCancel={() => { setShowNovoLancamento(false); setEditandoLancamento(null); }}
               />
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
+
+        {/* Modal Importação CSV */}
+        <Dialog.Root open={showImportacao} onOpenChange={setShowImportacao}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+                                      w-full max-w-2xl bg-slate-800 border border-slate-700
+                                      rounded-2xl p-6 z-50 max-h-[90vh] overflow-y-auto">
+              <Dialog.Title className="text-xl font-bold text-white mb-4 flex items-center gap-2">
+                <Upload className="w-5 h-5 text-blue-400" />
+                Importar Lançamentos
+              </Dialog.Title>
+
+              {importData.length > 0 && (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
+                    <div>
+                      <p className="text-emerald-300 font-medium text-sm">
+                        {importData.length} lançamento{importData.length > 1 ? 's' : ''} encontrado{importData.length > 1 ? 's' : ''}
+                      </p>
+                      {importFile && <p className="text-xs text-slate-400">Arquivo: {importFile.name}</p>}
+                    </div>
+                  </div>
+
+                  <div className="overflow-x-auto rounded-lg border border-slate-700">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-700/50">
+                          <th className="text-left p-2.5 text-slate-400 font-medium">Data</th>
+                          <th className="text-left p-2.5 text-slate-400 font-medium">Descrição</th>
+                          <th className="text-left p-2.5 text-slate-400 font-medium">Fornecedor</th>
+                          <th className="text-right p-2.5 text-slate-400 font-medium">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importData.slice(0, 10).map((item, idx) => (
+                          <tr key={idx} className="border-t border-slate-700/50">
+                            <td className="p-2.5 text-slate-300">{item.data}</td>
+                            <td className="p-2.5 text-white truncate max-w-[200px]">{item.descricao}</td>
+                            <td className="p-2.5 text-slate-300">{item.fornecedor || '-'}</td>
+                            <td className="p-2.5 text-right font-medium text-white">R$ {(item.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {importData.length > 10 && (
+                      <div className="p-2 text-center text-xs text-slate-500 bg-slate-700/30">
+                        ... e mais {importData.length - 10} lançamentos
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-slate-700/30 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">Total a importar</p>
+                    <p className="text-lg font-bold text-white">
+                      R$ {importData.reduce((s, i) => s + i.valor, 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      onClick={() => { setShowImportacao(false); setImportData([]); setImportFile(null); }}
+                      className="flex-1 px-4 py-2 bg-slate-700 text-slate-300 rounded-xl
+                               hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
+                    >
+                      <X className="w-4 h-4" /> Cancelar
+                    </button>
+                    <button
+                      onClick={confirmarImportacao}
+                      className="flex-1 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600
+                               text-white rounded-xl hover:from-emerald-600 hover:to-teal-700
+                               transition-all font-medium flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" /> Importar {importData.length}
+                    </button>
+                  </div>
+                </div>
+              )}
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
@@ -2070,18 +2260,25 @@ export default function GestaoFinanceiraObra() {
   );
 }
 
-// Componente de Formulário de Novo Lançamento
-function NovoLancamentoForm({ categorias, setores, onSubmit, onCancel }) {
+// Componente de Formulário de Novo/Editar Lançamento
+function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, onCancel }) {
+  const inputClass = "w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 text-sm";
+  const labelClass = "text-sm text-slate-400 mb-1 block";
+
   const [formData, setFormData] = useState({
-    tipo: TIPO_LANCAMENTO.DESPESA,
-    categoria: CATEGORIA_DESPESA.MATERIAL_ESTRUTURA,
-    descricao: '',
-    fornecedor: '',
-    notaFiscal: '',
-    dataEmissao: new Date().toISOString().split('T')[0],
-    dataVencimento: '',
-    valor: 0,
-    setor: ''
+    tipo: lancamentoInicial?.tipo || TIPO_LANCAMENTO.DESPESA,
+    categoria: lancamentoInicial?.categoria || CATEGORIA_DESPESA.MATERIAL_ESTRUTURA,
+    descricao: lancamentoInicial?.descricao || '',
+    fornecedor: lancamentoInicial?.fornecedor || '',
+    notaFiscal: lancamentoInicial?.notaFiscal || lancamentoInicial?.nf || '',
+    dataEmissao: lancamentoInicial?.dataEmissao || lancamentoInicial?.data || new Date().toISOString().split('T')[0],
+    dataVencimento: lancamentoInicial?.dataVencimento || '',
+    valor: lancamentoInicial?.valor || 0,
+    setor: lancamentoInicial?.setor || '',
+    status: lancamentoInicial?.status || STATUS_LANCAMENTO.PENDENTE,
+    observacao: lancamentoInicial?.observacao || '',
+    formaPagto: lancamentoInicial?.formaPagto || '',
+    pesoKg: lancamentoInicial?.pesoKg || lancamentoInicial?.peso_kg || '',
   });
 
   const handleSubmit = (e) => {
@@ -2092,9 +2289,10 @@ function NovoLancamentoForm({ categorias, setores, onSubmit, onCancel }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* Tipo + Categoria */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Tipo</label>
+          <label className={labelClass}>Tipo</label>
           <Select.Root value={formData.tipo} onValueChange={(v) => setFormData({ ...formData, tipo: v })}>
             <Select.Trigger className="w-full flex items-center justify-between px-3 py-2
                                      bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm">
@@ -2114,9 +2312,8 @@ function NovoLancamentoForm({ categorias, setores, onSubmit, onCancel }) {
             </Select.Portal>
           </Select.Root>
         </div>
-
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Categoria</label>
+          <label className={labelClass}>Categoria</label>
           <Select.Root value={formData.categoria} onValueChange={(v) => setFormData({ ...formData, categoria: v })}>
             <Select.Trigger className="w-full flex items-center justify-between px-3 py-2
                                      bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm">
@@ -2138,79 +2335,52 @@ function NovoLancamentoForm({ categorias, setores, onSubmit, onCancel }) {
         </div>
       </div>
 
+      {/* Descrição */}
       <div>
-        <label className="text-sm text-slate-400 mb-1 block">Descrição *</label>
-        <input
-          type="text"
-          value={formData.descricao}
-          onChange={(e) => setFormData({ ...formData, descricao: e.target.value })}
-          required
-          className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg
-                   text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-        />
+        <label className={labelClass}>Descrição *</label>
+        <input type="text" value={formData.descricao} onChange={(e) => setFormData({ ...formData, descricao: e.target.value })} required className={inputClass} placeholder="Ex: Chapas A36 Lote 2" />
       </div>
 
+      {/* Fornecedor + NF */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Fornecedor</label>
-          <input
-            type="text"
-            value={formData.fornecedor}
-            onChange={(e) => setFormData({ ...formData, fornecedor: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg
-                     text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-          />
+          <label className={labelClass}>Fornecedor</label>
+          <input type="text" value={formData.fornecedor} onChange={(e) => setFormData({ ...formData, fornecedor: e.target.value })} className={inputClass} placeholder="Nome do fornecedor" />
         </div>
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Nota Fiscal</label>
-          <input
-            type="text"
-            value={formData.notaFiscal}
-            onChange={(e) => setFormData({ ...formData, notaFiscal: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg
-                     text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-          />
+          <label className={labelClass}>Nota Fiscal</label>
+          <input type="text" value={formData.notaFiscal} onChange={(e) => setFormData({ ...formData, notaFiscal: e.target.value })} className={inputClass} placeholder="Nº NF" />
         </div>
       </div>
 
+      {/* Data Emissão + Vencimento */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Data Emissão</label>
-          <input
-            type="date"
-            value={formData.dataEmissao}
-            onChange={(e) => setFormData({ ...formData, dataEmissao: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg
-                     text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-          />
+          <label className={labelClass}>Data Emissão</label>
+          <input type="date" value={formData.dataEmissao} onChange={(e) => setFormData({ ...formData, dataEmissao: e.target.value })} className={inputClass} />
         </div>
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Data Vencimento</label>
-          <input
-            type="date"
-            value={formData.dataVencimento}
-            onChange={(e) => setFormData({ ...formData, dataVencimento: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg
-                     text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-          />
+          <label className={labelClass}>Data Vencimento</label>
+          <input type="date" value={formData.dataVencimento} onChange={(e) => setFormData({ ...formData, dataVencimento: e.target.value })} className={inputClass} />
         </div>
       </div>
 
+      {/* Valor + Peso */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Valor *</label>
-          <input
-            type="number"
-            value={formData.valor}
-            onChange={(e) => setFormData({ ...formData, valor: parseFloat(e.target.value) || 0 })}
-            required
-            step="0.01"
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg
-                     text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-          />
+          <label className={labelClass}>Valor (R$) *</label>
+          <input type="number" value={formData.valor} onChange={(e) => setFormData({ ...formData, valor: parseFloat(e.target.value) || 0 })} required step="0.01" className={inputClass} placeholder="0,00" />
         </div>
         <div>
-          <label className="text-sm text-slate-400 mb-1 block">Setor</label>
+          <label className={labelClass}>Peso (kg)</label>
+          <input type="number" value={formData.pesoKg} onChange={(e) => setFormData({ ...formData, pesoKg: parseFloat(e.target.value) || '' })} step="0.01" className={inputClass} placeholder="0,00" />
+        </div>
+      </div>
+
+      {/* Setor + Status */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass}>Setor</label>
           <Select.Root value={formData.setor} onValueChange={(v) => setFormData({ ...formData, setor: v })}>
             <Select.Trigger className="w-full flex items-center justify-between px-3 py-2
                                      bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm">
@@ -2230,24 +2400,84 @@ function NovoLancamentoForm({ categorias, setores, onSubmit, onCancel }) {
             </Select.Portal>
           </Select.Root>
         </div>
+        <div>
+          <label className={labelClass}>Status</label>
+          <Select.Root value={formData.status} onValueChange={(v) => setFormData({ ...formData, status: v })}>
+            <Select.Trigger className="w-full flex items-center justify-between px-3 py-2
+                                     bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm">
+              <Select.Value />
+              <ChevronDown className="w-4 h-4 text-slate-400" />
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden z-[60]">
+                <Select.Viewport>
+                  {Object.entries(STATUS_LANCAMENTO).map(([key, value]) => (
+                    <Select.Item key={key} value={value} className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm">
+                      <Select.ItemText>{key.charAt(0) + key.slice(1).toLowerCase()}</Select.ItemText>
+                    </Select.Item>
+                  ))}
+                </Select.Viewport>
+              </Select.Content>
+            </Select.Portal>
+          </Select.Root>
+        </div>
       </div>
 
+      {/* Forma de Pagamento */}
+      <div>
+        <label className={labelClass}>Forma de Pagamento</label>
+        <Select.Root value={formData.formaPagto || 'nenhuma'} onValueChange={(v) => setFormData({ ...formData, formaPagto: v === 'nenhuma' ? '' : v })}>
+          <Select.Trigger className="w-full flex items-center justify-between px-3 py-2
+                                   bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm">
+            <Select.Value placeholder="Selecione" />
+            <ChevronDown className="w-4 h-4 text-slate-400" />
+          </Select.Trigger>
+          <Select.Portal>
+            <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden z-[60]">
+              <Select.Viewport>
+                <Select.Item value="nenhuma" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Selecione</Select.ItemText></Select.Item>
+                <Select.Item value="boleto" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Boleto</Select.ItemText></Select.Item>
+                <Select.Item value="pix" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>PIX</Select.ItemText></Select.Item>
+                <Select.Item value="transferencia" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Transferência</Select.ItemText></Select.Item>
+                <Select.Item value="cartao" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Cartão</Select.ItemText></Select.Item>
+                <Select.Item value="dinheiro" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Dinheiro</Select.ItemText></Select.Item>
+                <Select.Item value="cheque" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Cheque</Select.ItemText></Select.Item>
+                <Select.Item value="faturado" className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm"><Select.ItemText>Faturado Direto</Select.ItemText></Select.Item>
+              </Select.Viewport>
+            </Select.Content>
+          </Select.Portal>
+        </Select.Root>
+      </div>
+
+      {/* Observação */}
+      <div>
+        <label className={labelClass}>Observação</label>
+        <textarea
+          value={formData.observacao}
+          onChange={(e) => setFormData({ ...formData, observacao: e.target.value })}
+          rows={2}
+          className={`${inputClass} resize-none`}
+          placeholder="Observações adicionais..."
+        />
+      </div>
+
+      {/* Botões */}
       <div className="flex items-center gap-3 pt-4">
         <button
           type="button"
           onClick={onCancel}
           className="flex-1 px-4 py-2 bg-slate-700 text-slate-300 rounded-xl
-                   hover:bg-slate-600 transition-colors"
+                   hover:bg-slate-600 transition-colors flex items-center justify-center gap-2"
         >
-          Cancelar
+          <X className="w-4 h-4" /> Cancelar
         </button>
         <button
           type="submit"
           className="flex-1 px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-600
                    text-white rounded-xl hover:from-emerald-600 hover:to-teal-700
-                   transition-all font-medium"
+                   transition-all font-medium flex items-center justify-center gap-2"
         >
-          Adicionar
+          <Save className="w-4 h-4" /> {lancamentoInicial ? 'Salvar Alterações' : 'Adicionar'}
         </button>
       </div>
     </form>
