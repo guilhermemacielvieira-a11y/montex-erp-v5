@@ -199,7 +199,7 @@ const ProgressBar = ({ value, max, color = 'cyan', showLabel = true, height = 'h
 export default function GestaoFinanceiraObra() {
   // ERPContext - dados reais do Supabase
   const { obras: obrasERP, obraAtualData } = useObras();
-  const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx } = useLancamentos();
+  const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx, deleteLancamento: deleteLancamentoCtx } = useLancamentos();
   const { medicoes: medicoesSupabase } = useMedicoes();
 
   // Estados
@@ -401,6 +401,16 @@ export default function GestaoFinanceiraObra() {
   }, [obra.setores, medicoes]);
 
   // Adicionar lançamento - persiste no Supabase
+  const excluirLancamento = useCallback(async (id) => {
+    if (!window.confirm('Tem certeza que deseja excluir este lancamento?')) return;
+    setLancamentos(prev => prev.filter(l => l.id !== id));
+    try {
+      await deleteLancamentoCtx(id);
+    } catch (err) {
+      console.error('Erro ao excluir lancamento:', err);
+    }
+  }, [deleteLancamentoCtx]);
+
   const adicionarLancamento = useCallback(async (novoLanc) => {
     const lancamento = {
         id: `lanc-${Date.now()}`,
@@ -1237,6 +1247,13 @@ export default function GestaoFinanceiraObra() {
                                 title="Editar"
                               >
                                 <Edit className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => excluirLancamento(lanc.id)}
+                                className="p-1.5 text-red-400 hover:bg-red-500/20 rounded transition-colors"
+                                title="Excluir"
+                              >
+                                <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
                           </td>
