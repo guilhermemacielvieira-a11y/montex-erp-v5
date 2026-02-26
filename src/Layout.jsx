@@ -120,6 +120,7 @@ const navigationCategories = [
       { name: 'Kanban Produção', href: 'KanbanProducaoIntegrado', icon: Package, badge: 'FAB' },
       { name: 'Por Funcionário', href: 'ProducaoFuncionarioPage', icon: UserCheck },
       { name: 'Diário Produção', href: 'DiarioProducaoPage', icon: BookOpen },
+      { name: 'Análise Produção', href: 'AnaliseProducaoPage', icon: Activity, badge: '📊' },
       { name: 'Equipes', href: 'EquipesPage', icon: Users },
     ]
   },
