@@ -52,6 +52,7 @@ import {
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Select from '@radix-ui/react-select';
 import * as Dialog from '@radix-ui/react-dialog';
+import ImportarNFModal from '../components/ImportarNFModal';
 import {
   BarChart,
   Bar,
@@ -414,6 +415,9 @@ export default function GestaoFinanceiraObra() {
       console.error('Erro ao excluir lancamento:', err);
     }
   }, [lancParaExcluir, deleteLancamentoCtx]);
+
+  // Estado para modal de importacao NF
+  const [showImportNF, setShowImportNF] = useState(false);
 
   const adicionarLancamento = useCallback(async (novoLanc) => {
     const lancamento = {
@@ -1166,6 +1170,14 @@ export default function GestaoFinanceiraObra() {
                     className="hidden"
                     onChange={handleImportCSV}
                   />
+                  <button
+                    onClick={() => setShowImportNF(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-500/20 text-amber-400
+                             rounded-lg hover:bg-amber-500/30 transition-colors text-sm"
+                  >
+                    <Receipt className="w-4 h-4" />
+                    Importar NF
+                  </button>
                   <button
                     onClick={() => { setEditandoLancamento(null); setShowNovoLancamento(true); }}
                     className="flex items-center gap-2 px-4 py-2 bg-emerald-500/20 text-emerald-400
@@ -2174,6 +2186,20 @@ export default function GestaoFinanceiraObra() {
             </div>
           </Tabs.Content>
         </Tabs.Root>
+
+          {/* Modal Importar NF */}
+          <ImportarNFModal
+            open={showImportNF}
+            onOpenChange={setShowImportNF}
+            moduloDestino="obra"
+            obraId={obraId}
+            onImportar={async (lancamento) => {
+              const lanc = { ...lancamento, id: 'lanc-' + Date.now() };
+              setLancamentos(prev => [...prev, lanc]);
+              try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
+            }}
+          />
+
 
       {/* Modal de Confirmação de Exclusão */}
       <Dialog.Root open={!!lancParaExcluir} onOpenChange={(open) => { if (!open) setLancParaExcluir(null); }}>
