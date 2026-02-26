@@ -455,15 +455,11 @@ export function ERPProvider({ children }) {
         }
         if (funcionarioId) {
           updateData.responsavel = funcionarioId;
-          // Salvar funcionário específico da etapa
-          const funcField = `funcionario_${novaEtapa}`;
-          updateData[funcField] = funcionarioId;
         }
-        // Salvar timestamp de início da etapa
-        const dataInicioField = `data_inicio_${novaEtapa}`;
-        updateData[dataInicioField] = agora;
 
-        await pecasApi.update(pecaId, updateData);
+        // Filtrar apenas campos validos antes de enviar ao Supabase
+        const safeData = pecaToSupabase({ id: pecaId, ...updateData });
+        await pecasApi.update(pecaId, safeData);
         console.log(`✅ Peça ${pecaId} → ${novaEtapa} (func: ${funcionarioId || 'N/A'}) salva no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar etapa no Supabase:', err.message);
@@ -518,12 +514,14 @@ export function ERPProvider({ children }) {
       try {
         const updateData = { status_corte: novoStatus };
         if (funcionarioId) {
-          updateData.funcionario_corte = funcionarioId;
+          updateData.responsavel = funcionarioId;
         }
         if (novoStatus === 'em_corte' || novoStatus === 'cortando') {
           updateData.data_inicio = new Date().toISOString();
         }
-        await pecasApi.update(pecaId, updateData);
+        // Filtrar apenas campos validos antes de enviar ao Supabase
+        const safeData = pecaToSupabase({ id: pecaId, ...updateData });
+        await pecasApi.update(pecaId, safeData);
         console.log(`✅ Status corte ${pecaId} → ${novoStatus} (func: ${funcionarioId || 'N/A'}) salvo no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar status corte no Supabase:', err.message);
