@@ -185,7 +185,7 @@ export default function FinanceiroPage() {
   // Completamente independente da Gestão Financeira de Obra
   const movimentacoes = useMemo(() => {
     return [...(lancamentosDespesas || [])]
-      .filter(l => !l.obraId && !l.obra_id)
+      .filter(l => (!l.obraId || l.obraId === 'financeiro-geral') && (!l.obra_id || l.obra_id === 'financeiro-geral'))
       .sort((a, b) => new Date(b.data) - new Date(a.data));
   }, [lancamentosDespesas]);
 
@@ -223,8 +223,8 @@ export default function FinanceiroPage() {
     const dados = {
       ...formData,
       valor: parseFloat(formData.valor) || 0,
-      obra_id: null, // Painel Financeiro é independente - sem vínculo com obra
-      obraId: null,
+      obra_id: 'financeiro-geral', // Painel Financeiro é independente - sem vínculo com obra
+      obraId: 'financeiro-geral',
     };
 
     if (editandoId) {
@@ -1199,7 +1199,7 @@ export default function FinanceiroPage() {
         moduloDestino="financeiro"
         obraId={null}
         onImportar={async (lancamento) => {
-          const lanc = { ...lancamento, id: 'FIN-' + Date.now(), obraId: null, obra_id: null };
+          const lanc = { ...lancamento, id: 'FIN-' + Date.now(), obraId: 'financeiro-geral', obra_id: 'financeiro-geral' };
           try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
         }}
       />
