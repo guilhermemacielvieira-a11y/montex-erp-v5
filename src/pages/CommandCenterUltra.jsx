@@ -14,7 +14,7 @@ import {
   ComposedChart, Line, CartesianGrid
 } from 'recharts';
 
-// ERPContext - dados reais
+// ERPContext - dados reai
 import { useObras, useProducao } from '../contexts/ERPContext';
 
 // Hook de métricas em tempo real via Supabase
@@ -27,7 +27,7 @@ import { AnimatedCounter, AnimatedRadar } from '../components/bi/Dynamic3DCharts
 import {
   maquinasStatus, kpisIndustriais, pipelineVendas,
   recursosHumanos, qualidadeMetricas, logisticaMetricas,
-  energiaMetricas, alertasInteligentes, indicadoresPorProjeto
+  energiaMetricas, alertasInteligentes, indicadoresPorProjeto, fluxoFinanceiro
 } from '../data/commandCenterData';
 
 // Formatador de moeda
