@@ -254,9 +254,16 @@ export function ERPProvider({ children }) {
             payload.configMedicao = transformRecord(configMedData[0]);
           }
 
-          // Auto-detectar obraAtual da primeira obra no Supabase
+          // Auto-detectar obraAtual: localStorage > obra-001 > primeira obra
           if (obrasData.length > 0) {
-            payload.obraAtual = obrasData[0].id;
+            const savedObra = localStorage.getItem('montex_obra_atual');
+            if (savedObra && obrasData.some(o => o.id === savedObra)) {
+              payload.obraAtual = savedObra;
+            } else {
+              // Preferir obra de producao (obra-001) ao inves do financeiro-geral
+              const obraProducao = obrasData.find(o => o.id === 'obra-001');
+              payload.obraAtual = obraProducao ? obraProducao.id : obrasData[0].id;
+            }
           }
 
           // Calcular progresso das obras baseado nas pecas
@@ -297,6 +304,8 @@ export function ERPProvider({ children }) {
   // ===== AÇÕES - OBRAS =====
   const setObraAtual = useCallback((obraId) => {
     dispatch({ type: ACTIONS.SET_OBRA_ATUAL, payload: obraId });
+    // Persistir selecao de obra no localStorage
+    try { localStorage.setItem('montex_obra_atual', obraId); } catch(e) {}
   }, []);
 
   const updateObra = useCallback(async (id, data) => {
