@@ -750,6 +750,18 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  const deleteLancamento = useCallback(async (id) => {
+    dispatch({ type: ACTIONS.REMOVE_LANCAMENTO, payload: id });
+    if (dataSource === 'supabase') {
+      try {
+        await lancamentosApi.delete(id);
+        console.log('Lancamento ' + id + ' removido do Supabase');
+      } catch (err) {
+        console.error('Erro ao remover lancamento do Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
   // ===== AÇÕES - EQUIPES =====
   const alocarEquipe = useCallback(async (equipeId, obraId) => {
     dispatch({ type: ACTIONS.ALOCAR_EQUIPE, payload: { equipeId, obraId } });
@@ -1162,6 +1174,7 @@ export function ERPProvider({ children }) {
     lancamentosDespesas: state.lancamentosDespesas,
     addLancamento,
     updateLancamento,
+    deleteLancamento,
     funcionarios: state.funcionarios,
     equipes: state.equipes,
     alocarEquipe,
@@ -1461,7 +1474,8 @@ export function useLancamentos() {
   return {
     lancamentosDespesas: context.lancamentosDespesas,
     addLancamento: context.addLancamento,
-    updateLancamento: context.updateLancamento
+    updateLancamento: context.updateLancamento,
+    deleteLancamento: context.deleteLancamento
   };
 }
 
