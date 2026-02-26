@@ -27,6 +27,12 @@ export function financeiroReducer(state, action) {
         )
       };
 
+    case ACTIONS.REMOVE_LANCAMENTO:
+      return {
+        ...state,
+        lancamentosDespesas: state.lancamentosDespesas.filter(l => l.id !== action.payload)
+      };
+
     case ACTIONS.IMPORTAR_MATERIAIS:
       return {
         ...state,
