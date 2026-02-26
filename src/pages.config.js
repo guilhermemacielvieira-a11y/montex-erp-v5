@@ -42,6 +42,7 @@ const DiarioProducaoPage = lazy(() => import('./pages/DiarioProducaoPage'));
 const AtualizacaoProducao = lazy(() => import('./pages/AtualizacaoProducao'));
 const AtualizacaoProducaoIndependente = lazy(() => import('./pages/AtualizacaoProducaoIndependente'));
 const AtualizacaoProducaoPublica = lazy(() => import('./pages/AtualizacaoProducaoPublica'));
+const AnaliseProducaoPage = lazy(() => import('./pages/AnaliseProducaoPage'));
 const MontagemPage = lazy(() => import('./pages/MontagemPage'));
 
 // ===== KANBAN =====
@@ -136,6 +137,7 @@ export const PAGES = {
     "AtualizacaoProducao": AtualizacaoProducao,
     "AtualizacaoProducaoIndependente": AtualizacaoProducaoIndependente,
     "AtualizacaoProducaoPublica": AtualizacaoProducaoPublica,
+        "AnaliseProducaoPage": AnaliseProducaoPage,
     "MontagemPage": MontagemPage,
 
     // Kanban
