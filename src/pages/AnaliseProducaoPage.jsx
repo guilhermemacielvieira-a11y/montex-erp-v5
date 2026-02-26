@@ -18,7 +18,8 @@ import {
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
 
-// ==================== 3D CHART COMPONENT ====================function Production3DChart({ data, width = 700, height = 400, title }) {
+// ==================== 3D CHART COMPONENT ====================
+function Production3DChart({ data, width = 700, height = 400, title }) {
   const mountRef = useRef(null);
   const animRef = useRef(null);
   const [isRotating, setIsRotating] = useState(true);
