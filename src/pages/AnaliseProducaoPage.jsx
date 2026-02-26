@@ -13,13 +13,13 @@ import {
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar, ComposedChart, Area, Line
+  RadialBarChart, RadialBar, ComposedChart,Area, Line
 } from 'recharts';
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
 
 // ==================== 3D CHART COMPONENT ====================
-function Production3DChart({ data, width = 700, height = 400, title }) {
+function Production3DChart({ data, width = 00, height = 400, title }) {
   const mountRef = useRef(null);
   const animRef = useRef(null);
   const [isRotating, setIsRotating] = useState(true);
@@ -322,7 +322,7 @@ export default function AnaliseProducaoPage() {
     { label: 'Soldado', value: kpis.pesoSoldado },
     { label: 'Pintado', value: kpis.pesoPintado },
     { label: 'Nao Fabricado', value: kpis.pesoNaoFabricado },
-    { label: 'Enviado', value: kpis.pesoEnviado },
+    { label: 'Aguardando Envio', value: kpis.pesoEnviado },
   ], [kpis]);
 
   // Data by category for comparison chart
@@ -353,7 +353,7 @@ export default function AnaliseProducaoPage() {
   const statusPie = useMemo(() => [
     { name: 'Fabricado', value: kpis.pesoFabricado, fill: '#10b981' },
     { name: 'Nao Fabricado', value: kpis.pesoNaoFabricado, fill: '#ef4444' },
-    { name: 'Enviado', value: kpis.pesoEnviado, fill: '#3b82f6' },
+    { name: 'Aguardando Envio', value: kpis.pesoEnviado, fill: '#3b82f6' },
   ].filter(d => d.value > 0), [kpis]);
 
   // Tabs
@@ -429,7 +429,7 @@ export default function AnaliseProducaoPage() {
         <KPICard title="Pintado" value={kpis.pesoPintado} unit="kg" icon={Paintbrush} color="#f59e0b" trend={kpis.percPintado} subtitle={`${kpis.percPintado.toFixed(1)}% pintado`} delay={0.15} />
         <KPICard title="Produzido" value={kpis.pesoProduzido} unit="kg" icon={Activity} color="#8b5cf6" delay={0.2} subtitle="Peso produzido total" />
         <KPICard title="Nao Fabricado" value={kpis.pesoNaoFabricado} unit="kg" icon={TrendingDown} color="#ef4444" delay={0.25} subtitle={`${(100 - kpis.percFabricado).toFixed(1)}% pendente`} />
-        <KPICard title="Enviado" value={kpis.pesoEnviado} unit="kg" icon={Truck} color="#06b6d4" trend={kpis.percEnviado} subtitle={`${kpis.percEnviado.toFixed(1)}% enviado`} delay={0.3} />
+        <KPICard title="Aguardando Envio" value={kpis.pesoEnviado} unit="kg" icon={Truck} color="#06b6d4" trend={kpis.percEnviado} subtitle={`${kpis.percEnviado.toFixed(1)}% enviado`} delay={0.3} />
       </div>
 
       {/* Gauge Charts */}
@@ -514,7 +514,7 @@ export default function AnaliseProducaoPage() {
                   'Soldado': kpis.pesoSoldado,
                   'Pintado': kpis.pesoPintado,
                   'Nao Fabricado': kpis.pesoNaoFabricado,
-                  'Enviado': kpis.pesoEnviado,
+                  'Aguardando Envio': kpis.pesoEnviado,
                 }]} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis type="number" stroke="#64748b" tickFormatter={v => `${(v/1000).toFixed(0)}t`} />
@@ -527,7 +527,7 @@ export default function AnaliseProducaoPage() {
                   <Bar dataKey="Soldado" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                   <Bar dataKey="Pintado" fill="#f59e0b" radius={[0, 4, 4, 0]} />
                   <Bar dataKey="Nao Fabricado" fill="#ef4444" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="Enviado" fill="#06b6d4" radius={[0, 4, 4, 0]} />
+                  <Bar dataKey="Aguardando Envio" fill="#06b6d4" radius={[0, 4, 4, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -553,7 +553,7 @@ export default function AnaliseProducaoPage() {
                   <Bar dataKey="fabricado" name="Fabricado" fill="#10b981" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="soldado" name="Soldado" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="pintado" name="Pintado" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="enviado" name="Enviado" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="Aguardando Envio" name="Aguardando Envio" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -570,7 +570,7 @@ export default function AnaliseProducaoPage() {
                     <th className="text-right py-2 px-3 text-slate-400 font-medium">%</th>
                     <th className="text-right py-2 px-3 text-slate-400 font-medium">Soldado</th>
                     <th className="text-right py-2 px-3 text-slate-400 font-medium">Pintado</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Enviado</th>
+                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Aguardando Envio</th>
                     <th className="text-right py-2 px-3 text-slate-400 font-medium">Qtd</th>
                   </tr>
                 </thead>
