@@ -2192,7 +2192,7 @@ export default function GestaoFinanceiraObra() {
             open={showImportNF}
             onOpenChange={setShowImportNF}
             moduloDestino="obra"
-            obraId={obraId}
+            obraId={obra.id}
             onImportar={async (lancamento) => {
               const lanc = { ...lancamento, id: 'lanc-' + Date.now() };
               setLancamentos(prev => [...prev, lanc]);
