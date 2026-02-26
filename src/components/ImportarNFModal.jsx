@@ -122,7 +122,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
       observacao: 'Importado via NF - Chave: ' + (nfData.chaveAcesso || '').substring(0, 20) + '... | Itens: ' + itensParaImportar.map(i => i.descricao).join(', '),
     };
     if (destino === 'obra' && obraId) { lancamento.obraId = obraId; lancamento.obra_id = obraId; }
-    else { lancamento.obraId = null; lancamento.obra_id = null; }
+    else { lancamento.obraId = 'financeiro-geral'; lancamento.obra_id = 'financeiro-geral'; }
     try {
       await notasFiscaisApi.create({
         id: 'NF-' + Date.now(), numero: nfData.numero, fornecedor: nfData.fornecedor,
