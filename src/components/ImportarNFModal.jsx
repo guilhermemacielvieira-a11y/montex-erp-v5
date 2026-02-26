@@ -118,7 +118,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
       valor: valorTotal, dataEmissao: nfData.dataEmissao, data: nfData.dataEmissao,
       tipo: 'despesa', categoria: categorizarItem(itensParaImportar[0]?.descricao, itensParaImportar[0]?.ncm),
       fornecedor: nfData.fornecedor, notaFiscal: nfData.numero, nf: nfData.numero,
-      formaPagto: 'boleto', status: 'pendente',
+      formaPagto: 'boleto', status: 'pago',
       observacao: 'Importado via NF - Chave: ' + (nfData.chaveAcesso || '').substring(0, 20) + '... | Itens: ' + itensParaImportar.map(i => i.descricao).join(', '),
     };
     if (destino === 'obra' && obraId) { lancamento.obraId = obraId; lancamento.obra_id = obraId; }
