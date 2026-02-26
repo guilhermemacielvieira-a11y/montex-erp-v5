@@ -18,8 +18,7 @@ import {
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
 
-// ==================== 3D CHART COMPONENT ====================
-function Production3DChart({ data, width = 00, height = 400, title }) {
+// ==================== 3D CHART COMPONENT ====================function Production3DChart({ data, width = 700, height = 400, title }) {
   const mountRef = useRef(null);
   const animRef = useRef(null);
   const [isRotating, setIsRotating] = useState(true);
@@ -553,7 +552,7 @@ export default function AnaliseProducaoPage() {
                   <Bar dataKey="fabricado" name="Fabricado" fill="#10b981" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="soldado" name="Soldado" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                   <Bar dataKey="pintado" name="Pintado" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="Aguardando Envio" name="Aguardando Envio" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="enviado" name="Aguardando Envio" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
