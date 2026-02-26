@@ -2196,7 +2196,7 @@ export default function GestaoFinanceiraObra() {
             onImportar={async (lancamento) => {
               const lanc = { ...lancamento, id: 'lanc-' + Date.now() };
               setLancamentos(prev => [...prev, lanc]);
-              try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
+              try { await addLancamentoCtx(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
             }}
           />
 
