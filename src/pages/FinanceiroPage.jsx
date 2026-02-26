@@ -65,6 +65,7 @@ import { Textarea } from '@/components/ui/textarea';
 
 // ERPContext - dados reais
 import { useLancamentos } from '../contexts/ERPContext';
+import ImportarNFModal from '../components/ImportarNFModal';
 
 // PAINEL FINANCEIRO GERAL DA EMPRESA
 // Independente do módulo Gestão Financeira da Obra
@@ -176,6 +177,7 @@ export default function FinanceiroPage() {
 
   // Importação
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [showImportNF, setShowImportNF] = useState(false);
   const [importData, setImportData] = useState([]);
   const [importFile, setImportFile] = useState(null);
 
@@ -382,6 +384,13 @@ export default function FinanceiroPage() {
             <Button variant="outline" className="border-slate-700 text-white" onClick={() => setImportModalOpen(true)}>
               <Upload className="h-4 w-4 mr-2" />
               Importar
+            </Button>
+            <Button
+              onClick={() => setShowImportNF(true)}
+              className="bg-amber-600 hover:bg-amber-500 text-white gap-2"
+            >
+              <Receipt className="w-4 h-4" />
+              Importar NF
             </Button>
             <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => abrirNovaMovimentacao('despesa')}>
               <Plus className="h-4 w-4 mr-2" />
@@ -856,7 +865,20 @@ export default function FinanceiroPage() {
                   Crie um lançamento de receita ou despesa manualmente
                 </p>
                 <p className="text-xs text-slate-500">Preencha o formulário completo</p>
-              </motion.div>
+              
+
+      {/* Modal Importar NF */}
+      <ImportarNFModal
+        open={showImportNF}
+        onOpenChange={setShowImportNF}
+        moduloDestino="financeiro"
+        obraId={null}
+        onImportar={async (lancamento) => {
+          const lanc = { ...lancamento, id: 'FIN-' + Date.now(), obraId: null, obra_id: null };
+          try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
+        }}
+      />
+</motion.div>
             </div>
 
             {/* Últimas importações */}
