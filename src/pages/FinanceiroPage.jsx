@@ -867,17 +867,6 @@ export default function FinanceiroPage() {
                 <p className="text-xs text-slate-500">Preencha o formulário completo</p>
               
 
-      {/* Modal Importar NF */}
-      <ImportarNFModal
-        open={showImportNF}
-        onOpenChange={setShowImportNF}
-        moduloDestino="financeiro"
-        obraId={null}
-        onImportar={async (lancamento) => {
-          const lanc = { ...lancamento, id: 'FIN-' + Date.now(), obraId: null, obra_id: null };
-          try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
-        }}
-      />
 </motion.div>
             </div>
 
@@ -1201,6 +1190,20 @@ export default function FinanceiroPage() {
           )}
         </DialogContent>
       </Dialog>
+    
+
+      {/* Modal Importar NF */}
+      <ImportarNFModal
+        open={showImportNF}
+        onOpenChange={setShowImportNF}
+        moduloDestino="financeiro"
+        obraId={null}
+        onImportar={async (lancamento) => {
+          const lanc = { ...lancamento, id: 'FIN-' + Date.now(), obraId: null, obra_id: null };
+          try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
+        }}
+      />
+
     </div>
   );
 }
