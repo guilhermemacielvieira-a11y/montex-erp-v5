@@ -123,7 +123,9 @@ function KPICard({ icon: Icon, title, value, unit, subtext, color }) {
 }
 
 function ProjectItem({ obra }) {
-  const progressColor = obra.progresso > 75 ? colors.success : obra.progresso > 50 ? colors.warning : colors.danger;
+  const prog = typeof obra.progresso === 'number' ? obra.progresso :
+    (obra.progresso && typeof obra.progresso === 'object' ? Math.round(Object.values(obra.progresso).reduce((a, b) => a + (typeof b === 'number' ? b : 0), 0) / Math.max(Object.keys(obra.progresso).length, 1)) : 0);
+  const progressColor = prog > 75 ? colors.success : prog > 50 ? colors.warning : colors.danger;
   return (
     <motion.div
       variants={itemVariants}
@@ -139,14 +141,14 @@ function ProjectItem({ obra }) {
           <p className="text-xs text-gray-400">{obra.codigo}</p>
         </div>
         <p className="text-xs font-semibold text-gray-300" style={{ color: progressColor }}>
-          {obra.progresso || 0}%
+          {prog}%
         </p>
       </div>
       <div className="w-full bg-gray-700 rounded-full h-2">
         <div
           className="h-2 rounded-full transition-all duration-500"
           style={{
-            width: `${obra.progresso || 0}%`,
+            width: `${prog}%`,
             backgroundColor: progressColor,
           }}
         />
