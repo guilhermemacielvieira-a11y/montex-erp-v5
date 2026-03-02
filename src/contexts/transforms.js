@@ -230,18 +230,30 @@ export function calcularProgressoObra(obras, pecas) {
     if (pecasObra.length === 0) return obra;
     const total = pecasObra.length;
     const etapas = { corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, montagem: 0 };
+    const pesoEtapas = { corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, montagem: 0 };
+    let pesoTotalPecas = 0;
+
     pecasObra.forEach(p => {
       const etapa = p.etapa || 'aguardando';
+      const peso = parseFloat(p.peso) || parseFloat(p.pesoTotal) || 0;
+      pesoTotalPecas += peso;
+
       switch (etapa) {
-        case 'montagem': etapas.montagem++;
-        case 'expedido': etapas.expedicao++;
-        case 'pintura': etapas.pintura++;
-        case 'solda': etapas.solda++;
-        case 'fabricacao': etapas.fabricacao++;
-        case 'corte': etapas.corte++; break;
-        case 'aguardando': default: break;
+        case 'montagem': etapas.montagem++; pesoEtapas.montagem += peso;
+        // falls through
+        case 'expedido': etapas.expedicao++; pesoEtapas.expedicao += peso;
+        // falls through
+        case 'pintura': etapas.pintura++; pesoEtapas.pintura += peso;
+        // falls through
+        case 'solda': etapas.solda++; pesoEtapas.solda += peso;
+        // falls through
+        case 'fabricacao': etapas.fabricacao++; pesoEtapas.fabricacao += peso;
+        // falls through
+        case 'corte': etapas.corte++; pesoEtapas.corte += peso; break;
+        case 'aguardando': default: pesoTotalPecas += 0; break;
       }
     });
+
     return { ...obra, progresso: {
       corte: Math.round((etapas.corte / total) * 100),
       fabricacao: Math.round((etapas.fabricacao / total) * 100),
@@ -249,6 +261,14 @@ export function calcularProgressoObra(obras, pecas) {
       pintura: Math.round((etapas.pintura / total) * 100),
       expedicao: Math.round((etapas.expedicao / total) * 100),
       montagem: Math.round((etapas.montagem / total) * 100)
+    }, pesoPorEtapa: {
+      corte: pesoEtapas.corte,
+      fabricacao: pesoEtapas.fabricacao,
+      solda: pesoEtapas.solda,
+      pintura: pesoEtapas.pintura,
+      expedicao: pesoEtapas.expedicao,
+      montagem: pesoEtapas.montagem,
+      total: pesoTotalPecas
     }};
   });
 }
