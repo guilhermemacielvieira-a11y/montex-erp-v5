@@ -1,13 +1,13 @@
 // MONTEX ERP Premium - Command Center Ultra v2
 // Dashboard executivo - visÃ£o objetiva e profissional
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-  Building2, Weight, TrendingUp, DollarSign, Factory, Truck, Users,
+  Building2, Weight, DollarSign, Factory, Truck, Users,
   Target, Activity, Bell, Layers, Cpu, Gauge, BarChart3,
   AlertTriangle, CheckCircle, Thermometer, Bolt, ArrowUp, ArrowDown,
   Package, Scissors, Clock, Zap, RefreshCw, ChevronRight,
-  Eye, Flame, ShieldCheck, CircleDot, TrendingDown, Minus
+  Eye, Flame, ShieldCheck, CircleDot, Minus
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
