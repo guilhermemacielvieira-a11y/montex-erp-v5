@@ -158,7 +158,6 @@ const navigationCategories = [
     bgHover: 'hover:bg-emerald-500/10',
     badge: 'R$/KG',
     items: [
-      { name: 'Obra Campo', href: 'MedicaoPage', icon: HardHat, badge: '🏗️' },
       { name: 'Produção', href: 'MedicaoAutomaticaPage', icon: Package, badge: '🏭' },
     ]
   },
