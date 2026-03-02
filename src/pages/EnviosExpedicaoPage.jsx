@@ -3,11 +3,11 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
 import { useExpedicao, useObras } from '../contexts/ERPContext';
-import { pecasApi, expedicoesApi } from '../api/supabaseClient';
+import { pecasApi } from '../api/supabaseClient';
 import {
   Truck, Package, CheckCircle2, AlertCircle, Search, Plus,
   FileText, Download, ChevronDown, Building2, Weight,
-  ArrowRight, Printer, SortAscAZ, X, SendHorizontal
+  ArrowRight, Printer, ArrowUpAZ, X, SendHorizontal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -269,7 +269,7 @@ export default function EnviosExpedicaoPage() {
             </Tabs.Trigger>
             <Tabs.Trigger value="status"
               className="px-4 py-2 text-sm rounded-t-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white text-gray-400 hover:text-white transition-colors flex items-center gap-1">
-              <SortAscAZ className="w-4 h-4" /> Visão por Status
+              <ArrowUpAZ className="w-4 h-4" /> Visão por Status
             </Tabs.Trigger>
           </Tabs.List>
           <div className="ml-auto flex items-center gap-2">
