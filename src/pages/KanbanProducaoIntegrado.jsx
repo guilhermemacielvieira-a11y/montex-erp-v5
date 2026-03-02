@@ -14,7 +14,7 @@ import {
   Package, Wrench, Zap, Paintbrush, Truck,
   ChevronDown, Search, Plus, Eye, Edit,
   Building2, ArrowRight, TrendingUp,
-  Layers, BarChart3, DollarSign,
+  Layers, BarChart3,
   Download, FileSpreadsheet, X as XIcon,
   Database, Play, LayoutGrid, Table2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
