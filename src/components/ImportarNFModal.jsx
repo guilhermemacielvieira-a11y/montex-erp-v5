@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Search, FileText, X, Loader2, CheckCircle2, AlertCircle,
   Receipt, Building2, Package, Calendar, DollarSign, Hash,
-  ArrowRight, FileUp, Download
+  ArrowRight, Download
 } from 'lucide-react';
 import { notasFiscaisApi } from '../api/supabaseClient';
 
