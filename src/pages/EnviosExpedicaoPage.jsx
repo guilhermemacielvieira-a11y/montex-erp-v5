@@ -51,6 +51,7 @@ export default function EnviosExpedicaoPage() {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [modalAberto, setModalAberto] = useState(false);
   const [pecasSelecionadas, setPecasSelecionadas] = useState([]);
+  const [quantidadesEnvio, setQuantidadesEnvio] = useState({});
   const [novoEnvio, setNovoEnvio] = useState({
     numero: '',
     data: new Date().toISOString().split('T')[0],
@@ -138,9 +139,20 @@ export default function EnviosExpedicaoPage() {
   const togglePeca = useCallback((peca) => {
     setPecasSelecionadas(prev => {
       const exists = prev.find(p => p.id === peca.id);
-      if (exists) return prev.filter(p => p.id !== peca.id);
+      if (exists) {
+        setQuantidadesEnvio(q => { const n = { ...q }; delete n[peca.id]; return n; });
+        return prev.filter(p => p.id !== peca.id);
+      }
+      const qty = parseInt(peca.quantidade) || 1;
+      setQuantidadesEnvio(q => ({ ...q, [peca.id]: qty }));
       return [...prev, peca];
     });
+  }, []);
+
+  // ==== ATUALIZAR QUANTIDADE DE ENVIO POR PEÇA ====
+  const atualizarQtdEnvio = useCallback((pecaId, novaQtd, maxQtd) => {
+    const val = Math.max(1, Math.min(parseInt(novaQtd) || 1, maxQtd));
+    setQuantidadesEnvio(q => ({ ...q, [pecaId]: val }));
   }, []);
 
   // ==== CRIAR ENVIO ====
@@ -154,8 +166,22 @@ export default function EnviosExpedicaoPage() {
       return;
     }
     try {
-      const pesoTotal = pecasSelecionadas.reduce((sum, p) => sum + (parseFloat(p.peso) || 0), 0);
-      const qtdTotal = pecasSelecionadas.reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0);
+      // Calcular peso proporcional baseado na quantidade selecionada
+      const pesoTotal = pecasSelecionadas.reduce((sum, p) => {
+        const qtyOriginal = parseInt(p.quantidade) || 1;
+        const qtyEnvio = quantidadesEnvio[p.id] || qtyOriginal;
+        const pesoUnitario = qtyOriginal > 0 ? (parseFloat(p.peso) || 0) / qtyOriginal : 0;
+        return sum + (pesoUnitario * qtyEnvio);
+      }, 0);
+      const qtdTotal = pecasSelecionadas.reduce((sum, p) => sum + (quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1), 0);
+
+      // Montar detalhes de quantidades por peça (para peças parciais)
+      const pecasDetalhes = pecasSelecionadas.map(p => ({
+        id: p.id,
+        qtd_enviada: quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1,
+        qtd_total: parseInt(p.quantidade) || 1,
+      }));
+
       const expedicao = {
         numero: novoEnvio.numero || `ENV-${Date.now()}`,
         data_envio: novoEnvio.data,
@@ -165,22 +191,26 @@ export default function EnviosExpedicaoPage() {
         observacoes: novoEnvio.observacoes || null,
         status: 'PREPARANDO',
         pecas_ids: pecasSelecionadas.map(p => p.id),
+        pecas_detalhes: pecasDetalhes,
         peso_total: pesoTotal,
         quantidade_total: qtdTotal,
         obra_id: obraAtiva?.id || null,
         obra_nome: obraAtiva?.nome || null,
       };
       await addExpedicao(expedicao);
-      toast.success(`Envio criado com ${pecasSelecionadas.length} peça(s) — ${pesoTotal.toFixed(2)}t`);
+      const parciais = pecasDetalhes.filter(d => d.qtd_enviada < d.qtd_total);
+      const msgParcial = parciais.length > 0 ? ` (${parciais.length} envio(s) parcial(is))` : '';
+      toast.success(`Envio criado com ${pecasSelecionadas.length} peça(s) — ${pesoTotal.toFixed(2)}t${msgParcial}`);
       setModalAberto(false);
       setPecasSelecionadas([]);
+      setQuantidadesEnvio({});
       setNovoEnvio({ numero: '', data: new Date().toISOString().split('T')[0], transportadora: '', motorista: '', placa: '', observacoes: '' });
       await carregarPecasExpedidas();
     } catch (err) {
       console.error('Erro ao criar envio:', err);
       toast.error('Erro ao criar envio');
     }
-  }, [pecasSelecionadas, novoEnvio, obraAtiva, addExpedicao, carregarPecasExpedidas]);
+  }, [pecasSelecionadas, novoEnvio, obraAtiva, addExpedicao, carregarPecasExpedidas, quantidadesEnvio]);
 
   // ==== GERAR ROMANEIO ====
   const gerarRomaneio = useCallback((envio) => {
@@ -234,7 +264,7 @@ export default function EnviosExpedicaoPage() {
           <Button variant="outline" size="sm" onClick={() => exportToExcel(enviosFiltrados, 'envios')}>
             <Download className="w-4 h-4 mr-1" /> Exportar
           </Button>
-          <Button size="sm" onClick={() => { setModalAberto(true); setPecasSelecionadas([]); }}
+          <Button size="sm" onClick={() => { setModalAberto(true); setPecasSelecionadas([]); setQuantidadesEnvio({}); }}
             className="bg-blue-600 hover:bg-blue-700">
             <Plus className="w-4 h-4 mr-1" /> Novo Envio
           </Button>
@@ -313,7 +343,7 @@ export default function EnviosExpedicaoPage() {
             <>
               <div className="flex justify-between items-center mb-4">
                 <p className="text-sm text-gray-400">{pecasFiltradas.length} peça(s) prontas para embarque</p>
-                <Button size="sm" onClick={() => { setModalAberto(true); setPecasSelecionadas([]); }}
+                <Button size="sm" onClick={() => { setModalAberto(true); setPecasSelecionadas([]); setQuantidadesEnvio({}); }}
                   className="bg-emerald-600 hover:bg-emerald-700">
                   <Plus className="w-4 h-4 mr-1" /> Criar Carga com Seleção
                 </Button>
@@ -322,7 +352,7 @@ export default function EnviosExpedicaoPage() {
                 {pecasFiltradas.map(peca => (
                   <motion.div key={peca.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
                     className="bg-gray-900 rounded-lg p-4 border border-gray-800 hover:border-emerald-500 transition-colors cursor-pointer"
-                    onClick={() => { setModalAberto(true); setPecasSelecionadas([peca]); }}>
+                    onClick={() => { setModalAberto(true); setPecasSelecionadas([peca]); setQuantidadesEnvio({ [peca.id]: parseInt(peca.quantidade) || 1 }); }}>
                     <div className="flex justify-between items-start mb-2">
                       <div>
                         <p className="font-semibold text-white">{peca.marca || peca.conjunto || 'Peça'}</p>
@@ -496,7 +526,13 @@ export default function EnviosExpedicaoPage() {
                 <span className="text-xs text-gray-500">Peso total: {pecasExpedidas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}t</span>
                 {pecasExpedidas.length > 0 && (
                   <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs h-7"
-                    onClick={() => { setModalAberto(true); setPecasSelecionadas([...pecasExpedidas]); }}>
+                    onClick={() => {
+                      setModalAberto(true);
+                      setPecasSelecionadas([...pecasExpedidas]);
+                      const qtds = {};
+                      pecasExpedidas.forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
+                      setQuantidadesEnvio(qtds);
+                    }}>
                     <Plus className="w-3 h-3 mr-1" /> Criar Envio
                   </Button>
                 )}
@@ -535,7 +571,13 @@ export default function EnviosExpedicaoPage() {
               </div>
               <div className="mt-3 pt-2 border-t border-gray-800 text-xs">
                 {pecasExpedidas.length > 0 && (
-                  <button onClick={() => { setModalAberto(true); setPecasSelecionadas([...pecasExpedidas]); }}
+                  <button onClick={() => {
+                      setModalAberto(true);
+                      setPecasSelecionadas([...pecasExpedidas]);
+                      const qtds = {};
+                      pecasExpedidas.forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
+                      setQuantidadesEnvio(qtds);
+                    }}
                     className="text-blue-400 hover:text-blue-300 flex items-center gap-1">
                     <Plus className="w-3 h-3" /> Novo envio a partir do romaneio
                   </button>
@@ -652,7 +694,14 @@ export default function EnviosExpedicaoPage() {
                 </h3>
                 {pecasSelecionadas.length > 0 && (
                   <span className="text-sm text-emerald-400 font-medium">
-                    {pecasSelecionadas.length} peça(s) selecionada(s) · {pecasSelecionadas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}t
+                    {pecasSelecionadas.length} peça(s) selecionada(s) ·{' '}
+                    {pecasSelecionadas.reduce((s, p) => s + (quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1), 0)} un ·{' '}
+                    {pecasSelecionadas.reduce((s, p) => {
+                      const qtyOrig = parseInt(p.quantidade) || 1;
+                      const qtyEnvio = quantidadesEnvio[p.id] || qtyOrig;
+                      const pesoUnit = qtyOrig > 0 ? (parseFloat(p.peso) || 0) / qtyOrig : 0;
+                      return s + (pesoUnit * qtyEnvio);
+                    }, 0).toFixed(2)}t
                   </span>
                 )}
               </div>
@@ -667,7 +716,17 @@ export default function EnviosExpedicaoPage() {
                 <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
                   {/* Selecionar todas */}
                   <button
-                    onClick={() => setPecasSelecionadas(pecasSelecionadas.length === pecasExpedidas.length ? [] : [...pecasExpedidas])}
+                    onClick={() => {
+                      if (pecasSelecionadas.length === pecasExpedidas.length) {
+                        setPecasSelecionadas([]);
+                        setQuantidadesEnvio({});
+                      } else {
+                        setPecasSelecionadas([...pecasExpedidas]);
+                        const qtds = {};
+                        pecasExpedidas.forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
+                        setQuantidadesEnvio(qtds);
+                      }
+                    }}
                     className="w-full text-left text-sm text-blue-400 hover:text-blue-300 py-1 flex items-center gap-2">
                     <input type="checkbox" readOnly
                       checked={pecasSelecionadas.length === pecasExpedidas.length && pecasExpedidas.length > 0}
@@ -676,18 +735,57 @@ export default function EnviosExpedicaoPage() {
                   </button>
                   {pecasExpedidas.map(peca => {
                     const selecionada = pecasSelecionadas.some(p => p.id === peca.id);
+                    const qtyTotal = parseInt(peca.quantidade) || 1;
+                    const qtyEnvio = quantidadesEnvio[peca.id] || qtyTotal;
+                    const temMultiplas = qtyTotal > 1;
+                    const pesoUnitario = qtyTotal > 0 ? (parseFloat(peca.peso) || 0) / qtyTotal : 0;
+                    const pesoEnvio = pesoUnitario * qtyEnvio;
                     return (
                       <div key={peca.id}
-                        onClick={() => togglePeca(peca)}
-                        className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${selecionada ? 'bg-emerald-900/40 border border-emerald-600' : 'bg-gray-800 border border-gray-700 hover:border-gray-600'}`}>
-                        <input type="checkbox" readOnly checked={selecionada} className="accent-emerald-500 w-4 h-4 flex-shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="font-medium text-white text-sm truncate">{peca.marca || peca.conjunto || 'Peça'}</p>
-                          <p className="text-xs text-gray-400 truncate">{peca.tipo || peca.descricao || ''}</p>
+                        className={`flex items-center gap-3 p-3 rounded-lg transition-colors ${selecionada ? 'bg-emerald-900/40 border border-emerald-600' : 'bg-gray-800 border border-gray-700 hover:border-gray-600'}`}>
+                        <div className="cursor-pointer flex items-center gap-3 flex-1 min-w-0"
+                          onClick={() => togglePeca(peca)}>
+                          <input type="checkbox" readOnly checked={selecionada} className="accent-emerald-500 w-4 h-4 flex-shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-white text-sm truncate">{peca.marca || peca.conjunto || 'Peça'}</p>
+                            <p className="text-xs text-gray-400 truncate">{peca.tipo || peca.descricao || ''}</p>
+                          </div>
                         </div>
-                        <div className="text-right flex-shrink-0">
-                          <p className="text-sm text-white">{(parseFloat(peca.peso) || 0).toFixed(2)}t</p>
-                          <p className="text-xs text-gray-400">{peca.quantidade || 1} un</p>
+                        <div className="flex items-center gap-3 flex-shrink-0">
+                          {/* Editor de quantidade parcial */}
+                          {selecionada && temMultiplas ? (
+                            <div className="flex items-center gap-1.5 bg-gray-700/60 rounded-lg px-2 py-1">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); atualizarQtdEnvio(peca.id, qtyEnvio - 1, qtyTotal); }}
+                                className="w-5 h-5 rounded bg-gray-600 hover:bg-gray-500 text-white text-xs flex items-center justify-center font-bold">
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                max={qtyTotal}
+                                value={qtyEnvio}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => atualizarQtdEnvio(peca.id, e.target.value, qtyTotal)}
+                                className="w-8 text-center bg-transparent text-white text-sm font-bold border-none outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              />
+                              <span className="text-gray-400 text-xs">de {qtyTotal}</span>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); atualizarQtdEnvio(peca.id, qtyEnvio + 1, qtyTotal); }}
+                                className="w-5 h-5 rounded bg-gray-600 hover:bg-gray-500 text-white text-xs flex items-center justify-center font-bold">
+                                +
+                              </button>
+                            </div>
+                          ) : temMultiplas ? (
+                            <span className="text-xs text-gray-500 bg-gray-700/40 px-2 py-1 rounded">{qtyTotal} un</span>
+                          ) : null}
+                          <div className="text-right">
+                            <p className="text-sm text-white">{(selecionada && temMultiplas ? pesoEnvio : parseFloat(peca.peso) || 0).toFixed(2)}t</p>
+                            {!temMultiplas && <p className="text-xs text-gray-400">{qtyTotal} un</p>}
+                            {selecionada && temMultiplas && qtyEnvio < qtyTotal && (
+                              <p className="text-xs text-amber-400">parcial</p>
+                            )}
+                          </div>
                         </div>
                       </div>
                     );
@@ -704,7 +802,7 @@ export default function EnviosExpedicaoPage() {
                 disabled={pecasSelecionadas.length === 0}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
                 <Truck className="w-4 h-4 mr-2" />
-                Criar Envio ({pecasSelecionadas.length} peças)
+                Criar Envio ({pecasSelecionadas.reduce((s, p) => s + (quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1), 0)} un de {pecasSelecionadas.length} peça(s))
               </Button>
             </div>
           </Dialog.Content>
