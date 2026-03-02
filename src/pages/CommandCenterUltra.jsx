@@ -4,10 +4,10 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Building2, Weight, DollarSign, Factory, Truck, Users,
-  Target, Activity, Bell, Layers, Cpu, Gauge, BarChart3,
-  AlertTriangle, CheckCircle, Thermometer, Bolt, ArrowUp, ArrowDown,
-  Package, Scissors, Clock, Zap, RefreshCw, ChevronRight,
-  Eye, Flame, ShieldCheck, CircleDot, Minus
+  Target, Bell, Layers, Cpu, Gauge,
+  AlertTriangle, CheckCircle, Bolt, ArrowUp, ArrowDown,
+  Package, Clock, Zap, RefreshCw,
+  ShieldCheck, CircleDot, Minus
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip,
