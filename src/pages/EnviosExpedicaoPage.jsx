@@ -44,6 +44,7 @@ export default function EnviosExpedicaoPage() {
 
   // ==== ESTADO LOCAL ====
   const [pecasExpedidas, setPecasExpedidas] = useState([]);
+  const [pecasPintura, setPecasPintura] = useState([]);
   const [loadingPecas, setLoadingPecas] = useState(true);
   const [abaAtiva, setAbaAtiva] = useState('fila');
   const [busca, setBusca] = useState('');
@@ -68,6 +69,10 @@ export default function EnviosExpedicaoPage() {
       // Transformar snake_case -> camelCase e aplicar aliases (peso_total -> peso)
       const todasPecas = transformPecaArray(todasPecasRaw);
       const expedidas = todasPecas.filter(p => p.etapa === 'expedido');
+
+      // Peças em pintura (processo que precede expedição no Kanban Corte)
+      const emPintura = todasPecas.filter(p => p.etapa === 'pintura');
+      setPecasPintura(emPintura);
 
       // Pegar IDs das peças já incluídas em expedições existentes
       const pecasJaEnviadas = new Set();
@@ -432,8 +437,116 @@ export default function EnviosExpedicaoPage() {
 
         {/* Aba: Visão por Status */}
         <Tabs.Content value="status" className="flex-1 overflow-y-auto p-6">
-          <div className="grid grid-cols-5 gap-4">
-            {STATUS_ENVIO.map(status => {
+          {/* Pipeline principal: 3 colunas */}
+          <div className="grid grid-cols-3 gap-6 mb-6">
+            {/* Preparando - Peças em Pintura (Kanban Corte) */}
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <div className="flex items-center gap-2 mb-3">
+                <Package className="w-5 h-5 text-amber-400" />
+                <h3 className="font-semibold text-white">Preparando</h3>
+                <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-amber-500/20 text-amber-400">
+                  {pecasPintura.length}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Peças em processo de pintura (Kanban Corte)</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {pecasPintura.length === 0 ? (
+                  <p className="text-gray-600 text-xs text-center py-4">Nenhuma peça em pintura</p>
+                ) : pecasPintura.map(p => (
+                  <div key={p.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-amber-500">
+                    <p className="font-medium text-white">{p.marca || p.conjunto || 'Peça'}</p>
+                    <p className="text-gray-400">{p.tipo || p.descricao || ''}</p>
+                    <div className="flex justify-between mt-1 text-gray-500">
+                      <span>{(parseFloat(p.peso) || 0).toFixed(2)}t</span>
+                      <span>{p.quantidade || 1} un</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-2 border-t border-gray-800 text-xs text-gray-500">
+                Peso total: {pecasPintura.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}t
+              </div>
+            </div>
+
+            {/* Aguard. Transporte - Peças com status Expedida */}
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <div className="flex items-center gap-2 mb-3">
+                <Package className="w-5 h-5 text-purple-400" />
+                <h3 className="font-semibold text-white">Aguard. Transporte</h3>
+                <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-purple-500/20 text-purple-400">
+                  {pecasExpedidas.length}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Peças com status expedida aguardando transporte</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {pecasExpedidas.length === 0 ? (
+                  <p className="text-gray-600 text-xs text-center py-4">Nenhuma peça aguardando transporte</p>
+                ) : pecasExpedidas.map(p => (
+                  <div key={p.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-purple-500">
+                    <p className="font-medium text-white">{p.marca || p.conjunto || 'Peça'}</p>
+                    <p className="text-gray-400">{p.tipo || p.descricao || ''}</p>
+                    <div className="flex justify-between mt-1 text-gray-500">
+                      <span>{(parseFloat(p.peso) || 0).toFixed(2)}t</span>
+                      <span>{p.quantidade || 1} un</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-2 border-t border-gray-800 flex justify-between items-center">
+                <span className="text-xs text-gray-500">Peso total: {pecasExpedidas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}t</span>
+                {pecasExpedidas.length > 0 && (
+                  <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs h-7"
+                    onClick={() => { setModalAberto(true); setPecasSelecionadas([...pecasExpedidas]); }}>
+                    <Plus className="w-3 h-3 mr-1" /> Criar Envio
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Em Trânsito - Envios vinculados ao romaneio */}
+            <div className="bg-gray-900 rounded-lg p-4 border border-gray-800">
+              <div className="flex items-center gap-2 mb-3">
+                <Truck className="w-5 h-5 text-blue-400" />
+                <h3 className="font-semibold text-white">Em Trânsito</h3>
+                <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-blue-500/20 text-blue-400">
+                  {(expedicoes || []).filter(e => e.status === 'EM_TRANSITO').length}
+                </span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3">Envios criados a partir do romaneio expedido</p>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {(expedicoes || []).filter(e => e.status === 'EM_TRANSITO').length === 0 ? (
+                  <p className="text-gray-600 text-xs text-center py-4">Nenhum envio em trânsito</p>
+                ) : (expedicoes || []).filter(e => e.status === 'EM_TRANSITO').map(e => (
+                  <div key={e.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-blue-500">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
+                        <p className="text-gray-400">{e.obra_nome || '-'}</p>
+                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}t · {(e.pecas_ids || []).length} peça(s)</p>
+                        {e.transportadora && <p className="text-gray-500 mt-0.5">{e.transportadora}</p>}
+                      </div>
+                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300"
+                        onClick={() => gerarRomaneio(e)}>
+                        <Printer className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 pt-2 border-t border-gray-800 text-xs">
+                {pecasExpedidas.length > 0 && (
+                  <button onClick={() => { setModalAberto(true); setPecasSelecionadas([...pecasExpedidas]); }}
+                    className="text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                    <Plus className="w-3 h-3" /> Novo envio a partir do romaneio
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Status secundários: Entregue e Problema */}
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            {STATUS_ENVIO.filter(s => s.id === 'ENTREGUE' || s.id === 'PROBLEMA').map(status => {
               const enviosDoStatus = (expedicoes || []).filter(e => e.status === status.id);
               return (
                 <div key={status.id} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
@@ -461,8 +574,9 @@ export default function EnviosExpedicaoPage() {
               );
             })}
           </div>
+
           {/* Flow diagram */}
-          <div className="mt-8 flex items-center justify-center gap-2 text-sm text-gray-400">
+          <div className="flex items-center justify-center gap-2 text-sm text-gray-400">
             {STATUS_ENVIO.map((s, i) => (
               <React.Fragment key={s.id}>
                 <div className="flex items-center gap-1 px-3 py-1.5 rounded-full border"
