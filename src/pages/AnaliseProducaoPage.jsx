@@ -2,18 +2,18 @@
 // Dashboard completo com graficos 3D interativos
 // Dados reais do Kanban Corte e Kanban Producao (tabela pecas_producao)
 
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { motion } from 'framer-motion';
 import {
   BarChart3, Factory, Hammer, Paintbrush, Truck, Weight,
   TrendingUp, TrendingDown, Activity, Filter, RefreshCw,
-  Layers, PieChart as PieIcon, Gauge, ArrowUpRight,
-  ChevronDown, Maximize2, RotateCcw, Eye, Download
+  Layers, PieChart as PieIcon, Gauge,
+  ChevronDown, Maximize2, RotateCcw, Eye
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar, ComposedChart,Area, Line
+  RadialBarChart, RadialBar, ComposedChart
 } from 'recharts';
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
