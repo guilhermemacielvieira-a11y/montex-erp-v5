@@ -2,12 +2,10 @@ import React, { useMemo } from 'react';
 import {
   BarChart,
   Bar,
-  ComposedChart,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  Legend,
   PieChart,
   Pie,
   Cell,
@@ -19,7 +17,6 @@ import {
   Package,
   AlertCircle,
   Clock,
-  Users,
   Activity,
   CheckCircle,
 } from 'lucide-react';
