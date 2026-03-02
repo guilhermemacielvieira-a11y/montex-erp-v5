@@ -168,34 +168,47 @@ export default function SeletorObra({ compact = false }) {
       </Select.Root>
 
       {/* Info da obra selecionada */}
-      {obraAtualData && (
+      {obraAtualData && (() => {
+        const pe = obraAtualData.pesoPorEtapa;
+        const pesoTotal = obraAtualData.pesoTotal || 0;
+        // Peso produzido (pintado) = peso real das pecas que passaram por pintura
+        const pesoProduzido = pe ? pe.pintura : (pesoTotal * ((obraAtualData.progresso?.pintura || 0) / 100));
+        // Em processo = peso das pecas em corte ate solda (corte - pintura em peso)
+        const pesoEmProcesso = pe ? Math.max(0, pe.corte - pe.pintura) : (pesoTotal * (Math.max(0, ((obraAtualData.progresso?.corte || 0) - (obraAtualData.progresso?.pintura || 0))) / 100));
+        // Progresso baseado em peso real quando disponivel
+        const progresso = pe && pe.total > 0
+          ? Math.round((pe.expedicao / pe.total) * 100)
+          : (Object.values(obraAtualData.progresso || {}).reduce((a, b) => a + b, 0) / 6 | 0);
+
+        return (
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-white">
-              {(obraAtualData.pesoTotal / 1000).toFixed(1)}t
+              {(pesoTotal / 1000).toFixed(1)}t
             </div>
             <div className="text-xs text-slate-400">Peso Total</div>
           </div>
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-emerald-400">
-              {((obraAtualData.pesoTotal || 0) * ((obraAtualData.progresso?.pintura || 0) / 100) / 1000).toFixed(1)}t
+              {(pesoProduzido / 1000).toFixed(1)}t
             </div>
             <div className="text-xs text-slate-400">Produzido (Pintado)</div>
           </div>
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-amber-400">
-              {((obraAtualData.pesoTotal || 0) * (Math.max(0, ((obraAtualData.progresso?.corte || 0) - (obraAtualData.progresso?.pintura || 0))) / 100) / 1000).toFixed(1)}t
+              {(pesoEmProcesso / 1000).toFixed(1)}t
             </div>
             <div className="text-xs text-slate-400">Em Processo</div>
           </div>
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-white">
-              {Object.values(obraAtualData.progresso || {}).reduce((a, b) => a + b, 0) / 6 | 0}%
+              {progresso}%
             </div>
             <div className="text-xs text-slate-400">Progresso</div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
