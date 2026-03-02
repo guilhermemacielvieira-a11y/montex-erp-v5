@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import {
   Search, FileText, X, Loader2, CheckCircle2, AlertCircle,
-  Receipt, Building2, Package, Calendar, DollarSign, Hash,
-  ArrowRight, Download
+  Receipt, Building2, Calendar, DollarSign, Hash,
+  Download
 } from 'lucide-react';
 import { notasFiscaisApi } from '../api/supabaseClient';
 
