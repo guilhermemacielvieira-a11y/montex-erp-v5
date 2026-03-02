@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
 import { useExpedicao, useObras } from '../contexts/ERPContext';
@@ -7,7 +7,7 @@ import { useProducaoFabrica } from '../contexts/ProducaoFabricaContext';
 import {
   Truck, Package, CheckCircle2, AlertCircle, Search, Plus,
   FileText, Download, ChevronDown, Building2, Weight,
-  ArrowRight, Printer, BarChart3, Calendar, X, SendHorizontal
+  ArrowRight, Printer, BarChart3, X, SendHorizontal
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
