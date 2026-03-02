@@ -9,7 +9,6 @@ import {
   TrendingUp,
   TrendingDown,
   Plus,
-  Download,
   CreditCard,
   Wallet,
   Receipt,
@@ -18,7 +17,6 @@ import {
   MoreHorizontal,
   BarChart3,
   Search,
-  Eye,
   Edit,
   FileText,
   CheckCircle2,
@@ -27,8 +25,7 @@ import {
   Save,
   Trash2,
   Upload,
-  FileUp,
-  AlertCircle
+  FileUp
 } from 'lucide-react';
 import {
   AreaChart,
