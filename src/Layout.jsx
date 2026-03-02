@@ -62,6 +62,7 @@ import { useNotification } from '@/contexts/NotificationContext';
 
 // ====== COMPONENTES ERP ======
 import { ERPProvider, useERP } from '@/contexts/ERPContext';
+import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import SeletorObra from '@/components/erp/SeletorObra';
 import ProgressoObra from '@/components/erp/ProgressoObra';
 import Notificacoes from '@/components/erp/Notificacoes';
@@ -768,9 +769,11 @@ function LayoutContent({ children, currentPageName }) {
 export default function Layout({ children, currentPageName }) {
   return (
     <ERPProvider>
+      <ProducaoFabricaProvider>
       <LayoutContent currentPageName={currentPageName}>
         {children}
       </LayoutContent>
+      </ProducaoFabricaProvider>
     </ERPProvider>
   );
 }
