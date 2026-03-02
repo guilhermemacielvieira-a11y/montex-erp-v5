@@ -44,7 +44,6 @@ import {
   Info,
   Edit,
   Upload,
-  FileUp,
   Save,
   X,
   Trash2
