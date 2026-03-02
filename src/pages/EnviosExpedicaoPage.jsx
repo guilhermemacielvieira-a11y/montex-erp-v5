@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
 import { useExpedicao, useObras } from '../contexts/ERPContext';
 import { pecasApi } from '../api/supabaseClient';
+import { transformPecaArray } from '../contexts/transforms';
 import {
   Truck, Package, CheckCircle2, AlertCircle, Search, Plus,
   FileText, Download, ChevronDown, Building2, Weight,
@@ -63,7 +64,9 @@ export default function EnviosExpedicaoPage() {
     setLoadingPecas(true);
     try {
       // Buscar todas as peças com etapa = 'expedido'
-      const todasPecas = await pecasApi.getAll('id', true);
+      const todasPecasRaw = await pecasApi.getAll('id', true);
+      // Transformar snake_case -> camelCase e aplicar aliases (peso_total -> peso)
+      const todasPecas = transformPecaArray(todasPecasRaw);
       const expedidas = todasPecas.filter(p => p.etapa === 'expedido');
 
       // Pegar IDs das peças já incluídas em expedições existentes
