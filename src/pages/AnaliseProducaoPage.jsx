@@ -3,7 +3,7 @@
 // Dados reais do Kanban Corte e Kanban Producao (tabela pecas_producao)
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart3, Factory, Hammer, Paintbrush, Truck, Weight,
   TrendingUp, TrendingDown, Activity, Filter, RefreshCw,
