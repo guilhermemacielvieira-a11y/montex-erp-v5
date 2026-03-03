@@ -633,13 +633,11 @@ export function ERPProvider({ children }) {
           motorista: expedicao.motorista || null,
           placa: expedicao.placa || null,
           peso_total: expedicao.peso_total || expedicao.pesoTotal || 0,
-          pecas: JSON.stringify(
-            (expedicao.pecas_detalhes || []).map(d => ({
+          pecas: (expedicao.pecas_detalhes || []).map(d => ({
               id: d.id,
               qtd_enviada: d.qtd_enviada,
               qtd_total: d.qtd_total
-            }))
-          ),
+            })),
           destino: expedicao.obra_nome || expedicao.obraNome || null,
           observacoes: expedicao.observacoes || null,
         };
