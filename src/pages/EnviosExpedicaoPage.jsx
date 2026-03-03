@@ -101,9 +101,9 @@ export default function EnviosExpedicaoPage() {
   // ==== KPIs ====
   const kpis = useMemo(() => {
     const total = expedicoes?.length || 0;
-    const emTransito = expedicoes?.filter(e => e.status === 'EM_TRANSITO').length || 0;
-    const entregues = expedicoes?.filter(e => e.status === 'ENTREGUE').length || 0;
-    const pesoTotal = expedicoes?.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0) || 0;
+    const emTransito = expedicoes?.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length || 0;
+    const entregues = expedicoes?.filter(e => (e.status || '').toUpperCase() === 'ENTREGUE').length || 0;
+    const pesoTotal = expedicoes?.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0) || 0;
     const prontas = pecasExpedidas.length;
     return { total, emTransito, entregues, pesoTotal, prontas };
   }, [expedicoes, pecasExpedidas]);
@@ -123,11 +123,11 @@ export default function EnviosExpedicaoPage() {
   // ==== ENVIOS FILTRADOS ====
   const enviosFiltrados = useMemo(() => {
     let lista = expedicoes || [];
-    if (filtroStatus !== 'todos') lista = lista.filter(e => e.status === filtroStatus);
+    if (filtroStatus !== 'todos') lista = lista.filter(e => (e.status || '').toUpperCase() === filtroStatus);
     if (busca) {
       const b = busca.toLowerCase();
       lista = lista.filter(e =>
-        (e.numero || '').toLowerCase().includes(b) ||
+        (e.numero || e.numeroRomaneio || e.numero_romaneio || '').toLowerCase().includes(b) ||
         (e.transportadora || '').toLowerCase().includes(b) ||
         (e.motorista || '').toLowerCase().includes(b)
       );
@@ -216,9 +216,9 @@ export default function EnviosExpedicaoPage() {
 
   // ==== GERAR ROMANEIO ====
   const gerarRomaneio = useCallback((envio) => {
-    const pecasEnvio = (envio.pecas_ids || []).length;
+    const pecasEnvio = (envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length;
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-    <title>Romaneio - ${envio.numero || 'Envio'}</title>
+    <title>Romaneio - ${envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio'}</title>
     <style>
       body{font-family:Arial,sans-serif;margin:20px;color:#333}
       h1{color:#1a56db;border-bottom:2px solid #1a56db;padding-bottom:8px}
@@ -410,27 +410,27 @@ export default function EnviosExpedicaoPage() {
           ) : (
             <div className="space-y-3">
               {enviosFiltrados.map(envio => {
-                const statusInfo = STATUS_ENVIO.find(s => s.id === envio.status) || STATUS_ENVIO[0];
+                const statusInfo = STATUS_ENVIO.find(s => s.id === (envio.status || '').toUpperCase()) || STATUS_ENVIO[0];
                 return (
                   <motion.div key={envio.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     className="bg-gray-900 rounded-lg p-4 border border-gray-800 hover:border-blue-500 transition-colors">
                     <div className="flex justify-between items-start">
                       <div className="flex-1">
                         <div className="flex items-center gap-3 mb-1">
-                          <p className="font-semibold text-white">{envio.numero || 'Sem número'}</p>
+                          <p className="font-semibold text-white">{envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Sem número'}</p>
                           <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: statusInfo.cor + '33', color: statusInfo.cor }}>
                             {statusInfo.nome}
                           </span>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-400">
-                          <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {envio.obra_nome || envio.obra_id || '-'}</span>
+                          <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {envio.obra_nome || envio.obraNome || envio.destino || envio.obra_id || envio.obraId || '-'}</span>
                           <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {envio.transportadora || '-'}</span>
-                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(envio.peso_total) || 0).toFixed(2)}kg</span>
-                          <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {(envio.pecas_ids || []).length} peça(s)</span>
+                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(envio.peso_total || envio.pesoTotal) || 0).toFixed(2)}kg</span>
+                          <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {(envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length} peça(s)</span>
                         </div>
-                        {envio.data_envio && (
+                        {(envio.data_envio || envio.dataExpedicao || envio.data_expedicao) && (
                           <p className="text-xs text-gray-500 mt-1">
-                            Data: {new Date(envio.data_envio + 'T12:00:00').toLocaleDateString('pt-BR')}
+                            Data: {new Date((envio.data_envio || envio.dataExpedicao || envio.data_expedicao) + 'T12:00:00').toLocaleDateString('pt-BR')}
                             {envio.motorista && ` · Motorista: ${envio.motorista}`}
                             {envio.placa && ` · Placa: ${envio.placa}`}
                           </p>
@@ -446,21 +446,24 @@ export default function EnviosExpedicaoPage() {
                             toast.loading('Gerando Romaneio PDF...', { id: 'pdf-loading' });
                             // Buscar peças completas pelos IDs salvos na expedição
                             let pecasCompletas = [];
-                            const ids = envio.pecas_ids || envio.pecas || [];
+                            // pecas pode ser array de IDs (local) ou array de objetos {id, qtd_enviada, qtd_total} (Supabase JSONB)
+                            const pecasRaw = envio.pecas_ids || envio.pecasIds || envio.pecas || [];
+                            const ids = pecasRaw.map(p => typeof p === 'object' ? (p.id || p) : p);
+                            // Detalhes de quantidade (do envio local ou do JSONB do Supabase)
+                            const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || (Array.isArray(envio.pecas) ? envio.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
                             if (ids.length > 0) {
                               const todasPecasRaw = await pecasApi.getAll('id', true);
                               const todasPecas = transformPecaArray(todasPecasRaw);
                               const idsSet = new Set(ids.map(String));
                               pecasCompletas = todasPecas.filter(p => idsSet.has(String(p.id)));
                               // Enriquecer com quantidades dos detalhes do envio
-                              const detalhes = envio.pecas_detalhes || [];
                               pecasCompletas = pecasCompletas.map(p => {
                                 const det = detalhes.find(d => String(d.id) === String(p.id));
-                                return { ...p, qtdEnviada: det?.qtd_enviada || parseInt(p.quantidade) || 1 };
+                                return { ...p, qtdEnviada: det?.qtd_enviada || det?.qtdEnviada || parseInt(p.quantidade) || 1 };
                               });
                             }
                             // Buscar obra pela obra_id do envio, OU pela obraId da primeira peça
-                            let obraRelacionada = obras.find(o => o.id === envio.obra_id) || {};
+                            let obraRelacionada = obras.find(o => o.id === (envio.obra_id || envio.obraId)) || {};
                             if ((!obraRelacionada.id) && pecasCompletas.length > 0) {
                               const pecaObraId = pecasCompletas[0].obraId || pecasCompletas[0].obra_id;
                               if (pecaObraId) obraRelacionada = obras.find(o => o.id === pecaObraId) || {};
