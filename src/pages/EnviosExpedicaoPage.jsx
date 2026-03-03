@@ -81,11 +81,20 @@ export default function EnviosExpedicaoPage() {
       const emPintura = todasPecas.filter(p => p.etapa === 'pintura');
       setPecasPintura(emPintura);
 
-      // Pegar IDs das peças já incluídas em expedições existentes
+      // Pegar IDs das peças já incluídas em expedições existentes (carregadas ou entregues)
       const pecasJaEnviadas = new Set();
       (expedicoes || []).forEach(exp => {
-        const ids = Array.isArray(exp.pecas_ids) ? exp.pecas_ids : [];
-        ids.forEach(id => pecasJaEnviadas.add(String(id)));
+        // pecas_ids: array de IDs (criação local)
+        if (Array.isArray(exp.pecas_ids)) {
+          exp.pecas_ids.forEach(id => pecasJaEnviadas.add(String(id)));
+        }
+        // pecas: array de objetos {id, qtdEnviada, qtdTotal} (vindo do Supabase)
+        if (Array.isArray(exp.pecas)) {
+          exp.pecas.forEach(p => {
+            const id = typeof p === 'object' ? (p.id || p.pecaId) : p;
+            if (id) pecasJaEnviadas.add(String(id));
+          });
+        }
       });
 
       // Filtrar peças que ainda não foram enviadas
