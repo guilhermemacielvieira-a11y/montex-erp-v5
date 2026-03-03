@@ -2,6 +2,10 @@
  * CONJUNTO_BOM.js - Bill of Materials for Montex ERP
  * Maps each conjunto (assembly) to its component croqui pieces
  *
+ * Supabase integration: loadBOMFromSupabase() carrega BOMs reais do banco.
+ * Se Supabase tiver BOM para um conjunto, ele prevalece sobre o gerado.
+ * Fallback: BOM procedural (generateBOM) é usado se Supabase indisponível.
+ *
  * CROQUI_FOLDERS marca pools (from engineering organization):
  * - COLUNA: Main column structural members
  * - CHAPA: Plates of various sizes
@@ -19,6 +23,74 @@
  * - CALHA: Gutter/channel
  * - CHUMBADOR: Anchor/foundation
  */
+
+import { supabase } from '../api/supabaseClient';
+
+// Cache de BOMs do Supabase
+let _supabaseBOM = null;
+let _bomLoading = false;
+
+/**
+ * Carrega BOMs reais do Supabase (tabela bom_conjuntos).
+ * BOMs do Supabase sobrescrevem os gerados proceduralmente.
+ */
+export async function loadBOMFromSupabase() {
+  if (_supabaseBOM) return _supabaseBOM;
+  if (_bomLoading) {
+    return new Promise(resolve => {
+      const check = setInterval(() => {
+        if (!_bomLoading) { clearInterval(check); resolve(_supabaseBOM || {}); }
+      }, 100);
+    });
+  }
+
+  _bomLoading = true;
+  try {
+    const { data, error } = await supabase
+      .from('bom_conjuntos')
+      .select('*')
+      .order('conjunto_nome', { ascending: true });
+
+    if (error) throw error;
+
+    if (data && data.length > 0) {
+      _supabaseBOM = {};
+      data.forEach(row => {
+        const nome = row.conjunto_nome;
+        if (!_supabaseBOM[nome]) _supabaseBOM[nome] = [];
+        _supabaseBOM[nome].push({
+          marca: row.marca,
+          quantidade: row.quantidade || 1,
+          perfil: row.perfil || '',
+          comprimento: row.comprimento || 0,
+          peso: row.peso || 0,
+          tipo: row.tipo || '',
+        });
+      });
+      console.log(`[BOM] Supabase: ${Object.keys(_supabaseBOM).length} conjuntos com BOM real`);
+    }
+  } catch (e) {
+    // Tabela pode não existir ainda — fallback silencioso
+    console.warn('[BOM] Supabase BOM indisponível (tabela pode não existir):', e.message);
+    _supabaseBOM = {};
+  }
+  _bomLoading = false;
+  return _supabaseBOM || {};
+}
+
+/**
+ * Busca BOM por conjunto — versão async que tenta Supabase primeiro.
+ * Se Supabase tiver BOM para o conjunto, retorna ele.
+ * Senão, retorna o BOM gerado proceduralmente.
+ */
+export async function getBOMByConjuntoAsync(conjuntoNome) {
+  const supBOM = await loadBOMFromSupabase();
+  if (supBOM[conjuntoNome]) return supBOM[conjuntoNome];
+  return CONJUNTO_BOM_TEMP[conjuntoNome] || null;
+}
+
+// Preload em background
+setTimeout(() => loadBOMFromSupabase(), 1000);
 
 // Marca pools organized by croqui type
 const MARCA_POOLS = {
@@ -325,7 +397,11 @@ for (let i = 1; i <= 4; i++) {
 export const CONJUNTO_BOM = CONJUNTO_BOM_TEMP;
 
 // Helper function to get BOM by conjunto name
+// Se houver BOM real do Supabase (já carregado), usa ele; senão, usa procedural
 export function getBOMByConjunto(conjuntoNome) {
+  if (_supabaseBOM && _supabaseBOM[conjuntoNome]) {
+    return _supabaseBOM[conjuntoNome];
+  }
   return CONJUNTO_BOM[conjuntoNome] || null;
 }
 

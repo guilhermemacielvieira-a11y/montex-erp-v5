@@ -11,8 +11,8 @@
  * - Sincronização entre páginas
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
-import { movEstoqueApi, estoqueApi, isSupabaseConfigured, supabase } from '@/api/supabaseClient';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useState, useEffect } from 'react';
+import { estoqueApi, movEstoqueApi } from '../api/supabaseClient';
 
 // ========================================
 // DADOS INICIAIS DE ESTOQUE REAL
@@ -554,71 +554,60 @@ const EstoqueRealContext = createContext(null);
 
 export function EstoqueRealProvider({ children }) {
   const [state, dispatch] = useReducer(estoqueRealReducer, initialState);
-  const [supabaseSync, setSupabaseSync] = useState(false);
+  const [supabaseLoaded, setSupabaseLoaded] = useState(false);
+  const [supabaseItemMap] = useState(() => new Map()); // id_local → id_supabase
 
-  // ===== SINCRONIZAÇÃO SUPABASE =====
-  // Carrega estoque e movimentações do Supabase na inicialização (se disponível)
+  // ===== SUPABASE SYNC - Carregar estoque persistido =====
   useEffect(() => {
-    if (!isSupabaseConfigured()) return;
-
-    async function syncFromSupabase() {
+    async function loadEstoque() {
       try {
-        // Carregar estoque do Supabase (com todos os campos incluindo categoria, pedido, etc.)
-        const estoqueData = await estoqueApi.getAll();
+        const estoqueData = await estoqueApi.getAll('descricao', true);
         if (estoqueData && estoqueData.length > 0) {
-          // Mapear campos snake_case do Supabase → camelCase do front
-          const estoqueFormatado = estoqueData.map(item => ({
-            id: item.id,
-            codigo: item.codigo || '',
-            nome: item.nome || item.descricao || '',
-            categoria: item.categoria || item.tipo || '',
-            unidade: item.unidade || 'kg',
-            quantidade: parseFloat(item.quantidade) || 0,
-            pedido: parseFloat(item.pedido) || 0,
-            comprado: parseFloat(item.comprado) || 0,
-            falta: parseFloat(item.falta) || 0,
-            minimo: parseFloat(item.minimo) || 0,
-            maximo: parseFloat(item.maximo) || 0,
-            preco: parseFloat(item.preco) || 0,
-            localizacao: item.localizacao || '',
-            ultimaEntrada: item.ultima_entrada || '',
-            ultimaSaida: item.ultima_saida || '',
-          }));
-          dispatch({ type: ACTIONS.SET_ESTOQUE, payload: estoqueFormatado });
-        }
+          // Mapear itens do Supabase para o formato local
+          const estoqueTransformado = estoqueData.map(item => {
+            // Mapear id local → id Supabase para updates futuros
+            const localId = item.codigo || item.id;
+            supabaseItemMap.set(localId, item.id);
+            // Também mapear por id se existir campo id_local
+            if (item.id_local) supabaseItemMap.set(item.id_local, item.id);
 
-        // Carregar movimentações recentes
-        const movData = await movEstoqueApi.getAll();
-        if (movData && movData.length > 0) {
-          const movFormatadas = movData.map(m => ({
-            id: m.id,
-            data: m.data || m.created_at,
-            tipo: m.tipo,
-            materialId: m.item_id || m.material_perfil,
-            quantidade: parseFloat(m.quantidade) || 0,
-            obra: m.obra_id || '',
-            setor: m.setor || '',
-            usuario: m.usuario || m.responsavel || '',
-            nf: m.nota_fiscal || '',
-            motivo: m.motivo || '',
-            pecaId: m.peca_id || '',
-            perfil: m.material_perfil || ''
-          }));
-          // Merge com movimentações existentes (evitar duplicatas)
-          movFormatadas.forEach(mov => {
-            dispatch({ type: ACTIONS.ADD_MOVIMENTACAO, payload: mov });
+            return {
+              id: item.id_local || item.codigo || item.id,
+              codigo: item.codigo || item.descricao || '',
+              nome: item.descricao || item.nome || '',
+              categoria: item.categoria || 'perfis',
+              unidade: item.unidade || 'kg',
+              quantidade: parseFloat(item.quantidade) || 0,
+              pedido: parseFloat(item.pedido) || 0,
+              comprado: parseFloat(item.comprado || item.quantidade) || 0,
+              falta: parseFloat(item.falta) || 0,
+              minimo: parseFloat(item.minimo || item.estoque_minimo) || 0,
+              maximo: parseFloat(item.maximo || item.estoque_maximo) || 0,
+              localizacao: item.localizacao || '',
+              preco: parseFloat(item.preco || item.preco_unitario) || 0,
+              ultimaEntrada: item.ultima_entrada || item.updated_at?.split('T')[0] || '',
+              ultimaSaida: item.ultima_saida || '',
+              _supabaseId: item.id, // guardar referência para updates
+            };
           });
+
+          dispatch({ type: ACTIONS.SET_ESTOQUE, payload: estoqueTransformado });
+          console.log(`[EstoqueReal] Supabase sync: ${estoqueTransformado.length} itens carregados`);
         }
-
-        setSupabaseSync(true);
-        console.log('[EstoqueReal] Sincronizado com Supabase -', estoqueData?.length, 'itens');
-      } catch (err) {
-        console.warn('[EstoqueReal] Falha ao sincronizar com Supabase, usando dados locais:', err);
+      } catch (e) {
+        console.warn('[EstoqueReal] Supabase indisponível, usando dados locais:', e.message);
       }
+      setSupabaseLoaded(true);
     }
+    loadEstoque();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-    syncFromSupabase();
-  }, []);
+  // Helper: encontrar id Supabase de um item local
+  const findSupabaseId = useCallback((localItem) => {
+    if (!localItem) return null;
+    if (localItem._supabaseId) return localItem._supabaseId;
+    return supabaseItemMap.get(localItem.id) || supabaseItemMap.get(localItem.codigo) || null;
+  }, [supabaseItemMap]);
 
   // ===== AÇÕES =====
 
@@ -630,84 +619,45 @@ export function EstoqueRealProvider({ children }) {
       payload: { perfil, peso, obraId, pecaId, motivo, comprimento }
     });
 
-    // Persistir movimentação E atualizar quantidade no Supabase (async)
-    if (isSupabaseConfigured()) {
-      const agora = new Date().toISOString();
-
-      // 1. Encontrar o item do estoque que será deduzido (mesma lógica do reducer)
+    // Sync async para Supabase (após dispatch local)
+    if (supabaseLoaded) {
+      // Encontrar o item que vai ser deduzido (mesma lógica do reducer)
       const perfilUpper = (perfil || '').toUpperCase();
-      let matchedItem = null;
-
-      // Match inteligente simplificado para achar o item_id
-      const currentEstoque = state.estoqueReal;
-      if (perfilUpper.startsWith('W') || perfilUpper.startsWith('HP')) {
-        const matches = currentEstoque.filter(item => {
-          const codPrefix = (item.codigo || '').split('-')[0].toUpperCase();
-          return codPrefix === perfilUpper;
-        });
-        if (matches.length === 1) matchedItem = matches[0];
-        else if (matches.length > 1) {
-          const comp = comprimento || 0;
-          matchedItem = (comp > 0 && comp <= 6500)
-            ? (matches.find(m => m.codigo.includes('6M')) || matches[0])
-            : (matches.find(m => m.codigo.includes('12M')) || matches[0]);
+      const item = state.estoqueReal.find(i => {
+        const cod = (i.codigo || '').toUpperCase();
+        const codPrefix = cod.split('-')[0];
+        if (perfilUpper.startsWith('W') || perfilUpper.startsWith('HP')) return codPrefix === perfilUpper;
+        if (perfilUpper.startsWith('CH')) {
+          const espMatch = perfilUpper.match(/^CH([\d.]+)/);
+          if (espMatch) return cod.includes('-' + espMatch[1] + 'X') || cod.includes('-' + espMatch[1] + '-');
         }
-      } else if (perfilUpper.startsWith('CH')) {
-        const espMatch = perfilUpper.match(/^CH([\d.]+)/);
-        if (espMatch) {
-          matchedItem = currentEstoque.find(i =>
-            i.categoria === 'chapas' && (i.codigo || '').includes('-' + espMatch[1] + 'X')
-          );
-        }
-      } else if (perfilUpper.includes('FERRO') || perfilUpper.includes('Ø')) {
-        const diaMatch = perfilUpper.match(/Ø([\d/]+)/);
-        if (diaMatch) {
-          matchedItem = currentEstoque.find(i =>
-            i.categoria === 'barras' && (i.codigo || '').includes('-' + diaMatch[1] + '-')
-          );
-        }
-      } else if (perfilUpper.startsWith('L')) {
-        const dimMatch = perfilUpper.match(/^L([\d.]+)/);
-        if (dimMatch) {
-          const lado = parseFloat(dimMatch[1]);
-          if (lado <= 45) matchedItem = currentEstoque.find(i => i.id === 'ER018');
-          else if (lado <= 70) matchedItem = currentEstoque.find(i => i.id === 'ER020');
-          else matchedItem = currentEstoque.find(i => i.id === 'ER019');
-        }
-      }
-
-      // 2. Registrar movimentação de saída
-      movEstoqueApi.create({
-        tipo: 'saida',
-        item_id: matchedItem?.id || null,
-        material_perfil: perfil,
-        quantidade: peso,
-        peso: peso,
-        unidade: 'kg',
-        obra_id: obraId || null,
-        peca_id: pecaId || null,
-        motivo: motivo || 'Entrada em Corte',
-        setor: 'Corte',
-        usuario: 'Sistema Kanban',
-        data: agora,
-      }).catch(err => {
-        console.warn('[EstoqueReal] Falha ao persistir movimentação no Supabase:', err);
+        return false;
       });
 
-      // 3. Atualizar quantidade real no Supabase (baixa efetiva)
-      if (matchedItem) {
-        const novaQtd = Math.max(0, (matchedItem.quantidade || 0) - peso);
-        estoqueApi.update(matchedItem.id, {
-          quantidade: novaQtd,
-          ultima_saida: agora.split('T')[0]
-        }).then(() => {
-          console.log(`[EstoqueReal] Baixa Supabase: ${matchedItem.codigo} ${matchedItem.quantidade}kg → ${novaQtd}kg (-${peso}kg)`);
-        }).catch(err => {
-          console.warn('[EstoqueReal] Falha ao atualizar quantidade no Supabase:', err);
-        });
+      if (item) {
+        const supId = findSupabaseId(item);
+        if (supId) {
+          const novaQtd = Math.max(0, item.quantidade - peso);
+          estoqueApi.update(supId, {
+            quantidade: novaQtd,
+            ultima_saida: new Date().toISOString().split('T')[0]
+          }).catch(e => console.error('[EstoqueReal] Sync deduzir:', e.message));
+
+          // Registrar movimentação no Supabase
+          movEstoqueApi.create({
+            tipo: 'saida',
+            material_id: supId,
+            quantidade: peso,
+            obra_id: obraId || null,
+            setor: 'Corte',
+            usuario: 'Sistema Kanban',
+            motivo: motivo || 'Entrada em Corte',
+            data: new Date().toISOString()
+          }).catch(e => console.error('[EstoqueReal] Sync movimentação:', e.message));
+        }
       }
     }
-  }, [state.estoqueReal]);
+  }, [supabaseLoaded, state.estoqueReal, findSupabaseId]);
 
   // Adicionar peso ao estoque (entrada de material)
   // Atualiza in-memory E persiste no Supabase quando disponível
@@ -717,23 +667,31 @@ export function EstoqueRealProvider({ children }) {
       payload: { itemId, quantidade, nf, setor, usuario }
     });
 
-    // Persistir entrada no Supabase (async, fire-and-forget)
-    if (isSupabaseConfigured()) {
-      const agora = new Date().toISOString();
-      movEstoqueApi.create({
-        tipo: 'entrada',
-        material_id: itemId,
-        quantidade: quantidade,
-        unidade: 'kg',
-        nf: nf || null,
-        setor: setor || 'Recebimento',
-        usuario: usuario || 'Usuário',
-        data: agora,
-      }).catch(err => {
-        console.warn('[EstoqueReal] Falha ao persistir entrada no Supabase:', err);
-      });
+    // Sync async para Supabase
+    if (supabaseLoaded) {
+      const item = state.estoqueReal.find(i => i.id === itemId);
+      if (item) {
+        const supId = findSupabaseId(item);
+        if (supId) {
+          const novaQtd = item.quantidade + quantidade;
+          estoqueApi.update(supId, {
+            quantidade: novaQtd,
+            ultima_entrada: new Date().toISOString().split('T')[0]
+          }).catch(e => console.error('[EstoqueReal] Sync adicionar:', e.message));
+
+          movEstoqueApi.create({
+            tipo: 'entrada',
+            material_id: supId,
+            quantidade: quantidade,
+            setor: setor || 'Recebimento',
+            usuario: usuario || 'Usuário',
+            nf: nf || '',
+            data: new Date().toISOString()
+          }).catch(e => console.error('[EstoqueReal] Sync movimentação entrada:', e.message));
+        }
+      }
     }
-  }, []);
+  }, [supabaseLoaded, state.estoqueReal, findSupabaseId]);
 
   // Atualizar item do estoque
   const updateItemEstoque = useCallback((id, data) => {

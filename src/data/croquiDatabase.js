@@ -1,5 +1,64 @@
 // Auto-generated CROQUI database
 // Maps MARCA numbers to CROQUI files (PDFs and DWGs)
+//
+// Supabase integration: loadCroquisFromSupabase() carrega dados do banco
+// e sobrescreve o CROQUI_INDEX local se houver dados disponíveis.
+// Fallback: CROQUI_INDEX hardcoded (abaixo) é usado se Supabase indisponível.
+
+import { croquisApi } from '../api/supabaseClient';
+
+// Cache de dados do Supabase
+let _supabaseCroquis = null;
+let _supabaseLoading = false;
+
+/**
+ * Carrega croquis do Supabase e retorna como objeto indexado por marca.
+ * Usa cache para evitar chamadas repetidas.
+ */
+export async function loadCroquisFromSupabase() {
+  if (_supabaseCroquis) return _supabaseCroquis;
+  if (_supabaseLoading) {
+    // Aguardar carregamento em andamento
+    return new Promise(resolve => {
+      const check = setInterval(() => {
+        if (!_supabaseLoading) { clearInterval(check); resolve(_supabaseCroquis || CROQUI_INDEX); }
+      }, 100);
+    });
+  }
+
+  _supabaseLoading = true;
+  try {
+    const items = await croquisApi.getAll('marca', true);
+    if (items && items.length > 0) {
+      _supabaseCroquis = {};
+      items.forEach(item => {
+        const marca = String(item.marca || item.numero);
+        _supabaseCroquis[marca] = {
+          marca: parseInt(marca),
+          tipo: item.tipo || '',
+          pdf: item.pdf_path || item.pdf || '',
+          dwg: item.dwg_path || item.dwg || '',
+        };
+      });
+      console.log(`[CroquiDB] Supabase: ${items.length} croquis carregados`);
+    }
+  } catch (e) {
+    console.warn('[CroquiDB] Supabase indisponível, usando dados locais:', e.message);
+  }
+  _supabaseLoading = false;
+  return _supabaseCroquis || CROQUI_INDEX;
+}
+
+/**
+ * Busca croqui por marca — versão async que tenta Supabase primeiro.
+ */
+export async function getCroquiByMarcaAsync(marca) {
+  const db = await loadCroquisFromSupabase();
+  return db[String(marca)] || CROQUI_INDEX[String(marca)] || null;
+}
+
+// Preload em background (non-blocking, com delay para não competir com load inicial)
+setTimeout(() => loadCroquisFromSupabase(), 500);
 
 export const CROQUI_INDEX = {
   '5': { marca: 5, tipo: 'COLUNA', pdf: '/croquis/COLUNA/2025-52-CR-5-R0-COLUNA-Model.pdf', dwg: '/croquis/COLUNA/2025-52-CR-5-R0-COLUNA.dwg' },

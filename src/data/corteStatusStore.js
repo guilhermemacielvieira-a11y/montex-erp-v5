@@ -8,15 +8,23 @@
 //   'aguardando'  → Peça na fila para corte
 //   'cortando'    → Peça sendo cortada agora
 //   'finalizado'  → Corte concluído
+//
+// Persistência: Supabase (pecas_producao.status_corte)
+// Padrão: optimistic local update + async Supabase sync
 // ============================================
 
 import { listasMaterial } from './database';
+import { pecasApi } from '../api/supabaseClient';
 
 // Estado central: Map de marca → { status, dataInicio, dataFim }
 const corteStatus = new Map();
 
 // Listeners para notificações em tempo real
 const listeners = new Set();
+
+// Supabase sync state
+let supabaseReady = false;
+const supabaseItemMap = new Map(); // marca → id (Supabase row id)
 
 // Inicializar todas as marcas da lista de corte como 'aguardando'
 function initializeFromDatabase() {
@@ -42,8 +50,56 @@ function initializeFromDatabase() {
   });
 }
 
-// Inicializar ao carregar
+// Inicializar ao carregar (dados locais imediatos)
 initializeFromDatabase();
+
+// ============================================
+// SUPABASE SYNC - Carregar status persistido
+// ============================================
+
+/**
+ * Carrega status de corte do Supabase (pecas_producao).
+ * Sobrescreve o status local com o que está salvo no banco.
+ * Retorna Promise para KanbanCortePage poder aguardar.
+ */
+export async function loadFromSupabase() {
+  try {
+    const pecas = await pecasApi.getAll('marca', true);
+    if (!pecas || pecas.length === 0) {
+      supabaseReady = true;
+      return;
+    }
+
+    pecas.forEach(peca => {
+      // Mapear marca → id para updates futuros
+      if (peca.marca) {
+        supabaseItemMap.set(peca.marca, peca.id);
+      }
+
+      // Se a peça tem status_corte salvo E existe no nosso Map local, restaurar
+      if (peca.marca && peca.status_corte && corteStatus.has(peca.marca)) {
+        const item = corteStatus.get(peca.marca);
+        // Só atualizar se o status do Supabase é diferente do padrão
+        if (['cortando', 'finalizado'].includes(peca.status_corte)) {
+          item.status = peca.status_corte;
+          item.dataInicio = peca.data_inicio_corte || peca.data_inicio || item.dataInicio;
+          item.dataFim = peca.data_fim_corte || peca.data_fim || item.dataFim;
+        }
+      }
+    });
+
+    supabaseReady = true;
+    notifyListeners(); // Atualizar UI com dados persistidos
+    console.log(`[CorteStore] Supabase sync: ${supabaseItemMap.size} peças mapeadas`);
+  } catch (e) {
+    // Fallback silencioso — dados locais continuam funcionando
+    console.warn('[CorteStore] Supabase indisponível, usando dados locais:', e.message);
+    supabaseReady = false;
+  }
+}
+
+// Iniciar preload do Supabase em background (non-blocking)
+loadFromSupabase();
 
 // ============================================
 // NOTIFICAÇÕES
@@ -71,6 +127,17 @@ export function iniciarCorte(marca, maquina = null) {
   item.dataInicio = new Date().toISOString();
   item.maquina = maquina;
   notifyListeners();
+
+  // Sync async para Supabase
+  if (supabaseReady) {
+    const id = supabaseItemMap.get(marca);
+    if (id) {
+      pecasApi.update(id, {
+        status_corte: 'cortando',
+        data_inicio_corte: item.dataInicio
+      }).catch(e => console.error('[CorteStore] Sync iniciarCorte:', e.message));
+    }
+  }
   return true;
 }
 
@@ -81,6 +148,17 @@ export function finalizarCorte(marca) {
   item.status = 'finalizado';
   item.dataFim = new Date().toISOString();
   notifyListeners();
+
+  // Sync async para Supabase
+  if (supabaseReady) {
+    const id = supabaseItemMap.get(marca);
+    if (id) {
+      pecasApi.update(id, {
+        status_corte: 'finalizado',
+        data_fim_corte: item.dataFim
+      }).catch(e => console.error('[CorteStore] Sync finalizarCorte:', e.message));
+    }
+  }
   return true;
 }
 
@@ -93,21 +171,53 @@ export function resetarCorte(marca) {
   item.dataFim = null;
   item.maquina = null;
   notifyListeners();
+
+  // Sync async para Supabase
+  if (supabaseReady) {
+    const id = supabaseItemMap.get(marca);
+    if (id) {
+      pecasApi.update(id, {
+        status_corte: 'aguardando',
+        data_inicio_corte: null,
+        data_fim_corte: null
+      }).catch(e => console.error('[CorteStore] Sync resetarCorte:', e.message));
+    }
+  }
   return true;
 }
 
 // Finalizar várias marcas de uma vez
 export function finalizarCorteEmLote(marcas) {
   let count = 0;
+  const now = new Date().toISOString();
+  const updatedMarcas = [];
+
   marcas.forEach(marca => {
     const item = corteStatus.get(marca);
     if (item && item.status !== 'finalizado') {
       item.status = 'finalizado';
-      item.dataFim = new Date().toISOString();
+      item.dataFim = now;
       count++;
+      updatedMarcas.push(marca);
     }
   });
   if (count > 0) notifyListeners();
+
+  // Batch sync async para Supabase
+  if (supabaseReady && updatedMarcas.length > 0) {
+    const promises = updatedMarcas.map(marca => {
+      const id = supabaseItemMap.get(marca);
+      if (!id) return Promise.resolve();
+      return pecasApi.update(id, {
+        status_corte: 'finalizado',
+        data_fim_corte: now
+      });
+    });
+    Promise.allSettled(promises).then(results => {
+      const failed = results.filter(r => r.status === 'rejected').length;
+      if (failed > 0) console.warn(`[CorteStore] Lote: ${failed}/${updatedMarcas.length} falhas no sync`);
+    });
+  }
   return count;
 }
 

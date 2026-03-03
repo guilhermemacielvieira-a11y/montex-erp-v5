@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { exportToExcel } from '@/utils/exportUtils';
+import { exportToExcel, exportRomaneioPDF } from '@/utils/exportUtils';
 import { useExpedicao, useObras } from '../contexts/ERPContext';
 import { pecasApi } from '../api/supabaseClient';
 import { transformPecaArray } from '../contexts/transforms';

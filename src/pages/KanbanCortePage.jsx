@@ -10,8 +10,18 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
-import { useCorteSupabase } from '../hooks/useCorteSupabase';
+import {
+  getAllCorteItems,
+  getCorteMetrics,
+  getCorteCategorias,
+  iniciarCorte,
+  finalizarCorte,
+  resetarCorte,
+  finalizarCorteEmLote,
+  subscribeCorteChanges,
+  contarCortadasParaConjunto,
+  loadFromSupabase
+} from '../data/corteStatusStore';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
 import { useEstoque } from '../contexts/ERPContext';
@@ -95,7 +105,8 @@ export default function KanbanCortePage() {
   const [sortField, setSortField] = useState('marca');
   const [sortDir, setSortDir] = useState('asc');
   const [toast, setToast] = useState(null);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedMarca, setExpandedMarca] = useState(null);
+  const [supabaseLoading, setSupabaseLoading] = useState(true);
   const prevReadyRef = useRef([]);
   const toastTimer = useRef(null);
   const mountedRef = useRef(false);
@@ -209,6 +220,13 @@ export default function KanbanCortePage() {
 
   // Cleanup do timer
   useEffect(() => {
+    refresh();
+    // Carregar status persistido do Supabase, depois atualizar UI
+    loadFromSupabase()
+      .then(() => { refresh(); })
+      .catch(() => {})
+      .finally(() => setSupabaseLoading(false));
+    const unsub = subscribeCorteChanges(refresh);
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
@@ -419,6 +437,20 @@ export default function KanbanCortePage() {
           animation: 'toastSlide 0.3s ease-out', maxWidth: 600, textAlign: 'center'
         }}>
           {toast.message}
+        </div>
+      )}
+
+      {/* ====== LOADING SUPABASE ====== */}
+      {supabaseLoading && (
+        <div style={{
+          position: 'fixed', top: 20, right: 20, zIndex: 9998,
+          padding: '8px 16px', borderRadius: 8,
+          background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
+          color: '#93c5fd', fontSize: 12, fontWeight: 500,
+          display: 'flex', alignItems: 'center', gap: 8
+        }}>
+          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
+          Sincronizando com Supabase...
         </div>
       )}
 

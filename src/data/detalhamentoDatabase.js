@@ -1,5 +1,63 @@
 // Auto-generated detalhamento database
 // Generated on: Fri Feb  6 03:29:16 UTC 2026
+//
+// Supabase integration: loadDetalhamentosFromSupabase() carrega dados do banco
+// e sobrescreve o DETALHAMENTO_INDEX local se houver dados disponíveis.
+// Fallback: DETALHAMENTO_INDEX hardcoded (abaixo) é usado se Supabase indisponível.
+
+import { detalhamentosApi } from '../api/supabaseClient';
+
+// Cache de dados do Supabase
+let _supabaseDetalhamentos = null;
+let _supabaseLoading = false;
+
+/**
+ * Carrega detalhamentos do Supabase e retorna como objeto indexado por numero.
+ * Usa cache para evitar chamadas repetidas.
+ */
+export async function loadDetalhamentosFromSupabase() {
+  if (_supabaseDetalhamentos) return _supabaseDetalhamentos;
+  if (_supabaseLoading) {
+    return new Promise(resolve => {
+      const check = setInterval(() => {
+        if (!_supabaseLoading) { clearInterval(check); resolve(_supabaseDetalhamentos || DETALHAMENTO_INDEX); }
+      }, 100);
+    });
+  }
+
+  _supabaseLoading = true;
+  try {
+    const items = await detalhamentosApi.getAll('numero', true);
+    if (items && items.length > 0) {
+      _supabaseDetalhamentos = {};
+      items.forEach(item => {
+        const numero = String(item.numero);
+        _supabaseDetalhamentos[numero] = {
+          numero,
+          tipo: item.tipo || '',
+          pdf: item.pdf_path || item.pdf || '',
+          dwg: item.dwg_path || item.dwg || '',
+        };
+      });
+      console.log(`[DetalhamentoDB] Supabase: ${items.length} detalhamentos carregados`);
+    }
+  } catch (e) {
+    console.warn('[DetalhamentoDB] Supabase indisponível, usando dados locais:', e.message);
+  }
+  _supabaseLoading = false;
+  return _supabaseDetalhamentos || DETALHAMENTO_INDEX;
+}
+
+/**
+ * Busca detalhamento por número — versão async que tenta Supabase primeiro.
+ */
+export async function getDetalhamentoByNumeroAsync(numero) {
+  const db = await loadDetalhamentosFromSupabase();
+  return db[String(numero)] || DETALHAMENTO_INDEX[String(numero)] || null;
+}
+
+// Preload em background
+setTimeout(() => loadDetalhamentosFromSupabase(), 800);
 
 /**
  * DETALHAMENTO_INDEX
