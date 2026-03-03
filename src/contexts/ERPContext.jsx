@@ -612,7 +612,7 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });
 
     // Atualiza etapa das peças para EXPEDIDO
-    expedicao.pecas.forEach(pecaId => {
+    (expedicao.pecas_ids || expedicao.pecas || []).forEach(pecaId => {
       dispatch({
         type: ACTIONS.UPDATE_PECA,
         payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.EXPEDIDO } }
@@ -643,7 +643,7 @@ export function ERPProvider({ children }) {
         };
         await expedicoesApi.create(record);
         // Atualizar etapa das peças no Supabase
-        for (const pecaId of (expedicao.pecas || [])) {
+        for (const pecaId of (expedicao.pecas_ids || expedicao.pecas || [])) {
           await pecasApi.update(pecaId, { etapa: 'expedido', status: 'concluido' }).catch(() => {});
         }
         console.log(`✅ Expedição ${record.id} criada no Supabase`);
@@ -654,7 +654,7 @@ export function ERPProvider({ children }) {
 
     // Add notification for shipment
     if (window.__notificationDispatch) {
-      const numPecas = expedicao.pecas?.length || 0;
+      const numPecas = (expedicao.pecas_ids || expedicao.pecas)?.length || 0;
       window.__notificationDispatch({
         type: 'shipping',
         title: `Romaneio #${expedicao.id} expedido`,
