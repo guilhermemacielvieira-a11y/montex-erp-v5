@@ -673,7 +673,7 @@ export default function EnviosExpedicaoPage() {
                             const pecasRaw = envio.pecas_ids || envio.pecasIds || envio.pecas || [];
                             const ids = pecasRaw.map(p => typeof p === 'object' ? (p.id || p) : p);
                             // Detalhes de quantidade (do envio local ou do JSONB do Supabase)
-                            const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || (Array.isArray(envio.pecas) ? envio.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
+                            const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || (Array.isArray(envio.pecas) ? envio.pecas.filter(p => typeof p === 'object' && (p.qtd_enviada !== undefined || p.qtdEnviada !== undefined)) : []);
                             if (ids.length > 0) {
                               const todasPecasRaw = await pecasApi.getAll('id', true);
                               const todasPecas = transformPecaArray(todasPecasRaw);
