@@ -186,7 +186,7 @@ export default function CommandCenterUltra() {
     corte = {}, producao = {}, estoque = {}, financeiro = {}, campo = {},
     loading = false, lastUpdate = new Date(), comparacaoDiaria, refresh
   } = useCommandCenter() || {};
-  const { obras = [] } = useObras() || {};
+  const { obras = [], obraAtualData } = useObras() || {};
   const { maquinas = [] } = useProducao() || {};
   const { materiaisEstoque = [] } = useEstoque() || {};
 
@@ -201,10 +201,13 @@ export default function CommandCenterUltra() {
     try { return comparacaoDiaria?.() || {}; } catch { return {}; }
   }, [comparacaoDiaria]);
 
-  const obrasAtivas = useMemo(() => obras?.filter(o => o?.status === 'em_producao' || o?.status === 'Em ProduÃ§Ã£o') || [], [obras]);
+  // Apenas a obra ativa atual (SUPER LUNA) - não mostrar outras obras
+  const obrasAtivas = useMemo(() => obraAtualData ? [obraAtualData] : [], [obraAtualData]);
   const maquinasAtivas = useMemo(() => maquinas?.filter(m => m?.status === 'ativa' || m?.status === 'operando') || [], [maquinas]);
 
-  const pesoTotal = (corte?.pesoTotal || 0) + (producao?.pesoTotal || 0);
+  // Peso total baseado na obra ativa (SUPER LUNA)
+  const pesoTotalObra = obraAtualData?.pesoTotal || obraAtualData?.peso_total || 0;
+  const pesoTotal = pesoTotalObra > 0 ? pesoTotalObra : (corte?.pesoTotal || 0) + (producao?.pesoTotal || 0);
   const pesoExpedido = producao?.pesoExpedido || 0;
   const progressoGeralPeso = pesoTotal > 0 ? (pesoExpedido / pesoTotal) * 100 : 0;
 
@@ -227,9 +230,9 @@ export default function CommandCenterUltra() {
   const projetosData = useMemo(() =>
     obrasAtivas.slice(0, 6).map(o => ({
       nome: o?.codigo || o?.nome || 'Projeto',
-      progresso: o?.percentualConcluido || 0,
-      peso: o?.pesoTotal || 0,
-      valor: o?.valorTotal || 0,
+      progresso: o?.percentualConcluido || o?.progresso?.geral || 0,
+      peso: o?.pesoTotal || o?.peso_total || 0,
+      valor: o?.valorContrato || o?.valor_contrato || o?.valorTotal || 0,
     })), [obrasAtivas]);
 
   const alertas = useMemo(() => {
@@ -288,8 +291,8 @@ export default function CommandCenterUltra() {
 
         {/* ROW 1: KPI CARDS */}
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          <StatCard icon={Building2} label="Obras Ativas" value={obrasAtivas.length} color="#3B82F6"
-            subtitle={`${obras?.length || 0} total cadastradas`} />
+          <StatCard icon={Building2} label="Obra Ativa" value={obrasAtivas.length} color="#3B82F6"
+            subtitle={obraAtualData?.nome || obraAtualData?.codigo || 'SUPER LUNA'} />
           <StatCard icon={Weight} label="Peso Total" value={formatWeight(pesoTotal)} color="#8B5CF6"
             subtitle={`${formatWeight(pesoExpedido)} expedido`} trend={comparacao?.producao?.pesoExpedido} />
           <StatCard icon={Package} label="PeÃ§as Hoje" value={producao?.movidasHoje || 0} color="#10B981"
