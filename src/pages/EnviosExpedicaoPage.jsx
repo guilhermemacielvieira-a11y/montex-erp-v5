@@ -816,20 +816,20 @@ export default function EnviosExpedicaoPage() {
                 <Truck className="w-5 h-5 text-blue-400" />
                 <h3 className="font-semibold text-white">Em Trânsito</h3>
                 <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-blue-500/20 text-blue-400">
-                  {(expedicoes || []).filter(e => e.status === 'EM_TRANSITO').length}
+                  {(expedicoes || []).filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mb-3">Envios criados a partir do romaneio expedido</p>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {(expedicoes || []).filter(e => e.status === 'EM_TRANSITO').length === 0 ? (
+                {(expedicoes || []).filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-4">Nenhum envio em trânsito</p>
-                ) : (expedicoes || []).filter(e => e.status === 'EM_TRANSITO').map(e => (
+                ) : (expedicoes || []).filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').map(e => (
                   <div key={e.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-blue-500">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
-                        <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{formatPeso(parseFloat(e.peso_total) || 0)} · {(e.pecas_ids || []).length} peça(s)</p>
+                        <p className="font-medium text-white">{e.numero || e.numeroRomaneio || e.numero_romaneio || 'Sem número'}</p>
+                        <p className="text-gray-400">{e.obra_nome || e.obraNome || e.destino || '-'}</p>
+                        <p className="text-gray-500">{formatPeso(parseFloat(e.peso_total || e.pesoTotal) || 0)} · {(e.pecas_ids || e.pecas || []).length} peça(s)</p>
                         {e.transportadora && <p className="text-gray-500 mt-0.5">{e.transportadora}</p>}
                       </div>
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300"
@@ -860,7 +860,12 @@ export default function EnviosExpedicaoPage() {
           {/* Status secundários: Entregue e Problema */}
           <div className="grid grid-cols-2 gap-6 mb-6">
             {STATUS_ENVIO.filter(s => s.id === 'ENTREGUE' || s.id === 'PROBLEMA').map(status => {
-              const enviosDoStatus = (expedicoes || []).filter(e => e.status === status.id);
+              const enviosDoStatus = (expedicoes || []).filter(e => (e.status || '').toUpperCase() === status.id);
+              const pesoTotalStatus = enviosDoStatus.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0);
+              const qtdPecasStatus = enviosDoStatus.reduce((sum, e) => {
+                const pecasArr = e.pecas_ids || e.pecas || [];
+                return sum + pecasArr.length;
+              }, 0);
               return (
                 <div key={status.id} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
                   <div className="flex items-center gap-2 mb-3">
@@ -868,21 +873,65 @@ export default function EnviosExpedicaoPage() {
                     <p className="font-medium text-sm text-white">{status.nome}</p>
                     <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold"
                       style={{ background: status.cor + '22', color: status.cor }}>
-                      {enviosDoStatus.length}
+                      {enviosDoStatus.length} envio(s)
                     </span>
                   </div>
-                  <div className="space-y-2">
-                    {enviosDoStatus.map(e => (
-                      <div key={e.id} className="bg-gray-800 rounded p-2 text-xs">
-                        <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
-                        <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{formatPeso(parseFloat(e.peso_total) || 0)}</p>
-                      </div>
-                    ))}
+                  <div className="space-y-2 max-h-64 overflow-y-auto">
+                    {enviosDoStatus.map(e => {
+                      const numEnvio = e.numero || e.numeroRomaneio || e.numero_romaneio || 'Sem número';
+                      const obraNome = e.obra_nome || e.obraNome || e.destino || '-';
+                      const pesoEnvio = parseFloat(e.peso_total || e.pesoTotal) || 0;
+                      const pecasEnvio = e.pecas_ids || e.pecas || [];
+                      const qtdPecas = pecasEnvio.length;
+                      // Extrair detalhes das peças para listar individualmente
+                      const pecasDetalhes = e.pecas_detalhes || e.pecasDetalhes || (Array.isArray(e.pecas) ? e.pecas.filter(p => typeof p === 'object') : []);
+                      return (
+                        <div key={e.id} className="bg-gray-800 rounded p-3 text-xs" style={{ borderLeft: `3px solid ${status.cor}` }}>
+                          <div className="flex justify-between items-start mb-2">
+                            <div>
+                              <p className="font-medium text-white text-sm">{numEnvio}</p>
+                              <p className="text-gray-400">{obraNome}</p>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-white font-medium">{formatPeso(pesoEnvio)}</p>
+                              <p className="text-gray-400">{qtdPecas} peça(s)</p>
+                            </div>
+                          </div>
+                          {e.transportadora && <p className="text-gray-500 mb-1">Transp: {e.transportadora} {e.motorista ? `· ${e.motorista}` : ''}</p>}
+                          {e.data_envio || e.dataEnvio ? <p className="text-gray-500 mb-1">Data: {e.data_envio || e.dataEnvio}</p> : null}
+                          {pecasDetalhes.length > 0 && (
+                            <div className="mt-2 pt-2 border-t border-gray-700">
+                              <p className="text-gray-500 mb-1 font-medium">Peças:</p>
+                              <div className="grid grid-cols-2 gap-1">
+                                {pecasDetalhes.slice(0, 10).map((p, idx) => (
+                                  <span key={idx} className="text-gray-400">
+                                    {p.marca || p.id || `#${idx+1}`} {p.qtd_enviada || p.qtdEnviada ? `(${p.qtd_enviada || p.qtdEnviada}un)` : ''}
+                                  </span>
+                                ))}
+                                {pecasDetalhes.length > 10 && <span className="text-gray-500">+{pecasDetalhes.length - 10} mais...</span>}
+                              </div>
+                            </div>
+                          )}
+                          <div className="mt-2 flex gap-2">
+                            <Button variant="ghost" size="sm" className="h-6 px-2 text-xs hover:text-white"
+                              style={{ color: status.cor }}
+                              onClick={() => gerarRomaneio(e)}>
+                              <Printer className="w-3 h-3 mr-1" /> Romaneio
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
                     {enviosDoStatus.length === 0 && (
                       <p className="text-gray-600 text-xs text-center py-4">Nenhum</p>
                     )}
                   </div>
+                  {enviosDoStatus.length > 0 && (
+                    <div className="mt-3 pt-2 border-t border-gray-800 text-xs text-gray-500 flex justify-between">
+                      <span>Total: {formatPeso(pesoTotalStatus)}</span>
+                      <span>{qtdPecasStatus} peça(s) em {enviosDoStatus.length} envio(s)</span>
+                    </div>
+                  )}
                 </div>
               );
             })}
