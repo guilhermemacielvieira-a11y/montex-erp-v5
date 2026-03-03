@@ -8,7 +8,7 @@ import { transformPecaArray } from '../contexts/transforms';
 import {
   Truck, Package, CheckCircle2, AlertCircle, Search, Plus,
   FileText, Download, ChevronDown, Building2, Weight,
-  ArrowRight, Printer, ArrowUpAZ, X, SendHorizontal
+  ArrowRight, Printer, ArrowUpAZ, X, SendHorizontal, FileDown
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -436,8 +436,17 @@ export default function EnviosExpedicaoPage() {
                       </div>
                       <div className="flex gap-2 ml-4">
                         <Button variant="outline" size="sm" onClick={() => gerarRomaneio(envio)}
-                          className="border-gray-700 text-gray-300 hover:text-white">
+                          className="border-gray-700 text-gray-300 hover:text-white" title="Imprimir Romaneio">
                           <Printer className="w-4 h-4" />
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => {
+                          const obraRelacionada = obras.find(o => o.id === envio.obra_id) || {};
+                          const pecasEnvio = envio.itens || envio.pecas || [];
+                          const success = exportRomaneioPDF(envio, obraRelacionada, pecasEnvio);
+                          if (success) toast.success('Romaneio PDF gerado!');
+                          else toast.error('Erro ao gerar PDF');
+                        }} className="border-teal-700 text-teal-400 hover:text-teal-300 hover:bg-teal-900/30" title="Gerar Romaneio PDF">
+                          <FileDown className="w-4 h-4" />
                         </Button>
                         <Select.Root value={envio.status} onValueChange={(val) => updateExpedicao(envio.id, { status: val })}>
                           <Select.Trigger className="flex items-center gap-1 bg-gray-800 border border-gray-700 text-white px-2 py-1 rounded text-xs">

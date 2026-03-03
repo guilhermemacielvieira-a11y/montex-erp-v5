@@ -11,15 +11,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  getAllCorteItems,
-  getCorteMetrics,
-  getCorteCategorias,
-  iniciarCorte,
-  finalizarCorte,
-  resetarCorte,
-  finalizarCorteEmLote,
   subscribeCorteChanges,
-  contarCortadasParaConjunto,
   loadFromSupabase
 } from '../data/corteStatusStore';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
