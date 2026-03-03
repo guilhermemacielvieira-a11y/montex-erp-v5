@@ -269,41 +269,191 @@ export default function EnviosExpedicaoPage() {
     return pesoKg.toFixed(2) + 'kg';
   }, []);
 
-  // ==== GERAR ROMANEIO ====
-  const gerarRomaneio = useCallback((envio) => {
-    const pecasEnvio = (envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length;
+  // ==== GERAR ROMANEIO ONLINE (HTML) ====
+  const gerarRomaneio = useCallback(async (envio) => {
+    // Buscar peças completas
+    let pecasCompletas = [];
+    try {
+      const pecasRaw = envio.pecas_ids || envio.pecasIds || envio.pecas || [];
+      const ids = pecasRaw.map(p => typeof p === 'object' ? (p.id || p) : p);
+      const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || [];
+      if (ids.length > 0) {
+        const todasPecasRaw = await pecasApi.getAll('id', true);
+        const todasPecas = transformPecaArray(todasPecasRaw);
+        const idsSet = new Set(ids.map(String));
+        pecasCompletas = todasPecas.filter(p => idsSet.has(String(p.id)));
+        pecasCompletas = pecasCompletas.map(p => {
+          const det = detalhes.find(d => String(d.id) === String(p.id));
+          return { ...p, qtdEnviada: det?.qtd_enviada || det?.qtdEnviada || parseInt(p.quantidade) || 1 };
+        });
+      }
+    } catch (e) { console.error(e); }
+
+    const obraRelacionada = obras.find(o => o.id === (envio.obra_id || envio.obraId)) || {};
+    const romaneioNum = envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio';
+    const statusEnvio = (envio.status || 'PREPARANDO').toUpperCase().replace(/_/g, ' ');
+    const obraNome = obraRelacionada?.nome || envio.obra_nome || '-';
+    const clienteNome = obraRelacionada?.cliente || envio.cliente || '-';
+    const obraCodigo = obraRelacionada?.codigo || envio.obra_codigo || obraRelacionada?.numero || '-';
+    const dataSrc = envio.data_envio || envio.dataExpedicao || envio.data_expedicao;
+    const dataCarreg = dataSrc ? new Date(dataSrc + (dataSrc.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+
+    let pesoTotal = 0;
+    let qtdTotal = 0;
+    pecasCompletas.forEach(p => {
+      const qty = p.qtdEnviada || parseInt(p.quantidade) || 1;
+      const pesoRaw = parseFloat(p.peso) || 0;
+      const qtyOrig = parseInt(p.quantidade) || 1;
+      pesoTotal += (qtyOrig > 0 ? pesoRaw / qtyOrig : pesoRaw) * qty;
+      qtdTotal += qty;
+    });
+
+    // Se não encontrou peças, usar dados do envio
+    if (pecasCompletas.length === 0) {
+      pesoTotal = parseFloat(envio.peso_total) || 0;
+      qtdTotal = envio.quantidade_total || 0;
+    }
+
+    const pecasRows = pecasCompletas.map((p, i) => {
+      const qty = p.qtdEnviada || parseInt(p.quantidade) || 1;
+      const pesoRaw = parseFloat(p.peso) || 0;
+      const qtyOrig = parseInt(p.quantidade) || 1;
+      const pesoUnit = qtyOrig > 0 ? pesoRaw / qtyOrig : pesoRaw;
+      const pesoTot = pesoUnit * qty;
+      const marca = p.marca || p.nome || p.codigo || '-';
+      const tipo = (p.tipo || p.perfil || p.descricao || '-').toUpperCase();
+      return `<tr style="${i % 2 === 0 ? 'background:#f8fafc' : ''}">
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0">${i + 1}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;font-weight:bold">${marca}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0">${tipo}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:center">${qty}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right">${pesoUnit.toFixed(1)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold">${pesoTot.toFixed(1)}</td>
+      </tr>`;
+    }).join('');
+
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-    <title>Romaneio - ${envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio'}</title>
+    <title>Romaneio - ${romaneioNum}</title>
     <style>
-      body{font-family:Arial,sans-serif;margin:20px;color:#333}
-      h1{color:#1a56db;border-bottom:2px solid #1a56db;padding-bottom:8px}
-      table{width:100%;border-collapse:collapse;margin-top:16px}
-      th{background:#1a56db;color:white;padding:8px;text-align:left}
-      td{padding:8px;border-bottom:1px solid #ddd}
-      .info{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;background:#f5f5f5;padding:16px;border-radius:8px}
-      .info p{margin:4px 0}
-      @media print{button{display:none}}
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;background:#fff}
+      .header{background:#1e293b;padding:16px 24px;display:flex;justify-content:space-between;align-items:center}
+      .header-left h1{color:#fff;font-size:20px;margin-bottom:2px}
+      .header-left .sub{color:#94a3b8;font-size:8px;letter-spacing:2px}
+      .header-left .sub2{color:#94a3b8;font-size:10px;margin-top:8px}
+      .header-right{text-align:right}
+      .header-right .num{color:#fff;font-size:20px;font-weight:bold}
+      .header-right .label{color:#94a3b8;font-size:10px}
+      .header-right .status{color:#10b981;font-weight:bold;font-size:11px}
+      .teal-bar{height:4px;background:#368784}
+      .section{margin:16px 24px;border:1px solid #cbd5e1;border-radius:6px;overflow:hidden}
+      .section-title{background:#f1f5f9;padding:6px 12px;font-size:10px;font-weight:bold;color:#475569;border-bottom:1px solid #dce1e8}
+      .section-body{padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+      .field{font-size:12px;line-height:1.6}
+      .field b{color:#475569}
+      .table-header{background:#1e293b;color:#fff;padding:8px 12px;font-size:10px;font-weight:bold;display:flex;justify-content:space-between;margin:16px 24px 0;border-radius:6px 6px 0 0}
+      table{width:calc(100% - 48px);margin:0 24px;border-collapse:collapse;font-size:11px}
+      th{background:#475569;color:#fff;padding:6px 10px;text-align:left;font-size:9px}
+      .total-row{background:#e2e8f0;font-weight:bold;font-size:12px}
+      .total-row td{padding:8px 10px}
+      .signatures{margin:24px 24px;page-break-inside:avoid}
+      .signatures h3{font-size:10px;color:#475569;margin-bottom:16px}
+      .sig-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;text-align:center}
+      .sig-box .line{border-top:1px solid #94a3b8;margin-top:40px;padding-top:6px}
+      .sig-box .label{font-size:10px;font-weight:bold;color:#475569}
+      .sig-box .date{font-size:9px;color:#94a3b8;margin-top:4px}
+      .footer{border-top:1px solid #cbd5e1;margin:24px;padding-top:8px;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between}
+      @media print{button,.no-print{display:none !important}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
     </style></head><body>
-    <h1>🚛 Romaneio de Embarque</h1>
-    <div class="info">
-      <div>
-        <p><strong>Número:</strong> ${envio.numero || '-'}</p>
-        <p><strong>Data:</strong> ${envio.data_envio ? new Date(envio.data_envio + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</p>
-        <p><strong>Transportadora:</strong> ${envio.transportadora || '-'}</p>
+    <div class="header">
+      <div class="header-left">
+        <h1>MONTEX LTDA.</h1>
+        <div class="sub">E S T R U T U R A S   M E T Á L I C A S</div>
+        <div class="sub2">Sistema de Produção | Controle de Expedição</div>
       </div>
-      <div>
-        <p><strong>Motorista:</strong> ${envio.motorista || '-'}</p>
-        <p><strong>Placa:</strong> ${envio.placa || '-'}</p>
-        <p><strong>Obra:</strong> ${envio.obra_nome || '-'}</p>
+      <div class="header-right">
+        <div class="num">${romaneioNum}</div>
+        <div class="label">ROMANEIO DE EXPEDIÇÃO</div>
+        <div class="label">Emissão: ${new Date().toLocaleDateString('pt-BR')}</div>
+        <div class="status">Status: ${statusEnvio}</div>
       </div>
     </div>
-    <p><strong>Total de Peças:</strong> ${pecasEnvio} conjunto(s) | <strong>Peso Total:</strong> ${(parseFloat(envio.peso_total) || 0).toFixed(2)}kg</p>
-    ${envio.observacoes ? `<p><strong>Obs:</strong> ${envio.observacoes}</p>` : ''}
-    <button onclick="window.print()" style="margin-top:16px;padding:8px 16px;background:#1a56db;color:white;border:none;border-radius:4px;cursor:pointer">🖨️ Imprimir</button>
+    <div class="teal-bar"></div>
+
+    <div class="section">
+      <div class="section-title">DADOS DA OBRA / DESTINO</div>
+      <div class="section-body">
+        <div>
+          <div class="field"><b>Obra:</b> ${obraNome}</div>
+          <div class="field"><b>Cliente:</b> ${clienteNome}</div>
+          <div class="field"><b>Código:</b> ${obraCodigo}</div>
+        </div>
+        <div>
+          <div class="field"><b>Data Carregamento:</b> ${dataCarreg}</div>
+          <div class="field"><b>Qtd Total:</b> ${qtdTotal} un</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-header">
+      <span>LISTA DE PEÇAS / ITENS DO ENVIO</span>
+      <span>${qtdTotal} un (${pecasCompletas.length} itens) | ${pesoTotal.toFixed(2)}kg</span>
+    </div>
+    <table>
+      <thead><tr>
+        <th>#</th><th>Marca / Peça</th><th>Tipo / Perfil</th><th style="text-align:center">Qtd</th><th style="text-align:right">Peso Unit. (kg)</th><th style="text-align:right">Peso Total (kg)</th>
+      </tr></thead>
+      <tbody>
+        ${pecasRows}
+        <tr class="total-row">
+          <td></td><td>TOTAL</td><td></td><td style="text-align:center">${qtdTotal}</td><td></td><td style="text-align:right">${pesoTotal.toFixed(2)} kg</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="section" style="margin-top:16px">
+      <div class="section-title">DADOS DO TRANSPORTE</div>
+      <div class="section-body">
+        <div>
+          <div class="field"><b>Motorista:</b> ${envio.motorista || '-'}</div>
+          <div class="field"><b>Transportadora:</b> ${envio.transportadora || '-'}</div>
+        </div>
+        <div>
+          <div class="field"><b>Placa:</b> ${envio.placa || '-'}</div>
+        </div>
+      </div>
+    </div>
+
+    ${envio.observacoes ? `<div class="section" style="margin-top:8px;border-color:#fbbf24;background:#fffbeb"><div class="section-body" style="grid-template-columns:1fr"><div class="field"><b>Observações:</b> ${envio.observacoes}</div></div></div>` : ''}
+
+    <div class="signatures">
+      <h3>ASSINATURAS</h3>
+      <div class="sig-grid">
+        <div class="sig-box">
+          <div class="line"><div class="label">Responsável Carregamento</div><div class="date">Data: ___/___/______</div></div>
+        </div>
+        <div class="sig-box">
+          <div class="line"><div class="label">Motorista / Transportadora</div><div class="date">Data: ___/___/______</div></div>
+        </div>
+        <div class="sig-box">
+          <div class="line"><div class="label">Recebimento no Destino</div><div class="date">Data: ___/___/______</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="footer">
+      <span>MONTEX LTDA. - Estruturas Metálicas</span>
+      <span>${romaneioNum} | Pág 1</span>
+    </div>
+
+    <div class="no-print" style="text-align:center;margin:20px">
+      <button onclick="window.print()" style="padding:12px 32px;background:#368784;color:#fff;border:none;border-radius:6px;font-size:14px;font-weight:bold;cursor:pointer">🖨️ Imprimir / Salvar PDF</button>
+    </div>
     </body></html>`;
+
     const blob = new Blob([html], { type: 'text/html' });
     window.open(URL.createObjectURL(blob));
-  }, []);
+  }, [obras]);
 
   // ==== RENDER ====
   return (

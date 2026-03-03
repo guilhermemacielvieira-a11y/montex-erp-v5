@@ -334,156 +334,166 @@ export function exportRomaneioPDF(envio, obra, pecas) {
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
     const margin = 12;
-    const colDir = pageWidth / 2 + 10;
     let y = margin;
-    const romaneioNum = envio.numero || envio.romaneio || `ROM-${Date.now()}`;
+    const romaneioNum = envio.numero || envio.romaneio || `ENV-${Date.now()}`;
+    const statusEnvio = (envio.status || 'PREPARANDO').toUpperCase().replace(/_/g, ' ');
 
     // =============================================
-    // CABEÇALHO COM LOGO + BRANDING MONTEX
+    // CABEÇALHO — MATCH EXATO DO MODELO
     // =============================================
-    doc.setFillColor(30, 41, 59); // slate-800
-    doc.rect(0, 0, pageWidth, 44, 'F');
-    doc.setFillColor(54, 135, 132); // teal #368784
-    doc.rect(0, 44, pageWidth, 2.5, 'F');
+    // Background escuro (slate-800)
+    doc.setFillColor(30, 41, 59);
+    doc.rect(0, 0, pageWidth, 42, 'F');
+    // Barra teal separadora
+    doc.setFillColor(54, 135, 132);
+    doc.rect(0, 42, pageWidth, 3, 'F');
 
-    // Logo imagem
+    // Logo
     try {
-      doc.addImage(MONTEX_LOGO_B64, 'PNG', margin + 2, 6, 22, 14);
-    } catch (_e) { /* fallback sem logo */ }
+      doc.addImage(MONTEX_LOGO_B64, 'PNG', margin + 2, 5, 24, 16);
+    } catch (_e) { /* fallback */ }
 
-    // Texto GRUPO MONTEX ao lado do logo
+    // Texto: MONTEX LTDA.
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(20);
+    doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
-    doc.text('GRUPO MONTEX', margin + 28, 16);
+    doc.text('MONTEX LTDA.', margin + 30, 14);
 
-    doc.setFontSize(8.5);
+    // Subtítulo: ESTRUTURAS METÁLICAS
+    doc.setFontSize(7.5);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(148, 163, 184);
-    doc.text('Estruturas Metálicas | Sistema de Produção', margin + 28, 22);
+    doc.text('E S T R U T U R A S   M E T Á L I C A S', margin + 30, 19.5);
 
-    // Número do romaneio (direita)
-    doc.setTextColor(54, 135, 132);
-    doc.setFontSize(14);
-    doc.setFont(undefined, 'bold');
-    doc.text(romaneioNum, pageWidth - margin - 2, 14, { align: 'right' });
+    // Sub-subtítulo
+    doc.setFontSize(7);
+    doc.text('Sistema de Produção | Controle de Expedição', margin + 2, 28);
 
-    doc.setFontSize(8.5);
-    doc.setFont(undefined, 'normal');
-    doc.setTextColor(148, 163, 184);
-    const dataEmissao = new Date().toLocaleDateString('pt-BR', {
-      day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit'
-    });
-    doc.text(`Emissão: ${dataEmissao}`, pageWidth - margin - 2, 21, { align: 'right' });
-
-    // Título
-    doc.setFontSize(12);
-    doc.setFont(undefined, 'bold');
+    // Número do romaneio (direita, grande)
     doc.setTextColor(255, 255, 255);
-    doc.text('ROMANEIO DE CARGA', pageWidth / 2, 38, { align: 'center' });
+    doc.setFontSize(16);
+    doc.setFont(undefined, 'bold');
+    doc.text(romaneioNum, pageWidth - margin - 2, 12, { align: 'right' });
 
-    y = 52;
-
-    // =============================================
-    // DADOS DA OBRA / CLIENTE
-    // =============================================
-    doc.setFillColor(241, 245, 249);
-    doc.roundedRect(margin, y, pageWidth - 2 * margin, 32, 2, 2, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(margin, y, pageWidth - 2 * margin, 32, 2, 2, 'S');
-
+    // ROMANEIO DE EXPEDIÇÃO
     doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(148, 163, 184);
+    doc.text('ROMANEIO DE EXPEDIÇÃO', pageWidth - margin - 2, 18, { align: 'right' });
+
+    // Emissão
+    const dataEmissao = new Date().toLocaleDateString('pt-BR');
+    doc.text(`Emissão: ${dataEmissao}`, pageWidth - margin - 2, 24, { align: 'right' });
+
+    // Status em verde
+    doc.setFontSize(8.5);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(16, 185, 129);
+    doc.text(`Status: ${statusEnvio}`, pageWidth - margin - 2, 30, { align: 'right' });
+
+    y = 50;
+
+    // =============================================
+    // DADOS DA OBRA / DESTINO
+    // =============================================
+    const boxHeight = 30;
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(margin, y, pageWidth - 2 * margin, boxHeight, 2, 2, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, y, pageWidth - 2 * margin, boxHeight, 2, 2, 'S');
+
+    // Título da seção
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin + 0.3, y + 0.3, pageWidth - 2 * margin - 0.6, 7, 'F');
+    doc.setFontSize(7.5);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(71, 85, 105);
-    doc.text('DADOS DA OBRA / CLIENTE', margin + 4, y + 5);
-    doc.setDrawColor(203, 213, 225);
-    doc.line(margin + 4, y + 7, pageWidth - margin - 4, y + 7);
+    doc.text('DADOS DA OBRA / DESTINO', margin + 5, y + 5);
+    doc.setDrawColor(220, 225, 232);
+    doc.line(margin + 1, y + 8, pageWidth - margin - 1, y + 8);
 
+    // Coluna esquerda
+    const lx = margin + 5;
+    const rx = pageWidth / 2 + 8;
     doc.setFontSize(9);
     doc.setTextColor(30, 41, 59);
 
     const obraNome = obra?.nome || envio.obra_nome || envio.obraNome || '-';
     const clienteNome = obra?.cliente || envio.cliente || '-';
-    const endereco = obra?.endereco || envio.endereco || '-';
-    const cidade = obra?.cidade || '';
+    const obraCodigo = obra?.codigo || envio.obra_codigo || obra?.numero || '-';
 
-    doc.setFont(undefined, 'bold'); doc.text('Obra:', margin + 4, y + 13);
-    doc.setFont(undefined, 'normal'); doc.text(String(obraNome), margin + 18, y + 13);
-    doc.setFont(undefined, 'bold'); doc.text('Cliente:', margin + 4, y + 19);
-    doc.setFont(undefined, 'normal'); doc.text(String(clienteNome), margin + 22, y + 19);
-    doc.setFont(undefined, 'bold'); doc.text('Endereço:', margin + 4, y + 25);
-    doc.setFont(undefined, 'normal');
-    doc.text(cidade ? `${endereco} - ${cidade}` : String(endereco), margin + 28, y + 25, { maxWidth: 70 });
+    doc.setFont(undefined, 'bold'); doc.text('Obra:', lx, y + 14);
+    doc.setFont(undefined, 'normal'); doc.text(String(obraNome), lx + 18, y + 14);
+    doc.setFont(undefined, 'bold'); doc.text('Cliente:', lx, y + 20);
+    doc.setFont(undefined, 'normal'); doc.text(String(clienteNome), lx + 20, y + 20);
+    doc.setFont(undefined, 'bold'); doc.text('Código:', lx, y + 26);
+    doc.setFont(undefined, 'normal'); doc.text(String(obraCodigo), lx + 20, y + 26);
 
-    // Datas (coluna direita)
-    doc.setFont(undefined, 'bold'); doc.text('Data Carregamento:', colDir, y + 13);
-    doc.setFont(undefined, 'normal');
-    const dataSrc = envio.data_envio || envio.dataCarregamento || envio.dataEnvio;
-    const dataCarreg = dataSrc ? new Date(dataSrc + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    doc.text(dataCarreg, colDir + 42, y + 13);
+    // Coluna direita
+    const dataSrc = envio.data_envio || envio.dataCarregamento || envio.dataEnvio || envio.data_expedicao;
+    const dataCarreg = dataSrc ? new Date(dataSrc + (dataSrc.includes('T') ? '' : 'T12:00:00')).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
 
-    doc.setFont(undefined, 'bold'); doc.text('Previsão Entrega:', colDir, y + 19);
-    doc.setFont(undefined, 'normal');
-    doc.text(envio.previsaoEntrega ? new Date(envio.previsaoEntrega).toLocaleDateString('pt-BR') : '-', colDir + 38, y + 19);
+    doc.setFont(undefined, 'bold'); doc.text('Data Carregamento:', rx, y + 14);
+    doc.setFont(undefined, 'normal'); doc.text(dataCarreg, rx + 42, y + 14);
 
-    doc.setFont(undefined, 'bold'); doc.text('Qtd Total:', colDir, y + 25);
-    doc.setFont(undefined, 'normal');
-    const qtdTotalEnvio = envio.quantidade_total || pecas?.length || 0;
-    doc.text(String(qtdTotalEnvio) + ' un', colDir + 22, y + 25);
+    const qtdTotalEnvio = envio.quantidade_total || envio.qtd_total || pecas?.reduce((s, p) => s + (p.qtdEnviada || parseInt(p.quantidade) || 1), 0) || 0;
+    doc.setFont(undefined, 'bold'); doc.text('Qtd Total:', rx, y + 22);
+    doc.setFont(undefined, 'normal'); doc.text(String(qtdTotalEnvio) + ' un', rx + 24, y + 22);
 
-    y += 38;
+    y += boxHeight + 6;
 
     // =============================================
-    // LISTA DE PEÇAS
+    // LISTA DE PEÇAS — TABELA
     // =============================================
     const listaPecas = pecas || [];
     let pesoTotalCalc = 0;
     let qtdTotalCalc = 0;
     listaPecas.forEach(p => {
       const qty = p.qtdEnviada || parseInt(p.quantidade) || 1;
-      const pesoUnit = parseFloat(p.peso) || parseFloat(p.pesoTotal) || parseFloat(p.pesoUnitario) || 0;
+      const pesoRaw = parseFloat(p.peso) || parseFloat(p.pesoTotal) || parseFloat(p.peso_total) || 0;
       const qtyOrig = parseInt(p.quantidade) || 1;
-      const pesoUnitReal = qtyOrig > 0 ? pesoUnit / qtyOrig : pesoUnit;
-      pesoTotalCalc += pesoUnitReal * qty;
+      const pesoUnit = qtyOrig > 0 ? pesoRaw / qtyOrig : pesoRaw;
+      pesoTotalCalc += pesoUnit * qty;
       qtdTotalCalc += qty;
     });
 
-    // Barra título
+    // Barra título tabela (slate escuro)
     doc.setFillColor(30, 41, 59);
-    doc.roundedRect(margin, y, pageWidth - 2 * margin, 8, 2, 2, 'F');
+    doc.roundedRect(margin, y, pageWidth - 2 * margin, 8, 1.5, 1.5, 'F');
     doc.setTextColor(255, 255, 255);
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setFont(undefined, 'bold');
-    doc.text('LISTA DE PEÇAS / ITENS DO ENVIO', margin + 4, y + 5.5);
-    doc.text(`${qtdTotalCalc} un (${listaPecas.length} item) | ${pesoTotalCalc.toFixed(2)}kg`, pageWidth - margin - 4, y + 5.5, { align: 'right' });
+    doc.text('LISTA DE PEÇAS / ITENS DO ENVIO', margin + 5, y + 5.5);
+    doc.text(`${qtdTotalCalc} un (${listaPecas.length} itens) | ${pesoTotalCalc.toFixed(2)}kg`, pageWidth - margin - 5, y + 5.5, { align: 'right' });
     y += 10;
 
-    // Cabeçalho tabela - COLUNAS SOLICITADAS
-    const headers = ['#', 'Marca / Peça', 'Tipo', 'Qtd', 'Peso Unit. (kg)', 'Peso Total (kg)'];
-    const colWidths = [10, 50, 40, 18, 34, 34];
+    // Colunas da tabela
+    const colWidths = [10, 50, 42, 16, 34, 34];
     const colX = [margin + 2];
     for (let i = 1; i < colWidths.length; i++) colX.push(colX[i - 1] + colWidths[i - 1]);
+    const headers = ['#', 'Marca / Peça', 'Tipo / Perfil', 'Qtd', 'Peso Unit. (kg)', 'Peso Total (kg)'];
 
+    // Função: desenhar header da tabela
+    let pageNum = 1;
     function _drawTableHeader() {
-      doc.setFillColor(54, 135, 132); // teal header
+      doc.setFillColor(71, 85, 105);
       doc.rect(margin, y, pageWidth - 2 * margin, 7, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(7.5);
+      doc.setFontSize(7);
       doc.setFont(undefined, 'bold');
       headers.forEach((h, i) => doc.text(h, colX[i], y + 5));
       y += 8;
-      doc.setDrawColor(203, 213, 225);
-      doc.line(margin, y, pageWidth - margin, y);
     }
     _drawTableHeader();
 
-    // Dados das peças
+    // Linhas da tabela
     doc.setFont(undefined, 'normal');
     doc.setFontSize(8);
 
     listaPecas.forEach((peca, idx) => {
-      if (y > pageHeight - 55) {
-        _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum);
+      if (y > pageHeight - 60) {
+        _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pageNum);
+        pageNum++;
         doc.addPage();
         y = margin + 5;
         _drawTableHeader();
@@ -491,140 +501,170 @@ export function exportRomaneioPDF(envio, obra, pecas) {
         doc.setFontSize(8);
       }
 
-      // Zebra
+      // Zebra (fundo cinza claro em linhas pares)
       if (idx % 2 === 0) {
         doc.setFillColor(248, 250, 252);
-        doc.rect(margin, y, pageWidth - 2 * margin, 6.5, 'F');
+        doc.rect(margin, y, pageWidth - 2 * margin, 7, 'F');
       }
+
+      // Linha separadora
+      doc.setDrawColor(230, 232, 236);
+      doc.line(margin, y + 7, pageWidth - margin, y + 7);
 
       doc.setTextColor(30, 41, 59);
       const qty = peca.qtdEnviada || parseInt(peca.quantidade) || 1;
-      const pesoTotal = parseFloat(peca.peso) || parseFloat(peca.pesoTotal) || parseFloat(peca.pesoUnitario) || 0;
+      const pesoRaw = parseFloat(peca.peso) || parseFloat(peca.pesoTotal) || parseFloat(peca.peso_total) || 0;
       const qtyOrig = parseInt(peca.quantidade) || 1;
-      const pesoUnitReal = qtyOrig > 0 ? pesoTotal / qtyOrig : pesoTotal;
+      const pesoUnitReal = qtyOrig > 0 ? pesoRaw / qtyOrig : pesoRaw;
       const pesoTotalItem = pesoUnitReal * qty;
 
       const marca = String(peca.marca || peca.nome || peca.codigo || peca.id || '-');
-      const tipo = String(peca.tipo || peca.perfil || peca.tipoPeca || '-');
+      const tipo = String(peca.tipo || peca.perfil || peca.tipoPeca || peca.descricao || '-').toUpperCase();
 
-      doc.text(String(idx + 1), colX[0], y + 4.5);
+      doc.text(String(idx + 1), colX[0], y + 5);
       doc.setFont(undefined, 'bold');
-      doc.text(marca.substring(0, 25), colX[1], y + 4.5);
+      doc.text(marca.substring(0, 28), colX[1], y + 5);
       doc.setFont(undefined, 'normal');
-      doc.text(tipo.substring(0, 20), colX[2], y + 4.5);
-      doc.text(String(qty), colX[3], y + 4.5);
-      doc.text(pesoUnitReal > 0 ? pesoUnitReal.toFixed(1) : '-', colX[4], y + 4.5);
+      doc.text(tipo.substring(0, 22), colX[2], y + 5);
+      doc.text(String(qty), colX[3], y + 5);
+      doc.text(pesoUnitReal > 0 ? pesoUnitReal.toFixed(1) : '-', colX[4], y + 5);
       doc.setFont(undefined, 'bold');
-      doc.text(pesoTotalItem > 0 ? pesoTotalItem.toFixed(1) : '-', colX[5], y + 4.5);
+      doc.text(pesoTotalItem > 0 ? pesoTotalItem.toFixed(1) : '-', colX[5], y + 5);
       doc.setFont(undefined, 'normal');
 
-      y += 6.5;
+      y += 7;
     });
 
-    // Linha de totais
+    // Linha grossa final
     doc.setDrawColor(30, 41, 59);
     doc.setLineWidth(0.5);
     doc.line(margin, y, pageWidth - margin, y);
     doc.setLineWidth(0.2);
-    y += 1;
+    y += 1.5;
 
-    // Linha de TOTAL na tabela
+    // Linha de TOTAL
     doc.setFillColor(226, 232, 240);
-    doc.rect(margin, y, pageWidth - 2 * margin, 7, 'F');
+    doc.rect(margin, y, pageWidth - 2 * margin, 8, 'F');
     doc.setTextColor(30, 41, 59);
-    doc.setFontSize(8.5);
+    doc.setFontSize(9);
     doc.setFont(undefined, 'bold');
-    doc.text('TOTAL', colX[1], y + 5);
-    doc.text(String(qtdTotalCalc), colX[3], y + 5);
-    doc.text(`${pesoTotalCalc.toFixed(2)} kg`, colX[5], y + 5);
-    doc.text(`${qtdTotalCalc} un`, colX[4], y + 5);
-    y += 11;
+    doc.text('TOTAL', colX[1], y + 5.5);
+    doc.text(String(qtdTotalCalc), colX[3], y + 5.5);
+    doc.text(`${pesoTotalCalc.toFixed(2)} kg`, colX[5], y + 5.5);
+    y += 13;
+
+    // =============================================
+    // DADOS DO TRANSPORTE
+    // =============================================
+    // Verificar se precisa nova página
+    if (y > pageHeight - 75) {
+      _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pageNum);
+      pageNum++;
+      doc.addPage();
+      y = margin + 5;
+    }
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(margin, y, pageWidth - 2 * margin, 24, 2, 2, 'F');
+    doc.setDrawColor(203, 213, 225);
+    doc.roundedRect(margin, y, pageWidth - 2 * margin, 24, 2, 2, 'S');
+
+    doc.setFillColor(241, 245, 249);
+    doc.rect(margin + 0.3, y + 0.3, pageWidth - 2 * margin - 0.6, 7, 'F');
+    doc.setFontSize(7.5);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('DADOS DO TRANSPORTE', margin + 5, y + 5);
+    doc.setDrawColor(220, 225, 232);
+    doc.line(margin + 1, y + 8, pageWidth - margin - 1, y + 8);
+
+    doc.setFontSize(9);
+    doc.setTextColor(30, 41, 59);
+    doc.setFont(undefined, 'bold'); doc.text('Motorista:', lx, y + 14);
+    doc.setFont(undefined, 'normal'); doc.text(String(envio.motorista || '-'), lx + 26, y + 14);
+    doc.setFont(undefined, 'bold'); doc.text('Placa:', rx, y + 14);
+    doc.setFont(undefined, 'normal'); doc.text(String(envio.placa || '-'), rx + 16, y + 14);
+    doc.setFont(undefined, 'bold'); doc.text('Transportadora:', lx, y + 20);
+    doc.setFont(undefined, 'normal'); doc.text(String(envio.transportadora || '-'), lx + 38, y + 20);
+
+    y += 30;
 
     // =============================================
     // OBSERVAÇÕES (se houver)
     // =============================================
     if (envio.observacoes) {
       doc.setFillColor(255, 251, 235);
-      doc.roundedRect(margin, y, pageWidth - 2 * margin, 10, 2, 2, 'F');
+      doc.roundedRect(margin, y, pageWidth - 2 * margin, 12, 2, 2, 'F');
       doc.setDrawColor(251, 191, 36);
-      doc.roundedRect(margin, y, pageWidth - 2 * margin, 10, 2, 2, 'S');
+      doc.roundedRect(margin, y, pageWidth - 2 * margin, 12, 2, 2, 'S');
       doc.setFontSize(8);
       doc.setFont(undefined, 'bold');
       doc.setTextColor(146, 64, 14);
-      doc.text('Obs:', margin + 4, y + 6);
+      doc.text('Observações:', margin + 4, y + 6);
       doc.setFont(undefined, 'normal');
-      doc.text(String(envio.observacoes), margin + 16, y + 6, { maxWidth: pageWidth - 2 * margin - 20 });
-      y += 14;
+      doc.text(String(envio.observacoes), margin + 30, y + 6, { maxWidth: pageWidth - 2 * margin - 34 });
+      y += 16;
     }
 
     // =============================================
-    // DADOS DO TRANSPORTE
+    // ASSINATURAS — MATCH MODELO
     // =============================================
-    doc.setFillColor(241, 245, 249);
-    doc.roundedRect(margin, y, pageWidth - 2 * margin, 20, 2, 2, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.roundedRect(margin, y, pageWidth - 2 * margin, 20, 2, 2, 'S');
+    // Verificar se precisa nova página para assinaturas
+    if (y > pageHeight - 55) {
+      _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pageNum);
+      pageNum++;
+      doc.addPage();
+      y = margin + 5;
+    }
+
     doc.setFontSize(8);
     doc.setFont(undefined, 'bold');
     doc.setTextColor(71, 85, 105);
-    doc.text('DADOS DO TRANSPORTE', margin + 4, y + 5);
-    doc.line(margin + 4, y + 7, pageWidth - margin - 4, y + 7);
+    doc.text('ASSINATURAS', margin + 5, y + 4);
+    y += 8;
 
-    doc.setFontSize(9);
-    doc.setTextColor(30, 41, 59);
-    doc.setFont(undefined, 'bold'); doc.text('Motorista:', margin + 4, y + 13);
-    doc.setFont(undefined, 'normal'); doc.text(String(envio.motorista || '-'), margin + 28, y + 13);
-    doc.setFont(undefined, 'bold'); doc.text('Placa:', colDir, y + 13);
-    doc.setFont(undefined, 'normal'); doc.text(String(envio.placa || '-'), colDir + 16, y + 13);
-    doc.setFont(undefined, 'bold'); doc.text('Transportadora:', margin + 4, y + 18);
-    doc.setFont(undefined, 'normal'); doc.text(String(envio.transportadora || '-'), margin + 40, y + 18);
-
-    y += 26;
-
-    // =============================================
-    // ASSINATURAS
-    // =============================================
-    const assinaturaY = Math.max(y + 5, pageHeight - 52);
-    doc.setDrawColor(51, 65, 85);
-    doc.setTextColor(71, 85, 105);
-    doc.setFontSize(8);
-    doc.setFont(undefined, 'bold');
-    doc.text('ASSINATURAS', margin + 4, assinaturaY);
-
-    const lineY = assinaturaY + 20;
     const sigWidth = (pageWidth - 2 * margin - 20) / 3;
-
+    const lineY = y + 22;
     doc.setDrawColor(148, 163, 184);
-    doc.setFontSize(7);
 
-    // 1 - Expedição
-    doc.line(margin + 4, lineY, margin + 4 + sigWidth, lineY);
-    doc.setFont(undefined, 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Responsável Expedição', margin + 4 + sigWidth / 2, lineY + 4, { align: 'center' });
-    doc.text('Nome / Data', margin + 4 + sigWidth / 2, lineY + 8, { align: 'center' });
-
-    // 2 - Motorista
-    const sig2X = margin + 4 + sigWidth + 10;
-    doc.line(sig2X, lineY, sig2X + sigWidth, lineY);
-    doc.text('Motorista / Transportadora', sig2X + sigWidth / 2, lineY + 4, { align: 'center' });
-    doc.text('Nome / Data', sig2X + sigWidth / 2, lineY + 8, { align: 'center' });
-
-    // 3 - Recebimento
-    const sig3X = sig2X + sigWidth + 10;
-    doc.line(sig3X, lineY, sig3X + sigWidth, lineY);
+    // 1 - Responsável Carregamento
+    const s1x = margin + 5;
+    doc.setLineWidth(0.3);
+    doc.line(s1x, lineY, s1x + sigWidth, lineY);
+    doc.setFontSize(7.5);
     doc.setFont(undefined, 'bold');
-    doc.setTextColor(54, 135, 132);
-    doc.text('RECEBIDO POR', sig3X + sigWidth / 2, lineY + 4, { align: 'center' });
+    doc.setTextColor(71, 85, 105);
+    doc.text('Responsável Carregamento', s1x + sigWidth / 2, lineY + 5, { align: 'center' });
     doc.setFont(undefined, 'normal');
-    doc.setTextColor(100, 116, 139);
-    doc.text('Nome / Data / Carimbo', sig3X + sigWidth / 2, lineY + 8, { align: 'center' });
+    doc.setTextColor(148, 163, 184);
+    doc.text('Data: ___/___/______', s1x + sigWidth / 2, lineY + 10, { align: 'center' });
+
+    // 2 - Motorista / Transportadora
+    const s2x = s1x + sigWidth + 10;
+    doc.line(s2x, lineY, s2x + sigWidth, lineY);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Motorista / Transportadora', s2x + sigWidth / 2, lineY + 5, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(148, 163, 184);
+    doc.text('Data: ___/___/______', s2x + sigWidth / 2, lineY + 10, { align: 'center' });
+
+    // 3 - Recebimento no Destino
+    const s3x = s2x + sigWidth + 10;
+    doc.line(s3x, lineY, s3x + sigWidth, lineY);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(71, 85, 105);
+    doc.text('Recebimento no Destino', s3x + sigWidth / 2, lineY + 5, { align: 'center' });
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(148, 163, 184);
+    doc.text('Data: ___/___/______', s3x + sigWidth / 2, lineY + 10, { align: 'center' });
 
     // Rodapé
-    _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum);
+    _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pageNum);
 
     // Salvar
-    doc.save(`romaneio-${romaneioNum}-${new Date().toISOString().split('T')[0]}.pdf`);
+    const nomeArquivo = `Romaneio_${romaneioNum.replace(/[^a-zA-Z0-9-]/g, '_')}.pdf`;
+    doc.save(nomeArquivo);
     return true;
   } catch (error) {
     console.error('Erro ao gerar Romaneio PDF:', error);
@@ -633,14 +673,14 @@ export function exportRomaneioPDF(envio, obra, pecas) {
 }
 
 // Helper: Rodapé do Romaneio
-function _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum) {
+function _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pageNum) {
   doc.setDrawColor(203, 213, 225);
   doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
   doc.setFontSize(6.5);
   doc.setTextColor(148, 163, 184);
   doc.setFont(undefined, 'normal');
-  doc.text('GRUPO MONTEX - Estruturas Metálicas | Documento gerado automaticamente pelo sistema MONTEX ERP', margin + 2, pageHeight - 8);
-  doc.text(`${romaneioNum} | Pág. ${doc.internal.getCurrentPageInfo().pageNumber}`, pageWidth - margin - 2, pageHeight - 8, { align: 'right' });
+  doc.text('MONTEX LTDA. - Estruturas Metálicas', margin + 2, pageHeight - 8);
+  doc.text(`${romaneioNum} | Pág ${pageNum || doc.internal.getCurrentPageInfo().pageNumber}`, pageWidth - margin - 2, pageHeight - 8, { align: 'right' });
 }
 
 // ========================================
