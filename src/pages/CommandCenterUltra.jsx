@@ -3,6 +3,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { kpisIndustriais, recursosHumanos, energiaMetricas
 } from '../data/commandCenterData';
+import { useCommandCenter } from '../hooks/useCommandCenter';
+import { useObras, useEstoque, useProducao } from '../contexts/ERPContext';
 
 // ============ DESIGN TOKENS ============
 const colors = {
