@@ -1,6 +1,13 @@
 // MONTEX ERP Premium - Command Center Ultra v2
 // Dashboard executivo - visÃ£o objetiva e profissional
 import React, { useState, useEffect, useMemo } from 'react';
+import { motion } from 'framer-motion';
+import { ResponsiveContainer, AreaChart, Area } from 'recharts';
+import {
+  Minus, ArrowUp, ArrowDown, AlertTriangle, Bell, CheckCircle,
+  Cpu, RefreshCw, Clock, Building2, Weight, Package, DollarSign,
+  Factory, Layers, Target, Truck, Gauge, Users, Zap, Bolt
+} from 'lucide-react';
 import { kpisIndustriais, recursosHumanos, energiaMetricas
 } from '../data/commandCenterData';
 import { useCommandCenter } from '../hooks/useCommandCenter';
