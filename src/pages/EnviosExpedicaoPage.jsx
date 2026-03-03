@@ -351,15 +351,15 @@ export default function EnviosExpedicaoPage() {
     <style>
       *{margin:0;padding:0;box-sizing:border-box}
       body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;background:#fff}
-      .header{background:#1e293b;padding:16px 24px;display:flex;justify-content:space-between;align-items:center}
-      .header-left h1{color:#fff;font-size:20px;margin-bottom:2px}
-      .header-left .sub{color:#94a3b8;font-size:8px;letter-spacing:2px}
-      .header-left .sub2{color:#94a3b8;font-size:10px;margin-top:8px}
+      .header{background:#fff;padding:20px 24px;display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid #e2e8f0}
+      .header-left{display:flex;align-items:center;gap:14px}
+      .header-left h1{color:#1e293b;font-size:22px;margin:0;font-weight:bold}
+      .header-left .tagline{color:#94a3b8;font-size:9px;letter-spacing:1.5px;margin-top:2px}
       .header-right{text-align:right}
-      .header-right .num{color:#fff;font-size:20px;font-weight:bold}
-      .header-right .label{color:#94a3b8;font-size:10px}
-      .header-right .status{color:#10b981;font-weight:bold;font-size:11px}
-      .teal-bar{height:4px;background:#368784}
+      .header-right .title{color:#1e293b;font-size:18px;font-weight:bold;margin-bottom:4px}
+      .header-right .num{color:#1e293b;font-size:16px;font-weight:bold}
+      .header-right .label{color:#64748b;font-size:10px;margin-top:2px}
+      .header-right .status{color:#10b981;font-weight:bold;font-size:11px;margin-top:2px}
       .section{margin:16px 24px;border:1px solid #cbd5e1;border-radius:6px;overflow:hidden}
       .section-title{background:#f1f5f9;padding:6px 12px;font-size:10px;font-weight:bold;color:#475569;border-bottom:1px solid #dce1e8}
       .section-body{padding:10px 12px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
@@ -381,18 +381,23 @@ export default function EnviosExpedicaoPage() {
     </style></head><body>
     <div class="header">
       <div class="header-left">
-        <h1>MONTEX LTDA.</h1>
-        <div class="sub">E S T R U T U R A S   M E T Á L I C A S</div>
-        <div class="sub2">Sistema de Produção | Controle de Expedição</div>
+        <svg width="55" height="42" viewBox="0 0 60 45" style="flex-shrink:0">
+          <polygon points="5,40 15,8 25,40" fill="#368784" opacity="0.9"/>
+          <polygon points="18,40 28,8 38,40" fill="#368784"/>
+          <polygon points="31,40 41,8 51,40" fill="#368784" opacity="0.9"/>
+        </svg>
+        <div>
+          <h1>GRUPO MONTEX</h1>
+          <div class="tagline">SOLUÇÕES EM AÇO</div>
+        </div>
       </div>
       <div class="header-right">
+        <div class="title">ROMANEIO DE EXPEDIÇÃO</div>
         <div class="num">${romaneioNum}</div>
-        <div class="label">ROMANEIO DE EXPEDIÇÃO</div>
         <div class="label">Emissão: ${new Date().toLocaleDateString('pt-BR')}</div>
         <div class="status">Status: ${statusEnvio}</div>
       </div>
     </div>
-    <div class="teal-bar"></div>
 
     <div class="section">
       <div class="section-title">DADOS DA OBRA / DESTINO</div>
@@ -456,7 +461,7 @@ export default function EnviosExpedicaoPage() {
     </div>
 
     <div class="footer">
-      <span>MONTEX LTDA. - Estruturas Metálicas</span>
+      <span>GRUPO MONTEX - Soluções em Aço</span>
       <span>${romaneioNum} | Pág 1</span>
     </div>
 
@@ -1151,3 +1156,4 @@ export default function EnviosExpedicaoPage() {
     </div>
   );
 }
+
