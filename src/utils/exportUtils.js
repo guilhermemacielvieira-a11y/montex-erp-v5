@@ -348,16 +348,29 @@ export function exportRomaneioPDF(envio, obra, pecas) {
     doc.setFillColor(54, 135, 132);
     doc.rect(0, 42, pageWidth, 3, 'F');
 
-    // Logo
-    try {
-      doc.addImage(MONTEX_LOGO_B64, 'PNG', margin + 2, 4, 58, 13);
-    } catch (_e) { /* fallback */ }
+    // Logo — símbolo M em teal + texto
+    // Desenhar símbolo "M" estilizado
+    doc.setFillColor(54, 135, 132); // teal
+    // Triângulo esquerdo do M
+    doc.triangle(margin + 4, 18, margin + 12, 5, margin + 20, 18, 'F');
+    // Triângulo direito do M
+    doc.triangle(margin + 16, 18, margin + 24, 5, margin + 32, 18, 'F');
 
-    // Sub-subtítulo (abaixo da logo)
+    // Texto "GRUPO MONTEX"
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.text('GRUPO MONTEX', margin + 36, 14);
+
+    // Subtítulo "SOLUÇÕES EM AÇO"
     doc.setTextColor(148, 163, 184);
-    doc.setFontSize(7);
+    doc.setFontSize(8);
     doc.setFont(undefined, 'normal');
-    doc.text('Sistema de Produção | Controle de Expedição', margin + 2, 24);
+    doc.text('SOLUÇÕES EM AÇO', margin + 36, 20);
+
+    // Sub-subtítulo
+    doc.setFontSize(7);
+    doc.text('Sistema de Produção | Controle de Expedição', margin + 2, 28);
 
     // Número do romaneio (direita, grande)
     doc.setTextColor(255, 255, 255);
