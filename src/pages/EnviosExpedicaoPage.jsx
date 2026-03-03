@@ -182,6 +182,7 @@ export default function EnviosExpedicaoPage() {
         qtd_total: parseInt(p.quantidade) || 1,
       }));
 
+      const pecasIds = pecasSelecionadas.map(p => p.id);
       const expedicao = {
         numero: novoEnvio.numero || `ENV-${Date.now()}`,
         data_envio: novoEnvio.data,
@@ -190,7 +191,8 @@ export default function EnviosExpedicaoPage() {
         placa: novoEnvio.placa || null,
         observacoes: novoEnvio.observacoes || null,
         status: 'PREPARANDO',
-        pecas_ids: pecasSelecionadas.map(p => p.id),
+        pecas_ids: pecasIds,
+        pecas: pecasIds, // compatibilidade com ERPContext.addExpedicao
         pecas_detalhes: pecasDetalhes,
         peso_total: pesoTotal,
         quantidade_total: qtdTotal,
@@ -439,12 +441,39 @@ export default function EnviosExpedicaoPage() {
                           className="border-gray-700 text-gray-300 hover:text-white" title="Imprimir Romaneio">
                           <Printer className="w-4 h-4" />
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => {
-                          const obraRelacionada = obras.find(o => o.id === envio.obra_id) || {};
-                          const pecasEnvio = envio.itens || envio.pecas || [];
-                          const success = exportRomaneioPDF(envio, obraRelacionada, pecasEnvio);
-                          if (success) toast.success('Romaneio PDF gerado!');
-                          else toast.error('Erro ao gerar PDF');
+                        <Button variant="outline" size="sm" onClick={async () => {
+                          try {
+                            toast.loading('Gerando Romaneio PDF...', { id: 'pdf-loading' });
+                            // Buscar peças completas pelos IDs salvos na expedição
+                            let pecasCompletas = [];
+                            const ids = envio.pecas_ids || envio.pecas || [];
+                            if (ids.length > 0) {
+                              const todasPecasRaw = await pecasApi.getAll('id', true);
+                              const todasPecas = transformPecaArray(todasPecasRaw);
+                              const idsSet = new Set(ids.map(String));
+                              pecasCompletas = todasPecas.filter(p => idsSet.has(String(p.id)));
+                              // Enriquecer com quantidades dos detalhes do envio
+                              const detalhes = envio.pecas_detalhes || [];
+                              pecasCompletas = pecasCompletas.map(p => {
+                                const det = detalhes.find(d => String(d.id) === String(p.id));
+                                return { ...p, qtdEnviada: det?.qtd_enviada || parseInt(p.quantidade) || 1 };
+                              });
+                            }
+                            // Buscar obra pela obra_id do envio, OU pela obraId da primeira peça
+                            let obraRelacionada = obras.find(o => o.id === envio.obra_id) || {};
+                            if ((!obraRelacionada.id) && pecasCompletas.length > 0) {
+                              const pecaObraId = pecasCompletas[0].obraId || pecasCompletas[0].obra_id;
+                              if (pecaObraId) obraRelacionada = obras.find(o => o.id === pecaObraId) || {};
+                            }
+                            const success = exportRomaneioPDF(envio, obraRelacionada, pecasCompletas);
+                            toast.dismiss('pdf-loading');
+                            if (success) toast.success('Romaneio PDF gerado com sucesso!');
+                            else toast.error('Erro ao gerar Romaneio PDF');
+                          } catch (err) {
+                            toast.dismiss('pdf-loading');
+                            console.error('Erro PDF:', err);
+                            toast.error('Erro ao gerar PDF: ' + err.message);
+                          }
                         }} className="border-teal-700 text-teal-400 hover:text-teal-300 hover:bg-teal-900/30" title="Gerar Romaneio PDF">
                           <FileDown className="w-4 h-4" />
                         </Button>
