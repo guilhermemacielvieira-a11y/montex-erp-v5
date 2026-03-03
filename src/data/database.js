@@ -37,7 +37,8 @@ export const ETAPAS_PRODUCAO = {
   FABRICACAO: 'fabricacao',
   SOLDA: 'solda',
   PINTURA: 'pintura',
-  EXPEDIDO: 'expedido'
+  EXPEDIDO: 'expedido',
+  ENTREGUE: 'entregue'
 };
 
 export const STATUS_CORTE = {

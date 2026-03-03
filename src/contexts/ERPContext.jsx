@@ -666,6 +666,41 @@ export function ERPProvider({ children }) {
 
   const updateExpedicao = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data } });
+
+    // Quando status muda para ENTREGUE, atualizar etapa das peças para 'entregue'
+    const novoStatus = (data.status || '').toUpperCase();
+    if (novoStatus === 'ENTREGUE') {
+      const expedição = state.expedicoes.find(e => e.id === id);
+      if (expedição) {
+        const pecaIds = [];
+        // Coletar IDs das peças da expedição
+        if (Array.isArray(expedição.pecas_ids)) {
+          expedição.pecas_ids.forEach(pid => pecaIds.push(pid));
+        }
+        if (Array.isArray(expedição.pecas)) {
+          expedição.pecas.forEach(p => {
+            const pid = typeof p === 'object' ? (p.id || p.pecaId) : p;
+            if (pid) pecaIds.push(pid);
+          });
+        }
+        // Atualizar etapa local de cada peça
+        pecaIds.forEach(pecaId => {
+          dispatch({
+            type: ACTIONS.UPDATE_PECA,
+            payload: { id: pecaId, data: { etapa: 'entregue' } }
+          });
+        });
+        // Persistir etapa no Supabase
+        if (dataSource === 'supabase') {
+          for (const pecaId of pecaIds) {
+            pecasApi.update(pecaId, { etapa: 'entregue' }).catch(err => {
+              console.error(`❌ Erro ao atualizar etapa da peça ${pecaId}:`, err.message);
+            });
+          }
+        }
+      }
+    }
+
     if (dataSource === 'supabase') {
       try {
         const snakeData = reverseTransformRecord(data);
@@ -676,7 +711,7 @@ export function ERPProvider({ children }) {
         console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
       }
     }
-  }, [dataSource]);
+  }, [dataSource, state.expedicoes]);
 
   const deleteExpedicao = useCallback(async (id) => {
     dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
