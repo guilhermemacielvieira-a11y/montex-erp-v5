@@ -24,6 +24,12 @@ export function expedicaoReducer(state, action) {
         )
       };
 
+    case ACTIONS.DELETE_EXPEDICAO:
+      return {
+        ...state,
+        expedicoes: state.expedicoes.filter(e => e.id !== action.payload)
+      };
+
     default:
       return state;
   }

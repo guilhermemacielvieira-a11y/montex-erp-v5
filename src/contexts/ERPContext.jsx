@@ -678,6 +678,18 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  const deleteExpedicao = useCallback(async (id) => {
+    dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
+    if (dataSource === 'supabase') {
+      try {
+        await expedicoesApi.delete(id);
+        console.log(`✅ Expedição ${id} removida do Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao remover expedição do Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
   // ===== AÇÕES - COMPRAS =====
   const addCompra = useCallback(async (compra) => {
     dispatch({ type: ACTIONS.ADD_COMPRA, payload: compra });
@@ -1195,6 +1207,7 @@ export function ERPProvider({ children }) {
     expedicoesObraAtual,
     addExpedicao,
     updateExpedicao,
+    deleteExpedicao,
     medicoes: state.medicoes,
     medicoesObraAtual,
     configMedicao: state.configMedicao,
@@ -1218,6 +1231,7 @@ export function ERPProvider({ children }) {
     expedicoesObraAtual,
     addExpedicao,
     updateExpedicao,
+    deleteExpedicao,
     state.medicoes,
     medicoesObraAtual,
     state.configMedicao,
@@ -1282,6 +1296,7 @@ export function ERPProvider({ children }) {
     // Ações - Expedição
     addExpedicao,
     updateExpedicao,
+    deleteExpedicao,
 
     // Ações - Compras
     addCompra,
@@ -1349,6 +1364,7 @@ export function ERPProvider({ children }) {
     reloadPecas,
     addExpedicao,
     updateExpedicao,
+    deleteExpedicao,
     addCompra,
     receberCompra,
     addMedicao,
@@ -1477,7 +1493,8 @@ export function useExpedicao() {
     expedicoes: context.expedicoes,
     expedicoesObraAtual: context.expedicoesObraAtual,
     addExpedicao: context.addExpedicao,
-    updateExpedicao: context.updateExpedicao
+    updateExpedicao: context.updateExpedicao,
+    deleteExpedicao: context.deleteExpedicao
   };
 }
 

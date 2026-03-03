@@ -8,7 +8,8 @@ import { transformPecaArray } from '../contexts/transforms';
 import {
   Truck, Package, CheckCircle2, AlertCircle, Search, Plus,
   FileText, Download, ChevronDown, Building2, Weight,
-  ArrowRight, Printer, ArrowUpAZ, X, SendHorizontal, FileDown
+  ArrowRight, Printer, ArrowUpAZ, X, SendHorizontal, FileDown,
+  Trash2, Edit3
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,7 +35,7 @@ const STATUS_ENVIO = [
 
 export default function EnviosExpedicaoPage() {
   // ==== DADOS DO ERP CONTEXT ====
-  const { expedicoes, addExpedicao, updateExpedicao } = useExpedicao();
+  const { expedicoes, addExpedicao, updateExpedicao, deleteExpedicao } = useExpedicao();
   const { obras } = useObras();
 
   // ==== OBRA ATIVA ====
@@ -59,6 +60,11 @@ export default function EnviosExpedicaoPage() {
     motorista: '',
     placa: '',
     observacoes: '',
+  });
+  const [editModalAberto, setEditModalAberto] = useState(false);
+  const [envioEditando, setEnvioEditando] = useState(null);
+  const [editForm, setEditForm] = useState({
+    numero: '', data_envio: '', transportadora: '', motorista: '', placa: '', observacoes: '', status: ''
   });
 
   // ==== CARREGAR PEÇAS EXPEDIDAS DO SUPABASE ====
@@ -214,6 +220,55 @@ export default function EnviosExpedicaoPage() {
     }
   }, [pecasSelecionadas, novoEnvio, obraAtiva, addExpedicao, carregarPecasExpedidas, quantidadesEnvio]);
 
+  // ==== DELETAR ENVIO (TASK 5) ====
+  const handleDeleteEnvio = useCallback(async (envio) => {
+    const nome = envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio';
+    if (!window.confirm(`Tem certeza que deseja excluir "${nome}"?\n\nEsta ação não pode ser desfeita.`)) return;
+    try {
+      await deleteExpedicao(envio.id);
+      toast.success(`Envio "${nome}" excluído com sucesso`);
+      await carregarPecasExpedidas();
+    } catch (err) {
+      console.error('Erro ao excluir envio:', err);
+      toast.error('Erro ao excluir envio');
+    }
+  }, [deleteExpedicao, carregarPecasExpedidas]);
+
+  // ==== ABRIR MODAL EDITAR ENVIO (TASK 6) ====
+  const handleEditEnvio = useCallback((envio) => {
+    setEnvioEditando(envio);
+    setEditForm({
+      numero: envio.numero || envio.numeroRomaneio || envio.numero_romaneio || '',
+      data_envio: envio.data_envio || envio.dataExpedicao || envio.data_expedicao || '',
+      transportadora: envio.transportadora || '',
+      motorista: envio.motorista || '',
+      placa: envio.placa || '',
+      observacoes: envio.observacoes || '',
+      status: envio.status || 'PREPARANDO',
+    });
+    setEditModalAberto(true);
+  }, []);
+
+  // ==== SALVAR EDIÇÃO DO ENVIO ====
+  const salvarEdicaoEnvio = useCallback(async () => {
+    if (!envioEditando) return;
+    try {
+      await updateExpedicao(envioEditando.id, editForm);
+      toast.success('Envio atualizado com sucesso');
+      setEditModalAberto(false);
+      setEnvioEditando(null);
+    } catch (err) {
+      console.error('Erro ao atualizar envio:', err);
+      toast.error('Erro ao atualizar envio');
+    }
+  }, [envioEditando, editForm, updateExpedicao]);
+
+  // ==== FORMATAR PESO (TASK 7) ====
+  const formatPeso = useCallback((pesoKg) => {
+    if (pesoKg >= 1000) return (pesoKg / 1000).toFixed(2) + 't';
+    return pesoKg.toFixed(2) + 'kg';
+  }, []);
+
   // ==== GERAR ROMANEIO ====
   const gerarRomaneio = useCallback((envio) => {
     const pecasEnvio = (envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length;
@@ -279,7 +334,7 @@ export default function EnviosExpedicaoPage() {
           { label: 'Total Envios', value: kpis.total, icon: Package, color: 'text-blue-400' },
           { label: 'Em Trânsito', value: kpis.emTransito, icon: Truck, color: 'text-yellow-400' },
           { label: 'Entregues', value: kpis.entregues, icon: CheckCircle2, color: 'text-green-400' },
-          { label: 'Peso Total', value: kpis.pesoTotal.toFixed(1) + 'kg', icon: Weight, color: 'text-purple-400' },
+          { label: 'Peso Total', value: formatPeso(kpis.pesoTotal), icon: Weight, color: 'text-purple-400' },
           { label: 'Prontas p/ Embarque', value: kpis.prontas, icon: SendHorizontal, color: 'text-emerald-400' },
         ].map((k, i) => (
           <div key={i} className="bg-gray-900 rounded-lg p-4 flex items-center justify-between">
@@ -425,7 +480,7 @@ export default function EnviosExpedicaoPage() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-400">
                           <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {envio.obra_nome || envio.obraNome || envio.destino || envio.obra_id || envio.obraId || '-'}</span>
                           <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {envio.transportadora || '-'}</span>
-                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(envio.peso_total || envio.pesoTotal) || 0).toFixed(2)}kg</span>
+                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {formatPeso(parseFloat(envio.peso_total || envio.pesoTotal) || 0)}</span>
                           <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {(envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length} peça(s)</span>
                         </div>
                         {(envio.data_envio || envio.dataExpedicao || envio.data_expedicao) && (
@@ -437,6 +492,10 @@ export default function EnviosExpedicaoPage() {
                         )}
                       </div>
                       <div className="flex gap-2 ml-4">
+                        <Button variant="outline" size="sm" onClick={() => handleEditEnvio(envio)}
+                          className="border-gray-700 text-gray-300 hover:text-white" title="Editar Envio">
+                          <Edit3 className="w-4 h-4" />
+                        </Button>
                         <Button variant="outline" size="sm" onClick={() => gerarRomaneio(envio)}
                           className="border-gray-700 text-gray-300 hover:text-white" title="Imprimir Romaneio">
                           <Printer className="w-4 h-4" />
@@ -497,6 +556,10 @@ export default function EnviosExpedicaoPage() {
                             </Select.Content>
                           </Select.Portal>
                         </Select.Root>
+                        <Button variant="outline" size="sm" onClick={() => handleDeleteEnvio(envio)}
+                          className="border-red-800 text-red-400 hover:text-red-300 hover:bg-red-900/30" title="Excluir Envio">
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
                       </div>
                     </div>
                   </motion.div>
@@ -535,7 +598,7 @@ export default function EnviosExpedicaoPage() {
                 ))}
               </div>
               <div className="mt-3 pt-2 border-t border-gray-800 text-xs text-gray-500">
-                Peso total: {pecasPintura.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}kg
+                Peso total: {formatPeso(pecasPintura.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0))}
               </div>
             </div>
 
@@ -564,7 +627,7 @@ export default function EnviosExpedicaoPage() {
                 ))}
               </div>
               <div className="mt-3 pt-2 border-t border-gray-800 flex justify-between items-center">
-                <span className="text-xs text-gray-500">Peso total: {pecasExpedidas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}kg</span>
+                <span className="text-xs text-gray-500">Peso total: {formatPeso(pecasExpedidas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0))}</span>
                 {pecasExpedidas.length > 0 && (
                   <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs h-7"
                     onClick={() => {
@@ -599,7 +662,7 @@ export default function EnviosExpedicaoPage() {
                       <div>
                         <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
                         <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}kg · {(e.pecas_ids || []).length} peça(s)</p>
+                        <p className="text-gray-500">{formatPeso(parseFloat(e.peso_total) || 0)} · {(e.pecas_ids || []).length} peça(s)</p>
                         {e.transportadora && <p className="text-gray-500 mt-0.5">{e.transportadora}</p>}
                       </div>
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300"
@@ -646,7 +709,7 @@ export default function EnviosExpedicaoPage() {
                       <div key={e.id} className="bg-gray-800 rounded p-2 text-xs">
                         <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
                         <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}kg</p>
+                        <p className="text-gray-500">{formatPeso(parseFloat(e.peso_total) || 0)}</p>
                       </div>
                     ))}
                     {enviosDoStatus.length === 0 && (
@@ -844,6 +907,78 @@ export default function EnviosExpedicaoPage() {
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
                 <Truck className="w-4 h-4 mr-2" />
                 Criar Envio ({pecasSelecionadas.reduce((s, p) => s + (quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1), 0)} un de {pecasSelecionadas.length} peça(s))
+              </Button>
+            </div>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* Modal: Editar Envio */}
+      <Dialog.Root open={editModalAberto} onOpenChange={setEditModalAberto}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/70 z-50" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-900 border border-gray-700 rounded-xl p-6 z-50 w-full max-w-lg max-h-[90vh] overflow-y-auto shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <Dialog.Title className="text-xl font-bold text-white flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-amber-400" />
+                Editar Envio
+              </Dialog.Title>
+              <Dialog.Close asChild>
+                <Button variant="ghost" size="sm" className="text-gray-400 hover:text-white">
+                  <X className="w-5 h-5" />
+                </Button>
+              </Dialog.Close>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4 mb-6">
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Número do Envio</label>
+                <Input value={editForm.numero} onChange={e => setEditForm(p => ({ ...p, numero: e.target.value }))}
+                  placeholder="ENV-001" className="bg-gray-800 border-gray-600 text-white" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Data</label>
+                <Input type="date" value={editForm.data_envio} onChange={e => setEditForm(p => ({ ...p, data_envio: e.target.value }))}
+                  className="bg-gray-800 border-gray-600 text-white" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Transportadora</label>
+                <Input value={editForm.transportadora} onChange={e => setEditForm(p => ({ ...p, transportadora: e.target.value }))}
+                  placeholder="Nome da transportadora" className="bg-gray-800 border-gray-600 text-white" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Motorista</label>
+                <Input value={editForm.motorista} onChange={e => setEditForm(p => ({ ...p, motorista: e.target.value }))}
+                  placeholder="Nome do motorista" className="bg-gray-800 border-gray-600 text-white" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Placa</label>
+                <Input value={editForm.placa} onChange={e => setEditForm(p => ({ ...p, placa: e.target.value }))}
+                  placeholder="ABC-1234" className="bg-gray-800 border-gray-600 text-white" />
+              </div>
+              <div>
+                <label className="text-sm text-gray-400 block mb-1">Status</label>
+                <select value={editForm.status} onChange={e => setEditForm(p => ({ ...p, status: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-600 text-white px-3 py-2 rounded-md text-sm">
+                  {STATUS_ENVIO.map(s => (
+                    <option key={s.id} value={s.id}>{s.nome}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-2">
+                <label className="text-sm text-gray-400 block mb-1">Observações</label>
+                <Input value={editForm.observacoes} onChange={e => setEditForm(p => ({ ...p, observacoes: e.target.value }))}
+                  placeholder="Obs..." className="bg-gray-800 border-gray-600 text-white" />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-gray-700">
+              <Dialog.Close asChild>
+                <Button variant="outline" className="border-gray-600 text-gray-300">Cancelar</Button>
+              </Dialog.Close>
+              <Button onClick={salvarEdicaoEnvio} className="bg-amber-600 hover:bg-amber-700">
+                <CheckCircle2 className="w-4 h-4 mr-2" />
+                Salvar Alterações
               </Button>
             </div>
           </Dialog.Content>
