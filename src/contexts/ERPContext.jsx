@@ -622,13 +622,33 @@ export function ERPProvider({ children }) {
     // Persistir no Supabase
     if (dataSource === 'supabase') {
       try {
-        const record = reverseTransformRecord(expedicao);
+        // Mapeamento específico para a tabela expedicoes do Supabase
+        const record = {
+          id: expedicao.id || `EXP-${Date.now()}`,
+          obra_id: expedicao.obra_id || expedicao.obraId || null,
+          numero_romaneio: expedicao.numero || expedicao.numero_romaneio || null,
+          data_expedicao: expedicao.data_envio || expedicao.dataEnvio || new Date().toISOString().split('T')[0],
+          status: (expedicao.status || 'preparando').toLowerCase(),
+          transportadora: expedicao.transportadora || null,
+          motorista: expedicao.motorista || null,
+          placa: expedicao.placa || null,
+          peso_total: expedicao.peso_total || expedicao.pesoTotal || 0,
+          pecas: JSON.stringify(
+            (expedicao.pecas_detalhes || []).map(d => ({
+              id: d.id,
+              qtd_enviada: d.qtd_enviada,
+              qtd_total: d.qtd_total
+            }))
+          ),
+          destino: expedicao.obra_nome || expedicao.obraNome || null,
+          observacoes: expedicao.observacoes || null,
+        };
         await expedicoesApi.create(record);
         // Atualizar etapa das peças no Supabase
         for (const pecaId of (expedicao.pecas || [])) {
           await pecasApi.update(pecaId, { etapa: 'expedido', status: 'concluido' }).catch(() => {});
         }
-        console.log(`✅ Expedição ${expedicao.id} criada no Supabase`);
+        console.log(`✅ Expedição ${record.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar expedição no Supabase:', err.message);
       }

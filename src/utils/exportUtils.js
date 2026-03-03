@@ -455,7 +455,7 @@ export function exportRomaneioPDF(envio, obra, pecas) {
     doc.setFontSize(8);
     doc.setFont(undefined, 'bold');
     doc.text('LISTA DE PEÇAS / ITENS DO ENVIO', margin + 4, y + 5.5);
-    doc.text(`${qtdTotalCalc} un (${listaPecas.length} item) | ${(pesoTotalCalc / 1000).toFixed(2)}t`, pageWidth - margin - 4, y + 5.5, { align: 'right' });
+    doc.text(`${qtdTotalCalc} un (${listaPecas.length} item) | ${pesoTotalCalc.toFixed(2)}kg`, pageWidth - margin - 4, y + 5.5, { align: 'right' });
     y += 10;
 
     // Cabeçalho tabela - COLUNAS SOLICITADAS
@@ -536,8 +536,8 @@ export function exportRomaneioPDF(envio, obra, pecas) {
     doc.setFont(undefined, 'bold');
     doc.text('TOTAL', colX[1], y + 5);
     doc.text(String(qtdTotalCalc), colX[3], y + 5);
-    doc.text(`${(pesoTotalCalc).toFixed(1)} kg`, colX[5], y + 5);
-    doc.text(`${(pesoTotalCalc / 1000).toFixed(2)}t`, colX[4], y + 5);
+    doc.text(`${pesoTotalCalc.toFixed(2)} kg`, colX[5], y + 5);
+    doc.text(`${qtdTotalCalc} un`, colX[4], y + 5);
     y += 11;
 
     // =============================================
@@ -665,5 +665,5 @@ export function formatNumber(value) {
 // ========================================
 export function formatWeight(kg) {
   if (!kg || isNaN(kg)) return '0 kg';
-  return kg >= 1000 ? `${(kg / 1000).toFixed(1)}t` : `${kg.toLocaleString('pt-BR')} kg`;
+  return `${kg.toLocaleString('pt-BR')} kg`;
 }

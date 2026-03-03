@@ -202,7 +202,7 @@ export default function EnviosExpedicaoPage() {
       await addExpedicao(expedicao);
       const parciais = pecasDetalhes.filter(d => d.qtd_enviada < d.qtd_total);
       const msgParcial = parciais.length > 0 ? ` (${parciais.length} envio(s) parcial(is))` : '';
-      toast.success(`Envio criado com ${pecasSelecionadas.length} peça(s) — ${pesoTotal.toFixed(2)}t${msgParcial}`);
+      toast.success(`Envio criado com ${pecasSelecionadas.length} peça(s) — ${pesoTotal.toFixed(2)}kg${msgParcial}`);
       setModalAberto(false);
       setPecasSelecionadas([]);
       setQuantidadesEnvio({});
@@ -242,7 +242,7 @@ export default function EnviosExpedicaoPage() {
         <p><strong>Obra:</strong> ${envio.obra_nome || '-'}</p>
       </div>
     </div>
-    <p><strong>Total de Peças:</strong> ${pecasEnvio} conjunto(s) | <strong>Peso Total:</strong> ${(parseFloat(envio.peso_total) || 0).toFixed(2)}t</p>
+    <p><strong>Total de Peças:</strong> ${pecasEnvio} conjunto(s) | <strong>Peso Total:</strong> ${(parseFloat(envio.peso_total) || 0).toFixed(2)}kg</p>
     ${envio.observacoes ? `<p><strong>Obs:</strong> ${envio.observacoes}</p>` : ''}
     <button onclick="window.print()" style="margin-top:16px;padding:8px 16px;background:#1a56db;color:white;border:none;border-radius:4px;cursor:pointer">🖨️ Imprimir</button>
     </body></html>`;
@@ -279,7 +279,7 @@ export default function EnviosExpedicaoPage() {
           { label: 'Total Envios', value: kpis.total, icon: Package, color: 'text-blue-400' },
           { label: 'Em Trânsito', value: kpis.emTransito, icon: Truck, color: 'text-yellow-400' },
           { label: 'Entregues', value: kpis.entregues, icon: CheckCircle2, color: 'text-green-400' },
-          { label: 'Peso Total', value: kpis.pesoTotal.toFixed(1) + 't', icon: Weight, color: 'text-purple-400' },
+          { label: 'Peso Total', value: kpis.pesoTotal.toFixed(1) + 'kg', icon: Weight, color: 'text-purple-400' },
           { label: 'Prontas p/ Embarque', value: kpis.prontas, icon: SendHorizontal, color: 'text-emerald-400' },
         ].map((k, i) => (
           <div key={i} className="bg-gray-900 rounded-lg p-4 flex items-center justify-between">
@@ -365,7 +365,7 @@ export default function EnviosExpedicaoPage() {
                       </span>
                     </div>
                     <div className="flex justify-between text-sm text-gray-400 mt-2 pt-2 border-t border-gray-800">
-                      <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(peca.peso) || 0).toFixed(2)}t</span>
+                      <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(peca.peso) || 0).toFixed(2)}kg</span>
                       <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {peca.quantidade || 1} un</span>
                       {peca.obra_id && <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {peca.obra_nome || peca.obra_id}</span>}
                     </div>
@@ -425,7 +425,7 @@ export default function EnviosExpedicaoPage() {
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-400">
                           <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {envio.obra_nome || envio.obra_id || '-'}</span>
                           <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {envio.transportadora || '-'}</span>
-                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(envio.peso_total) || 0).toFixed(2)}t</span>
+                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(envio.peso_total) || 0).toFixed(2)}kg</span>
                           <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {(envio.pecas_ids || []).length} peça(s)</span>
                         </div>
                         {envio.data_envio && (
@@ -525,14 +525,14 @@ export default function EnviosExpedicaoPage() {
                     <p className="font-medium text-white">{p.marca || p.conjunto || 'Peça'}</p>
                     <p className="text-gray-400">{p.tipo || p.descricao || ''}</p>
                     <div className="flex justify-between mt-1 text-gray-500">
-                      <span>{(parseFloat(p.peso) || 0).toFixed(2)}t</span>
+                      <span>{(parseFloat(p.peso) || 0).toFixed(2)}kg</span>
                       <span>{p.quantidade || 1} un</span>
                     </div>
                   </div>
                 ))}
               </div>
               <div className="mt-3 pt-2 border-t border-gray-800 text-xs text-gray-500">
-                Peso total: {pecasPintura.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}t
+                Peso total: {pecasPintura.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}kg
               </div>
             </div>
 
@@ -554,14 +554,14 @@ export default function EnviosExpedicaoPage() {
                     <p className="font-medium text-white">{p.marca || p.conjunto || 'Peça'}</p>
                     <p className="text-gray-400">{p.tipo || p.descricao || ''}</p>
                     <div className="flex justify-between mt-1 text-gray-500">
-                      <span>{(parseFloat(p.peso) || 0).toFixed(2)}t</span>
+                      <span>{(parseFloat(p.peso) || 0).toFixed(2)}kg</span>
                       <span>{p.quantidade || 1} un</span>
                     </div>
                   </div>
                 ))}
               </div>
               <div className="mt-3 pt-2 border-t border-gray-800 flex justify-between items-center">
-                <span className="text-xs text-gray-500">Peso total: {pecasExpedidas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}t</span>
+                <span className="text-xs text-gray-500">Peso total: {pecasExpedidas.reduce((s, p) => s + (parseFloat(p.peso) || 0), 0).toFixed(2)}kg</span>
                 {pecasExpedidas.length > 0 && (
                   <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs h-7"
                     onClick={() => {
@@ -596,7 +596,7 @@ export default function EnviosExpedicaoPage() {
                       <div>
                         <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
                         <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}t · {(e.pecas_ids || []).length} peça(s)</p>
+                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}kg · {(e.pecas_ids || []).length} peça(s)</p>
                         {e.transportadora && <p className="text-gray-500 mt-0.5">{e.transportadora}</p>}
                       </div>
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300"
@@ -643,7 +643,7 @@ export default function EnviosExpedicaoPage() {
                       <div key={e.id} className="bg-gray-800 rounded p-2 text-xs">
                         <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
                         <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}t</p>
+                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}kg</p>
                       </div>
                     ))}
                     {enviosDoStatus.length === 0 && (
@@ -739,7 +739,7 @@ export default function EnviosExpedicaoPage() {
                       const qtyEnvio = quantidadesEnvio[p.id] || qtyOrig;
                       const pesoUnit = qtyOrig > 0 ? (parseFloat(p.peso) || 0) / qtyOrig : 0;
                       return s + (pesoUnit * qtyEnvio);
-                    }, 0).toFixed(2)}t
+                    }, 0).toFixed(2)}kg
                   </span>
                 )}
               </div>
@@ -818,7 +818,7 @@ export default function EnviosExpedicaoPage() {
                             <span className="text-xs text-gray-500 bg-gray-700/40 px-2 py-1 rounded">{qtyTotal} un</span>
                           ) : null}
                           <div className="text-right">
-                            <p className="text-sm text-white">{(selecionada && temMultiplas ? pesoEnvio : parseFloat(peca.peso) || 0).toFixed(2)}t</p>
+                            <p className="text-sm text-white">{(selecionada && temMultiplas ? pesoEnvio : parseFloat(peca.peso) || 0).toFixed(2)}kg</p>
                             {!temMultiplas && <p className="text-xs text-gray-400">{qtyTotal} un</p>}
                             {selecionada && temMultiplas && qtyEnvio < qtyTotal && (
                               <p className="text-xs text-amber-400">parcial</p>
