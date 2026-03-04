@@ -726,45 +726,6 @@ export default function MontexERP3DPage({ obraAtualData }) {
   }, []);
 
   // ==============================================
-  // AUTO-LOAD IFC: IndexedDB cache -> Supabase Storage fallback
-  // ==============================================
-  useEffect(() => {
-    if (modelLoaded || loading) return; // ja carregado ou carregando
-    let cancelled = false;
-
-    async function autoLoad() {
-      // 1. Tentar IndexedDB (cache local rapido)
-      const local = await loadIFCFromLocal();
-      if (local && local.buffer && !cancelled) {
-        console.log('Auto-load: IFC encontrado no IndexedDB:', local.fileName);
-        const fakeFile = new File([local.buffer], local.fileName || 'model.ifc');
-        handleFile(fakeFile);
-        return;
-      }
-
-      // 2. Fallback: Supabase Storage (online)
-      console.log('Auto-load: Tentando Supabase Storage...');
-      const buffer = await downloadIFCFromSupabase();
-      if (buffer && !cancelled) {
-        console.log('Auto-load: IFC baixado do Supabase Storage');
-        // Salvar no IndexedDB para proxima vez
-        saveIFCToLocal('model.ifc', buffer);
-        const fakeFile = new File([buffer], 'model.ifc');
-        handleFile(fakeFile);
-        return;
-      }
-
-      if (!cancelled) {
-        console.log('Auto-load: Nenhum IFC persistido encontrado');
-      }
-    }
-
-    // Aguardar SceneManager estar pronto
-    const timer = setTimeout(autoLoad, 500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [modelLoaded, loading, handleFile]);
-
-  // ==============================================
   // APPLY COLORS WHEN STATUS MAP OR COLOR MODE CHANGES
   // ==============================================
   useEffect(() => {
@@ -910,6 +871,43 @@ export default function MontexERP3DPage({ obraAtualData }) {
     }
     setLoading(false);
   }, [erpPecas, colorMode, applyColorsToScene]);
+
+  // ==============================================
+  // AUTO-LOAD IFC: IndexedDB cache -> Supabase Storage fallback
+  // ==============================================
+  useEffect(() => {
+    if (modelLoaded || loading) return;
+    let cancelled = false;
+
+    async function autoLoad() {
+      // 1. Tentar IndexedDB (cache local rapido)
+      const local = await loadIFCFromLocal();
+      if (local && local.buffer && !cancelled) {
+        console.log('Auto-load: IFC encontrado no IndexedDB:', local.fileName);
+        const fakeFile = new File([local.buffer], local.fileName || 'model.ifc');
+        handleFile(fakeFile);
+        return;
+      }
+
+      // 2. Fallback: Supabase Storage (online)
+      console.log('Auto-load: Tentando Supabase Storage...');
+      const buffer = await downloadIFCFromSupabase();
+      if (buffer && !cancelled) {
+        console.log('Auto-load: IFC baixado do Supabase Storage');
+        saveIFCToLocal('model.ifc', buffer);
+        const fakeFile = new File([buffer], 'model.ifc');
+        handleFile(fakeFile);
+        return;
+      }
+
+      if (!cancelled) {
+        console.log('Auto-load: Nenhum IFC persistido encontrado');
+      }
+    }
+
+    const timer = setTimeout(autoLoad, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [modelLoaded, loading, handleFile]);
 
   // ==============================================
   // MOUSE INTERACTION
