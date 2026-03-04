@@ -27,7 +27,7 @@ export function useCommandCenter() {
     try {
       const { data, error } = await supabase
         .from('materiais_corte')
-        .select('status_corte, peso_teorico, quantidade, peca, updated_at');
+        .select('status_corte, peso_teorico, quantidade, peca, marca, conjunto, responsavel, updated_at');
       if (error) throw error;
 
       const items = data || [];
@@ -40,7 +40,17 @@ export function useCommandCenter() {
 
       // Hoje cortadas
       const hoje = new Date().toISOString().slice(0, 10);
-      const cortadasHoje = finalizado.filter(i => i.updated_at && i.updated_at.slice(0, 10) === hoje).length;
+      const cortadasHoje = finalizado.filter(i => i.updated_at && i.updated_at.slice(0, 10) === hoje);
+
+      // Por responsável
+      const porResponsavel = {};
+      finalizado.forEach(i => {
+        const resp = i.responsavel || 'Não atribuído';
+        if (!porResponsavel[resp]) porResponsavel[resp] = { qtd: 0, peso: 0, pecas: [] };
+        porResponsavel[resp].qtd++;
+        porResponsavel[resp].peso += parseFloat(i.peso_teorico) || 0;
+        porResponsavel[resp].pecas.push(i.peca || i.marca || '-');
+      });
 
       return {
         total: items.length,
@@ -51,7 +61,10 @@ export function useCommandCenter() {
         pesoFinalizado: Math.round(pesoFinalizado * 10) / 10,
         progressoPeso: pesoTotal > 0 ? Math.round((pesoFinalizado / pesoTotal) * 100) : 0,
         progressoPecas: items.length > 0 ? Math.round((finalizado.length / items.length) * 100) : 0,
-        cortadasHoje
+        cortadasHoje: cortadasHoje.length,
+        cortadasHojeItens: cortadasHoje,
+        porResponsavel,
+        items
       };
     } catch (e) {
       console.warn('[CommandCenter] Erro corte:', e.message);
@@ -64,7 +77,7 @@ export function useCommandCenter() {
     try {
       const { data, error } = await supabase
         .from('pecas_producao')
-        .select('etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida');
+        .select('etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, peca, responsavel, obra_id, updated_at, created_at');
       if (error) throw error;
 
       const items = data || [];
@@ -73,13 +86,36 @@ export function useCommandCenter() {
       const pintura = items.filter(i => i.etapa === 'pintura');
       const expedicao = items.filter(i => i.etapa === 'expedicao' || i.etapa === 'expedido');
       const finalizado = items.filter(i => i.etapa === 'finalizado');
+      const entregue = items.filter(i => i.etapa === 'entregue');
 
       const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
-      const pesoExpedido = [...expedicao, ...finalizado].reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
+      const pesoExpedido = [...expedicao, ...finalizado, ...entregue].reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
 
-      // Progresso baseado em etapas avançadas (solda+pintura+expedicao+finalizado)
-      const avancados = solda.length + pintura.length + expedicao.length + finalizado.length;
-      const movidasHoje = avancados; // sem updated_at, usamos total avançado
+      // Progresso baseado em etapas avançadas
+      const avancados = solda.length + pintura.length + expedicao.length + finalizado.length + entregue.length;
+      const movidasHoje = avancados;
+
+      // Por setor com identificação de peças
+      const porSetor = {
+        fabricacao: fabricacao.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
+        solda: solda.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
+        pintura: pintura.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
+        expedicao: expedicao.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
+      };
+
+      // Por responsável
+      const porResponsavel = {};
+      items.forEach(i => {
+        const resp = i.responsavel || 'Não atribuído';
+        if (!porResponsavel[resp]) porResponsavel[resp] = { total: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, peso: 0 };
+        porResponsavel[resp].total++;
+        porResponsavel[resp].peso += parseFloat(i.peso_total) || 0;
+        const etapa = i.etapa || 'fabricacao';
+        if (etapa === 'fabricacao' || !i.etapa) porResponsavel[resp].fabricacao++;
+        else if (etapa === 'solda') porResponsavel[resp].solda++;
+        else if (etapa === 'pintura') porResponsavel[resp].pintura++;
+        else if (etapa === 'expedicao' || etapa === 'expedido') porResponsavel[resp].expedicao++;
+      });
 
       return {
         total: items.length,
@@ -88,10 +124,14 @@ export function useCommandCenter() {
         pintura: pintura.length,
         expedicao: expedicao.length,
         finalizado: finalizado.length,
+        entregue: entregue.length,
         pesoTotal: Math.round(pesoTotal * 10) / 10,
         pesoExpedido: Math.round(pesoExpedido * 10) / 10,
         progressoGeral: pesoTotal > 0 ? Math.round((pesoExpedido / pesoTotal) * 100) : 0,
-        movidasHoje
+        movidasHoje,
+        porSetor,
+        porResponsavel,
+        items
       };
     } catch (e) {
       console.warn('[CommandCenter] Erro produção:', e.message);

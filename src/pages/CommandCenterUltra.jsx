@@ -1,12 +1,13 @@
-// MONTEX ERP Premium - Command Center Ultra v2
-// Dashboard executivo - visÃ£o objetiva e profissional
+// MONTEX ERP Premium - Command Center Ultra v3
+// Dashboard executivo com financeiro, produção por setor e funcionário
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { ResponsiveContainer, AreaChart, Area } from 'recharts';
+import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell } from 'recharts';
 import {
   Minus, ArrowUp, ArrowDown, AlertTriangle, Bell, CheckCircle,
   Cpu, RefreshCw, Clock, Building2, Weight, Package, DollarSign,
-  Factory, Layers, Target, Truck, Gauge, Users, Zap, Bolt
+  Factory, Layers, Target, Truck, Gauge, Users, Zap, Bolt,
+  TrendingUp, Wallet, Receipt, FileText, Calendar, Filter, User
 } from 'lucide-react';
 import { kpisIndustriais, recursosHumanos, energiaMetricas
 } from '../data/commandCenterData';
@@ -27,6 +28,22 @@ const colors = {
   text: '#F1F5F9',
   muted: '#94A3B8',
   dimmed: '#64748B',
+};
+
+const SETOR_COLORS = {
+  fabricacao: '#3B82F6',
+  solda: '#8B5CF6',
+  pintura: '#06B6D4',
+  expedicao: '#10B981',
+  corte: '#F59E0B',
+};
+
+const SETOR_LABELS = {
+  fabricacao: 'Fabricação',
+  solda: 'Solda',
+  pintura: 'Pintura',
+  expedicao: 'Expedição',
+  corte: 'Corte',
 };
 
 // ============ MICRO COMPONENTS ============
@@ -81,37 +98,22 @@ const MiniBar = ({ value = 0, max = 100, color = '#3B82F6', height = 6 }) => (
   </div>
 );
 
-const Sparkline = ({ data = [], color = '#3B82F6', height = 32 }) => (
-  <ResponsiveContainer width="100%" height={height}>
-    <AreaChart data={data.map((v, i) => ({ v, i }))}>
-      <defs>
-        <linearGradient id={`spark-${color.replace('#','')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill={`url(#spark-${color.replace('#','')})`} dot={false} isAnimationActive={false} />
-    </AreaChart>
-  </ResponsiveContainer>
-);
-
-const StatCard = ({ icon: Icon, label, value, subtitle, trend, color = '#3B82F6', onClick }) => (
+const StatCard = ({ icon: Icon, label, value, subtitle, trend, color = '#3B82F6', small }) => (
   <motion.div
     className="relative group cursor-default rounded-xl border backdrop-blur-sm overflow-hidden"
     style={{ background: colors.card, borderColor: colors.border }}
     whileHover={{ y: -2, borderColor: color }}
     transition={{ duration: 0.2 }}
-    onClick={onClick}
   >
     <div className="absolute top-0 left-0 w-full h-0.5" style={{ background: `linear-gradient(90deg, ${color}, transparent)` }} />
-    <div className="p-4">
-      <div className="flex items-start justify-between mb-3">
-        <div className="p-2 rounded-lg" style={{ background: `${color}15` }}>
-          <Icon size={18} style={{ color }} />
+    <div className={small ? 'p-3' : 'p-4'}>
+      <div className="flex items-start justify-between mb-2">
+        <div className="p-1.5 rounded-lg" style={{ background: `${color}15` }}>
+          <Icon size={small ? 14 : 18} style={{ color }} />
         </div>
         {trend !== undefined && <TrendBadge value={trend} />}
       </div>
-      <div className="text-2xl font-bold text-white tracking-tight">{value}</div>
+      <div className={`${small ? 'text-xl' : 'text-2xl'} font-bold text-white tracking-tight`}>{value}</div>
       <div className="text-xs text-slate-400 mt-1">{label}</div>
       {subtitle && <div className="text-[10px] text-slate-500 mt-0.5">{subtitle}</div>}
     </div>
@@ -148,6 +150,28 @@ const StageChip = ({ label, value, color, active }) => (
   </motion.div>
 );
 
+const PeriodFilter = ({ value, onChange }) => (
+  <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5">
+    {[
+      { id: 'dia', label: 'Dia' },
+      { id: 'semana', label: 'Semana' },
+      { id: 'mes', label: 'Mês' },
+    ].map(p => (
+      <button
+        key={p.id}
+        onClick={() => onChange(p.id)}
+        className={`text-[10px] font-semibold px-3 py-1.5 rounded-md transition-all ${
+          value === p.id
+            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+            : 'text-slate-500 hover:text-slate-300 border border-transparent'
+        }`}
+      >
+        {p.label}
+      </button>
+    ))}
+  </div>
+);
+
 const AlertItem = ({ type, message, time }) => {
   const cfg = {
     critical: { icon: AlertTriangle, color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
@@ -168,9 +192,17 @@ const AlertItem = ({ type, message, time }) => {
 
 const formatCurrency = (v) => {
   if (v === 0 || !v) return 'R$ 0';
-  if (Math.abs(v) >= 1e6) return `R$ ${(v / 1e6).toFixed(1)}M`;
-  if (Math.abs(v) >= 1e3) return `R$ ${(v / 1e3).toFixed(0)}k`;
-  return `R$ ${v.toFixed(0)}`;
+  if (v < 0) return `-R$ ${formatCurrencyAbs(Math.abs(v))}`;
+  return `R$ ${formatCurrencyAbs(v)}`;
+};
+const formatCurrencyAbs = (v) => {
+  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
+  return v.toFixed(0);
+};
+const formatCurrencyFull = (v) => {
+  if (!v && v !== 0) return 'R$ 0,00';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 };
 
 const formatWeight = (kg) => {
@@ -178,10 +210,25 @@ const formatWeight = (kg) => {
   return `${(kg / 1000).toFixed(1)}t`;
 };
 
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border p-2" style={{ background: '#1E293B', borderColor: 'rgba(51,65,85,0.8)' }}>
+      <p className="text-[10px] text-slate-400 mb-1">{label}</p>
+      {payload.map((p, i) => (
+        <p key={i} className="text-xs font-semibold" style={{ color: p.color || p.fill }}>
+          {p.name}: {typeof p.value === 'number' && p.value > 999 ? formatCurrency(p.value) : p.value}
+        </p>
+      ))}
+    </div>
+  );
+};
+
 // ============ MAIN COMPONENT ============
 
 export default function CommandCenterUltra() {
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [periodo, setPeriodo] = useState('dia');
   const {
     corte = {}, producao = {}, estoque = {}, financeiro = {}, campo = {},
     loading = false, lastUpdate = new Date(), comparacaoDiaria, refresh
@@ -201,15 +248,21 @@ export default function CommandCenterUltra() {
     try { return comparacaoDiaria?.() || {}; } catch { return {}; }
   }, [comparacaoDiaria]);
 
-  // Apenas a obra ativa atual (SUPER LUNA) - não mostrar outras obras
+  // Apenas a obra ativa atual (SUPER LUNA)
   const obrasAtivas = useMemo(() => obraAtualData ? [obraAtualData] : [], [obraAtualData]);
   const maquinasAtivas = useMemo(() => maquinas?.filter(m => m?.status === 'ativa' || m?.status === 'operando') || [], [maquinas]);
 
-  // Peso total baseado na obra ativa (SUPER LUNA)
+  // Peso total baseado na obra ativa
   const pesoTotalObra = obraAtualData?.pesoTotal || obraAtualData?.peso_total || 0;
   const pesoTotal = pesoTotalObra > 0 ? pesoTotalObra : (corte?.pesoTotal || 0) + (producao?.pesoTotal || 0);
   const pesoExpedido = producao?.pesoExpedido || 0;
   const progressoGeralPeso = pesoTotal > 0 ? (pesoExpedido / pesoTotal) * 100 : 0;
+
+  // FINANCEIRO: Faturamento, Despesas, Saldo Contrato
+  const valorContrato = obraAtualData?.valorContrato || obraAtualData?.valor_contrato || 0;
+  const faturamentoTotal = financeiro?.totalMedicoes || 0;
+  const despesaTotal = financeiro?.totalDespesas || 0;
+  const saldoContrato = valorContrato - despesaTotal;
 
   const producaoStages = useMemo(() => [
     { label: 'Corte', value: corte?.cortando || 0, total: corte?.total || 0, color: '#F59E0B' },
@@ -219,37 +272,64 @@ export default function CommandCenterUltra() {
     { label: 'Exped.', value: producao?.expedicao || 0, total: producao?.total || 0, color: '#10B981' },
   ], [corte, producao]);
 
-  const estoqueStatus = useMemo(() => [
-    { name: 'Normal', value: estoque?.normal || 0, color: '#10B981' },
-    { name: 'Baixo', value: estoque?.baixo || 0, color: '#F59E0B' },
-    { name: 'CrÃ­tico', value: estoque?.critico || 0, color: '#EF4444' },
-  ], [estoque]);
+  // Dados para gráfico de barras por setor
+  const producaoPorSetorChart = useMemo(() => {
+    const porSetor = producao?.porSetor || {};
+    return Object.entries(SETOR_LABELS).map(([key, label]) => ({
+      setor: label,
+      qtd: (porSetor[key] || []).length,
+      color: SETOR_COLORS[key],
+    }));
+  }, [producao?.porSetor]);
 
-  const estoqueTotal = (estoque?.normal || 0) + (estoque?.baixo || 0) + (estoque?.critico || 0);
+  // Dados por responsável (produção)
+  const producaoPorFuncionario = useMemo(() => {
+    const resp = producao?.porResponsavel || {};
+    return Object.entries(resp)
+      .map(([nome, data]) => ({ nome, ...data }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10);
+  }, [producao?.porResponsavel]);
 
-  const projetosData = useMemo(() =>
-    obrasAtivas.slice(0, 6).map(o => ({
-      nome: o?.codigo || o?.nome || 'Projeto',
-      progresso: o?.percentualConcluido || o?.progresso?.geral || 0,
-      peso: o?.pesoTotal || o?.peso_total || 0,
-      valor: o?.valorContrato || o?.valor_contrato || o?.valorTotal || 0,
-    })), [obrasAtivas]);
+  // Dados por responsável (corte)
+  const cortePorFuncionario = useMemo(() => {
+    const resp = corte?.porResponsavel || {};
+    return Object.entries(resp)
+      .map(([nome, data]) => ({ nome, ...data }))
+      .sort((a, b) => b.qtd - a.qtd)
+      .slice(0, 10);
+  }, [corte?.porResponsavel]);
+
+  // Peças detalhadas por setor
+  const pecasPorSetor = useMemo(() => {
+    const porSetor = producao?.porSetor || {};
+    return Object.entries(SETOR_LABELS).map(([key, label]) => ({
+      setor: label,
+      key,
+      color: SETOR_COLORS[key],
+      pecas: (porSetor[key] || []).slice(0, 8),
+      total: (porSetor[key] || []).length,
+    })).filter(s => s.total > 0);
+  }, [producao?.porSetor]);
+
+  // Gráfico comparativo financeiro
+  const financeiroChart = useMemo(() => [
+    { name: 'Contrato', valor: valorContrato, fill: '#3B82F6' },
+    { name: 'Faturado', valor: faturamentoTotal, fill: '#10B981' },
+    { name: 'Despesas', valor: despesaTotal, fill: '#EF4444' },
+    { name: 'Saldo', valor: Math.max(saldoContrato, 0), fill: saldoContrato >= 0 ? '#8B5CF6' : '#EF4444' },
+  ], [valorContrato, faturamentoTotal, despesaTotal, saldoContrato]);
 
   const alertas = useMemo(() => {
     const list = [];
-    if ((estoque?.critico || 0) > 0) list.push({ type: 'critical', message: `${estoque.critico} itens em estoque crÃ­tico`, time: 'Agora' });
+    if ((estoque?.critico || 0) > 0) list.push({ type: 'critical', message: `${estoque.critico} itens em estoque crítico`, time: 'Agora' });
     if ((estoque?.baixo || 0) > 0) list.push({ type: 'warning', message: `${estoque.baixo} itens com estoque baixo`, time: 'Agora' });
+    if (saldoContrato < 0) list.push({ type: 'critical', message: `Saldo do contrato negativo: ${formatCurrencyFull(saldoContrato)}`, time: 'Financeiro' });
     if ((financeiro?.despesasPendentes || 0) > 0) list.push({ type: 'warning', message: `${formatCurrency(financeiro.despesasPendentes)} em despesas pendentes`, time: 'Financeiro' });
-    if ((corte?.aguardando || 0) > 5) list.push({ type: 'info', message: `${corte.aguardando} peÃ§as aguardando corte`, time: 'ProduÃ§Ã£o' });
+    if ((corte?.aguardando || 0) > 5) list.push({ type: 'info', message: `${corte.aguardando} peças aguardando corte`, time: 'Produção' });
     if (list.length === 0) list.push({ type: 'info', message: 'Nenhum alerta ativo no momento', time: 'Sistema' });
     return list;
-  }, [estoque, financeiro, corte]);
-
-  // Daily production mock sparkline (simulates trend from real data)
-  const prodTrend = useMemo(() => {
-    const base = producao?.movidasHoje || 0;
-    return Array.from({ length: 7 }, (_, i) => Math.max(0, base + Math.round((Math.random() - 0.5) * base * 0.3)));
-  }, [producao?.movidasHoje]);
+  }, [estoque, financeiro, corte, saldoContrato]);
 
   // ============ RENDER ============
 
@@ -289,36 +369,64 @@ export default function CommandCenterUltra() {
 
       <main className="max-w-[1440px] mx-auto px-6 py-5 space-y-5">
 
-        {/* ROW 1: KPI CARDS */}
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
+        {/* ROW 1: KPI CARDS - Obra + Financeiro + Produção */}
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard icon={Building2} label="Obra Ativa" value={obrasAtivas.length} color="#3B82F6"
-            subtitle={obraAtualData?.nome || obraAtualData?.codigo || 'SUPER LUNA'} />
-          <StatCard icon={Weight} label="Peso Total" value={formatWeight(pesoTotal)} color="#8B5CF6"
-            subtitle={`${formatWeight(pesoExpedido)} expedido`} trend={comparacao?.producao?.pesoExpedido} />
-          <StatCard icon={Package} label="PeÃ§as Hoje" value={producao?.movidasHoje || 0} color="#10B981"
-            subtitle={`${corte?.cortadasHoje || 0} cortadas`} trend={comparacao?.producao?.movidasHoje} />
-          <StatCard icon={DollarSign} label="Saldo Obras" value={formatCurrency(financeiro?.saldoObra || 0)} color="#F59E0B"
-            subtitle={`${financeiro?.numMedicoes || 0} mediÃ§Ãµes`} />
-          <StatCard icon={Factory} label="MÃ¡quinas" value={`${maquinasAtivas.length}/${maquinas?.length || 0}`} color="#06B6D4"
-            subtitle="ativas / total" />
-          <StatCard icon={AlertTriangle} label="Alertas" value={(estoque?.critico || 0) + (estoque?.baixo || 0)} color="#EF4444"
-            subtitle={`${estoque?.critico || 0} crÃ­ticos`} />
+            subtitle={obraAtualData?.nome || obraAtualData?.codigo || 'SUPER LUNA'} small />
+          <StatCard icon={Receipt} label="Faturamento Total" value={formatCurrency(faturamentoTotal)} color="#10B981"
+            subtitle={`${financeiro?.numMedicoes || 0} medições`} small />
+          <StatCard icon={Wallet} label="Despesa Total" value={formatCurrency(despesaTotal)} color="#EF4444"
+            subtitle={`${formatCurrency(financeiro?.despesasPendentes || 0)} pendentes`} small />
+          <StatCard icon={TrendingUp} label="Saldo Contrato" value={formatCurrency(saldoContrato)} color={saldoContrato >= 0 ? '#8B5CF6' : '#EF4444'}
+            subtitle={`Contrato: ${formatCurrency(valorContrato)}`} small />
+          <StatCard icon={Weight} label="Peso Total" value={formatWeight(pesoTotal)} color="#F59E0B"
+            subtitle={`${formatWeight(pesoExpedido)} expedido`} small />
+          <StatCard icon={Package} label="Peças Produção" value={(corte?.total || 0) + (producao?.total || 0)} color="#06B6D4"
+            subtitle={`${producao?.movidasHoje || 0} movidas hoje`} small />
         </div>
 
-        {/* ROW 2: PRODUCTION + PROGRESS */}
+        {/* ROW 2: FINANCIAL OVERVIEW + PRODUCTION PIPELINE */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
+          {/* FINANCIAL CHART */}
+          <SectionCard title="Visão Financeira" icon={DollarSign}>
+            <div className="space-y-4">
+              <ResponsiveContainer width="100%" height={180}>
+                <BarChart data={financeiroChart} layout="vertical" margin={{ left: 10, right: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.3)" />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={v => formatCurrency(v)} />
+                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#E2E8F0' }} width={65} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="valor" radius={[0, 4, 4, 0]}>
+                    {financeiroChart.map((entry, i) => (
+                      <Cell key={i} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+
+              <div className="grid grid-cols-2 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase">Despesas Pagas</div>
+                  <div className="text-sm font-bold text-white">{formatCurrency(financeiro?.despesasPagas || 0)}</div>
+                </div>
+                <div>
+                  <div className="text-[10px] text-slate-500 uppercase">Pendentes</div>
+                  <div className="text-sm font-bold text-amber-400">{formatCurrency(financeiro?.despesasPendentes || 0)}</div>
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+
           {/* PRODUCTION PIPELINE */}
-          <SectionCard title="Pipeline de ProduÃ§Ã£o" icon={Layers} className="lg:col-span-2">
+          <SectionCard title="Pipeline de Produção" icon={Layers} className="lg:col-span-2">
             <div className="space-y-5">
-              {/* Stage chips */}
               <div className="grid grid-cols-5 gap-2">
                 {producaoStages.map((s, i) => (
                   <StageChip key={i} label={s.label} value={s.value} color={s.color} active={s.value > 0} />
                 ))}
               </div>
 
-              {/* Flow bar */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-slate-400">Progresso Geral por Peso</span>
@@ -345,16 +453,15 @@ export default function CommandCenterUltra() {
                   {producaoStages.map((s, i) => (
                     <div key={i} className="flex items-center gap-1.5">
                       <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                      <span className="text-[10px] text-slate-400">{s.label}</span>
+                      <span className="text-[10px] text-slate-400">{s.label}: {s.value}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Summary row */}
               <div className="grid grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
                 <div>
-                  <div className="text-[10px] text-slate-500 uppercase">Total PeÃ§as</div>
+                  <div className="text-[10px] text-slate-500 uppercase">Total Peças</div>
                   <div className="text-lg font-bold text-white">{(corte?.total || 0) + (producao?.total || 0)}</div>
                 </div>
                 <div>
@@ -372,37 +479,152 @@ export default function CommandCenterUltra() {
               </div>
             </div>
           </SectionCard>
+        </div>
 
-          {/* DAILY TARGET */}
-          <SectionCard title="Meta DiÃ¡ria" icon={Target}>
-            <div className="flex flex-col items-center gap-4">
-              <ProgressRing
-                value={producao?.movidasHoje ? Math.min((producao.movidasHoje / 15) * 100, 100) : 0}
-                size={100} strokeWidth={6} color={producao?.movidasHoje >= 15 ? '#10B981' : '#3B82F6'}
-              />
-              <div className="text-center">
-                <div className="text-3xl font-bold text-white">{producao?.movidasHoje || 0}</div>
-                <div className="text-xs text-slate-400 mt-1">de 15 peÃ§as movidas</div>
+        {/* ROW 3: PRODUÇÃO POR SETOR + PEÇAS IDENTIFICADAS */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+          {/* GRÁFICO POR SETOR */}
+          <SectionCard title="Quantidade por Setor" icon={Layers}
+            action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
+          >
+            <div className="space-y-4">
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={producaoPorSetorChart} margin={{ left: -10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.3)" />
+                  <XAxis dataKey="setor" tick={{ fontSize: 10, fill: '#94A3B8' }} />
+                  <YAxis tick={{ fontSize: 10, fill: '#94A3B8' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="qtd" name="Peças" radius={[4, 4, 0, 0]}>
+                    {producaoPorSetorChart.map((entry, i) => (
+                      <Cell key={i} fill={entry.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+
+              <div className="text-[10px] text-slate-500 text-center">
+                {periodo === 'dia' ? 'Dados do dia atual' : periodo === 'semana' ? 'Dados da semana' : 'Dados do mês'}
               </div>
-              <Sparkline data={prodTrend} color="#3B82F6" height={40} />
-              <div className="w-full grid grid-cols-2 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
-                <div className="text-center">
-                  <div className="text-xs text-slate-500">Cortadas</div>
-                  <div className="text-base font-bold text-amber-400">{corte?.cortadasHoje || 0}</div>
+            </div>
+          </SectionCard>
+
+          {/* PEÇAS POR SETOR DETALHADAS */}
+          <SectionCard title="Peças por Setor" icon={FileText} className="lg:col-span-2">
+            <div className="space-y-4 max-h-[320px] overflow-y-auto pr-2">
+              {pecasPorSetor.length > 0 ? pecasPorSetor.map((setor, si) => (
+                <div key={si} className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full" style={{ background: setor.color }} />
+                    <span className="text-xs font-semibold text-slate-200">{setor.setor}</span>
+                    <span className="text-[10px] text-slate-500">({setor.total} peças)</span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 pl-4">
+                    {setor.pecas.map((p, pi) => (
+                      <div key={pi} className="flex items-center gap-1.5 p-1.5 rounded-md bg-slate-800/30 border border-slate-700/30">
+                        <span className="text-[10px] text-slate-300 truncate">{p.nome}</span>
+                        {p.peso > 0 && <span className="text-[9px] text-slate-500 flex-shrink-0">{p.peso.toFixed(0)}kg</span>}
+                      </div>
+                    ))}
+                    {setor.total > 8 && (
+                      <div className="flex items-center justify-center p-1.5 rounded-md bg-slate-800/20">
+                        <span className="text-[10px] text-slate-500">+{setor.total - 8} mais</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div className="text-center">
-                  <div className="text-xs text-slate-500">Enviadas</div>
-                  <div className="text-base font-bold text-emerald-400">{campo?.enviosHoje || 0}</div>
+              )) : (
+                <div className="flex flex-col items-center justify-center py-8 text-slate-500">
+                  <Package size={32} className="mb-2 opacity-30" />
+                  <span className="text-sm">Nenhuma peça em produção</span>
                 </div>
-              </div>
+              )}
             </div>
           </SectionCard>
         </div>
 
-        {/* ROW 3: INVENTORY + FINANCIAL + ALERTS */}
+        {/* ROW 4: PRODUÇÃO POR FUNCIONÁRIO */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+
+          {/* FUNCIONÁRIOS - PRODUÇÃO */}
+          <SectionCard title="Produção por Funcionário" icon={Users}
+            action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
+          >
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+              {producaoPorFuncionario.length > 0 ? producaoPorFuncionario.map((f, i) => (
+                <motion.div
+                  key={i}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/20"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <div className="w-8 h-8 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center flex-shrink-0">
+                    <User size={14} className="text-blue-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-white truncate">{f.nome}</div>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] text-blue-400">{f.fabricacao} fab</span>
+                      <span className="text-[10px] text-purple-400">{f.solda} solda</span>
+                      <span className="text-[10px] text-cyan-400">{f.pintura} pint</span>
+                      <span className="text-[10px] text-emerald-400">{f.expedicao} exp</span>
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-sm font-bold text-white">{f.total}</div>
+                    <div className="text-[10px] text-slate-500">{formatWeight(f.peso)}</div>
+                  </div>
+                </motion.div>
+              )) : (
+                <div className="text-center py-6 text-slate-500 text-xs">Sem dados de responsável registrados</div>
+              )}
+            </div>
+          </SectionCard>
+
+          {/* FUNCIONÁRIOS - CORTE */}
+          <SectionCard title="Corte por Funcionário" icon={Factory}
+            action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
+          >
+            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+              {cortePorFuncionario.length > 0 ? cortePorFuncionario.map((f, i) => (
+                <motion.div
+                  key={i}
+                  className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/20"
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                >
+                  <div className="w-8 h-8 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                    <User size={14} className="text-amber-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-white truncate">{f.nome}</div>
+                    <div className="flex items-center gap-1 mt-1 flex-wrap">
+                      {(f.pecas || []).slice(0, 4).map((p, pi) => (
+                        <span key={pi} className="text-[9px] bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded">{p}</span>
+                      ))}
+                      {(f.pecas || []).length > 4 && (
+                        <span className="text-[9px] text-slate-500">+{f.pecas.length - 4}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-sm font-bold text-white">{f.qtd}</div>
+                    <div className="text-[10px] text-slate-500">{formatWeight(f.peso)}</div>
+                  </div>
+                </motion.div>
+              )) : (
+                <div className="text-center py-6 text-slate-500 text-xs">Sem dados de responsável registrados</div>
+              )}
+            </div>
+          </SectionCard>
+        </div>
+
+        {/* ROW 5: ESTOQUE + EXPEDIÇÃO + ALERTAS */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
 
-          {/* INVENTORY */}
+          {/* ESTOQUE */}
           <SectionCard title="Estoque" icon={Package}>
             <div className="space-y-4">
               <div className="flex items-center gap-4">
@@ -417,7 +639,11 @@ export default function CommandCenterUltra() {
               </div>
 
               <div className="space-y-2.5">
-                {estoqueStatus.map((s, i) => (
+                {[
+                  { name: 'Normal', value: estoque?.normal || 0, color: '#10B981' },
+                  { name: 'Baixo', value: estoque?.baixo || 0, color: '#F59E0B' },
+                  { name: 'Crítico', value: estoque?.critico || 0, color: '#EF4444' },
+                ].map((s, i) => (
                   <div key={i} className="space-y-1">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -426,121 +652,15 @@ export default function CommandCenterUltra() {
                       </div>
                       <span className="text-xs font-bold text-white">{s.value}</span>
                     </div>
-                    <MiniBar value={s.value} max={estoqueTotal || 100} color={s.color} />
+                    <MiniBar value={s.value} max={(estoque?.normal || 0) + (estoque?.baixo || 0) + (estoque?.critico || 0) || 100} color={s.color} />
                   </div>
                 ))}
               </div>
-
-              <div className="grid grid-cols-2 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                  <ArrowDown size={14} className="text-emerald-400" />
-                  <div>
-                    <div className="text-sm font-bold text-emerald-400">{estoque?.entradasHoje || 0}</div>
-                    <div className="text-[10px] text-slate-500">entradas</div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-red-500/5 border border-red-500/10">
-                  <ArrowUp size={14} className="text-red-400" />
-                  <div>
-                    <div className="text-sm font-bold text-red-400">{estoque?.saidasHoje || 0}</div>
-                    <div className="text-[10px] text-slate-500">saÃ­das</div>
-                  </div>
-                </div>
-              </div>
             </div>
           </SectionCard>
 
-          {/* FINANCIAL */}
-          <SectionCard title="Financeiro" icon={DollarSign}>
-            <div className="space-y-4">
-              <div className="p-3.5 rounded-lg border" style={{ background: 'rgba(16,185,129,0.05)', borderColor: 'rgba(16,185,129,0.15)' }}>
-                <div className="text-[10px] text-slate-500 uppercase mb-1">Saldo Acumulado</div>
-                <div className="text-2xl font-bold text-emerald-400">{formatCurrency(financeiro?.saldoObra || 0)}</div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">Despesas Pagas</div>
-                  <div className="text-base font-bold text-white">{formatCurrency(financeiro?.despesasPagas || 0)}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">Pendentes</div>
-                  <div className="text-base font-bold text-amber-400">{formatCurrency(financeiro?.despesasPendentes || 0)}</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">MediÃ§Ãµes</div>
-                  <div className="text-base font-bold text-blue-400">{financeiro?.totalMedicoes || 0}</div>
-                  <div className="text-[10px] text-slate-500">{financeiro?.medicoesAprovadas || 0} aprovadas</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-500 uppercase">LanÃ§amentos Hoje</div>
-                  <div className="text-base font-bold text-purple-400">{financeiro?.lancamentosHoje || 0}</div>
-                  <div className="text-[10px] text-slate-500">{financeiro?.numLancamentos || 0} total</div>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-
-          {/* ALERTS */}
-          <SectionCard title="Alertas" icon={Bell}
-            action={
-              <span className="text-[10px] font-bold text-white bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">
-                {alertas.length}
-              </span>
-            }
-          >
-            <div className="space-y-2">
-              {alertas.map((a, i) => (
-                <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
-                  <AlertItem {...a} />
-                </motion.div>
-              ))}
-            </div>
-          </SectionCard>
-        </div>
-
-        {/* ROW 4: PROJECTS + KPIs INDUSTRIAIS + EXPEDIÃÃO */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-          {/* PROJECTS */}
-          <SectionCard title="Projetos em ExecuÃ§Ã£o" icon={Building2} className="lg:col-span-2">
-            {projetosData.length > 0 ? (
-              <div className="space-y-3">
-                {projetosData.map((p, i) => (
-                  <motion.div
-                    key={i}
-                    className="flex items-center gap-4 p-3 rounded-lg hover:bg-slate-800/30 transition-colors"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    transition={{ delay: i * 0.05 }}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="text-sm font-semibold text-white truncate">{p.nome}</span>
-                        <span className="text-[10px] text-slate-500">{formatWeight(p.peso)}</span>
-                      </div>
-                      <MiniBar value={p.progresso} max={100} color={p.progresso >= 80 ? '#10B981' : p.progresso >= 40 ? '#3B82F6' : '#F59E0B'} />
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <div className="text-sm font-bold text-white">{Math.round(p.progresso)}%</div>
-                      <div className="text-[10px] text-slate-500">{formatCurrency(p.valor)}</div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-8 text-slate-500">
-                <Building2 size={32} className="mb-2 opacity-30" />
-                <span className="text-sm">Nenhum projeto em produÃ§Ã£o</span>
-              </div>
-            )}
-          </SectionCard>
-
-          {/* FIELD / EXPEDIÃÃO */}
-          <SectionCard title="ExpediÃ§Ã£o" icon={Truck}>
+          {/* EXPEDIÇÃO */}
+          <SectionCard title="Expedição" icon={Truck}>
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div className="text-center p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
@@ -549,7 +669,7 @@ export default function CommandCenterUltra() {
                 </div>
                 <div className="text-center p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
                   <div className="text-2xl font-bold text-emerald-400">{campo?.enviados || 0}</div>
-                  <div className="text-[10px] text-slate-400">ConcluÃ­dos</div>
+                  <div className="text-[10px] text-slate-400">Concluídos</div>
                 </div>
               </div>
 
@@ -560,11 +680,7 @@ export default function CommandCenterUltra() {
                     {campo?.totalEnvios > 0 ? Math.round(((campo?.enviados || 0) / campo.totalEnvios) * 100) : 0}%
                   </span>
                 </div>
-                <MiniBar
-                  value={campo?.enviados || 0}
-                  max={campo?.totalEnvios || 1}
-                  color="#10B981"
-                />
+                <MiniBar value={campo?.enviados || 0} max={campo?.totalEnvios || 1} color="#10B981" />
               </div>
 
               <div className="grid grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
@@ -583,98 +699,21 @@ export default function CommandCenterUltra() {
               </div>
             </div>
           </SectionCard>
-        </div>
 
-        {/* ROW 5: KPIs INDUSTRIAIS + RH + ENERGIA */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-
-          {/* KPIs INDUSTRIAIS */}
-          <SectionCard title="KPIs Industriais" icon={Gauge}>
-            <div className="space-y-3">
-              {[
-                { label: 'OEE', value: kpisIndustriais?.oee?.valor || 0, meta: 85, unit: '%', color: '#3B82F6' },
-                { label: 'Disponibilidade', value: kpisIndustriais?.oee?.disponibilidade || 0, meta: 95, unit: '%', color: '#10B981' },
-                { label: 'Performance', value: kpisIndustriais?.oee?.performance || 0, meta: 95, unit: '%', color: '#8B5CF6' },
-                { label: 'Qualidade', value: kpisIndustriais?.oee?.qualidade || 100, meta: 98, unit: '%', color: '#06B6D4' },
-              ].map((kpi, i) => (
-                <div key={i} className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-slate-300">{kpi.label}</span>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-white">{kpi.value}{kpi.unit}</span>
-                      <span className="text-[10px] text-slate-500">meta: {kpi.meta}{kpi.unit}</span>
-                    </div>
-                  </div>
-                  <MiniBar value={kpi.value} max={100} color={kpi.value >= kpi.meta ? '#10B981' : kpi.color} />
-                </div>
+          {/* ALERTAS */}
+          <SectionCard title="Alertas" icon={Bell}
+            action={
+              <span className="text-[10px] font-bold text-white bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">
+                {alertas.length}
+              </span>
+            }
+          >
+            <div className="space-y-2">
+              {alertas.map((a, i) => (
+                <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
+                  <AlertItem {...a} />
+                </motion.div>
               ))}
-            </div>
-          </SectionCard>
-
-          {/* RECURSOS HUMANOS */}
-          <SectionCard title="Equipe" icon={Users}>
-            <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-2">
-                <div className="text-center p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                  <div className="text-lg font-bold text-emerald-400">{recursosHumanos?.presentes || 0}</div>
-                  <div className="text-[10px] text-slate-400">Presentes</div>
-                </div>
-                <div className="text-center p-2.5 rounded-lg bg-red-500/5 border border-red-500/10">
-                  <div className="text-lg font-bold text-red-400">{recursosHumanos?.ausentes || 0}</div>
-                  <div className="text-[10px] text-slate-400">Ausentes</div>
-                </div>
-                <div className="text-center p-2.5 rounded-lg bg-blue-500/5 border border-blue-500/10">
-                  <div className="text-lg font-bold text-blue-400">{recursosHumanos?.ferias || 0}</div>
-                  <div className="text-[10px] text-slate-400">FÃ©rias</div>
-                </div>
-              </div>
-
-              {(recursosHumanos?.turnos || []).slice(0, 3).map((t, i) => (
-                <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/20">
-                  <span className="text-xs text-slate-300">{t?.turno || `Turno ${i+1}`}</span>
-                  <div className="flex items-center gap-3">
-                    <span className="text-[10px] text-slate-500">{t?.colaboradores || 0} colab.</span>
-                    <span className="text-xs font-bold text-blue-400">{t?.produtividade || 0}%</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </SectionCard>
-
-          {/* ENERGIA */}
-          <SectionCard title="Energia" icon={Bolt}>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="text-2xl font-bold text-amber-400">{energiaMetricas?.consumoAtual || 0} <span className="text-xs text-slate-400">kW</span></div>
-                  <div className="text-[10px] text-slate-500">consumo atual</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-bold text-red-400">{formatCurrency(energiaMetricas?.custoMensal || 0)}</div>
-                  <div className="text-[10px] text-slate-500">custo mensal</div>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                {[
-                  { label: 'Rede', value: energiaMetricas?.fonteEnergia?.rede || 0, color: '#3B82F6' },
-                  { label: 'Solar', value: energiaMetricas?.fonteEnergia?.solar || 0, color: '#F59E0B' },
-                  { label: 'Gerador', value: energiaMetricas?.fonteEnergia?.gerador || 0, color: '#EF4444' },
-                ].map((s, i) => (
-                  <div key={i} className="space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-xs text-slate-300">{s.label}</span>
-                      <span className="text-xs font-bold text-white">{s.value}%</span>
-                    </div>
-                    <MiniBar value={s.value} max={100} color={s.color} />
-                  </div>
-                ))}
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10 flex items-center gap-2">
-                <Zap size={14} className="text-emerald-400" />
-                <span className="text-[10px] text-slate-400">COâ: <strong className="text-white">{energiaMetricas?.emissoesCO2 || 0} kg</strong></span>
-              </div>
             </div>
           </SectionCard>
         </div>
@@ -684,10 +723,10 @@ export default function CommandCenterUltra() {
       <footer className="border-t py-3 mt-2" style={{ borderColor: colors.border, background: 'rgba(11,17,32,0.6)' }}>
         <div className="max-w-[1440px] mx-auto px-6 flex items-center justify-between text-[10px] text-slate-600">
           <div className="flex items-center gap-4">
-            <span>Supabase <span className="text-emerald-500">â</span> Conectado</span>
-            <span>Real-time <span className="text-blue-500">â</span> Ativo</span>
+            <span>Supabase <span className="text-emerald-500">●</span> Conectado</span>
+            <span>Real-time <span className="text-blue-500">●</span> Ativo</span>
           </div>
-          <span>Ãltima atualizaÃ§Ã£o: {lastUpdate?.toLocaleTimeString('pt-BR') || '--:--'}</span>
+          <span>Última atualização: {lastUpdate?.toLocaleTimeString('pt-BR') || '--:--'}</span>
         </div>
       </footer>
     </div>
