@@ -39,15 +39,15 @@ const STATUS_CONFIG = {
   MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',        hex: '#22c55e', opacity: 1.0 },
 };
 
-// IFC type IDs (from IFC2x3/IFC4 spec - web-ifc v0.0.76)
+// IFC type IDs - CORRIGIDOS conforme web-ifc v0.0.76 runtime
 const IFC_TYPES = {
   // Estrutura Principal (Etapa 1)
   IFCBEAM: 753842376,
-  IFCCOLUMN: 3495092785,
+  IFCCOLUMN: 843113511,        // CORRIGIDO (era 3495092785)
   IFCPLATE: 3171933400,
   IFCSLAB: 1529196076,
   IFCWALL: 2391406946,
-  IFCMEMBER: 1411681673,
+  IFCMEMBER: 1073191201,       // CORRIGIDO (era 1411681673)
   IFCROOF: 2016517767,
   IFCSTAIRFLIGHT: 4252922144,
   IFCRAILING: 2262370178,
@@ -171,6 +171,16 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
   const ifcAPI = new WebIFC.IfcAPI();
   ifcAPI.SetWasmPath('/');
   await ifcAPI.Init();
+
+  // Validar IDs contra a biblioteca em runtime (seguranca contra hardcoded errados)
+  const typeNames = Object.keys(IFC_TYPES);
+  for (const name of typeNames) {
+    if (WebIFC[name] !== undefined && WebIFC[name] !== IFC_TYPES[name]) {
+      console.warn(`IFC_TYPES.${name} corrigido: ${IFC_TYPES[name]} -> ${WebIFC[name]}`);
+      IFC_TYPES[name] = WebIFC[name];
+    }
+  }
+
   onProgress?.(5, 'WASM inicializado. Abrindo modelo...');
 
   const data = new Uint8Array(fileBuffer);
