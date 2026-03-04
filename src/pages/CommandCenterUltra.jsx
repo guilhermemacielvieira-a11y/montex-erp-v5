@@ -538,7 +538,7 @@ export default function CommandCenterUltra() {
           </SectionCard>
 
           {/* PEÇAS POR SETOR DETALHADAS */}
-          <SectionCard title="Peças por Setor" icon={FileText}
+          <SectionCard title="Peças por Setor" icon={FileText}>
             <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
               {pecasPorSetor.length > 0 ? pecasPorSetor.map((setor, si) => (
                 <div key={si} className="space-y-2">
