@@ -12,7 +12,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      'web-ifc': path.resolve(__dirname, './node_modules/web-ifc/web-ifc-api.js'),
     },
   },
   server: {

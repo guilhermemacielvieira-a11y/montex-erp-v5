@@ -6,8 +6,25 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import * as WebIFC from 'web-ifc';
 import { supabase } from '../api/supabaseClient';
+
+// Load web-ifc dynamically from CDN to avoid Vercel build issues
+let _WebIFC = null;
+async function getWebIFC() {
+  if (_WebIFC) return _WebIFC;
+  // Load IIFE version from CDN
+  if (!window.WebIFC) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/web-ifc@0.0.66/web-ifc-api-iife.js';
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+  _WebIFC = window.WebIFC;
+  return _WebIFC;
+}
 
 // ==============================================
 // CONFIGURACOES DE STATUS ERP
@@ -23,32 +40,43 @@ const STATUS_CONFIG = {
   MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',        hex: '#22c55e', opacity: 1.0 },
 };
 
-const IFC_TYPE_NAMES = {
-  [WebIFC.IFCBEAM]: 'Viga',
-  [WebIFC.IFCCOLUMN]: 'Coluna',
-  [WebIFC.IFCPLATE]: 'Chapa',
-  [WebIFC.IFCSLAB]: 'Laje',
-  [WebIFC.IFCWALL]: 'Parede',
-  [WebIFC.IFCMEMBER]: 'Elemento',
-  [WebIFC.IFCROOF]: 'Cobertura',
-  [WebIFC.IFCSTAIRFLIGHT]: 'Escada',
-  [WebIFC.IFCRAILING]: 'Guarda-corpo',
-  [WebIFC.IFCFOOTING]: 'Fundacao',
+// IFC type IDs (from IFC2x3/IFC4 spec - same across web-ifc versions)
+const IFC_TYPES = {
+  IFCBEAM: 753842376,
+  IFCCOLUMN: 3495092785,
+  IFCPLATE: 3171933400,
+  IFCSLAB: 1529196076,
+  IFCWALL: 2391406946,
+  IFCMEMBER: 1411681673,
+  IFCROOF: 2016517767,
+  IFCSTAIRFLIGHT: 4252922144,
+  IFCRAILING: 2262370178,
+  IFCFOOTING: 900683007,
 };
 
-const STRUCTURAL_TYPES = [
-  WebIFC.IFCBEAM, WebIFC.IFCCOLUMN, WebIFC.IFCPLATE, WebIFC.IFCSLAB,
-  WebIFC.IFCWALL, WebIFC.IFCMEMBER, WebIFC.IFCROOF, WebIFC.IFCSTAIRFLIGHT,
-  WebIFC.IFCRAILING, WebIFC.IFCFOOTING,
-];
+const IFC_TYPE_NAMES = {
+  [IFC_TYPES.IFCBEAM]: 'Viga',
+  [IFC_TYPES.IFCCOLUMN]: 'Coluna',
+  [IFC_TYPES.IFCPLATE]: 'Chapa',
+  [IFC_TYPES.IFCSLAB]: 'Laje',
+  [IFC_TYPES.IFCWALL]: 'Parede',
+  [IFC_TYPES.IFCMEMBER]: 'Elemento',
+  [IFC_TYPES.IFCROOF]: 'Cobertura',
+  [IFC_TYPES.IFCSTAIRFLIGHT]: 'Escada',
+  [IFC_TYPES.IFCRAILING]: 'Guarda-corpo',
+  [IFC_TYPES.IFCFOOTING]: 'Fundacao',
+};
+
+const STRUCTURAL_TYPES = Object.values(IFC_TYPES);
 
 // ==============================================
 // IFC PARSER - Extrai geometria via web-ifc
 // ==============================================
 
 async function parseIFCFile(fileBuffer, onProgress) {
+  const WebIFC = await getWebIFC();
   const ifcAPI = new WebIFC.IfcAPI();
-  ifcAPI.SetWasmPath('/');
+  ifcAPI.SetWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.66/');
   await ifcAPI.Init();
   onProgress?.(10, 'Abrindo modelo IFC...');
 
