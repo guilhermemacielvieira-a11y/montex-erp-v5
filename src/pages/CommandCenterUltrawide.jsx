@@ -52,7 +52,7 @@ const Glass = ({ children, className = '', glow, style = {} }) => (
     initial={{ opacity: 0, scale: 0.97 }}
     animate={{ opacity: 1, scale: 1 }}
     transition={{ duration: 0.4 }}
-    className={`rounded-xl backdrop-blur-xl border transition-all duration-300 ${className}`}
+    className={`rounded-xl backdrop-blur-xl border transition-all duration-300 overflow-hidden ${className}`}
     style={{
       background: 'linear-gradient(135deg, rgba(6,12,30,0.85), rgba(15,23,42,0.6))',
       borderColor: glow || C.border,
@@ -321,7 +321,7 @@ export default function CommandCenterUltrawide() {
         </div>
 
         {/* ═══ ROW 2: FINANCIAL + PIPELINE + STAGES + ACTIVITY ═══ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4" style={{ minHeight: 340 }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4" style={{ height: 380 }}>
 
           {/* Financial Overview */}
           <Glass className="p-5 flex flex-col">
@@ -496,16 +496,16 @@ export default function CommandCenterUltrawide() {
         </div>
 
         {/* ═══ ROW 3: RADAR + TREEMAP + EXPEDICAO + ESTOQUE ═══ */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4" style={{ minHeight: 320 }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4" style={{ height: 360 }}>
 
           {/* Workforce Radar */}
           <Glass className="p-5 flex flex-col">
             <h3 className="text-sm font-bold text-purple-300 tracking-wider uppercase mb-3 flex items-center gap-2">
               <Users size={14} /> DESEMPENHO OPERACIONAL
             </h3>
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0" style={{ maxHeight: 240 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <RadarChart data={radarData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+                <RadarChart data={radarData} margin={{ top: 5, right: 25, bottom: 5, left: 25 }}>
                   <PolarGrid stroke={C.border} />
                   <PolarAngleAxis dataKey="metric" stroke={C.muted} tick={{ fontSize: 9, fill: C.muted }} />
                   <PolarRadiusAxis stroke={C.border} tick={{ fontSize: 8 }} domain={[0, 100]} />
@@ -513,32 +513,52 @@ export default function CommandCenterUltrawide() {
                 </RadarChart>
               </ResponsiveContainer>
             </div>
+            <div className="flex gap-3 mt-1 flex-wrap justify-center">
+              {radarData.map((r, i) => (
+                <span key={i} className="text-[9px] text-slate-500">{r.metric}: <span className="text-white font-bold">{r.value}%</span></span>
+              ))}
+            </div>
           </Glass>
 
-          {/* Peças por Setor Treemap */}
+          {/* Peças por Setor */}
           <Glass className="p-5 flex flex-col">
             <h3 className="text-sm font-bold text-sky-300 tracking-wider uppercase mb-3 flex items-center gap-2">
               <Package size={14} /> PEÇAS POR SETOR
             </h3>
-            {treemapData.length > 0 ? (
-              <div className="flex-1 min-h-0">
-                <ResponsiveContainer width="100%" height="100%">
-                  <Treemap data={treemapData} dataKey="size" nameKey="name" stroke={C.border} isAnimationActive>
-                    {treemapData.map((e, i) => <Cell key={i} fill={e.color} fillOpacity={0.7} />)}
-                  </Treemap>
-                </ResponsiveContainer>
+            {pecasSetor.length > 0 ? (
+              <div className="flex-1 min-h-0 space-y-2 overflow-y-auto">
+                {pecasSetor.map((s, i) => (
+                  <div key={i}>
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                        <span className="text-[11px] font-semibold text-slate-300">{s.label}</span>
+                      </div>
+                      <span className="text-[10px] font-bold" style={{ color: s.color }}>{s.count} peças</span>
+                    </div>
+                    <div className="h-5 rounded-lg overflow-hidden relative" style={{ background: `${C.dim}30` }}>
+                      <motion.div className="h-full rounded-lg" initial={{ width: 0 }}
+                        animate={{ width: `${Math.min((s.count / Math.max(...pecasSetor.map(x => x.count), 1)) * 100, 100)}%` }}
+                        transition={{ duration: 1, delay: i * 0.1 }}
+                        style={{ background: `linear-gradient(90deg, ${s.color}80, ${s.color})` }} />
+                      <div className="absolute inset-0 flex items-center px-2">
+                        <div className="flex gap-1 overflow-hidden">
+                          {s.pecas.slice(0, 4).map((p, j) => (
+                            <span key={j} className="text-[7px] px-1 py-0 rounded whitespace-nowrap"
+                              style={{ background: 'rgba(0,0,0,0.5)', color: 'white' }}>
+                              {p.nome || p.marca || '-'}
+                            </span>
+                          ))}
+                          {s.count > 4 && <span className="text-[7px] text-white/60">+{s.count - 4}</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : (
               <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">Sem dados</div>
             )}
-            <div className="flex gap-3 mt-2 flex-wrap">
-              {pecasSetor.map((s, i) => (
-                <div key={i} className="flex items-center gap-1.5">
-                  <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
-                  <span className="text-[9px] text-slate-500">{s.label}: {s.count}</span>
-                </div>
-              ))}
-            </div>
           </Glass>
 
           {/* Expedição */}
@@ -613,7 +633,7 @@ export default function CommandCenterUltrawide() {
         </div>
 
         {/* ═══ ROW 4: WORKERS + ALERTS ═══ */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" style={{ minHeight: 280 }}>
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" style={{ height: 320 }}>
 
           {/* Produção por Funcionário */}
           <Glass className="p-5 flex flex-col lg:col-span-2">
