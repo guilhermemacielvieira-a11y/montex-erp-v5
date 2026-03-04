@@ -1,836 +1,994 @@
 // ==============================================
-// MONTEX ERP 3D - MODULO INTEGRADO AO ERP
-// Versao: 4.0.0 - Correcoes Layout + Importacao IFC
+// MONTEX ERP 3D - VISUALIZADOR IFC INTEGRADO
+// Versao: 5.0.0 - web-ifc + Three.js + ERP Status
 // ==============================================
 
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import * as THREE from 'three';
-import { ETAPAS_PRODUCAO } from '@/data/database';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import * as WebIFC from 'web-ifc';
+import { supabase } from '../api/supabaseClient';
 
 // ==============================================
-// CONFIGURACOES E CONSTANTES
+// CONFIGURACOES DE STATUS ERP
 // ==============================================
 
-const STATUS_MAP = {
-  [ETAPAS_PRODUCAO.AGUARDANDO]: 'NAO_INICIADO',
-  [ETAPAS_PRODUCAO.CORTE]: 'EM_FABRICACAO',
-  [ETAPAS_PRODUCAO.FABRICACAO]: 'EM_FABRICACAO',
-  [ETAPAS_PRODUCAO.SOLDA]: 'FABRICADO',
-  [ETAPAS_PRODUCAO.PINTURA]: 'FABRICADO',
-  [ETAPAS_PRODUCAO.EXPEDIDO]: 'MONTADO'
+const STATUS_CONFIG = {
+  NAO_INICIADO: { color: new THREE.Color(0.42, 0.45, 0.50), label: 'Nao Iniciado', hex: '#6b7280', opacity: 0.35 },
+  CORTE:        { color: new THREE.Color(0.96, 0.62, 0.04), label: 'Em Corte',      hex: '#f59e0b', opacity: 0.7 },
+  FABRICACAO:   { color: new THREE.Color(0.23, 0.51, 0.96), label: 'Fabricacao',     hex: '#3b82f6', opacity: 0.75 },
+  SOLDA:        { color: new THREE.Color(0.55, 0.36, 0.96), label: 'Solda',          hex: '#8b5cf6', opacity: 0.8 },
+  PINTURA:      { color: new THREE.Color(0.06, 0.73, 0.51), label: 'Pintura',        hex: '#10b981', opacity: 0.85 },
+  EXPEDICAO:    { color: new THREE.Color(0.06, 0.52, 0.96), label: 'Expedicao',      hex: '#0ea5e9', opacity: 0.9 },
+  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',        hex: '#22c55e', opacity: 1.0 },
 };
 
-export const STATUS_CONFIG = {
-  NAO_INICIADO: { color: 0x6b7280, emissive: 0x1a1a1a, label: 'Nao Iniciado', icon: '⏳', opacity: 0.4 },
-  EM_FABRICACAO: { color: 0xf59e0b, emissive: 0x663300, label: 'Em Fabricacao', icon: '🔧', opacity: 0.7 },
-  FABRICADO: { color: 0x3b82f6, emissive: 0x1a365d, label: 'Fabricado', icon: '✓', opacity: 0.85 },
-  EM_MONTAGEM: { color: 0x8b5cf6, emissive: 0x44337a, label: 'Em Montagem', icon: '🏗️', opacity: 0.9 },
-  MONTADO: { color: 0x10b981, emissive: 0x1c4532, label: 'Montado', icon: '✅', opacity: 1.0 }
+const IFC_TYPE_NAMES = {
+  [WebIFC.IFCBEAM]: 'Viga',
+  [WebIFC.IFCCOLUMN]: 'Coluna',
+  [WebIFC.IFCPLATE]: 'Chapa',
+  [WebIFC.IFCSLAB]: 'Laje',
+  [WebIFC.IFCWALL]: 'Parede',
+  [WebIFC.IFCMEMBER]: 'Elemento',
+  [WebIFC.IFCROOF]: 'Cobertura',
+  [WebIFC.IFCSTAIRFLIGHT]: 'Escada',
+  [WebIFC.IFCRAILING]: 'Guarda-corpo',
+  [WebIFC.IFCFOOTING]: 'Fundacao',
 };
 
-export const TYPE_CONFIG = {
-  COLUNA: { color: 0x2563eb, geometry: 'box', baseHeight: 9.5 },
-  TESOURA: { color: 0xdc2626, geometry: 'box', baseHeight: 0.3 },
-  'VIGA-MESTRA': { color: 0x059669, geometry: 'box', baseHeight: 0.2 },
-  VIGA: { color: 0x10b981, geometry: 'box', baseHeight: 0.2 },
-  TERCA: { color: 0xd97706, geometry: 'box', baseHeight: 0.15 },
-  TIRANTE: { color: 0x7c3aed, geometry: 'cylinder', baseHeight: 0.05 },
-  CONTRAVENTAMENTO: { color: 0xdb2777, geometry: 'cylinder', baseHeight: 0.03 },
-  TRELICA: { color: 0x0891b2, geometry: 'box', baseHeight: 0.5 },
-  CALHA: { color: 0x65a30d, geometry: 'box', baseHeight: 0.2 },
-  'TERCA-TAP': { color: 0xa3580c, geometry: 'box', baseHeight: 0.1 }
-};
-
-const GRID = {
-  eixoX: [0,4.5,9,13.5,18,22.5,27,31.5,36,40.5,45,49.5,54,58.5,63,67.5,72,76.5,81,85],
-  filaY: { A:0, B:9.7, C:21.1, D:31.4, E:35.4, F:40.8, G:45.2, H:49.7 },
-  filas: ['A','B','C','D','E','F','G','H']
-};
-
-const VIEW_PRESETS = {
-  frontal: { pos: [40,15,80], target: [40,5,25] },
-  lateral: { pos: [90,15,25], target: [40,5,25] },
-  top: { pos: [40,60,25], target: [40,0,25] },
-  iso: { pos: [70,30,60], target: [40,5,25] },
-  '3d': { pos: [60,25,55], target: [40,5,25] }
-};
+const STRUCTURAL_TYPES = [
+  WebIFC.IFCBEAM, WebIFC.IFCCOLUMN, WebIFC.IFCPLATE, WebIFC.IFCSLAB,
+  WebIFC.IFCWALL, WebIFC.IFCMEMBER, WebIFC.IFCROOF, WebIFC.IFCSTAIRFLIGHT,
+  WebIFC.IFCRAILING, WebIFC.IFCFOOTING,
+];
 
 // ==============================================
-// COMPONENTE VIEWER 3D (Three.js)
+// IFC PARSER - Extrai geometria via web-ifc
 // ==============================================
 
-function Scene3DViewer({ pieces, viewMode, colorMode, activeFilters, highlightType, regionFilter, onSelectPiece, selectedPiece }) {
-  const containerRef = useRef(null);
-  const sceneRef = useRef(null);
-  const cameraRef = useRef(null);
-  const rendererRef = useRef(null);
-  const meshesRef = useRef([]);
-  const raycasterRef = useRef(new THREE.Raycaster());
-  const mouseRef = useRef(new THREE.Vector2());
-  const isDraggingRef = useRef(false);
-  const lastMouseRef = useRef({ x: 0, y: 0 });
-  const rotationRef = useRef({ x: -0.4, y: 0.6 });
-  const zoomRef = useRef(1);
-  const animFrameRef = useRef(null);
+async function parseIFCFile(fileBuffer, onProgress) {
+  const ifcAPI = new WebIFC.IfcAPI();
+  ifcAPI.SetWasmPath('/');
+  await ifcAPI.Init();
+  onProgress?.(10, 'Abrindo modelo IFC...');
 
-  // Initialize Three.js scene
-  useEffect(() => {
-    if (!containerRef.current) return;
-    const container = containerRef.current;
+  const data = new Uint8Array(fileBuffer);
+  const modelID = ifcAPI.OpenModel(data);
+  onProgress?.(25, 'Modelo aberto. Extraindo elementos...');
+
+  const elements = [];
+  let processed = 0;
+  const totalTypes = STRUCTURAL_TYPES.length;
+
+  for (const ifcType of STRUCTURAL_TYPES) {
+    const ids = ifcAPI.GetLineIDsWithType(modelID, ifcType);
+    for (let i = 0; i < ids.size(); i++) {
+      const expressID = ids.get(i);
+      let props = {};
+      try {
+        props = ifcAPI.GetLine(modelID, expressID);
+      } catch (e) { /* some elements may fail */ }
+
+      const name = props.Name?.value || props.Tag?.value || `Element-${expressID}`;
+      const globalId = props.GlobalId?.value || '';
+      const description = props.Description?.value || '';
+
+      // Get geometry
+      let geometry = null;
+      try {
+        const flatMesh = ifcAPI.GetFlatMesh(modelID, expressID);
+        if (flatMesh.geometries.size() > 0) {
+          const placedGeom = flatMesh.geometries.get(0);
+          const geomData = ifcAPI.GetGeometry(modelID, placedGeom.geometryExpressID);
+          const verts = ifcAPI.GetVertexArray(geomData.GetVertexData(), geomData.GetVertexDataSize());
+          const indices = ifcAPI.GetIndexArray(geomData.GetIndexData(), geomData.GetIndexDataSize());
+          const transform = placedGeom.flatTransformation;
+
+          geometry = { verts, indices, transform };
+          geomData.delete();
+        }
+        flatMesh.delete();
+      } catch (e) { /* geometry extraction can fail for some elements */ }
+
+      if (geometry) {
+        elements.push({
+          expressID,
+          ifcType,
+          typeName: IFC_TYPE_NAMES[ifcType] || 'Outro',
+          name,
+          globalId,
+          description,
+          geometry,
+        });
+      }
+    }
+    processed++;
+    const pct = 25 + Math.round((processed / totalTypes) * 60);
+    onProgress?.(pct, `Processando ${IFC_TYPE_NAMES[ifcType] || 'tipo'}... (${elements.length} elementos)`);
+  }
+
+  onProgress?.(90, `Finalizando... ${elements.length} elementos extraidos`);
+  ifcAPI.CloseModel(modelID);
+  ifcAPI.delete?.();
+  onProgress?.(100, 'Concluido!');
+
+  return elements;
+}
+
+// ==============================================
+// THREE.JS SCENE MANAGER
+// ==============================================
+
+class SceneManager {
+  constructor(container) {
+    this.container = container;
+    this.meshMap = new Map(); // expressID -> mesh
+    this.allMeshes = [];
+
     const w = container.clientWidth;
     const h = container.clientHeight;
-    const isDark = document.documentElement.classList.contains('dark');
-    const bgColor = isDark ? 0x0f172a : 0xf0f4f8;
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(bgColor);
-    scene.fog = new THREE.Fog(bgColor, 80, 200);
-    sceneRef.current = scene;
+    // Scene
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color(0x0a0f1a);
 
-    const camera = new THREE.PerspectiveCamera(60, w / h, 0.1, 1000);
-    camera.position.set(60, 25, 55);
-    camera.lookAt(40, 5, 25);
-    cameraRef.current = camera;
+    // Camera
+    this.camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 5000);
+    this.camera.position.set(50, 40, 80);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2;
-    container.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
+    // Renderer
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    this.renderer.setSize(w, h);
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.4;
+    container.appendChild(this.renderer.domElement);
+
+    // Controls
+    this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.minDistance = 5;
+    this.controls.maxDistance = 500;
+    this.controls.maxPolarAngle = Math.PI * 0.85;
 
     // Lights
-    const ambient = new THREE.AmbientLight(0xffffff, 0.6);
-    scene.add(ambient);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight.position.set(50, 50, 30);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    scene.add(dirLight);
-    const pointLight = new THREE.PointLight(0x3b82f6, 0.4, 100);
-    pointLight.position.set(40, 20, 25);
-    scene.add(pointLight);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+    this.scene.add(ambient);
+
+    const hemi = new THREE.HemisphereLight(0xbde0fe, 0x2d3748, 0.6);
+    this.scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 1.2);
+    dir.position.set(80, 100, 60);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.left = -150;
+    dir.shadow.camera.right = 150;
+    dir.shadow.camera.top = 150;
+    dir.shadow.camera.bottom = -150;
+    dir.shadow.camera.far = 400;
+    this.scene.add(dir);
+
+    const fill = new THREE.DirectionalLight(0x94a3b8, 0.4);
+    fill.position.set(-50, 30, -40);
+    this.scene.add(fill);
 
     // Ground
-    const groundGeo = new THREE.PlaneGeometry(120, 80);
-    const groundMat = new THREE.MeshStandardMaterial({ color: isDark ? 0x1e293b : 0xe2e8f0, roughness: 0.8 });
+    const groundGeo = new THREE.PlaneGeometry(500, 500);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.95, metalness: 0 });
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.set(40, -0.1, 25);
+    ground.position.y = -0.5;
     ground.receiveShadow = true;
-    scene.add(ground);
+    this.scene.add(ground);
 
-    const gridHelper = new THREE.GridHelper(120, 40, 0x334155, 0x1e293b);
-    gridHelper.position.set(40, 0, 25);
-    scene.add(gridHelper);
+    const grid = new THREE.GridHelper(300, 60, 0x1e3a5f, 0x0f1d32);
+    this.scene.add(grid);
 
-    // Animate loop
-    const animate = () => {
-      animFrameRef.current = requestAnimationFrame(animate);
-      scene.rotation.y = rotationRef.current.y;
-      scene.rotation.x = rotationRef.current.x;
-      camera.zoom = zoomRef.current;
-      camera.updateProjectionMatrix();
-      meshesRef.current.forEach(mesh => {
-        const ud = mesh.userData;
-        if (ud.selected) {
-          mesh.material.emissive.setHex(0x3b82f6);
-        } else if (ud.hovered) {
-          mesh.material.emissive.setHex(0xf59e0b);
-        } else {
-          const sc = STATUS_CONFIG[ud.status];
-          if (sc) mesh.material.emissive.setHex(sc.emissive);
-        }
-      });
-      renderer.render(scene, camera);
-    };
-    animate();
+    // Raycaster
+    this.raycaster = new THREE.Raycaster();
+    this.mouse = new THREE.Vector2();
 
-    const handleResize = () => {
-      const nw = container.clientWidth;
-      const nh = container.clientHeight;
-      camera.aspect = nw / nh;
-      camera.updateProjectionMatrix();
-      renderer.setSize(nw, nh);
-    };
-    window.addEventListener('resize', handleResize);
+    // Animate
+    this._animate = this._animate.bind(this);
+    this._onResize = this._onResize.bind(this);
+    window.addEventListener('resize', this._onResize);
+    this._animate();
+  }
 
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
-      renderer.dispose();
-      if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
-    };
-  }, []);
+  _animate() {
+    this._raf = requestAnimationFrame(this._animate);
+    this.controls.update();
+    this.renderer.render(this.scene, this.camera);
+  }
 
-  // Create/update 3D pieces
-  useEffect(() => {
-    const scene = sceneRef.current;
-    if (!scene) return;
-    meshesRef.current.forEach(m => { scene.remove(m); m.geometry.dispose(); m.material.dispose(); });
-    meshesRef.current = [];
+  _onResize() {
+    const w = this.container.clientWidth;
+    const h = this.container.clientHeight;
+    this.camera.aspect = w / h;
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h);
+  }
 
-    const filtered = pieces.filter(p => {
-      if (!activeFilters.includes(p.status3d)) return false;
-      if (highlightType !== 'ALL' && p.tipo !== highlightType) return false;
-      return true;
+  loadElements(elements) {
+    // Clear previous
+    this.allMeshes.forEach(m => {
+      this.scene.remove(m);
+      m.geometry.dispose();
+      m.material.dispose();
     });
+    this.allMeshes = [];
+    this.meshMap.clear();
 
-    filtered.forEach(piece => {
-      const tc = TYPE_CONFIG[piece.tipo] || TYPE_CONFIG['COLUNA'];
-      const sc = STATUS_CONFIG[piece.status3d] || STATUS_CONFIG['NAO_INICIADO'];
-      let geometry;
-      if (tc.geometry === 'cylinder') {
-        geometry = new THREE.CylinderGeometry(0.03, 0.03, piece.comprimento ? piece.comprimento/1000 : 3, 8);
-      } else {
-        const bh = tc.baseHeight;
-        const bw = piece.tipo === 'COLUNA' ? 0.3 : (piece.comprimento ? piece.comprimento/1000 : 3);
-        geometry = new THREE.BoxGeometry(bw, bh, 0.15);
+    const defaultColor = new THREE.Color(0.6, 0.65, 0.7);
+    const bbox = new THREE.Box3();
+
+    for (const el of elements) {
+      const { verts, indices, transform } = el.geometry;
+      if (!verts || !indices || verts.length === 0 || indices.length === 0) continue;
+
+      const geom = new THREE.BufferGeometry();
+      // web-ifc returns 6 floats per vertex: x,y,z, nx,ny,nz
+      const positions = new Float32Array(indices.length * 3);
+      const normals = new Float32Array(indices.length * 3);
+
+      for (let i = 0; i < indices.length; i++) {
+        const idx = indices[i];
+        positions[i * 3] = verts[idx * 6];
+        positions[i * 3 + 1] = verts[idx * 6 + 1];
+        positions[i * 3 + 2] = verts[idx * 6 + 2];
+        normals[i * 3] = verts[idx * 6 + 3];
+        normals[i * 3 + 1] = verts[idx * 6 + 4];
+        normals[i * 3 + 2] = verts[idx * 6 + 5];
       }
-      const material = new THREE.MeshStandardMaterial({
-        color: colorMode === 'status' ? sc.color : tc.color,
-        emissive: sc.emissive,
-        roughness: 0.4,
+
+      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+      geom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+
+      const mat = new THREE.MeshStandardMaterial({
+        color: defaultColor.clone(),
+        roughness: 0.5,
         metalness: 0.6,
         transparent: true,
-        opacity: sc.opacity
+        opacity: 0.85,
+        side: THREE.DoubleSide,
       });
-      const mesh = new THREE.Mesh(geometry, material);
 
-      const eixoIdx = piece.eixo != null ? piece.eixo : Math.floor(Math.random() * GRID.eixoX.length);
-      const x = GRID.eixoX[eixoIdx] || eixoIdx * 4.5;
-      const fila = piece.fila || GRID.filas[Math.floor(Math.random() * GRID.filas.length)];
-      const z = GRID.filaY[fila] || 0;
+      const mesh = new THREE.Mesh(geom, mat);
 
-      if (piece.tipo === 'COLUNA') {
-        mesh.position.set(x, tc.baseHeight / 2, z);
-      } else if (piece.tipo === 'TESOURA') {
-        mesh.position.set(x, 9.5 + 0.5, z);
-        mesh.rotation.z = Math.PI * 0.08;
-      } else if (piece.tipo.includes('TERCA') || piece.tipo === 'TIRANTE') {
-        mesh.position.set(x, 10 + Math.random() * 1.5, z);
-        mesh.rotation.y = Math.PI / 2;
-      } else if (piece.tipo.includes('VIGA')) {
-        mesh.position.set(x, 9.5, z);
-      } else {
-        mesh.position.set(x, 8 + Math.random() * 3, z);
+      // Apply IFC transform
+      if (transform && transform.length >= 16) {
+        const m4 = new THREE.Matrix4();
+        m4.set(
+          transform[0], transform[4], transform[8], transform[12],
+          transform[1], transform[5], transform[9], transform[13],
+          transform[2], transform[6], transform[10], transform[14],
+          transform[3], transform[7], transform[11], transform[15]
+        );
+        mesh.applyMatrix4(m4);
       }
 
       mesh.castShadow = true;
       mesh.receiveShadow = true;
-      mesh.userData = { piece, status: piece.status3d, selected: false, hovered: false };
-      scene.add(mesh);
-      meshesRef.current.push(mesh);
-    });
-  }, [pieces, colorMode, activeFilters, highlightType, regionFilter]);
+      mesh.userData = { element: el, expressID: el.expressID };
 
-  // Camera view presets
-  useEffect(() => {
-    const camera = cameraRef.current;
-    if (!camera) return;
-    const preset = VIEW_PRESETS[viewMode] || VIEW_PRESETS['3d'];
-    camera.position.set(...preset.pos);
-    camera.lookAt(...preset.target);
-  }, [viewMode]);
-
-  // Mouse interaction handlers
-  const handleMouseDown = useCallback(e => {
-    isDraggingRef.current = true;
-    lastMouseRef.current = { x: e.clientX, y: e.clientY };
-  }, []);
-
-  const handleMouseMove = useCallback(e => {
-    if (isDraggingRef.current) {
-      const dx = e.clientX - lastMouseRef.current.x;
-      const dy = e.clientY - lastMouseRef.current.y;
-      rotationRef.current.y += dx * 0.005;
-      rotationRef.current.x = Math.max(-1.2, Math.min(0.5, rotationRef.current.x + dy * 0.005));
-      lastMouseRef.current = { x: e.clientX, y: e.clientY };
+      this.scene.add(mesh);
+      this.allMeshes.push(mesh);
+      this.meshMap.set(el.expressID, mesh);
+      bbox.expandByObject(mesh);
     }
-    if (!containerRef.current || !cameraRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
-    const intersects = raycasterRef.current.intersectObjects(meshesRef.current);
-    meshesRef.current.forEach(m => (m.userData.hovered = false));
-    if (intersects.length > 0) {
-      intersects[0].object.userData.hovered = true;
-      containerRef.current.style.cursor = 'pointer';
+
+    // Center camera on model
+    if (this.allMeshes.length > 0) {
+      const center = new THREE.Vector3();
+      const size = new THREE.Vector3();
+      bbox.getCenter(center);
+      bbox.getSize(size);
+      const maxDim = Math.max(size.x, size.y, size.z);
+      const dist = maxDim * 1.5;
+
+      this.camera.position.set(center.x + dist * 0.6, center.y + dist * 0.4, center.z + dist * 0.8);
+      this.controls.target.copy(center);
+      this.controls.update();
+    }
+  }
+
+  applyStatusColors(statusMap) {
+    // statusMap: { expressID -> statusKey }
+    for (const [expressID, mesh] of this.meshMap.entries()) {
+      const statusKey = statusMap.get(expressID);
+      const cfg = statusKey ? STATUS_CONFIG[statusKey] : STATUS_CONFIG.NAO_INICIADO;
+      if (cfg) {
+        mesh.material.color.copy(cfg.color);
+        mesh.material.opacity = cfg.opacity;
+        mesh.material.needsUpdate = true;
+      }
+    }
+  }
+
+  applyTypeColors() {
+    const typeColors = {
+      'Viga': new THREE.Color(0x3b82f6),
+      'Coluna': new THREE.Color(0xef4444),
+      'Chapa': new THREE.Color(0xf59e0b),
+      'Laje': new THREE.Color(0x8b5cf6),
+      'Elemento': new THREE.Color(0x06b6d4),
+      'Cobertura': new THREE.Color(0x10b981),
+      'Outro': new THREE.Color(0x6b7280),
+    };
+    for (const mesh of this.allMeshes) {
+      const typeName = mesh.userData.element?.typeName || 'Outro';
+      const c = typeColors[typeName] || typeColors['Outro'];
+      mesh.material.color.copy(c);
+      mesh.material.opacity = 0.85;
+      mesh.material.needsUpdate = true;
+    }
+  }
+
+  setView(preset) {
+    const center = this.controls.target.clone();
+    const dist = this.camera.position.distanceTo(center);
+    const presets = {
+      front: { x: 0, y: 0.3, z: 1 },
+      back: { x: 0, y: 0.3, z: -1 },
+      left: { x: -1, y: 0.3, z: 0 },
+      right: { x: 1, y: 0.3, z: 0 },
+      top: { x: 0, y: 1, z: 0.01 },
+      iso: { x: 0.6, y: 0.5, z: 0.8 },
+    };
+    const dir = presets[preset] || presets.iso;
+    const len = Math.sqrt(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
+    this.camera.position.set(
+      center.x + (dir.x / len) * dist,
+      center.y + (dir.y / len) * dist,
+      center.z + (dir.z / len) * dist
+    );
+    this.controls.update();
+  }
+
+  raycast(event) {
+    const rect = this.container.getBoundingClientRect();
+    this.mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    this.mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.mouse, this.camera);
+    const hits = this.raycaster.intersectObjects(this.allMeshes);
+    return hits.length > 0 ? hits[0].object : null;
+  }
+
+  highlightMesh(mesh, highlight) {
+    if (!mesh) return;
+    if (highlight) {
+      mesh.material.emissive = new THREE.Color(0xfbbf24);
+      mesh.material.emissiveIntensity = 0.4;
     } else {
-      containerRef.current.style.cursor = isDraggingRef.current ? 'grabbing' : 'grab';
+      mesh.material.emissive = new THREE.Color(0x000000);
+      mesh.material.emissiveIntensity = 0;
     }
-  }, []);
+    mesh.material.needsUpdate = true;
+  }
 
-  const handleMouseUp = useCallback(() => { isDraggingRef.current = false; }, []);
-
-  const handleClick = useCallback(e => {
-    if (!containerRef.current || !cameraRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    mouseRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    mouseRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
-    const intersects = raycasterRef.current.intersectObjects(meshesRef.current);
-    meshesRef.current.forEach(m => (m.userData.selected = false));
-    if (intersects.length > 0) {
-      intersects[0].object.userData.selected = true;
-      onSelectPiece(intersects[0].object.userData.piece);
-    } else {
-      onSelectPiece(null);
+  setVisibility(filterFn) {
+    for (const mesh of this.allMeshes) {
+      mesh.visible = filterFn(mesh.userData.element);
     }
-  }, [onSelectPiece]);
+  }
 
-  const handleWheel = useCallback(e => {
-    e.preventDefault();
-    zoomRef.current = Math.max(0.3, Math.min(3, zoomRef.current - e.deltaY * 0.001));
-  }, []);
-
-  return (
-    <div className="w-full h-full relative">
-      <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing"
-        onMouseDown={handleMouseDown} onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}
-        onClick={handleClick} onWheel={handleWheel} />
-    </div>
-  );
+  dispose() {
+    window.removeEventListener('resize', this._onResize);
+    if (this._raf) cancelAnimationFrame(this._raf);
+    this.controls.dispose();
+    this.allMeshes.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
+    this.renderer.dispose();
+    if (this.container.contains(this.renderer.domElement)) {
+      this.container.removeChild(this.renderer.domElement);
+    }
+  }
 }
 
 // ==============================================
-// MODAL DE IMPORTACAO IFC
+// COMPONENTE PRINCIPAL
 // ==============================================
 
-function IFCImportModal({ isOpen, onClose, onImport }) {
-  const [selectedFile, setSelectedFile] = useState(null);
-  const [isProcessing, setIsProcessing] = useState(false);
+export default function MontexERP3DPage({ obraAtualData }) {
+  const containerRef = useRef(null);
+  const sceneManagerRef = useRef(null);
+  const hoveredRef = useRef(null);
+
+  // State
+  const [ifcElements, setIfcElements] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [progressText, setProgressText] = useState('');
+  const [showUpload, setShowUpload] = useState(false);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [selectedElement, setSelectedElement] = useState(null);
+  const [colorMode, setColorMode] = useState('status'); // status | type
+  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [showStats, setShowStats] = useState(false);
+  const [erpPecas, setErpPecas] = useState([]);
+  const [erpLoading, setErpLoading] = useState(true);
+  const [modelLoaded, setModelLoaded] = useState(false);
+  const [searchText, setSearchText] = useState('');
+
   const fileInputRef = useRef(null);
 
-  const handleFileSelect = (file) => {
-    if (file.name.match(/\.(ifc|ifcxml|ifczip)$/i)) setSelectedFile(file);
-  };
-
-  const formatSize = (bytes) => {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / 1048576).toFixed(1) + ' MB';
-  };
-
-  const handleImport = async () => {
-    if (!selectedFile) return;
-    setIsProcessing(true);
-    const steps = [
-      { p: 10, t: '📖 Lendo arquivo IFC...' },
-      { p: 25, t: '🔍 Analisando geometrias...' },
-      { p: 40, t: '📐 Extraindo coordenadas...' },
-      { p: 55, t: '🏗️ Processando elementos estruturais...' },
-      { p: 70, t: '🔗 Mapeando pecas ao ERP...' },
-      { p: 85, t: '🎨 Aplicando cores por status...' },
-      { p: 95, t: '🖼️ Renderizando cena 3D...' },
-      { p: 100, t: '✅ Importacao concluida!' }
-    ];
-    for (const s of steps) {
-      await new Promise(r => setTimeout(r, 600 + Math.random() * 400));
-      setProgress(s.p);
-      setProgressText(s.t);
-    }
-    await new Promise(r => setTimeout(r, 500));
-    onImport(selectedFile);
-    setIsProcessing(false);
-    setProgress(0);
-    setSelectedFile(null);
-    onClose();
-  };
-
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center"
-      onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 rounded-2xl p-8 w-[90%] max-w-[700px] text-white">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">📁 Importar Arquivo IFC</h2>
-            <p className="text-slate-400 text-sm mt-1">Carregue um modelo BIM/IFC para visualizacao 3D integrada ao ERP</p>
-          </div>
-          <button onClick={onClose} className="bg-white/10 hover:bg-white/20 w-9 h-9 rounded-lg text-lg flex items-center justify-center">✕</button>
-        </div>
-
-        {!selectedFile && (
-          <div className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${isDragOver ? 'border-emerald-400 bg-emerald-500/15' : 'border-emerald-500/50 bg-emerald-500/5 hover:border-emerald-400'}`}
-            onClick={() => fileInputRef.current?.click()}
-            onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
-            onDragLeave={() => setIsDragOver(false)}
-            onDrop={e => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files[0]) handleFileSelect(e.dataTransfer.files[0]); }}>
-            <div className="text-5xl mb-4">🏗️</div>
-            <p className="text-lg font-semibold">Arraste seu arquivo IFC aqui</p>
-            <p className="text-slate-400 text-sm mt-2">ou clique para selecionar</p>
-            <p className="text-slate-500 text-xs mt-4">Formatos: .ifc, .ifcxml, .ifczip</p>
-            <input ref={fileInputRef} type="file" accept=".ifc,.ifcxml,.ifczip" className="hidden"
-              onChange={e => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
-          </div>
-        )}
-
-        {selectedFile && (
-          <div className="bg-white/5 border border-white/10 rounded-lg p-4 flex items-center gap-3">
-            <span className="text-2xl">📄</span>
-            <div className="flex-1">
-              <div className="font-semibold">{selectedFile.name}</div>
-              <div className="text-slate-400 text-xs">{formatSize(selectedFile.size)}</div>
-            </div>
-            <button onClick={() => setSelectedFile(null)} className="bg-red-500/20 border border-red-500/30 text-red-400 px-3 py-1.5 rounded-md text-xs">Remover</button>
-          </div>
-        )}
-
-        {isProcessing && (
-          <div className="mt-4">
-            <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full transition-all" style={{ width: progress + '%' }} />
-            </div>
-            <p className="text-slate-400 text-xs mt-2 text-center">{progressText}</p>
-          </div>
-        )}
-
-        <div className="flex gap-3 mt-6">
-          <button onClick={handleImport} disabled={!selectedFile || isProcessing}
-            className={`flex-1 py-3 rounded-xl text-sm font-semibold transition-all ${selectedFile && !isProcessing ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 text-white cursor-pointer' : 'bg-white/5 text-white/50 cursor-not-allowed'}`}>
-            {isProcessing ? '⏳ Processando...' : '🚀 Importar e Visualizar'}
-          </button>
-          <button onClick={onClose} className="bg-white/10 border border-white/20 px-6 py-3 rounded-xl text-sm">Cancelar</button>
-        </div>
-
-        <div className="mt-5 p-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
-          <h4 className="text-sm font-semibold text-blue-400 mb-2">ℹ️ Sobre a Importacao IFC</h4>
-          <ul className="text-xs text-slate-400 space-y-1 ml-4 list-disc">
-            <li>O modelo IFC sera parseado e as pecas mapeadas aos dados do ERP</li>
-            <li>As cores refletem o status de producao (fabricacao, montagem, etc)</li>
-            <li>Dados de geometria preservados do arquivo original</li>
-            <li>Suporte a IFC2x3 e IFC4</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ==============================================
-// PAINEL DE DETALHES DA PECA SELECIONADA
-// ==============================================
-
-function PieceDetailPanel({ piece, isOpen, onClose, isIFCMode }) {
-  if (!piece || !isOpen) return null;
-  const sc = STATUS_CONFIG[piece.status3d] || STATUS_CONFIG.NAO_INICIADO;
-
-  return (
-    <div className={`fixed top-[150px] w-[340px] max-h-[calc(100vh-200px)] overflow-y-auto z-50 bg-gradient-to-br from-slate-900/95 to-slate-800/95 backdrop-blur-xl border border-white/10 rounded-l-2xl shadow-xl transition-all duration-300 text-white ${isOpen ? 'right-0' : '-right-[400px]'}`}>
-      <div className="sticky top-0 z-10 bg-slate-900/90 backdrop-blur p-5 border-b border-white/10 flex justify-between items-center">
-        <div>
-          <h3 className="text-lg font-bold">Peca Selecionada</h3>
-          <p className="text-xs text-slate-400">Detalhes do Elemento</p>
-        </div>
-        <button onClick={onClose} className="bg-white/10 hover:bg-white/20 w-8 h-8 rounded-lg text-sm flex items-center justify-center">✕</button>
-      </div>
-
-      <div className="p-5 border-b border-white/5">
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-12 h-12 bg-orange-500/20 rounded-xl flex items-center justify-center text-2xl">🔧</div>
-          <div>
-            <div className="text-lg font-bold">{piece.marca || piece.id}</div>
-            <div className="text-xs text-slate-400">{piece.tipo}</div>
-          </div>
-        </div>
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-xs font-semibold bg-orange-500/20 text-orange-400 border border-orange-500/30">
-          {sc.icon} {sc.label}
-        </span>
-      </div>
-
-      <div className="p-5 border-b border-white/5">
-        <h4 className="font-semibold text-sm mb-3">📐 Propriedades</h4>
-        <div className="space-y-2 text-sm">
-          {piece.comprimento && <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Comprimento</span><span>{piece.comprimento} mm</span></div>}
-          {piece.perfil && <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Perfil</span><span>{piece.perfil}</span></div>}
-          {piece.peso && <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Peso</span><span>{piece.peso?.toFixed?.(1) || piece.peso} kg</span></div>}
-        </div>
-      </div>
-
-      <div className="p-5 border-b border-white/5">
-        <h4 className="font-semibold text-sm mb-3">📊 Status ERP</h4>
-        <div className="space-y-2 text-sm">
-          {['Corte','Furacao','Solda','Pintura','Expedicao','Montagem'].map(etapa => (
-            <div key={etapa} className="flex justify-between">
-              <span className="text-slate-500 text-xs uppercase">{etapa}</span>
-              <span className="text-slate-400">⬜ Pendente</span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {isIFCMode && (
-        <div className="p-5 border-b border-white/5">
-          <h4 className="font-semibold text-sm mb-3">🔗 Dados IFC</h4>
-          <div className="space-y-2 text-sm">
-            <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">IFC Entity</span><span>IfcBeam</span></div>
-            <div className="flex justify-between"><span className="text-slate-500 text-xs uppercase">Material</span><span>Aco ASTM A572</span></div>
-          </div>
-        </div>
-      )}
-
-      <div className="p-5">
-        <button className="w-full bg-gradient-to-r from-blue-500 to-blue-600 py-2.5 rounded-lg text-sm font-semibold">
-          📋 Ver no Kanban de Producao
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ==============================================
-// COMPONENTE PRINCIPAL - PAGINA MONTEX ERP 3D
-// ==============================================
-
-function MontexERP3DPage({ obraAtualData, pecasObraAtual }) {
-  const [viewMode, setViewMode] = useState('3d');
-  const [colorMode, setColorMode] = useState('status');
-  const [activeFilters, setActiveFilters] = useState(Object.keys(STATUS_CONFIG));
-  const [highlightType, setHighlightType] = useState('ALL');
-  const [selectedPiece, setSelectedPiece] = useState(null);
-  const [showDetail, setShowDetail] = useState(false);
-  const [showIFCModal, setShowIFCModal] = useState(false);
-  const [isIFCMode, setIsIFCMode] = useState(false);
-  const [showStats, setShowStats] = useState(false);
-  const [showTimeline, setShowTimeline] = useState(true);
-  const [timelineDate, setTimelineDate] = useState('2025-03-01');
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [eixoInicio, setEixoInicio] = useState(1);
-  const [eixoFim, setEixoFim] = useState(17);
-  const [filaInicio, setFilaInicio] = useState('A');
-  const [filaFim, setFilaFim] = useState('H');
-
-  // Transform ERP pieces to 3D pieces
-  const pieces3D = useMemo(() => {
-    if (!pecasObraAtual || pecasObraAtual.length === 0) {
-      // Demo mode - generate sample pieces
-      const types = Object.keys(TYPE_CONFIG);
-      return Array.from({ length: 136 }, (_, i) => ({
-        id: 'demo-' + i,
-        marca: types[i % types.length].charAt(0) + '-' + String(i + 1).padStart(2, '0'),
-        tipo: types[i % types.length],
-        peso: 50 + Math.random() * 500,
-        comprimento: 1000 + Math.random() * 8000,
-        perfil: 'W250x73',
-        status3d: Object.keys(STATUS_CONFIG)[Math.floor(Math.random() * 5)],
-        eixo: Math.floor(Math.random() * 17),
-        fila: GRID.filas[Math.floor(Math.random() * 8)]
-      }));
-    }
-    return pecasObraAtual.map(p => ({
-      ...p,
-      status3d: STATUS_MAP[p.etapaAtual] || STATUS_MAP[p.status] || 'NAO_INICIADO',
-      tipo: (p.tipo || p.descricao || 'COLUNA').toUpperCase().replace(/[ÇÃ]/g, c => c === 'Ç' ? 'C' : 'A'),
-      eixo: p.eixo,
-      fila: p.fila
-    }));
-  }, [pecasObraAtual]);
-
-  // Stats calculations
-  const stats = useMemo(() => {
-    const total = pieces3D.length;
-    const pesoTotal = pieces3D.reduce((s, p) => s + (p.peso || 0), 0);
-    const byStatus = {};
-    Object.keys(STATUS_CONFIG).forEach(k => { byStatus[k] = pieces3D.filter(p => p.status3d === k).length; });
-    const byType = {};
-    pieces3D.forEach(p => { byType[p.tipo] = (byType[p.tipo] || 0) + 1; });
-    const montadas = byStatus.MONTADO || 0;
-    const fabricadas = (byStatus.FABRICADO || 0) + (byStatus.EM_MONTAGEM || 0) + montadas;
-    return { total, pesoTotal, byStatus, byType, montadas, fabricadas };
-  }, [pieces3D]);
-
-  // Timeline auto-play
+  // ==============================================
+  // FETCH ERP DATA
+  // ==============================================
   useEffect(() => {
-    if (!isPlaying) return;
-    const iv = setInterval(() => {
-      setTimelineDate(prev => {
-        const d = new Date(prev);
-        d.setDate(d.getDate() + 3);
-        if (d > new Date('2025-06-01')) { setIsPlaying(false); return '2025-06-01'; }
-        return d.toISOString().split('T')[0];
+    async function loadERP() {
+      setErpLoading(true);
+      try {
+        const [{ data: corte }, { data: producao }] = await Promise.all([
+          supabase.from('materiais_corte').select('id, marca, peca, status_corte, perfil, peso_teorico, comprimento_mm'),
+          supabase.from('pecas_producao').select('id, marca, nome, tipo, etapa, status, peso_total, perfil'),
+        ]);
+        const allPecas = [];
+        (corte || []).forEach(c => {
+          allPecas.push({
+            marca: c.marca || c.peca || '',
+            status: mapCorteStatus(c.status_corte),
+            perfil: c.perfil,
+            peso: parseFloat(c.peso_teorico) || 0,
+            source: 'corte',
+          });
+        });
+        (producao || []).forEach(p => {
+          allPecas.push({
+            marca: p.marca || p.nome || '',
+            status: mapProducaoEtapa(p.etapa),
+            perfil: p.perfil,
+            peso: parseFloat(p.peso_total) || 0,
+            source: 'producao',
+          });
+        });
+        setErpPecas(allPecas);
+      } catch (e) {
+        console.warn('Erro ao carregar ERP:', e);
+      }
+      setErpLoading(false);
+    }
+    loadERP();
+  }, []);
+
+  function mapCorteStatus(st) {
+    if (!st || st === 'aguardando' || st === 'programacao') return 'NAO_INICIADO';
+    if (st === 'cortando' || st === 'em_corte') return 'CORTE';
+    if (st === 'finalizado' || st === 'liberado') return 'FABRICACAO';
+    return 'NAO_INICIADO';
+  }
+
+  function mapProducaoEtapa(etapa) {
+    if (!etapa || etapa === 'fabricacao') return 'FABRICACAO';
+    if (etapa === 'solda') return 'SOLDA';
+    if (etapa === 'pintura') return 'PINTURA';
+    if (etapa === 'expedicao' || etapa === 'expedido') return 'EXPEDICAO';
+    if (etapa === 'finalizado' || etapa === 'entregue') return 'MONTADO';
+    return 'FABRICACAO';
+  }
+
+  // ==============================================
+  // MATCH IFC ELEMENTS TO ERP DATA
+  // ==============================================
+  const statusMap = useMemo(() => {
+    const map = new Map();
+    if (ifcElements.length === 0 || erpPecas.length === 0) return map;
+
+    for (const el of ifcElements) {
+      const elName = (el.name || '').toUpperCase().trim();
+      // Try matching by marca (name contains marca)
+      let bestMatch = null;
+      for (const peca of erpPecas) {
+        const marca = (peca.marca || '').toUpperCase().trim();
+        if (!marca) continue;
+        if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
+          bestMatch = peca;
+          break;
+        }
+      }
+      if (bestMatch) {
+        map.set(el.expressID, bestMatch.status);
+      }
+    }
+    return map;
+  }, [ifcElements, erpPecas]);
+
+  // ==============================================
+  // INIT THREE.JS SCENE
+  // ==============================================
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const sm = new SceneManager(containerRef.current);
+    sceneManagerRef.current = sm;
+    return () => sm.dispose();
+  }, []);
+
+  // ==============================================
+  // APPLY COLORS WHEN STATUS MAP OR COLOR MODE CHANGES
+  // ==============================================
+  useEffect(() => {
+    const sm = sceneManagerRef.current;
+    if (!sm || ifcElements.length === 0) return;
+    if (colorMode === 'status') {
+      sm.applyStatusColors(statusMap);
+    } else {
+      sm.applyTypeColors();
+    }
+  }, [statusMap, colorMode, ifcElements]);
+
+  // ==============================================
+  // APPLY FILTERS
+  // ==============================================
+  useEffect(() => {
+    const sm = sceneManagerRef.current;
+    if (!sm || ifcElements.length === 0) return;
+    sm.setVisibility(el => {
+      if (typeFilter !== 'ALL' && el.typeName !== typeFilter) return false;
+      if (statusFilter !== 'ALL') {
+        const st = statusMap.get(el.expressID) || 'NAO_INICIADO';
+        if (st !== statusFilter) return false;
+      }
+      if (searchText) {
+        const q = searchText.toUpperCase();
+        if (!(el.name || '').toUpperCase().includes(q) && !(el.typeName || '').toUpperCase().includes(q)) return false;
+      }
+      return true;
+    });
+  }, [typeFilter, statusFilter, searchText, ifcElements, statusMap]);
+
+  // ==============================================
+  // IFC FILE HANDLING
+  // ==============================================
+  const handleFile = useCallback(async (file) => {
+    if (!file || !file.name.match(/\.ifc$/i)) return;
+    setShowUpload(false);
+    setLoading(true);
+    setProgress(0);
+    setProgressText('Lendo arquivo...');
+
+    try {
+      const buffer = await file.arrayBuffer();
+      setProgressText('Inicializando parser IFC...');
+      setProgress(5);
+
+      const elements = await parseIFCFile(buffer, (pct, txt) => {
+        setProgress(pct);
+        setProgressText(txt);
       });
-    }, 200);
-    return () => clearInterval(iv);
-  }, [isPlaying]);
 
-  const handleSelectPiece = useCallback((piece) => {
-    setSelectedPiece(piece);
-    setShowDetail(!!piece);
-  }, []);
+      setIfcElements(elements);
+      setModelLoaded(true);
 
-  const handleIFCImport = useCallback((file) => {
-    setIsIFCMode(true);
-    console.log('IFC importado:', file.name);
-  }, []);
+      // Load into Three.js
+      const sm = sceneManagerRef.current;
+      if (sm) {
+        sm.loadElements(elements);
+        // Apply status colors
+        if (colorMode === 'status') {
+          // Rebuild status map with new elements
+          const newMap = new Map();
+          for (const el of elements) {
+            const elName = (el.name || '').toUpperCase().trim();
+            for (const peca of erpPecas) {
+              const marca = (peca.marca || '').toUpperCase().trim();
+              if (!marca) continue;
+              if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
+                newMap.set(el.expressID, peca.status);
+                break;
+              }
+            }
+          }
+          sm.applyStatusColors(newMap);
+        } else {
+          sm.applyTypeColors();
+        }
+      }
+    } catch (err) {
+      console.error('Erro ao processar IFC:', err);
+      setProgressText('Erro: ' + err.message);
+    }
+    setLoading(false);
+  }, [erpPecas, colorMode]);
 
-  const toggleFilter = useCallback((status) => {
-    setActiveFilters(prev => prev.includes(status) ? prev.filter(s => s !== status) : [...prev, status]);
-  }, []);
+  // ==============================================
+  // MOUSE INTERACTION
+  // ==============================================
+  const handleClick = useCallback((e) => {
+    const sm = sceneManagerRef.current;
+    if (!sm) return;
+    const hit = sm.raycast(e);
+    // Unhighlight previous
+    if (hoveredRef.current) sm.highlightMesh(hoveredRef.current, false);
+    if (hit) {
+      sm.highlightMesh(hit, true);
+      hoveredRef.current = hit;
+      const el = hit.userData.element;
+      const erpStatus = statusMap.get(el.expressID) || 'NAO_INICIADO';
+      setSelectedElement({ ...el, erpStatus });
+    } else {
+      hoveredRef.current = null;
+      setSelectedElement(null);
+    }
+  }, [statusMap]);
+
+  // ==============================================
+  // STATISTICS
+  // ==============================================
+  const stats = useMemo(() => {
+    if (ifcElements.length === 0) return null;
+    const byType = {};
+    const byStatus = {};
+    let matched = 0;
+
+    for (const el of ifcElements) {
+      byType[el.typeName] = (byType[el.typeName] || 0) + 1;
+      const st = statusMap.get(el.expressID) || 'NAO_INICIADO';
+      byStatus[st] = (byStatus[st] || 0) + 1;
+      if (statusMap.has(el.expressID)) matched++;
+    }
+
+    return {
+      total: ifcElements.length,
+      byType,
+      byStatus,
+      matched,
+      matchRate: ifcElements.length > 0 ? Math.round((matched / ifcElements.length) * 100) : 0,
+    };
+  }, [ifcElements, statusMap]);
 
   const obraName = obraAtualData?.nome || 'SUPER LUNA - BELO VALE';
-  const obraCode = obraAtualData?.codigo || '2026-01';
-  const isDemo = !pecasObraAtual || pecasObraAtual.length === 0;
 
+  // ==============================================
+  // RENDER
+  // ==============================================
   return (
     <div className="p-4">
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-slate-900 to-gray-900 -m-6">
+      <div className="min-h-screen bg-gradient-to-br from-[#030712] via-[#0a1628] to-[#030712] -m-6 relative">
 
-        {/* Header */}
-        <header className="bg-black/50 backdrop-blur-xl border-b border-white/10 px-6 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-4 min-w-0">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0">M</div>
-              <div className="min-w-0">
-                <h1 className="text-white font-bold text-lg whitespace-nowrap">MONTEX ERP 3D</h1>
-                <p className="text-slate-400 text-xs">Visualizacao Estrutural em Tempo Real</p>
+        {/* HEADER */}
+        <header className="bg-black/60 backdrop-blur-xl border-b border-cyan-500/20 px-6 py-3 relative z-20">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div className="w-10 h-10 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-cyan-500/20">3D</div>
+              <div>
+                <h1 className="text-white font-bold text-lg tracking-tight">MONTEX ERP 3D</h1>
+                <p className="text-cyan-400/60 text-xs">{obraName} - Visualizador IFC Integrado</p>
               </div>
             </div>
-            <div className="text-right text-sm shrink-0 hidden sm:block">
-              <div className="text-orange-400 font-bold">{obraCode}</div>
-              <div className="text-slate-400 text-xs">{obraName}</div>
-            </div>
-            <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
-              {[
-                { key: 'demo', label: '🎮 Demo', active: isDemo },
-                { key: 'status', label: '📊 Status', active: colorMode === 'status' },
-                { key: 'type', label: '📦 Tipo', active: colorMode === 'type' },
-              ].map(btn => (
-                <button key={btn.key} onClick={() => setColorMode(btn.key === 'demo' ? 'status' : btn.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${btn.active ? 'bg-orange-500 text-white' : 'bg-white/10 text-gray-300 hover:bg-white/20'}`}>
-                  {btn.label}
+
+            <div className="flex items-center gap-2">
+              {/* Color Mode Toggle */}
+              <div className="flex bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                <button onClick={() => setColorMode('status')}
+                  className={`px-3 py-1.5 text-xs font-medium transition-all ${colorMode === 'status' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+                  Status ERP
                 </button>
-              ))}
-              <button onClick={() => setShowIFCModal(true)}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-emerald-500 text-white hover:bg-emerald-600 transition-all">
-                📁 Importar IFC
+                <button onClick={() => setColorMode('type')}
+                  className={`px-3 py-1.5 text-xs font-medium transition-all ${colorMode === 'type' ? 'bg-cyan-500 text-white' : 'text-slate-400 hover:text-white'}`}>
+                  Tipo IFC
+                </button>
+              </div>
+
+              {/* Upload IFC */}
+              <button onClick={() => setShowUpload(true)}
+                className="px-4 py-1.5 rounded-lg text-xs font-semibold bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:shadow-lg hover:shadow-emerald-500/20 transition-all">
+                Importar IFC
               </button>
             </div>
           </div>
         </header>
 
-        {/* Main Content - FIXED LAYOUT */}
-        <div className="flex h-[calc(100vh-140px)] relative">
+        {/* MAIN AREA */}
+        <div className="flex h-[calc(100vh-120px)] relative">
 
-          {/* Stats Toggle Button */}
+          {/* STATS TOGGLE */}
           <button onClick={() => setShowStats(!showStats)}
-            className="absolute left-2 top-2 z-30 bg-black/70 backdrop-blur-sm text-white w-9 h-9 rounded-lg border border-white/20 flex items-center justify-center text-lg hover:bg-blue-500/30 transition-all"
-            title="Estatisticas">
-            {showStats ? '✕' : '📊'}
+            className="absolute left-3 top-3 z-30 bg-black/70 backdrop-blur border border-cyan-500/30 text-cyan-400 w-10 h-10 rounded-xl flex items-center justify-center text-sm hover:bg-cyan-500/20 transition-all shadow-lg"
+            title="Painel de Dados">
+            {showStats ? '\u2715' : '\u2630'}
           </button>
 
-          {/* Stats Overlay Panel */}
-          <div className={`absolute left-0 top-0 bottom-0 w-[300px] z-20 bg-black/85 backdrop-blur-xl border-r border-white/10 overflow-y-auto transition-transform duration-300 ${showStats ? 'translate-x-0' : '-translate-x-full'}`}>
-            <div className="p-4 pt-14 space-y-4">
-              <h2 className="text-white font-bold text-sm">Estatisticas da Obra</h2>
-              <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-3 text-xs text-blue-300">
-                <div className="font-bold">{obraCode}</div>
-                <div className="text-slate-400">{obraName}</div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="bg-white/5 rounded-lg p-3 text-center">
-                  <div className="text-white text-xl font-bold">{stats.total}</div>
-                  <div className="text-slate-400 text-xs">Pecas</div>
-                </div>
-                <div className="bg-white/5 rounded-lg p-3 text-center">
-                  <div className="text-orange-400 text-xl font-bold">{stats.pesoTotal.toFixed(1)}t</div>
-                  <div className="text-slate-400 text-xs">Peso Total</div>
-                </div>
-                <div className="bg-emerald-500/10 rounded-lg p-3 text-center">
-                  <div className="text-emerald-400 text-xl font-bold">{stats.montadas}</div>
-                  <div className="text-slate-400 text-xs">Montadas</div>
-                </div>
-                <div className="bg-blue-500/10 rounded-lg p-3 text-center">
-                  <div className="text-blue-400 text-xl font-bold">{stats.fabricadas}</div>
-                  <div className="text-slate-400 text-xs">Fabricadas</div>
-                </div>
+          {/* LEFT PANEL - Stats & Filters */}
+          <div className={`absolute left-0 top-0 bottom-0 w-[320px] z-20 bg-gradient-to-b from-[#0a1628]/95 to-[#030712]/95 backdrop-blur-xl border-r border-cyan-500/15 overflow-y-auto transition-transform duration-300 ${showStats ? 'translate-x-0' : '-translate-x-full'}`}>
+            <div className="p-4 pt-16 space-y-4">
+
+              {/* Search */}
+              <div>
+                <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)}
+                  placeholder="Buscar elemento..."
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50" />
               </div>
 
-              {/* By Status */}
-              <div>
-                <h3 className="text-white text-xs font-semibold mb-2">Por Status</h3>
-                {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                  <div key={key} className="flex items-center justify-between text-xs py-1">
-                    <div className="flex items-center gap-2">
-                      <span>{cfg.icon}</span><span className="text-slate-300">{cfg.label}</span>
+              {/* Model Info */}
+              {stats && (
+                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4">
+                  <h3 className="text-cyan-400 text-sm font-bold mb-3">Modelo IFC</h3>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="bg-white/5 rounded-lg p-2 text-center">
+                      <div className="text-white text-lg font-bold">{stats.total.toLocaleString()}</div>
+                      <div className="text-slate-400 text-[10px]">Elementos</div>
                     </div>
-                    <span className="text-slate-400">{stats.byStatus[key] || 0} ({stats.total ? Math.round((stats.byStatus[key] || 0) / stats.total * 100) : 0}%)</span>
+                    <div className="bg-white/5 rounded-lg p-2 text-center">
+                      <div className="text-emerald-400 text-lg font-bold">{stats.matchRate}%</div>
+                      <div className="text-slate-400 text-[10px]">Match ERP</div>
+                    </div>
                   </div>
-                ))}
-              </div>
+                </div>
+              )}
 
-              {/* By Type */}
+              {/* Filter by Type */}
               <div>
-                <h3 className="text-white text-xs font-semibold mb-2">Por Tipo de Peca</h3>
-                {Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([tipo, count]) => (
-                  <div key={tipo} className="flex items-center justify-between text-xs py-1">
-                    <span className="text-slate-300">{tipo}</span>
-                    <span className="text-slate-400">{count}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* Legend */}
-              <div>
-                <h3 className="text-white text-xs font-semibold mb-2">🎨 Legenda</h3>
-                {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                  <label key={key} className="flex items-center gap-2 py-1 cursor-pointer">
-                    <input type="checkbox" checked={activeFilters.includes(key)} onChange={() => toggleFilter(key)} className="rounded" />
-                    <span className="text-slate-300 text-xs">{cfg.label}</span>
-                  </label>
-                ))}
-              </div>
-
-              {/* Type Filter */}
-              <div>
-                <h3 className="text-white text-xs font-semibold mb-2">🔍 Tipo</h3>
-                <select value={highlightType} onChange={e => setHighlightType(e.target.value)}
-                  className="w-full bg-white/10 border border-white/20 rounded-lg p-2 text-white text-xs">
-                  <option value="ALL">Todos</option>
-                  {Object.keys(TYPE_CONFIG).map(t => <option key={t} value={t}>{t}</option>)}
+                <h3 className="text-white text-xs font-semibold mb-2">Filtrar por Tipo</h3>
+                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs">
+                  <option value="ALL">Todos os Tipos</option>
+                  {stats && Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+                    <option key={type} value={type}>{type} ({count})</option>
+                  ))}
                 </select>
               </div>
 
-              {/* Region Filter */}
+              {/* Filter by Status */}
               <div>
-                <h3 className="text-white text-xs font-semibold mb-2">🗺️ Filtro por Regiao</h3>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div>
-                    <label className="text-slate-400">Eixo Inicio</label>
-                    <select value={eixoInicio} onChange={e => setEixoInicio(Number(e.target.value))} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
-                      {Array.from({length:17},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                <h3 className="text-white text-xs font-semibold mb-2">Filtrar por Status</h3>
+                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs">
+                  <option value="ALL">Todos os Status</option>
+                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                    <option key={key} value={key}>{cfg.label} {stats ? `(${stats.byStatus[key] || 0})` : ''}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Legend */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">Legenda Status</h3>
+                <div className="space-y-1.5">
+                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                    <div key={key} className="flex items-center gap-2 text-xs">
+                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: cfg.hex }} />
+                      <span className="text-slate-300 flex-1">{cfg.label}</span>
+                      {stats && <span className="text-slate-500">{stats.byStatus[key] || 0}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Type Distribution */}
+              {stats && (
+                <div>
+                  <h3 className="text-white text-xs font-semibold mb-2">Distribuicao por Tipo</h3>
+                  <div className="space-y-1.5">
+                    {Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
+                      <div key={type} className="flex items-center gap-2 text-xs">
+                        <span className="text-slate-300 flex-1">{type}</span>
+                        <span className="text-slate-500">{count}</span>
+                        <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                          <div className="h-full bg-cyan-500/60 rounded-full" style={{ width: `${(count / stats.total) * 100}%` }} />
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div>
-                    <label className="text-slate-400">Eixo Fim</label>
-                    <select value={eixoFim} onChange={e => setEixoFim(Number(e.target.value))} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
-                      {Array.from({length:17},(_,i)=>i+1).map(n => <option key={n} value={n}>{n}</option>)}
-                    </select>
+                </div>
+              )}
+
+              {/* ERP Data Status */}
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                <h3 className="text-white text-xs font-semibold mb-2">Dados ERP</h3>
+                <div className="text-xs text-slate-400 space-y-1">
+                  <div className="flex justify-between">
+                    <span>Pecas no ERP</span>
+                    <span className="text-white">{erpPecas.length}</span>
                   </div>
-                  <div>
-                    <label className="text-slate-400">Fila Inicio</label>
-                    <select value={filaInicio} onChange={e => setFilaInicio(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
-                      {GRID.filas.map(f => <option key={f} value={f}>{f}</option>)}
-                    </select>
+                  <div className="flex justify-between">
+                    <span>Elementos IFC</span>
+                    <span className="text-white">{ifcElements.length}</span>
                   </div>
-                  <div>
-                    <label className="text-slate-400">Fila Fim</label>
-                    <select value={filaFim} onChange={e => setFilaFim(e.target.value)} className="w-full bg-white/10 border border-white/20 rounded p-1 text-white">
-                      {GRID.filas.map(f => <option key={f} value={f}>{f}</option>)}
-                    </select>
+                  <div className="flex justify-between">
+                    <span>Mapeados</span>
+                    <span className="text-emerald-400">{stats?.matched || 0}</span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 3D Viewport - takes FULL space */}
+          {/* 3D VIEWPORT */}
           <div className="flex-1 relative overflow-hidden">
-            <Scene3DViewer
-              pieces={pieces3D}
-              viewMode={viewMode}
-              colorMode={colorMode}
-              activeFilters={activeFilters}
-              highlightType={highlightType}
-              regionFilter={{ eixoInicio, eixoFim, filaInicio, filaFim }}
-              onSelectPiece={handleSelectPiece}
-              selectedPiece={selectedPiece}
-            />
+            <div ref={containerRef} className="w-full h-full cursor-grab active:cursor-grabbing" onClick={handleClick} />
 
             {/* Stats badges */}
-            <div className="absolute top-2 left-12 flex gap-2 pointer-events-none">
-              {[
-                { val: stats.total, label: 'Pecas', bg: 'bg-slate-700/80' },
-                { val: stats.montadas, label: 'Montadas', bg: 'bg-emerald-700/80' },
-                { val: stats.fabricadas, label: 'Fabricadas', bg: 'bg-blue-700/80' },
-                { val: stats.pesoTotal.toFixed(1) + 't', label: 'Peso', bg: 'bg-orange-700/80' },
-              ].map((b, i) => (
-                <div key={i} className={`${b.bg} backdrop-blur rounded-lg px-3 py-1.5 text-center`}>
-                  <div className="text-white text-sm font-bold">{b.val}</div>
-                  <div className="text-slate-300 text-[10px]">{b.label}</div>
-                </div>
-              ))}
-            </div>
+            {modelLoaded && stats && (
+              <div className="absolute top-3 left-14 flex gap-2 pointer-events-none">
+                {[
+                  { val: stats.total.toLocaleString(), label: 'Elementos', bg: 'from-slate-700/80 to-slate-800/80' },
+                  { val: stats.matchRate + '%', label: 'ERP Match', bg: 'from-emerald-700/80 to-emerald-800/80' },
+                  { val: Object.keys(stats.byType).length, label: 'Tipos', bg: 'from-blue-700/80 to-blue-800/80' },
+                ].map((b, i) => (
+                  <div key={i} className={`bg-gradient-to-b ${b.bg} backdrop-blur rounded-lg px-3 py-1.5 text-center border border-white/10`}>
+                    <div className="text-white text-sm font-bold">{b.val}</div>
+                    <div className="text-slate-300 text-[10px]">{b.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            {/* View preset buttons */}
-            <div className="absolute top-2 right-4 flex flex-col gap-1.5">
+            {/* View Presets */}
+            <div className="absolute top-3 right-4 flex flex-col gap-1.5">
               {[
-                { key: 'frontal', icon: '🔲', label: 'Frontal' },
-                { key: 'lateral', icon: '📐', label: 'Lateral' },
-                { key: 'top', icon: '⬆️', label: 'Top' },
-                { key: 'iso', icon: '🔷', label: 'Iso' },
-                { key: '3d', icon: '🎯', label: '3D' },
+                { key: 'front', label: 'Frontal' },
+                { key: 'back', label: 'Traseira' },
+                { key: 'left', label: 'Esquerda' },
+                { key: 'right', label: 'Direita' },
+                { key: 'top', label: 'Superior' },
+                { key: 'iso', label: 'Isometrica' },
               ].map(v => (
-                <button key={v.key} onClick={() => setViewMode(v.key)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${viewMode === v.key ? 'bg-blue-500 text-white' : 'bg-black/50 text-slate-300 hover:bg-black/70 border border-white/10'}`}>
-                  {v.icon} {v.label}
+                <button key={v.key} onClick={() => sceneManagerRef.current?.setView(v.key)}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-black/50 text-slate-300 hover:bg-cyan-500/30 hover:text-white border border-white/10 transition-all backdrop-blur">
+                  {v.label}
                 </button>
               ))}
             </div>
 
-            {/* Toolbar */}
-            <div className="absolute top-14 left-2 flex flex-col gap-1 z-10">
-              {['🔍','📏','🎯','🔲','📸','📋'].map((icon, i) => (
-                <button key={i} className="w-8 h-8 bg-black/60 backdrop-blur border border-white/15 rounded-lg text-sm flex items-center justify-center hover:bg-blue-500/40 transition-all">{icon}</button>
-              ))}
-            </div>
-
-            {/* Timeline */}
-            {showTimeline && (
-              <div className="absolute bottom-4 left-4 max-w-lg">
-                <div className="bg-gradient-to-r from-black/80 to-black/60 backdrop-blur-xl rounded-2xl p-4 border border-blue-500/20">
-                  <div className="flex items-center justify-between mb-2">
-                    <h3 className="text-white text-sm font-semibold flex items-center gap-2">📅 Timeline de Construcao</h3>
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => setIsPlaying(!isPlaying)}
-                        className="bg-emerald-500 text-white px-3 py-1 rounded-lg text-xs font-medium">
-                        {isPlaying ? '⏸️ Pause' : '▶️ Play'}
-                      </button>
-                      <span className="text-slate-300 text-xs font-mono">{timelineDate}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                    <span>Progresso</span>
-                    <span>33%</span>
-                  </div>
-                  <div className="w-full h-2 bg-white/10 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-blue-500 via-emerald-500 to-orange-500 rounded-full" style={{ width: '33%' }} />
-                  </div>
+            {/* Welcome Screen (no model loaded) */}
+            {!modelLoaded && !loading && (
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="text-center pointer-events-auto">
+                  <div className="text-6xl mb-4 opacity-50">🏗️</div>
+                  <h2 className="text-white text-2xl font-bold mb-2">Visualizador 3D IFC</h2>
+                  <p className="text-slate-400 text-sm mb-6 max-w-md">
+                    Carregue o arquivo IFC do projeto para visualizar a estrutura 3D integrada com os dados de producao do ERP Montex.
+                  </p>
+                  <button onClick={() => setShowUpload(true)}
+                    className="px-8 py-3 rounded-xl text-sm font-semibold bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:shadow-xl hover:shadow-emerald-500/30 transition-all">
+                    Importar Arquivo IFC
+                  </button>
+                  <p className="text-slate-500 text-xs mt-3">Formatos suportados: .ifc (IFC2x3, IFC4)</p>
                 </div>
               </div>
             )}
 
-            {/* Controls info */}
+            {/* Loading Overlay */}
+            {loading && (
+              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-30">
+                <div className="text-center max-w-md w-full px-8">
+                  <div className="text-5xl mb-4 animate-pulse">⚙️</div>
+                  <h3 className="text-white text-xl font-bold mb-4">Processando Modelo IFC</h3>
+                  <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden mb-3">
+                    <div className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full transition-all duration-300" style={{ width: progress + '%' }} />
+                  </div>
+                  <p className="text-cyan-400 text-sm">{progressText}</p>
+                  <p className="text-slate-500 text-xs mt-2">{progress}%</p>
+                </div>
+              </div>
+            )}
+
+            {/* Controls Help */}
             <div className="absolute bottom-4 right-4">
-              <div className="bg-black/60 backdrop-blur rounded-xl p-3 border border-white/10 text-xs text-slate-300">
+              <div className="bg-black/60 backdrop-blur rounded-xl p-3 border border-white/10 text-xs text-slate-400">
                 <div className="font-semibold text-white mb-1">Controles</div>
-                <div>🖱️ Arrastar: Rotacionar Vista</div>
-                <div>🔄 Scroll: Zoom In/Out</div>
-                <div>🖱️ Clique: Selecionar Peca</div>
-                <div className={`mt-1 font-medium ${isIFCMode ? 'text-emerald-400' : 'text-orange-400'}`}>
-                  {isIFCMode ? '✅ Modelo IFC' : isDemo ? 'Modo Demo' : 'Dados ERP'}
+                <div>Arrastar: Rotacionar</div>
+                <div>Scroll: Zoom</div>
+                <div>Shift+Arrastar: Pan</div>
+                <div>Clique: Selecionar</div>
+                {modelLoaded && <div className="mt-1 text-emerald-400 font-medium">Modelo IFC Carregado</div>}
+                {!modelLoaded && <div className="mt-1 text-orange-400 font-medium">Nenhum modelo</div>}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT PANEL - Selected Element Detail */}
+          {selectedElement && (
+            <div className="absolute right-0 top-0 bottom-0 w-[340px] z-20 bg-gradient-to-b from-[#0a1628]/95 to-[#030712]/95 backdrop-blur-xl border-l border-cyan-500/15 overflow-y-auto">
+              <div className="sticky top-0 z-10 bg-[#0a1628]/90 backdrop-blur p-4 border-b border-white/10 flex justify-between items-center">
+                <div>
+                  <h3 className="text-white font-bold text-sm">Elemento Selecionado</h3>
+                  <p className="text-cyan-400/60 text-xs">#{selectedElement.expressID}</p>
+                </div>
+                <button onClick={() => setSelectedElement(null)}
+                  className="bg-white/10 hover:bg-white/20 w-8 h-8 rounded-lg text-sm flex items-center justify-center text-white">{'\u2715'}</button>
+              </div>
+
+              <div className="p-4 space-y-4">
+                {/* Identity */}
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <h4 className="text-cyan-400 text-xs font-semibold mb-3">Identificacao</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 text-xs">Nome</span>
+                      <span className="text-white text-xs font-medium truncate max-w-[180px]">{selectedElement.name}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 text-xs">Tipo IFC</span>
+                      <span className="text-white text-xs">{selectedElement.typeName}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500 text-xs">GlobalId</span>
+                      <span className="text-white text-xs font-mono truncate max-w-[160px]">{selectedElement.globalId}</span>
+                    </div>
+                    {selectedElement.description && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 text-xs">Descricao</span>
+                        <span className="text-white text-xs truncate max-w-[180px]">{selectedElement.description}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ERP Status */}
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <h4 className="text-cyan-400 text-xs font-semibold mb-3">Status ERP</h4>
+                  <div className="flex items-center gap-2 mb-3">
+                    <div className="w-4 h-4 rounded" style={{ backgroundColor: STATUS_CONFIG[selectedElement.erpStatus]?.hex || '#6b7280' }} />
+                    <span className="text-white text-sm font-semibold">{STATUS_CONFIG[selectedElement.erpStatus]?.label || 'Nao Iniciado'}</span>
+                  </div>
+
+                  {/* Pipeline */}
+                  <div className="space-y-1.5">
+                    {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
+                      const statusOrder = ['NAO_INICIADO', 'CORTE', 'FABRICACAO', 'SOLDA', 'PINTURA', 'EXPEDICAO', 'MONTADO'];
+                      const currentIdx = statusOrder.indexOf(selectedElement.erpStatus);
+                      const thisIdx = statusOrder.indexOf(key);
+                      const done = thisIdx <= currentIdx;
+                      return (
+                        <div key={key} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${done ? 'bg-white/5' : 'opacity-40'}`}>
+                          <div className={`w-2.5 h-2.5 rounded-full ${done ? '' : 'border border-white/20'}`}
+                            style={done ? { backgroundColor: cfg.hex } : {}} />
+                          <span className={done ? 'text-white' : 'text-slate-500'}>{cfg.label}</span>
+                          {done && <span className="ml-auto text-emerald-400 text-[10px]">OK</span>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* UPLOAD MODAL */}
+        {showUpload && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center"
+            onClick={e => e.target === e.currentTarget && setShowUpload(false)}>
+            <div className="bg-gradient-to-br from-[#0f1d32] to-[#0a1628] border border-cyan-500/20 rounded-2xl p-8 w-[90%] max-w-[600px] text-white shadow-2xl shadow-cyan-500/10">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h2 className="text-xl font-bold">Importar Arquivo IFC</h2>
+                  <p className="text-slate-400 text-sm mt-1">Carregue o modelo BIM para visualizacao 3D</p>
+                </div>
+                <button onClick={() => setShowUpload(false)} className="bg-white/10 hover:bg-white/20 w-9 h-9 rounded-lg text-lg flex items-center justify-center">{'\u2715'}</button>
+              </div>
+
+              <div className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-all ${isDragOver ? 'border-cyan-400 bg-cyan-500/10' : 'border-cyan-500/30 bg-cyan-500/5 hover:border-cyan-400/60'}`}
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={e => { e.preventDefault(); setIsDragOver(true); }}
+                onDragLeave={() => setIsDragOver(false)}
+                onDrop={e => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }}>
+                <div className="text-5xl mb-4">🏗️</div>
+                <p className="text-lg font-semibold">Arraste o arquivo IFC aqui</p>
+                <p className="text-slate-400 text-sm mt-2">ou clique para selecionar</p>
+                <p className="text-slate-500 text-xs mt-4">Suporte: .ifc (IFC2x3, IFC4) - Tekla, Revit, etc.</p>
+                <input ref={fileInputRef} type="file" accept=".ifc" className="hidden"
+                  onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
+              </div>
+
+              <div className="mt-5 p-4 bg-cyan-500/5 border border-cyan-500/15 rounded-xl">
+                <h4 className="text-sm font-semibold text-cyan-400 mb-2">Como funciona</h4>
+                <div className="text-xs text-slate-400 space-y-1">
+                  <p>1. O arquivo IFC e processado localmente no navegador (web-ifc WASM)</p>
+                  <p>2. Elementos estruturais sao extraidos com geometria real</p>
+                  <p>3. Nomes das pecas sao mapeados aos dados do ERP (marca/nome)</p>
+                  <p>4. Cores refletem o status real de producao de cada elemento</p>
                 </div>
               </div>
             </div>
           </div>
-        </div>
-
-        {/* Modals */}
-        <IFCImportModal isOpen={showIFCModal} onClose={() => setShowIFCModal(false)} onImport={handleIFCImport} />
-        <PieceDetailPanel piece={selectedPiece} isOpen={showDetail} onClose={() => setShowDetail(false)} isIFCMode={isIFCMode} />
+        )}
       </div>
     </div>
   );
 }
-
-export default MontexERP3DPage;
