@@ -633,6 +633,31 @@ export default function MontexERP3DPage({ obraAtualData }) {
   }, [statusMap, colorMode, ifcElements]);
 
   // ==============================================
+  // IFC FILE HANDLING
+  // ==============================================
+  // Helper para aplicar cores ERP a um set de elementos
+  const applyColorsToScene = useCallback((sm, elements) => {
+    if (!sm) return;
+    if (colorMode === 'status') {
+      const newMap = new Map();
+      for (const el of elements) {
+        const elName = (el.name || '').toUpperCase().trim();
+        for (const peca of erpPecas) {
+          const marca = (peca.marca || '').toUpperCase().trim();
+          if (!marca) continue;
+          if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
+            newMap.set(el.expressID, peca.status);
+            break;
+          }
+        }
+      }
+      sm.applyStatusColors(newMap);
+    } else {
+      sm.applyTypeColors();
+    }
+  }, [erpPecas, colorMode]);
+
+  // ==============================================
   // TOGGLE FASTENERS (parafusos) - carrega sob demanda
   // ==============================================
   useEffect(() => {
@@ -686,31 +711,6 @@ export default function MontexERP3DPage({ obraAtualData }) {
       return true;
     });
   }, [typeFilter, statusFilter, searchText, ifcElements, statusMap, showFasteners]);
-
-  // ==============================================
-  // IFC FILE HANDLING
-  // ==============================================
-  // Helper para aplicar cores ERP a um set de elementos
-  const applyColorsToScene = useCallback((sm, elements) => {
-    if (!sm) return;
-    if (colorMode === 'status') {
-      const newMap = new Map();
-      for (const el of elements) {
-        const elName = (el.name || '').toUpperCase().trim();
-        for (const peca of erpPecas) {
-          const marca = (peca.marca || '').toUpperCase().trim();
-          if (!marca) continue;
-          if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
-            newMap.set(el.expressID, peca.status);
-            break;
-          }
-        }
-      }
-      sm.applyStatusColors(newMap);
-    } else {
-      sm.applyTypeColors();
-    }
-  }, [erpPecas, colorMode]);
 
   const handleFile = useCallback(async (file) => {
     if (!file || !file.name.match(/\.ifc$/i)) return;
