@@ -45,7 +45,7 @@ export function useCommandCenter() {
     try {
       const { data, error } = await supabase
         .from('materiais_corte')
-        .select('id, status_corte, peso_teorico, quantidade, peca, marca, conjunto, perfil, material, comprimento_mm, responsavel, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at');
+        .select('id, status_corte, peso_teorico, quantidade, peca, marca, perfil, material, comprimento_mm, responsavel, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at');
       if (error) throw error;
 
       const items = data || [];
@@ -72,10 +72,10 @@ export function useCommandCenter() {
       // Converter Sets para arrays
       Object.values(porFuncionario).forEach(f => { f.maquinas = [...f.maquinas]; });
 
-      // Peças por tipo/conjunto
+      // Peças por tipo/peça
       const porConjunto = {};
       items.forEach(i => {
-        const conj = i.conjunto || i.peca || 'Outros';
+        const conj = i.peca || i.marca || 'Outros';
         if (!porConjunto[conj]) porConjunto[conj] = { total: 0, cortadas: 0, peso: 0 };
         porConjunto[conj].total++;
         porConjunto[conj].peso += parseFloat(i.peso_teorico) || 0;
@@ -108,7 +108,7 @@ export function useCommandCenter() {
     try {
       const { data, error } = await supabase
         .from('pecas_producao')
-        .select('id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, peca, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at');
+        .select('id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at');
       if (error) throw error;
 
       const items = data || [];
@@ -126,9 +126,9 @@ export function useCommandCenter() {
       // Por setor com identificação completa de peças
       const mapPeca = i => ({
         id: i.id,
-        nome: i.nome || i.peca || i.marca || '-',
+        nome: i.nome || i.marca || '-',
         marca: i.marca || '-',
-        tipo: i.tipo || i.peca || '-',
+        tipo: i.tipo || '-',
         perfil: i.perfil || '',
         peso: parseFloat(i.peso_total) || 0,
         resp: i.responsavel || 'Não atribuído',
