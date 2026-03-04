@@ -313,7 +313,7 @@ export default function CommandCenterUltra() {
       setor: label,
       key,
       color: SETOR_COLORS[key],
-      pecas: (porSetor[key] || []).slice(0, 8),
+      pecas: (porSetor[key] || []).slice(0, 12),
       total: (porSetor[key] || []).length,
     })).filter(s => s.total > 0);
   }, [producao?.porSetor]);
@@ -365,7 +365,7 @@ export default function CommandCenterUltra() {
     <div className="min-h-screen text-slate-100" style={{ background: colors.bg }}>
       {/* HEADER */}
       <header className="sticky top-0 z-30 border-b backdrop-blur-md" style={{ background: 'rgba(11,17,32,0.85)', borderColor: colors.border }}>
-        <div className="max-w-[1440px] mx-auto px-6 h-14 flex items-center justify-between">
+        <div className="max-w-[1920px] mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Cpu size={20} className="text-blue-400" />
@@ -395,7 +395,7 @@ export default function CommandCenterUltra() {
         </div>
       </header>
 
-      <main className="max-w-[1440px] mx-auto px-6 py-5 space-y-5">
+      <main className="max-w-[1920px] mx-auto px-4 xl:px-8 py-5 space-y-5">
 
         {/* ROW 1: KPI CARDS - Obra + Financeiro + Produção */}
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -414,12 +414,12 @@ export default function CommandCenterUltra() {
         </div>
 
         {/* ROW 2: FINANCIAL OVERVIEW + PRODUCTION PIPELINE */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
 
           {/* FINANCIAL CHART */}
-          <SectionCard title="Visão Financeira" icon={DollarSign}>
+          <SectionCard title="Visão Financeira" icon={DollarSign} className="lg:col-span-2">
             <div className="space-y-4">
-              <ResponsiveContainer width="100%" height={180}>
+              <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={financeiroChart} layout="vertical" margin={{ left: 10, right: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.3)" />
                   <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={v => formatCurrency(v)} />
@@ -447,7 +447,7 @@ export default function CommandCenterUltra() {
           </SectionCard>
 
           {/* PRODUCTION PIPELINE */}
-          <SectionCard title="Pipeline de Produção" icon={Layers} className="lg:col-span-2">
+          <SectionCard title="Pipeline de Produção" icon={Layers} className="lg:col-span-3">
             <div className="space-y-5">
               <div className="grid grid-cols-5 gap-2">
                 {producaoStages.map((s, i) => (
@@ -510,14 +510,14 @@ export default function CommandCenterUltra() {
         </div>
 
         {/* ROW 3: PRODUÇÃO POR SETOR + PEÇAS IDENTIFICADAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
           {/* GRÁFICO POR SETOR */}
           <SectionCard title="Quantidade por Setor" icon={Layers}
             action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
           >
             <div className="space-y-4">
-              <ResponsiveContainer width="100%" height={200}>
+              <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={producaoPorSetorChart} margin={{ left: -10 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.3)" />
                   <XAxis dataKey="setor" tick={{ fontSize: 10, fill: '#94A3B8' }} />
@@ -538,8 +538,8 @@ export default function CommandCenterUltra() {
           </SectionCard>
 
           {/* PEÇAS POR SETOR DETALHADAS */}
-          <SectionCard title="Peças por Setor" icon={FileText} className="lg:col-span-2">
-            <div className="space-y-4 max-h-[320px] overflow-y-auto pr-2">
+          <SectionCard title="Peças por Setor" icon={FileText}
+            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
               {pecasPorSetor.length > 0 ? pecasPorSetor.map((setor, si) => (
                 <div key={si} className="space-y-2">
                   <div className="flex items-center gap-2">
@@ -547,16 +547,16 @@ export default function CommandCenterUltra() {
                     <span className="text-xs font-semibold text-slate-200">{setor.setor}</span>
                     <span className="text-[10px] text-slate-500">({setor.total} peças)</span>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5 pl-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-1.5 pl-4">
                     {setor.pecas.map((p, pi) => (
                       <div key={pi} className="flex items-center gap-1.5 p-1.5 rounded-md bg-slate-800/30 border border-slate-700/30">
                         <span className="text-[10px] text-slate-300 truncate">{p.nome}</span>
                         {p.peso > 0 && <span className="text-[9px] text-slate-500 flex-shrink-0">{p.peso.toFixed(0)}kg</span>}
                       </div>
                     ))}
-                    {setor.total > 8 && (
+                    {setor.total > 12 && (
                       <div className="flex items-center justify-center p-1.5 rounded-md bg-slate-800/20">
-                        <span className="text-[10px] text-slate-500">+{setor.total - 8} mais</span>
+                        <span className="text-[10px] text-slate-500">+{setor.total - 12} mais</span>
                       </div>
                     )}
                   </div>
@@ -668,7 +668,7 @@ export default function CommandCenterUltra() {
           <SectionCard title="Produção por Funcionário" icon={Users}
             action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
           >
-            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
               {producaoPorFuncionario.length > 0 ? producaoPorFuncionario.map((f, i) => (
                 <motion.div
                   key={i}
@@ -704,7 +704,7 @@ export default function CommandCenterUltra() {
           <SectionCard title="Corte por Funcionário" icon={Factory}
             action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
           >
-            <div className="space-y-3 max-h-[320px] overflow-y-auto pr-2">
+            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
               {cortePorFuncionario.length > 0 ? cortePorFuncionario.map((f, i) => (
                 <motion.div
                   key={i}
@@ -907,7 +907,7 @@ export default function CommandCenterUltra() {
 
       {/* FOOTER */}
       <footer className="border-t py-3 mt-2" style={{ borderColor: colors.border, background: 'rgba(11,17,32,0.6)' }}>
-        <div className="max-w-[1440px] mx-auto px-6 flex items-center justify-between text-[10px] text-slate-600">
+        <div className="max-w-[1920px] mx-auto px-6 flex items-center justify-between text-[10px] text-slate-600">
           <div className="flex items-center gap-4">
             <span>Supabase <span className="text-emerald-500">●</span> Conectado</span>
             <span>Real-time <span className="text-blue-500">●</span> Ativo</span>
