@@ -245,7 +245,7 @@ export default function CommandCenterUltra() {
   // ============ COMPUTED DATA ============
 
   const comparacao = useMemo(() => {
-    try { return comparacaoDiaria?.() || {}; } catch { return {}; }
+    try { return (typeof comparacaoDiaria === 'function' ? comparacaoDiaria() : comparacaoDiaria) || {}; } catch { return {}; }
   }, [comparacaoDiaria]);
 
   // Apenas a obra ativa atual (SUPER LUNA)
@@ -608,7 +608,9 @@ export default function CommandCenterUltra() {
                     <div className="text-xs font-semibold text-white truncate">{f.nome}</div>
                     <div className="flex items-center gap-1 mt-1 flex-wrap">
                       {(f.pecas || []).slice(0, 4).map((p, pi) => (
-                        <span key={pi} className="text-[9px] bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded">{p}</span>
+                        <span key={pi} className="text-[9px] bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded">
+                          {typeof p === 'string' ? p : (p.peca || p.marca || '-')}
+                        </span>
                       ))}
                       {(f.pecas || []).length > 4 && (
                         <span className="text-[9px] text-slate-500">+{f.pecas.length - 4}</span>
