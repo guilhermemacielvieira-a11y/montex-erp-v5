@@ -75,7 +75,7 @@ const STRUCTURAL_TYPES = Object.values(IFC_TYPES);
 async function parseIFCFile(fileBuffer, onProgress) {
   const WebIFC = await getWebIFC();
   const ifcAPI = new WebIFC.IfcAPI();
-  ifcAPI.SetWasmPath(window.location.origin + '/');
+  ifcAPI.SetWasmPath('/');
   await ifcAPI.Init();
   onProgress?.(10, 'Abrindo modelo IFC...');
 
