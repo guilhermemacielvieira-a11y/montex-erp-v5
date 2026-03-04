@@ -1,1284 +1,748 @@
-// MONTEX ERP Premium - Command Center Ultrawide
-// Integrado com ERPContext - Dados reais da obra SUPER LUNA
-
-import React, { useState, useEffect, useMemo } from 'react';
+// MONTEX ERP - Command Center ULTRAWIDE v5
+// Dashboard futurista para monitor ultrawide 49" com dados em tempo real
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Activity, AlertTriangle, Bell,
-  Building2, CheckCircle2, Clock, Cpu, Database, DollarSign, Factory,
-  FileText, Gauge, HardDrive, Package,
-  Power, Radio, Server, Settings, Shield, Target,
-  ThermometerSun, Truck, Users, Wifi,
-  Zap,
-  BarChart2, Droplets, Wind, Sun, CircuitBoard, Network, Hexagon, Info, XCircle, CheckCircle
-} from 'lucide-react';
-import {
-  AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip, BarChart, Bar, Line, PieChart as RechartsPie, Pie, Cell,
-  RadarChart, Radar as RechartsRadar, PolarGrid, PolarAngleAxis,
-  ComposedChart, CartesianGrid
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
+  CartesianGrid, PieChart, Pie, Cell, RadarChart, Radar, PolarGrid,
+  PolarAngleAxis, PolarRadiusAxis, RadialBarChart, RadialBar, Treemap
 } from 'recharts';
-
-// ERPContext - dados reais
-import { useObras, useProducao } from '../contexts/ERPContext';
-
-// Hook de métricas em tempo real via Supabase
+import {
+  ArrowUp, ArrowDown, AlertTriangle, Bell, CheckCircle, Cpu, RefreshCw,
+  Clock, Building2, Weight, Package, DollarSign, Factory, Truck, Users,
+  TrendingUp, Wallet, Receipt, Activity, Flame, Droplets, Wind, Zap, Timer
+} from 'lucide-react';
 import { useCommandCenter } from '../hooks/useCommandCenter';
+import { useObras, useEstoque, useProducao } from '../contexts/ERPContext';
 
-// Dados financeiros reais
-import { LANCAMENTOS_DESPESAS, MEDICOES_RECEITAS, DRE_OBRA } from '../data/obraFinanceiraDatabase';
-
-// Dados simulados para complemento (usado apenas para seções ainda não conectadas)
-import { commandCenterData } from '../data/commandCenterData';
-
-// Formatador de moeda
-const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-
-// ==================== ULTRA-REALISTIC COMPONENTS ====================
-
-// Holographic 3D Ring Component
-const HolographicRing3D = ({ value, max = 100, color = '#22d3ee', size = 120, label, sublabel }) => {
-  const percentage = (value / max) * 100;
-  const circumference = 2 * Math.PI * 45;
-  const offset = circumference - (percentage / 100) * circumference;
-
-  return (
-    <div className="relative flex flex-col items-center" style={{ width: size, height: size + 30 }}>
-      {/* Outer glow effect */}
-      <div className="absolute inset-0 rounded-full blur-xl opacity-30"
-        style={{ background: `radial-gradient(circle, ${color}40, transparent 70%)` }} />
-
-      {/* 3D perspective ring */}
-      <svg viewBox="0 0 100 100" className="w-full h-full" style={{ transform: 'perspective(200px) rotateX(15deg)' }}>
-        {/* Background rings */}
-        {[...Array(3)].map((_, i) => (
-          <circle key={i} cx="50" cy="50" r={45 - i * 3} fill="none"
-            stroke={`${color}${10 + i * 5}`} strokeWidth="1" opacity={0.3 - i * 0.1} />
-        ))}
-
-        {/* Main track */}
-        <circle cx="50" cy="50" r="45" fill="none" stroke="#1e293b" strokeWidth="6" />
-
-        {/* Animated progress */}
-        <motion.circle
-          cx="50" cy="50" r="45" fill="none" stroke={color} strokeWidth="6"
-          strokeLinecap="round" strokeDasharray={circumference}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 2, ease: 'easeOut' }}
-          transform="rotate(-90 50 50)"
-          style={{ filter: `drop-shadow(0 0 8px ${color}) drop-shadow(0 0 16px ${color}50)` }}
-        />
-
-        {/* Inner decorative rings */}
-        <motion.circle cx="50" cy="50" r="35" fill="none" stroke={color} strokeWidth="1" opacity="0.2"
-          strokeDasharray="4 4" animate={{ rotate: 360 }} transition={{ duration: 20, repeat: Infinity, ease: 'linear' }} />
-        <motion.circle cx="50" cy="50" r="38" fill="none" stroke={color} strokeWidth="0.5" opacity="0.3"
-          strokeDasharray="2 6" animate={{ rotate: -360 }} transition={{ duration: 15, repeat: Infinity, ease: 'linear' }} />
-
-        {/* Center value */}
-        <text x="50" y="48" textAnchor="middle" className="fill-white font-bold font-mono" fontSize="16"
-          style={{ textShadow: `0 0 10px ${color}` }}>
-          {typeof value === 'number' ? value.toFixed(0) : value}
-        </text>
-        <text x="50" y="60" textAnchor="middle" fill="#64748b" fontSize="8" className="font-mono">
-          {sublabel || '%'}
-        </text>
-      </svg>
-
-      {label && (
-        <span className="text-[10px] text-slate-400 mt-1 font-medium tracking-wide">{label}</span>
-      )}
-    </div>
-  );
+// ═══════════════ DESIGN TOKENS ═══════════════
+const C = {
+  bg: '#030712', bgAlt: '#0a0f1e',
+  card: 'rgba(6,12,30,0.8)', border: 'rgba(56,189,248,0.08)',
+  accent: '#38bdf8', neon: '#22d3ee',
+  success: '#34d399', warning: '#fbbf24', danger: '#f87171',
+  purple: '#a78bfa', pink: '#f472b6',
+  text: '#e2e8f0', muted: '#64748b', dim: '#334155',
+  // Stage colors
+  corte: '#fbbf24', fabricacao: '#38bdf8', solda: '#a78bfa',
+  pintura: '#22d3ee', expedicao: '#34d399', entregue: '#f472b6',
 };
 
-// Cyber Border Component
-const CyberBorder = ({ children, color = '#22d3ee', className = '' }) => (
-  <div className={`relative ${className}`}>
-    {/* Corner accents */}
-    <div className="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2" style={{ borderColor: color }} />
-    <div className="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2" style={{ borderColor: color }} />
-    <div className="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2" style={{ borderColor: color }} />
-    <div className="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2" style={{ borderColor: color }} />
-    {/* Glowing dots */}
-    <motion.div className="absolute top-0 left-0 w-1.5 h-1.5 rounded-full -translate-x-0.5 -translate-y-0.5"
-      style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
-      animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2, repeat: Infinity }} />
-    <motion.div className="absolute top-0 right-0 w-1.5 h-1.5 rounded-full translate-x-0.5 -translate-y-0.5"
-      style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }}
-      animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 2, repeat: Infinity, delay: 0.5 }} />
+const STAGES = [
+  { key: 'corte', label: 'Corte', color: C.corte, icon: Zap },
+  { key: 'fabricacao', label: 'Fabricação', color: C.fabricacao, icon: Factory },
+  { key: 'solda', label: 'Solda', color: C.solda, icon: Flame },
+  { key: 'pintura', label: 'Pintura', color: C.pintura, icon: Droplets },
+  { key: 'expedicao', label: 'Expedição', color: C.expedicao, icon: Truck },
+];
+
+// ═══════════════ FORMATTERS ═══════════════
+const fmtCurrency = (v) => {
+  if (!v && v !== 0) return 'R$ 0';
+  if (Math.abs(v) >= 1e6) return `R$ ${(v / 1e6).toFixed(1)}M`;
+  if (Math.abs(v) >= 1e3) return `R$ ${(v / 1e3).toFixed(0)}k`;
+  return `R$ ${v.toFixed(0)}`;
+};
+const fmtWeight = (kg) => kg ? `${(kg / 1000).toFixed(1)}t` : '0t';
+const fmtNum = (n) => (n || 0).toLocaleString('pt-BR');
+
+// ═══════════════ GLASS CARD ═══════════════
+const Glass = ({ children, className = '', glow, style = {} }) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.97 }}
+    animate={{ opacity: 1, scale: 1 }}
+    transition={{ duration: 0.4 }}
+    className={`rounded-xl backdrop-blur-xl border transition-all duration-300 ${className}`}
+    style={{
+      background: 'linear-gradient(135deg, rgba(6,12,30,0.85), rgba(15,23,42,0.6))',
+      borderColor: glow || C.border,
+      boxShadow: glow ? `0 0 20px ${glow}30, inset 0 1px 0 ${glow}10` : `inset 0 1px 0 rgba(255,255,255,0.03)`,
+      ...style,
+    }}
+  >
     {children}
-  </div>
+  </motion.div>
 );
 
-// Pulse Status Indicator
-const PulseStatus = ({ status, size = 8 }) => {
-  const colors = {
-    online: '#22c55e', running: '#22c55e', active: '#22c55e',
-    warning: '#f59e0b', idle: '#f59e0b', syncing: '#f59e0b',
-    offline: '#ef4444', error: '#ef4444', maintenance: '#ef4444',
-    critical: '#ef4444'
-  };
-  const color = colors[status] || '#22d3ee';
-
+// ═══════════════ TOOLTIP ═══════════════
+const GlassTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
   return (
-    <span className="relative flex" style={{ width: size * 2, height: size * 2 }}>
-      <motion.span
-        className="absolute inline-flex h-full w-full rounded-full opacity-75"
-        style={{ backgroundColor: color }}
-        animate={{ scale: [1, 1.8, 1], opacity: [0.7, 0, 0.7] }}
-        transition={{ duration: 1.5, repeat: Infinity }}
-      />
-      <span className="relative inline-flex rounded-full h-full w-full"
-        style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}` }} />
-    </span>
-  );
-};
-
-// Mini Sparkline Chart
-const Sparkline = ({ data, color = '#22d3ee', height = 30, width = 80 }) => {
-  const max = Math.max(...data);
-  const min = Math.min(...data);
-  const range = max - min || 1;
-  const points = data.map((v, i) => `${(i / (data.length - 1)) * width},${height - ((v - min) / range) * height}`).join(' ');
-
-  return (
-    <svg width={width} height={height} className="overflow-visible">
-      <defs>
-        <linearGradient id={`spark-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
-          <stop offset="100%" stopColor={color} stopOpacity={0} />
-        </linearGradient>
-      </defs>
-      <polygon points={`0,${height} ${points} ${width},${height}`} fill={`url(#spark-${color.replace('#', '')})`} />
-      <polyline points={points} fill="none" stroke={color} strokeWidth="1.5"
-        style={{ filter: `drop-shadow(0 0 3px ${color})` }} />
-      <circle cx={width} cy={height - ((data[data.length - 1] - min) / range) * height} r="2"
-        fill={color} style={{ filter: `drop-shadow(0 0 4px ${color})` }} />
-    </svg>
-  );
-};
-
-// Ultra Progress Bar
-const UltraProgress = ({ value, color = '#22d3ee', height = 6, showValue = false }) => (
-  <div className="relative w-full">
-    <div className="w-full rounded-full overflow-hidden"
-      style={{ height, background: 'rgba(30,41,59,0.8)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.3)' }}>
-      <motion.div
-        className="h-full rounded-full relative overflow-hidden"
-        style={{
-          background: `linear-gradient(90deg, ${color}80, ${color})`,
-          boxShadow: `0 0 10px ${color}50, inset 0 1px 0 rgba(255,255,255,0.2)`
-        }}
-        initial={{ width: 0 }}
-        animate={{ width: `${value}%` }}
-        transition={{ duration: 1.5, ease: 'easeOut' }}
-      >
-        <motion.div
-          className="absolute inset-0"
-          style={{ background: `linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent)` }}
-          animate={{ x: ['-100%', '200%'] }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'linear' }}
-        />
-      </motion.div>
+    <div className="backdrop-blur-xl rounded-lg p-3 text-xs border"
+      style={{ background: 'rgba(3,7,18,0.95)', borderColor: 'rgba(56,189,248,0.2)', boxShadow: '0 0 20px rgba(56,189,248,0.15)' }}>
+      {label && <p className="text-slate-500 mb-1 text-[10px]">{label}</p>}
+      {payload.map((p, i) => (
+        <div key={i} className="flex justify-between gap-4">
+          <span style={{ color: p.color || p.fill }}>{p.name}:</span>
+          <span className="font-bold text-white">{typeof p.value === 'number' ? fmtNum(p.value) : p.value}</span>
+        </div>
+      ))}
     </div>
-    {showValue && (
-      <span className="absolute right-0 -top-4 text-[9px] font-mono" style={{ color }}>{value}%</span>
-    )}
-  </div>
-);
-
-// Data Panel Component
-const DataPanel = ({ title, icon: Icon, color = '#22d3ee', children, className = '', badge, status }) => (
-  <CyberBorder color={color} className={`bg-slate-900/90 backdrop-blur-xl rounded-xl overflow-hidden ${className}`}>
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-700/50"
-      style={{ background: `linear-gradient(90deg, ${color}10, transparent)` }}>
-      {Icon && <Icon className="w-4 h-4" style={{ color }} />}
-      <span className="text-xs font-bold text-white tracking-wider uppercase">{title}</span>
-      {badge && (
-        <span className="px-1.5 py-0.5 text-[8px] font-bold rounded ml-auto"
-          style={{ background: `${color}30`, color }}>{badge}</span>
-      )}
-      {status && <PulseStatus status={status} size={4} />}
-      {!badge && !status && <PulseStatus status="online" size={3} />}
-    </div>
-    <div className="p-3">{children}</div>
-  </CyberBorder>
-);
-
-// Machine Status Card
-const MachineCard = ({ machine, color }) => {
-  const statusColors = {
-    operando: '#22c55e', manutenção: '#ef4444', standby: '#f59e0b', offline: '#64748b'
-  };
-  const statusColor = statusColors[machine.status] || '#22d3ee';
-
-  return (
-    <motion.div
-      whileHover={{ scale: 1.02 }}
-      className="p-2 rounded-lg border transition-all cursor-pointer"
-      style={{
-        background: `linear-gradient(135deg, rgba(15,23,42,0.9), rgba(30,41,59,0.9))`,
-        borderColor: `${statusColor}30`,
-        boxShadow: machine.status === 'operando' ? `0 0 15px ${statusColor}20` : 'none'
-      }}
-    >
-      <div className="flex items-center gap-2 mb-2">
-        <PulseStatus status={machine.status === 'operando' ? 'running' : machine.status === 'standby' ? 'idle' : 'error'} size={4} />
-        <span className="text-[10px] text-white font-medium truncate flex-1">{machine.nome}</span>
-        {machine.status === 'operando' && (
-          <span className="text-[9px] font-mono px-1 py-0.5 rounded"
-            style={{ background: `${statusColor}20`, color: statusColor }}>{machine.eficiencia}%</span>
-        )}
-      </div>
-      {machine.status === 'operando' && (
-        <>
-          <UltraProgress value={machine.eficiencia} color={statusColor} height={3} />
-          <div className="flex justify-between mt-1.5">
-            <span className="text-[8px] text-slate-500">Temp: {machine.temperatura}°C</span>
-            <span className="text-[8px] text-cyan-400 font-mono">{machine.ciclos}/h</span>
-          </div>
-        </>
-      )}
-    </motion.div>
   );
 };
 
-// Alert Card
-const AlertCard = ({ alert }) => {
-  const typeColors = {
-    critico: { bg: '#ef444420', border: '#ef4444', text: '#ef4444', icon: XCircle },
-    alerta: { bg: '#f59e0b20', border: '#f59e0b', text: '#f59e0b', icon: AlertTriangle },
-    info: { bg: '#22d3ee20', border: '#22d3ee', text: '#22d3ee', icon: Info },
-    sucesso: { bg: '#22c55e20', border: '#22c55e', text: '#22c55e', icon: CheckCircle }
-  };
-  const config = typeColors[alert.tipo] || typeColors.info;
-  const AlertIcon = config.icon;
-
-  return (
-    <motion.div
-      initial={{ x: -20, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      className="p-2 rounded-lg border flex items-start gap-2"
-      style={{ background: config.bg, borderColor: `${config.border}50` }}
-    >
-      <AlertIcon className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" style={{ color: config.text }} />
-      <div className="flex-1 min-w-0">
-        <p className="text-[10px] text-white truncate">{alert.titulo}</p>
-        <p className="text-[8px] text-slate-400 mt-0.5">{alert.area} • {alert.tempo}</p>
-      </div>
-    </motion.div>
-  );
-};
-
-const COLORS = ['#22d3ee', '#34d399', '#c084fc', '#fbbf24', '#f87171', '#60a5fa', '#f472b6', '#a3e635', '#fb923c', '#818cf8'];
-
-// ==================== MAIN COMPONENT ====================
-
+// ═══════════════ MAIN COMPONENT ═══════════════
 export default function CommandCenterUltrawide() {
-  // ERPContext hooks para dados reais
-  const { obras, obraAtualData } = useObras();
-  const { pecas } = useProducao();
-
-  // Hook de métricas em tempo real (Supabase direto)
   const {
-    corte: corteMetrics,
-    producao: producaoMetrics,
-    estoque: estoqueMetrics,
-    financeiro: financeiroMetrics,
-    campo: campoMetrics,
-    loading: ccLoading,
-    lastUpdate: ccLastUpdate
-  } = useCommandCenter();
+    corte = {}, producao = {}, historico = {}, estoque = {}, financeiro = {}, campo = {},
+    loading, lastUpdate, comparacaoDiaria, refresh
+  } = useCommandCenter() || {};
+  const { obraAtualData } = useObras() || {};
 
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [showBootScreen, setShowBootScreen] = useState(true);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [selectedSection, setSelectedSection] = useState('all');
+  const [time, setTime] = useState(new Date());
+  const [colonBlink, setColonBlink] = useState(true);
 
-  // Real-time clock
   useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
+    const t1 = setInterval(() => setTime(new Date()), 1000);
+    const t2 = setInterval(() => setColonBlink(v => !v), 500);
+    return () => { clearInterval(t1); clearInterval(t2); };
   }, []);
 
-  // Boot sequence
-  useEffect(() => {
-    const timer = setTimeout(() => setShowBootScreen(false), 2500);
-    return () => clearTimeout(timer);
-  }, []);
+  // ═══ COMPUTED DATA ═══
+  const comp = useMemo(() => {
+    try { return (typeof comparacaoDiaria === 'function' ? comparacaoDiaria() : comparacaoDiaria) || {}; } catch { return {}; }
+  }, [comparacaoDiaria]);
 
-  // Simulate real-time updates
-  useEffect(() => {
-    const interval = setInterval(() => setRefreshKey(k => k + 1), 30000);
-    return () => clearInterval(interval);
-  }, []);
+  const valorContrato = obraAtualData?.valorContrato || obraAtualData?.valor_contrato || 0;
+  const faturamento = financeiro?.totalMedicoes || 0;
+  const despesas = financeiro?.totalDespesas || 0;
+  const saldo = valorContrato - despesas;
+  const pesoTotal = (corte?.pesoTotal || 0) + (producao?.pesoTotal || 0);
 
-  // ==================== DATA CALCULATIONS ====================
-  // Dados mock para seções que ainda não possuem dados reais (máquinas, pipeline, etc.)
-  const { maquinasStatus, kpisIndustriais,
-          pipelineVendas, recursosHumanos, qualidadeMetricas, logisticaMetricas,
-          energiaMetricas, alertasInteligentes, indicadoresPorProjeto,
-          previsoesTendencias, comparativoPerformance } = commandCenterData;
+  // Production stages data
+  const stageData = useMemo(() => [
+    { name: 'Corte', value: corte?.cortando || 0, total: corte?.total || 0, color: C.corte },
+    { name: 'Fabricação', value: producao?.fabricacao || 0, color: C.fabricacao },
+    { name: 'Solda', value: producao?.solda || 0, color: C.solda },
+    { name: 'Pintura', value: producao?.pintura || 0, color: C.pintura },
+    { name: 'Expedição', value: producao?.expedicao || 0, color: C.expedicao },
+    { name: 'Entregue', value: producao?.entregue || 0, color: C.entregue },
+  ], [corte, producao]);
 
-  // ==================== DADOS REAIS DE PRODUÇÃO ====================
-  // Construir dados de produção a partir do useCommandCenter (Supabase real-time)
-  const producaoTempoReal = useMemo(() => {
-    if (!producaoMetrics) return [];
-    // Gerar timeline baseada nos dados reais
-    return [{
-      hora: '08:00', producao: producaoMetrics.fabricacao || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
-    }, {
-      hora: '10:00', producao: producaoMetrics.solda || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
-    }, {
-      hora: '12:00', producao: producaoMetrics.pintura || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
-    }, {
-      hora: '14:00', producao: producaoMetrics.expedicao || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
-    }, {
-      hora: '16:00', producao: producaoMetrics.finalizado || 0, meta: 10, eficiencia: producaoMetrics.progressoGeral || 0,
-    }];
-  }, [producaoMetrics]);
+  // Financial chart
+  const finChart = useMemo(() => [
+    { name: 'Contrato', valor: valorContrato, fill: C.accent },
+    { name: 'Faturado', valor: faturamento, fill: C.success },
+    { name: 'Despesas', valor: despesas, fill: C.danger },
+    { name: 'Saldo', valor: Math.max(saldo, 0), fill: saldo >= 0 ? C.purple : C.danger },
+  ], [valorContrato, faturamento, despesas, saldo]);
 
-  // Dados financeiros reais do Supabase
-  const fluxoFinanceiro = useMemo(() => {
-    if (!financeiroMetrics) return commandCenterData.fluxoFinanceiro;
-    return {
-      receitasMes: financeiroMetrics.totalMedicoes || 0,
-      despesasMes: financeiroMetrics.totalDespesas || 0,
-      lucroMes: (financeiroMetrics.totalMedicoes || 0) - (financeiroMetrics.totalDespesas || 0),
-      receitasPorDia: [],
-      despesasPorDia: [],
-      fluxoCaixa: [],
-    };
-  }, [financeiroMetrics]);
+  // Workers - production
+  const prodWorkers = useMemo(() => {
+    const histFunc = historico?.porFuncionario || {};
+    const prodFunc = producao?.porFuncionario || {};
+    const src = Object.keys(histFunc).length > 0 ? histFunc : prodFunc;
+    return Object.entries(src)
+      .map(([nome, d]) => ({ nome, ...d }))
+      .sort((a, b) => (b.total || 0) - (a.total || 0))
+      .slice(0, 8);
+  }, [producao?.porFuncionario, historico?.porFuncionario]);
 
-  const metrics = useMemo(() => {
-    // Dados da obra atual
-    const obraAtual = obraAtualData || {};
+  // Workers - corte
+  const corteWorkers = useMemo(() => {
+    return Object.entries(corte?.porFuncionario || {})
+      .map(([nome, d]) => ({ nome, ...d }))
+      .sort((a, b) => b.qtd - a.qtd)
+      .slice(0, 8);
+  }, [corte?.porFuncionario]);
 
-    // Cálculos com dados reais do ERPContext
-    const projetosAtivos = obras?.filter(p => ['em_fabricacao', 'em_montagem', 'aprovado'].includes(p.status))?.length || 0;
-    const projetosTotal = obras?.length || 0;
+  // Peças por setor
+  const pecasSetor = useMemo(() => {
+    const ps = producao?.porSetor || {};
+    return [
+      { key: 'fabricacao', label: 'Fabricação', color: C.fabricacao },
+      { key: 'solda', label: 'Solda', color: C.solda },
+      { key: 'pintura', label: 'Pintura', color: C.pintura },
+      { key: 'expedicao', label: 'Pronta Envio', color: C.expedicao },
+    ].map(s => ({ ...s, count: (ps[s.key] || []).length, pecas: (ps[s.key] || []).slice(0, 6) }))
+    .filter(s => s.count > 0);
+  }, [producao?.porSetor]);
 
-    // Dados financeiros - priorizar Supabase, fallback para estáticos
-    const receitas = financeiroMetrics?.totalMedicoes || MEDICOES_RECEITAS?.reduce((a, m) => a + (m.valor || 0), 0) || 0;
-    const despesas = financeiroMetrics?.totalDespesas || LANCAMENTOS_DESPESAS?.reduce((a, m) => a + (m.valor || 0), 0) || 0;
-    const lucro = receitas - despesas;
+  // Treemap data
+  const treemapData = useMemo(() => {
+    return pecasSetor.map(s => ({ name: s.label, size: s.count, color: s.color }));
+  }, [pecasSetor]);
 
-    // Peso e valor da obra
-    const pesoTotal = obraAtual?.peso_total || producaoMetrics?.pesoTotal || 0;
-    const valorTotal = obraAtual?.valor_total || DRE_OBRA?.valor_total || 0;
+  // Envios
+  const envios = useMemo(() => campo?.enviosDetalhados || [], [campo?.enviosDetalhados]);
 
-    const maquinasOperando = maquinasStatus.filter(m => m.status === 'operando').length;
-    const eficienciaMedia = maquinasOperando > 0 ? maquinasStatus.filter(m => m.status === 'operando')
-      .reduce((a, m) => a + m.eficiencia, 0) / maquinasOperando : 0;
+  // Radar data (based on real metrics)
+  const radarData = useMemo(() => {
+    const corteProg = corte?.progressoPecas || 0;
+    const prodProg = producao?.progressoGeral || 0;
+    const expRate = campo?.totalEnvios > 0 ? Math.round((campo?.entregues / campo?.totalEnvios) * 100) : 0;
+    const estoqueHealth = estoque?.totalItens > 0 ? Math.round(((estoque?.normal || 0) / estoque.totalItens) * 100) : 0;
+    const finHealth = valorContrato > 0 ? Math.min(Math.round((faturamento / valorContrato) * 100), 100) : 0;
+    return [
+      { metric: 'Corte', value: corteProg },
+      { metric: 'Produção', value: prodProg },
+      { metric: 'Expedição', value: expRate },
+      { metric: 'Estoque', value: estoqueHealth },
+      { metric: 'Financeiro', value: finHealth },
+    ];
+  }, [corte, producao, campo, estoque, valorContrato, faturamento]);
 
-    // Alertas de estoque reais
-    const stockAlertsCount = estoqueMetrics?.alertas || 0;
+  // Estoque radial
+  const estoqueRadial = useMemo(() => [
+    { name: 'Normal', value: estoque?.normal || 0, fill: C.success },
+    { name: 'Baixo', value: estoque?.baixo || 0, fill: C.warning },
+    { name: 'Crítico', value: estoque?.critico || 0, fill: C.danger },
+  ], [estoque]);
 
-    return {
-      projetosAtivos, projetosTotal,
-      pesoTotal: pesoTotal / 1000, valorTotal: valorTotal / 1000000,
-      receitas: receitas / 1000000, despesas: despesas / 1000000,
-      lucro: lucro / 1000000,
-      maquinasOperando, maquinasTotal: maquinasStatus.length,
-      eficienciaMedia: Math.round(eficienciaMedia),
-      oee: kpisIndustriais.oee.valor,
-      mtbf: kpisIndustriais.mtbf.valor,
-      mttr: kpisIndustriais.mttr.valor,
-      stockAlerts: stockAlertsCount,
-      alertasCriticos: alertasInteligentes.filter(a => a.tipo === 'critico').length,
-      // Dados reais de produção do Supabase
-      totalPecasProducao: producaoMetrics?.total || 0,
-      pecasFabricacao: producaoMetrics?.fabricacao || 0,
-      pecasSolda: producaoMetrics?.solda || 0,
-      pecasPintura: producaoMetrics?.pintura || 0,
-      pecasExpedicao: producaoMetrics?.expedicao || 0,
-      pecasFinalizado: producaoMetrics?.finalizado || 0,
-      progressoProducao: producaoMetrics?.progressoGeral || 0,
-      pesoExpedido: producaoMetrics?.pesoExpedido || 0,
-      movidasHoje: producaoMetrics?.movidasHoje || 0,
-      // Dados reais de corte do Supabase
-      totalCorte: corteMetrics?.total || 0,
-      corteAguardando: corteMetrics?.aguardando || 0,
-      corteCortando: corteMetrics?.cortando || 0,
-      corteFinalizado: corteMetrics?.finalizado || 0,
-      corteProgressoPeso: corteMetrics?.progressoPeso || 0,
-      cortadasHoje: corteMetrics?.cortadasHoje || 0,
-      // Estoque real
-      estoqueTotal: estoqueMetrics?.totalItens || 0,
-      estoqueValor: estoqueMetrics?.valorTotal || 0,
-      estoqueCritico: estoqueMetrics?.critico || 0,
-      estoqueBaixo: estoqueMetrics?.baixo || 0,
-    };
-  }, [refreshKey, obras, obraAtualData, pecas, producaoMetrics, corteMetrics, estoqueMetrics, financeiroMetrics]);
+  // Alerts
+  const alertas = useMemo(() => {
+    const list = [];
+    if ((estoque?.critico || 0) > 0) list.push({ type: 'critical', msg: `${estoque.critico} itens em estoque crítico`, color: C.danger, icon: AlertTriangle });
+    if ((estoque?.baixo || 0) > 0) list.push({ type: 'warning', msg: `${estoque.baixo} itens com estoque baixo`, color: C.warning, icon: Bell });
+    if (saldo < 0) list.push({ type: 'critical', msg: `Saldo negativo: ${fmtCurrency(saldo)}`, color: C.danger, icon: AlertTriangle });
+    if ((financeiro?.despesasPendentes || 0) > 0) list.push({ type: 'warning', msg: `${fmtCurrency(financeiro.despesasPendentes)} pendentes`, color: C.warning, icon: Receipt });
+    if ((corte?.aguardando || 0) > 5) list.push({ type: 'info', msg: `${corte.aguardando} peças aguardando corte`, color: C.accent, icon: Timer });
+    if (list.length === 0) list.push({ type: 'info', msg: 'Todos os sistemas operacionais', color: C.success, icon: CheckCircle });
+    return list;
+  }, [estoque, financeiro, corte, saldo]);
 
-  // Production trend data
-  const productionTrendData = producaoTempoReal.map((item) => ({
-    hora: item.hora, producao: item.producao, meta: item.meta
-  }));
+  // Recent activity from historico
+  const recentActivity = useMemo(() => {
+    const movs = historico?.movHoje || historico?.movimentacoes?.slice(0, 8) || [];
+    return movs.slice(0, 8).map(m => ({
+      id: m.id,
+      func: m.funcionario_nome || 'Sistema',
+      de: m.etapa_de || '-',
+      para: m.etapa_para || '-',
+      time: m.created_at ? new Date(m.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '-',
+    }));
+  }, [historico]);
 
-  // Financial flow data
-  const financialData = fluxoFinanceiro.receitasPorDia.slice(0, 10).map(f => ({
-    dia: f.dia, valor: f.valor / 1000
-  }));
+  // Time display
+  const h = String(time.getHours()).padStart(2, '0');
+  const m = String(time.getMinutes()).padStart(2, '0');
+  const s = String(time.getSeconds()).padStart(2, '0');
+  const colon = colonBlink ? ':' : ' ';
 
-  // Pipeline data
-  const pipelineData = pipelineVendas.etapas.map((etapa, i) => ({
-    name: etapa.etapa,
-    value: etapa.valor / 1000000,
-    count: etapa.quantidade,
-    color: COLORS[i]
-  }));
-
-  // Quality radar data
-  const qualityRadarData = [
-    { subject: 'Conformidade', A: qualidadeMetricas.conformidade, fullMark: 100 },
-    { subject: 'Dimensional', A: 100 - (qualidadeMetricas.defeitosPorTipo[0]?.percentual || 0), fullMark: 100 },
-    { subject: 'Solda', A: 100 - (qualidadeMetricas.defeitosPorTipo[1]?.percentual || 0), fullMark: 100 },
-    { subject: 'Pintura', A: 100 - (qualidadeMetricas.defeitosPorTipo[2]?.percentual || 0), fullMark: 100 },
-    { subject: 'Entrega', A: 95, fullMark: 100 },
-    { subject: 'Satisfação', A: 92, fullMark: 100 }
-  ];
-
-  // Energy data
-  const energyData = energiaMetricas.consumoDiario.map(e => ({
-    name: e.hora, consumo: e.consumo
-  }));
-
-  // Previsões ML data
-  const previsaoData = previsoesTendencias?.producaoProximaSemana || [];
-
-  // Comparativo Performance data
-  const comparativoData = [
-    { name: 'Produção', atual: comparativoPerformance?.mesAtual?.producao || 0, anterior: comparativoPerformance?.mesAnterior?.producao || 0, meta: comparativoPerformance?.metaMensal?.producao || 0 },
-    { name: 'Entregas', atual: comparativoPerformance?.mesAtual?.entregas || 0, anterior: comparativoPerformance?.mesAnterior?.entregas || 0, meta: comparativoPerformance?.metaMensal?.entregas || 0 },
-  ];
-
-  // Risco projetos data
-  const riscoProjetosData = previsoesTendencias?.riscoProjetos?.map(p => ({
-    name: p.projeto.substring(0, 15) + '...',
-    score: p.score,
-    fill: p.risco === 'alto' ? '#ef4444' : p.risco === 'medio' ? '#f59e0b' : '#22c55e'
-  })) || [];
-
-  // KPIs trend data
-  const kpiTrendData = kpisIndustriais.oee.tendencia.map((val, i) => ({
-    periodo: `S${i + 1}`,
-    oee: val,
-    mtbf: kpisIndustriais.mtbf.tendencia[i] / 10,
-    mttr: kpisIndustriais.mttr.tendencia[i] * 10
-  }));
-
-  // Financial extended data
-  const financialExtendedData = fluxoFinanceiro.receitasPorDia.map((r, i) => ({
-    dia: r.dia,
-    receitas: r.valor / 1000,
-    despesas: (fluxoFinanceiro.despesasPorDia?.[i]?.valor || r.valor * 0.7) / 1000,
-    lucro: (r.valor - (fluxoFinanceiro.despesasPorDia?.[i]?.valor || r.valor * 0.7)) / 1000
-  }));
-
+  // ═══════════════ RENDER ═══════════════
   return (
-    <div className="min-h-screen bg-slate-950 relative overflow-hidden">
-      {/* Animated Cyber Background */}
-      <div className="fixed inset-0 pointer-events-none">
-        {/* Gradient overlays */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(34,211,238,0.08),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_bottom_right,rgba(192,132,252,0.08),transparent_50%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(52,211,153,0.05),transparent_60%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(251,191,36,0.05),transparent_50%)]" />
+    <div className="w-screen min-h-screen overflow-auto" style={{ background: C.bg, color: C.text }}>
+      {/* ANIMATED GRID BACKGROUND */}
+      <style>{`
+        @keyframes gridPulse { 0%,100%{opacity:0.3} 50%{opacity:0.6} }
+        @keyframes scanline { 0%{top:-2px} 100%{top:100%} }
+        .bg-grid {
+          background-image: linear-gradient(rgba(56,189,248,0.03) 1px,transparent 1px), linear-gradient(90deg,rgba(56,189,248,0.03) 1px,transparent 1px);
+          background-size: 60px 60px;
+        }
+        .scan-line { position:absolute; left:0; right:0; height:2px; background:linear-gradient(90deg,transparent,rgba(56,189,248,0.4),transparent); animation:scanline 6s linear infinite; pointer-events:none; }
+        ::-webkit-scrollbar { width:5px; }
+        ::-webkit-scrollbar-track { background:transparent; }
+        ::-webkit-scrollbar-thumb { background:${C.accent}40; border-radius:4px; }
+      `}</style>
+      <div className="bg-grid fixed inset-0 pointer-events-none" />
 
-        {/* Grid pattern */}
-        <motion.div
-          className="absolute inset-0"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(34,211,238,0.03) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(34,211,238,0.03) 1px, transparent 1px)
-            `,
-            backgroundSize: '50px 50px'
-          }}
-          animate={{ opacity: [0.3, 0.6, 0.3] }}
-          transition={{ duration: 6, repeat: Infinity }}
-        />
-
-        {/* Hexagon pattern */}
-        <svg className="absolute inset-0 w-full h-full opacity-5">
-          <defs>
-            <pattern id="hexagons" width="50" height="43.4" patternUnits="userSpaceOnUse">
-              <polygon points="25,0 50,14.4 50,43.4 25,57.8 0,43.4 0,14.4" fill="none" stroke="#22d3ee" strokeWidth="0.5" />
-            </pattern>
-          </defs>
-          <rect width="100%" height="100%" fill="url(#hexagons)" />
-        </svg>
-
-        {/* Scan lines */}
-        {[...Array(4)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute left-0 right-0 h-px"
-            style={{ background: `linear-gradient(90deg, transparent, ${COLORS[i]}40, transparent)` }}
-            animate={{ top: ['-5%', '105%'] }}
-            transition={{ duration: 8, repeat: Infinity, delay: i * 2, ease: 'linear' }}
-          />
-        ))}
-
-        {/* Floating particles */}
-        {[...Array(20)].map((_, i) => (
-          <motion.div
-            key={i}
-            className="absolute w-1 h-1 rounded-full"
-            style={{
-              backgroundColor: COLORS[i % COLORS.length],
-              left: `${Math.random() * 100}%`,
-              top: `${Math.random() * 100}%`,
-              opacity: 0.3
-            }}
-            animate={{
-              y: [0, -30, 0],
-              opacity: [0.2, 0.5, 0.2],
-              scale: [1, 1.5, 1]
-            }}
-            transition={{ duration: 3 + Math.random() * 2, repeat: Infinity, delay: Math.random() * 2 }}
-          />
-        ))}
-      </div>
-
-      {/* Boot Screen */}
-      <AnimatePresence>
-        {showBootScreen && (
-          <motion.div
-            initial={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5 }}
-            className="fixed inset-0 z-50 bg-slate-950 flex items-center justify-center"
-          >
-            <div className="text-center">
-              {/* Animated logo */}
-              <motion.div
-                initial={{ scale: 0, rotate: -180 }}
-                animate={{ scale: 1, rotate: 0 }}
-                transition={{ duration: 0.8, type: 'spring' }}
-                className="relative w-24 h-24 mx-auto mb-6"
-              >
-                <motion.div
-                  className="absolute inset-0 rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-600 to-purple-600"
-                  animate={{
-                    boxShadow: ['0 0 30px rgba(34,211,238,0.3)', '0 0 60px rgba(34,211,238,0.6)', '0 0 30px rgba(34,211,238,0.3)']
-                  }}
-                  transition={{ duration: 1.5, repeat: Infinity }}
-                />
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <motion.div
-                    animate={{ rotate: 360 }}
-                    transition={{ duration: 3, repeat: Infinity, ease: 'linear' }}
-                  >
-                    <Hexagon className="w-12 h-12 text-white" />
-                  </motion.div>
-                </div>
-              </motion.div>
-
-              {/* Title */}
-              <motion.h1
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
-                className="text-3xl font-black text-white mb-2 tracking-wider"
-              >
-                ULTRAWIDE COMMAND
-              </motion.h1>
-              <motion.p
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.5 }}
-                className="text-cyan-400 font-mono text-sm mb-6"
-              >
-                49" SUPER ULTRAWIDE • 5120×1440 • DUAL QHD
-              </motion.p>
-
-              {/* Loading bar */}
-              <motion.div className="w-64 h-1.5 bg-slate-800 rounded-full mx-auto overflow-hidden">
-                <motion.div
-                  className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-blue-500 to-purple-500"
-                  initial={{ width: 0 }}
-                  animate={{ width: '100%' }}
-                  transition={{ duration: 2 }}
-                  style={{ boxShadow: '0 0 20px rgba(34,211,238,0.5)' }}
-                />
-              </motion.div>
-
-              {/* Boot messages */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.8 }}
-                className="mt-4 font-mono text-[10px] text-slate-500 space-y-1"
-              >
-                <p>Initializing industrial systems...</p>
-                <motion.p animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 1, repeat: Infinity }}>
-                  Loading real-time data streams...
-                </motion.p>
-              </motion.div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main Content */}
-      <div className="relative z-10 p-2 space-y-2 min-h-screen">
-
-        {/* HEADER BAR */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-xl px-4 py-2"
-          style={{ boxShadow: '0 0 30px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.05)' }}
-        >
+      {/* ═══ HEADER ═══ */}
+      <header className="sticky top-0 z-50 backdrop-blur-xl border-b" style={{ background: 'rgba(3,7,18,0.85)', borderColor: C.border }}>
+        <div className="scan-line" />
+        <div className="flex items-center justify-between px-8 h-16">
+          {/* Left: Logo */}
           <div className="flex items-center gap-4">
-            {/* Logo */}
-            <div className="flex items-center gap-3">
-              <motion.div
-                className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-500 via-blue-600 to-purple-600 flex items-center justify-center"
-                animate={{ boxShadow: ['0 0 15px rgba(34,211,238,0.3)', '0 0 25px rgba(34,211,238,0.5)', '0 0 15px rgba(34,211,238,0.3)'] }}
-                transition={{ duration: 2, repeat: Infinity }}
-              >
-                <Hexagon className="w-5 h-5 text-white" />
-              </motion.div>
-              <div>
-                <h1 className="text-lg font-black text-white tracking-wider flex items-center gap-2">
-                  ULTRAWIDE COMMAND
-                  <span className="text-[9px] px-2 py-0.5 bg-gradient-to-r from-cyan-500/20 to-purple-500/20 text-cyan-400 rounded-full font-mono flex items-center gap-1 border border-cyan-500/30">
-                    <Radio className="w-2.5 h-2.5" /> LIVE
-                  </span>
-                </h1>
-                <p className="text-[9px] text-slate-500 font-mono tracking-widest">GRUPO MONTEX • INDUSTRIAL SYSTEM v6.0</p>
-              </div>
+            <div className="p-2 rounded-lg" style={{ background: `${C.accent}15`, boxShadow: `0 0 15px ${C.accent}40` }}>
+              <Factory size={24} style={{ color: C.accent }} />
             </div>
-
-            {/* Quick KPIs in Header */}
-            <div className="hidden 2xl:flex items-center gap-4 ml-6 pl-6 border-l border-slate-700/50">
-              {[
-                { label: 'OEE', value: `${metrics.oee}%`, color: '#22d3ee', trend: '+2.3%' },
-                { label: 'Máquinas', value: `${metrics.maquinasOperando}/${metrics.maquinasTotal}`, color: '#34d399', status: 'running' },
-                { label: 'Projetos', value: metrics.projetosAtivos, color: '#c084fc' },
-                { label: 'Alertas', value: metrics.alertasCriticos, color: metrics.alertasCriticos > 0 ? '#ef4444' : '#22c55e', pulse: metrics.alertasCriticos > 0 },
-              ].map((stat) => (
-                <div key={stat.label} className="flex items-center gap-2 px-3 py-1 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                  {stat.status && <PulseStatus status={stat.status} size={3} />}
-                  <div className="text-center">
-                    <div className="text-sm font-bold font-mono" style={{ color: stat.color, textShadow: `0 0 10px ${stat.color}50` }}>{stat.value}</div>
-                    <div className="text-[8px] text-slate-500">{stat.label}</div>
-                  </div>
-                  {stat.trend && <span className="text-[8px] text-emerald-400">{stat.trend}</span>}
-                </div>
-              ))}
+            <div>
+              <h1 className="text-lg font-bold tracking-[0.3em] text-sky-300">COMMAND CENTER</h1>
+              <div className="flex items-center gap-2">
+                <span className="text-[9px] tracking-[0.2em] px-2 py-0.5 rounded border font-bold"
+                  style={{ color: C.neon, borderColor: `${C.neon}40`, background: `${C.neon}10`, boxShadow: `0 0 8px ${C.neon}30` }}>
+                  ULTRAWIDE 49"
+                </span>
+                {loading && (
+                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
+                    <RefreshCw size={10} style={{ color: C.accent }} />
+                  </motion.div>
+                )}
+              </div>
             </div>
           </div>
 
-          {/* Right Side */}
-          <div className="flex items-center gap-3">
-            {/* System Status */}
-            <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg border border-slate-700/50">
-              {[
-                { icon: Cpu, value: '67%', color: '#22d3ee' },
-                { icon: HardDrive, value: '42%', color: '#34d399' },
-                { icon: Wifi, value: '1Gbps', color: '#c084fc' },
-                { icon: ThermometerSun, value: '45°C', color: '#fbbf24' },
-              ].map((sys, i) => (
-                <React.Fragment key={i}>
-                  <div className="flex items-center gap-1">
-                    <sys.icon className="w-3 h-3" style={{ color: sys.color }} />
-                    <span className="text-[10px] font-mono" style={{ color: sys.color }}>{sys.value}</span>
-                  </div>
-                  {i < 3 && <div className="w-px h-3 bg-slate-700" />}
-                </React.Fragment>
-              ))}
+          {/* Center: Clock */}
+          <div className="flex items-center gap-3 px-6 py-2 rounded-lg border" style={{ background: `${C.accent}05`, borderColor: `${C.accent}15`, fontFamily: 'monospace' }}>
+            <span className="text-2xl font-bold text-sky-300 tracking-tight">{h}{colon}{m}{colon}{s}</span>
+            <div className="h-8 w-px" style={{ background: C.border }} />
+            <span className="text-xs text-sky-400/70">
+              {time.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+            </span>
+          </div>
+
+          {/* Right: Status */}
+          <div className="flex items-center gap-5">
+            <div className="flex items-center gap-2">
+              <motion.div className="w-2 h-2 rounded-full" animate={{ scale: [1, 1.4, 1] }}
+                transition={{ duration: 1.5, repeat: Infinity }} style={{ background: C.success, boxShadow: `0 0 8px ${C.success}` }} />
+              <span className="text-[10px] text-slate-500">LIVE</span>
             </div>
-
-            {/* Clock */}
-            <CyberBorder color="#22d3ee">
-              <div className="flex items-center gap-3 px-4 py-1.5 bg-slate-800/50">
-                <Clock className="w-4 h-4 text-cyan-400" />
-                <div className="text-xl font-mono font-bold text-cyan-400"
-                  style={{ textShadow: '0 0 15px rgba(34,211,238,0.5)' }}>
-                  {currentTime.toLocaleTimeString('pt-BR')}
-                </div>
-                <div className="text-right border-l border-slate-700 pl-3">
-                  <div className="text-[9px] text-slate-400">{currentTime.toLocaleDateString('pt-BR', { weekday: 'long' })}</div>
-                  <div className="text-[10px] text-white font-medium">{currentTime.toLocaleDateString('pt-BR')}</div>
-                </div>
-              </div>
-            </CyberBorder>
-
-            {/* Notifications */}
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className="relative p-2.5 bg-slate-800/50 rounded-xl border border-slate-700/50 hover:border-cyan-500/50 transition-all"
-            >
-              <Bell className="w-4 h-4 text-slate-400" />
-              {metrics.alertasCriticos > 0 && (
-                <motion.span
-                  className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-[9px] text-white flex items-center justify-center font-bold"
-                  animate={{ scale: [1, 1.2, 1] }}
-                  transition={{ duration: 1, repeat: Infinity }}
-                >
-                  {metrics.alertasCriticos}
-                </motion.span>
-              )}
-            </motion.button>
+            <button onClick={refresh} className="p-2 rounded-lg transition-colors hover:bg-sky-400/10">
+              <RefreshCw size={16} style={{ color: C.accent }} />
+            </button>
           </div>
-        </motion.div>
+        </div>
+      </header>
 
-        {/* MAIN GRID - 8 COLUMNS FOR ULTRAWIDE */}
-        <div className="grid grid-cols-8 gap-2" style={{ minHeight: 'calc(100vh - 100px)' }}>
+      {/* ═══ MAIN CONTENT ═══ */}
+      <main className="px-6 py-5 space-y-4">
 
-          {/* COLUMN 1 - Industrial KPIs */}
-          <div className="space-y-2">
-            <DataPanel title="KPIs INDUSTRIAIS" icon={Gauge} color="#22d3ee" badge="OEE">
-              <div className="flex justify-center mb-3">
-                <HolographicRing3D value={metrics.oee} color="#22d3ee" size={100} label="OEE GERAL" sublabel="%" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div className="p-2 rounded-lg bg-slate-800/50 text-center">
-                  <div className="text-lg font-bold font-mono text-emerald-400">{metrics.mtbf}h</div>
-                  <div className="text-[8px] text-slate-500">MTBF</div>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-800/50 text-center">
-                  <div className="text-lg font-bold font-mono text-amber-400">{metrics.mttr}h</div>
-                  <div className="text-[8px] text-slate-500">MTTR</div>
-                </div>
-              </div>
-            </DataPanel>
-
-            <DataPanel title="QUALIDADE" icon={Shield} color="#34d399">
-              <ResponsiveContainer width="100%" height={130}>
-                <RadarChart data={qualityRadarData}>
-                  <PolarGrid stroke="#334155" />
-                  <PolarAngleAxis dataKey="subject" stroke="#64748b" fontSize={8} />
-                  <RechartsRadar name="Qualidade" dataKey="A" stroke="#34d399" fill="#34d399" fillOpacity={0.3} />
-                </RadarChart>
-              </ResponsiveContainer>
-              <div className="grid grid-cols-2 gap-1 mt-2">
-                <div className="text-center">
-                  <div className="text-sm font-mono text-emerald-400">{qualidadeMetricas.conformidade}%</div>
-                  <div className="text-[8px] text-slate-500">Conformidade</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-sm font-mono text-amber-400">{qualidadeMetricas.naoConformidades}</div>
-                  <div className="text-[8px] text-slate-500">Não Conform.</div>
-                </div>
-              </div>
-            </DataPanel>
-
-            <DataPanel title="TENDÊNCIA KPIs" icon={Activity} color="#60a5fa">
-              <ResponsiveContainer width="100%" height={100}>
-                <ComposedChart data={kpiTrendData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="periodo" stroke="#64748b" fontSize={8} />
-                  <YAxis stroke="#64748b" fontSize={8} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(96,165,250,0.3)', borderRadius: 8, fontSize: 9 }} />
-                  <Area type="monotone" dataKey="oee" fill="#22d3ee20" stroke="#22d3ee" strokeWidth={2} />
-                  <Line type="monotone" dataKey="mtbf" stroke="#34d399" strokeWidth={1.5} dot={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-              <div className="flex justify-between text-[8px] mt-1">
-                <span className="text-cyan-400">● OEE</span>
-                <span className="text-emerald-400">● MTBF/10</span>
-              </div>
-            </DataPanel>
-
-            <DataPanel title="CONEXÕES" icon={Network} color="#818cf8">
-              <div className="space-y-1">
-                {['ERP Server', 'Database', 'MES', 'SCADA'].map((conn, i) => (
-                  <div key={conn} className="flex items-center justify-between p-1 rounded bg-slate-800/30">
-                    <div className="flex items-center gap-2">
-                      <PulseStatus status="online" size={3} />
-                      <span className="text-[8px] text-slate-300">{conn}</span>
-                    </div>
-                    <span className="text-[7px] font-mono text-slate-500">{5 + i * 3}ms</span>
-                  </div>
-                ))}
-              </div>
-            </DataPanel>
-          </div>
-
-          {/* COLUMN 2 - Machines */}
-          <div className="space-y-2">
-            <DataPanel title="MÁQUINAS" icon={Factory} color="#fbbf24" badge={`${metrics.maquinasOperando}/${metrics.maquinasTotal}`}>
-              <div className="flex items-center justify-between mb-2 pb-2 border-b border-slate-700/50">
-                <div className="flex items-center gap-2">
-                  <PulseStatus status="running" size={4} />
-                  <span className="text-[10px] text-slate-400">Eficiência Média</span>
-                </div>
-                <span className="text-sm font-mono font-bold text-emerald-400">{metrics.eficienciaMedia}%</span>
-              </div>
-              <div className="space-y-1.5 max-h-[280px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
-                {maquinasStatus.slice(0, 8).map((machine) => (
-                  <MachineCard key={machine.id} machine={machine} />
-                ))}
-              </div>
-            </DataPanel>
-
-            <DataPanel title="ENERGIA" icon={Zap} color="#f59e0b">
-              <div className="flex justify-between items-center mb-2">
-                <span className="text-[10px] text-slate-400">Consumo Atual</span>
-                <span className="text-sm font-mono text-amber-400">{energiaMetricas.consumoAtual} kWh</span>
-              </div>
-              <ResponsiveContainer width="100%" height={60}>
-                <AreaChart data={energyData}>
-                  <defs>
-                    <linearGradient id="energyGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <Area type="monotone" dataKey="consumo" fill="url(#energyGrad)" stroke="#f59e0b" strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </DataPanel>
-
-            <DataPanel title="FONTES ENERGIA" icon={Sun} color="#22c55e">
-              <ResponsiveContainer width="100%" height={80}>
-                <RechartsPie>
-                  <Pie
-                    data={[
-                      { name: 'Rede', value: energiaMetricas.fonteEnergia.rede, fill: '#64748b' },
-                      { name: 'Solar', value: energiaMetricas.fonteEnergia.solar, fill: '#fbbf24' },
-                      { name: 'Gerador', value: energiaMetricas.fonteEnergia.gerador, fill: '#f97316' }
-                    ]}
-                    cx="50%" cy="50%" innerRadius={18} outerRadius={32} dataKey="value" paddingAngle={2}
-                  >
-                  </Pie>
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: 8, fontSize: 9 }} />
-                </RechartsPie>
-              </ResponsiveContainer>
-              <div className="flex justify-center gap-3 text-[7px]">
-                <span className="text-slate-400">■ Rede {energiaMetricas.fonteEnergia.rede}%</span>
-                <span className="text-yellow-400">■ Solar {energiaMetricas.fonteEnergia.solar}%</span>
-                <span className="text-orange-400">■ Gerador {energiaMetricas.fonteEnergia.gerador}%</span>
-              </div>
-            </DataPanel>
-          </div>
-
-          {/* COLUMN 3 - Production Chart */}
-          <div className="col-span-2 space-y-2">
-            <DataPanel title="PRODUÇÃO EM TEMPO REAL" icon={Activity} color="#22d3ee" className="h-[calc(50%-4px)]">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-4">
-                  <div>
-                    <div className="text-2xl font-bold text-white">{metrics.totalPecasProducao}</div>
-                    <div className="text-[9px] text-slate-500">Total Peças</div>
-                  </div>
-                  <div className="h-10 w-px bg-slate-700" />
-                  <div>
-                    <div className="text-lg font-bold text-emerald-400">{metrics.progressoProducao}%</div>
-                    <div className="text-[9px] text-slate-500">Progresso</div>
-                  </div>
-                  <div className="h-10 w-px bg-slate-700" />
-                  <div>
-                    <div className="text-lg font-bold text-cyan-400">{metrics.movidasHoje}</div>
-                    <div className="text-[9px] text-slate-500">Movidas Hoje</div>
+        {/* ═══ ROW 1: KPI CARDS ═══ */}
+        <div className="grid grid-cols-4 xl:grid-cols-8 gap-3">
+          {[
+            { icon: Building2, label: 'Obra Ativa', value: obraAtualData?.numero || obraAtualData?.nome || '—', sub: obraAtualData?.nome || 'Super Luna', color: C.accent, isText: true },
+            { icon: Weight, label: 'Peso Total', value: fmtWeight(pesoTotal), sub: `Expedido: ${fmtWeight(producao?.pesoExpedido || 0)}`, color: C.warning },
+            { icon: Package, label: 'Peças Produção', value: fmtNum(producao?.total || 0), sub: `${producao?.progressoGeral || 0}% progresso`, color: C.neon },
+            { icon: DollarSign, label: 'Faturamento', value: fmtCurrency(faturamento), sub: `${financeiro?.numMedicoes || 0} medições`, color: C.success },
+            { icon: Receipt, label: 'Despesas', value: fmtCurrency(despesas), sub: `Pend: ${fmtCurrency(financeiro?.despesasPendentes || 0)}`, color: C.danger },
+            { icon: Wallet, label: 'Saldo Contrato', value: fmtCurrency(saldo), sub: `Contrato: ${fmtCurrency(valorContrato)}`, color: saldo >= 0 ? C.success : C.danger },
+            { icon: Truck, label: 'Expedição', value: fmtNum(campo?.totalEnvios || 0), sub: `${campo?.entregues || 0} entregues`, color: C.purple },
+            { icon: AlertTriangle, label: 'Alertas Estoque', value: fmtNum((estoque?.critico || 0) + (estoque?.baixo || 0)), sub: `${estoque?.totalItens || 0} itens total`, color: (estoque?.critico || 0) > 0 ? C.danger : C.warning },
+          ].map((kpi, i) => (
+            <motion.div key={i} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: i * 0.05 }} className="group">
+              <Glass className="p-4 h-full hover:border-sky-400/20 cursor-default" glow={null}>
+                <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl" style={{ background: `linear-gradient(90deg, ${kpi.color}, transparent)` }} />
+                <div className="flex items-start justify-between mb-2">
+                  <div className="p-1.5 rounded-lg" style={{ background: `${kpi.color}12`, boxShadow: `0 0 10px ${kpi.color}25` }}>
+                    <kpi.icon size={16} style={{ color: kpi.color }} />
                   </div>
                 </div>
-                <div className="flex gap-2 text-[8px]">
-                  <div className="text-center px-2 py-1 rounded bg-blue-500/15 border border-blue-500/30">
-                    <div className="text-blue-400 font-mono font-bold">{metrics.pecasFabricacao}</div>
-                    <div className="text-slate-500">Fabric.</div>
-                  </div>
-                  <div className="text-center px-2 py-1 rounded bg-purple-500/15 border border-purple-500/30">
-                    <div className="text-purple-400 font-mono font-bold">{metrics.pecasSolda}</div>
-                    <div className="text-slate-500">Solda</div>
-                  </div>
-                  <div className="text-center px-2 py-1 rounded bg-pink-500/15 border border-pink-500/30">
-                    <div className="text-pink-400 font-mono font-bold">{metrics.pecasPintura}</div>
-                    <div className="text-slate-500">Pintura</div>
-                  </div>
-                  <div className="text-center px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/30">
-                    <div className="text-emerald-400 font-mono font-bold">{metrics.pecasExpedicao}</div>
-                    <div className="text-slate-500">Exped.</div>
-                  </div>
+                <div className={`text-xl font-bold ${kpi.isText ? 'text-sky-300' : ''}`}
+                  style={kpi.isText ? {} : { background: `linear-gradient(135deg, ${kpi.color}, ${C.text})`, WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                  {kpi.value}
                 </div>
-              </div>
-              <ResponsiveContainer width="100%" height={150}>
-                <ComposedChart data={productionTrendData}>
-                  <defs>
-                    <linearGradient id="prodGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="hora" stroke="#64748b" fontSize={9} />
-                  <YAxis stroke="#64748b" fontSize={9} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(34,211,238,0.3)', borderRadius: 8, fontSize: 10 }} />
-                  <Area type="monotone" dataKey="producao" fill="url(#prodGradient)" stroke="#22d3ee" strokeWidth={2} />
-                  <Line type="monotone" dataKey="meta" stroke="#c084fc" strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </DataPanel>
+                <div className="text-[10px] text-slate-500 mt-0.5">{kpi.label}</div>
+                <div className="text-[9px] text-slate-600 mt-0.5 truncate">{kpi.sub}</div>
+              </Glass>
+            </motion.div>
+          ))}
+        </div>
 
-            <DataPanel title="FLUXO FINANCEIRO" icon={DollarSign} color="#34d399" className="h-[calc(50%-4px)]">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex gap-4">
-                  <div>
-                    <div className="text-lg font-bold text-emerald-400">R${metrics.receitas.toFixed(1)}M</div>
-                    <div className="text-[9px] text-slate-500">Receitas</div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-bold text-red-400">R${metrics.despesas.toFixed(1)}M</div>
-                    <div className="text-[9px] text-slate-500">Despesas</div>
-                  </div>
-                  <div>
-                    <div className="text-lg font-bold text-cyan-400">R${metrics.lucro.toFixed(1)}M</div>
-                    <div className="text-[9px] text-slate-500">Lucro</div>
-                  </div>
-                </div>
-              </div>
-              <ResponsiveContainer width="100%" height={150}>
-                <AreaChart data={financialData}>
-                  <defs>
-                    <linearGradient id="receitasGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#34d399" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#34d399" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="mes" stroke="#64748b" fontSize={9} />
-                  <YAxis stroke="#64748b" fontSize={9} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(52,211,153,0.3)', borderRadius: 8, fontSize: 10 }} />
-                  <Area type="monotone" dataKey="receitas" fill="url(#receitasGrad)" stroke="#34d399" strokeWidth={2} />
-                  <Line type="monotone" dataKey="despesas" stroke="#ef4444" strokeWidth={2} dot={false} />
-                  <Line type="monotone" dataKey="lucro" stroke="#22d3ee" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </DataPanel>
-          </div>
+        {/* ═══ ROW 2: FINANCIAL + PIPELINE + STAGES + ACTIVITY ═══ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4" style={{ minHeight: 340 }}>
 
-          {/* COLUMN 5 - Projects */}
-          <div className="space-y-2">
-            <DataPanel title="PROJETOS ATIVOS" icon={Building2} color="#c084fc" badge={metrics.projetosAtivos}>
-              <div className="space-y-1.5 max-h-[150px] overflow-y-auto">
-                {indicadoresPorProjeto.slice(0, 4).map((projeto, i) => (
-                  <div key={projeto.id} className="p-1.5 rounded-lg bg-slate-800/30 border border-slate-700/30">
-                    <div className="flex justify-between mb-1">
-                      <span className="text-[9px] text-white font-medium truncate flex-1 pr-2">{projeto.nome}</span>
-                      <span className="text-[9px] font-mono" style={{ color: COLORS[i] }}>{projeto.progresso}%</span>
-                    </div>
-                    <UltraProgress value={projeto.progresso} color={COLORS[i]} height={3} />
-                  </div>
-                ))}
-              </div>
-            </DataPanel>
-
-            <DataPanel title="RISCO PROJETOS" icon={AlertTriangle} color="#f59e0b">
-              <ResponsiveContainer width="100%" height={100}>
-                <BarChart data={riscoProjetosData} layout="vertical">
-                  <XAxis type="number" domain={[0, 100]} stroke="#64748b" fontSize={8} />
-                  <YAxis type="category" dataKey="name" stroke="#64748b" fontSize={7} width={60} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 8, fontSize: 9 }} />
-                  <Bar dataKey="score" radius={[0, 4, 4, 0]}>
-                    {riscoProjetosData.map((entry, i) => (
-                      <Cell key={i} fill={entry.fill} />
-                    ))}
+          {/* Financial Overview */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-sky-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <DollarSign size={14} /> VISÃO FINANCEIRA
+            </h3>
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height={170}>
+                <BarChart data={finChart} layout="vertical" margin={{ left: 10, right: 10 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                  <XAxis type="number" stroke={C.muted} tick={{ fontSize: 9 }} tickFormatter={v => fmtCurrency(v)} />
+                  <YAxis dataKey="name" type="category" stroke={C.muted} tick={{ fontSize: 10 }} width={65} />
+                  <Tooltip content={<GlassTooltip />} />
+                  <Bar dataKey="valor" radius={[0, 6, 6, 0]}>
+                    {finChart.map((e, i) => <Cell key={i} fill={e.fill} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
-            </DataPanel>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              {[
+                { label: 'Pagas', val: fmtCurrency(financeiro?.despesasPagas || 0), color: C.success },
+                { label: 'Pendentes', val: fmtCurrency(financeiro?.despesasPendentes || 0), color: C.warning },
+                { label: 'Saldo', val: fmtCurrency(saldo), color: saldo >= 0 ? C.success : C.danger },
+              ].map((m, i) => (
+                <div key={i} className="rounded-lg p-2 border text-center" style={{ background: `${m.color}08`, borderColor: `${m.color}15` }}>
+                  <div className="text-[9px] text-slate-500 uppercase">{m.label}</div>
+                  <div className="text-xs font-bold" style={{ color: m.color }}>{m.val}</div>
+                </div>
+              ))}
+            </div>
+          </Glass>
 
-            <DataPanel title="PIPELINE VENDAS" icon={Target} color="#f472b6">
-              <div className="flex justify-between mb-1">
-                <span className="text-[9px] text-slate-400">Total</span>
-                <span className="text-sm font-mono text-pink-400">R${(pipelineVendas.totalPipeline / 1000000).toFixed(1)}M</span>
-              </div>
-              <ResponsiveContainer width="100%" height={80}>
-                <RechartsPie>
-                  <Pie data={pipelineData} cx="50%" cy="50%" innerRadius={20} outerRadius={35} dataKey="value" paddingAngle={3}>
-                    {pipelineData.map((entry, i) => (
-                      <Cell key={i} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(244,114,182,0.3)', borderRadius: 8, fontSize: 9 }} />
-                </RechartsPie>
-              </ResponsiveContainer>
-              <div className="grid grid-cols-2 gap-1">
-                {pipelineData.map((item) => (
-                  <div key={item.name} className="flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded" style={{ backgroundColor: item.color }} />
-                    <span className="text-[7px] text-slate-400">{item.name}</span>
-                  </div>
-                ))}
-              </div>
-            </DataPanel>
-          </div>
-
-          {/* COLUMN 6 - Logistics */}
-          <div className="space-y-2">
-            <DataPanel title="LOGÍSTICA" icon={Truck} color="#60a5fa">
-              <div className="grid grid-cols-2 gap-2 mb-3">
-                <div className="p-2 rounded-lg bg-slate-800/50 text-center">
-                  <div className="text-lg font-bold text-blue-400">{logisticaMetricas.entregasPendentes}</div>
-                  <div className="text-[8px] text-slate-500">Pendentes</div>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-800/50 text-center">
-                  <div className="text-lg font-bold text-emerald-400">{logisticaMetricas.entregas.noPrazo}%</div>
-                  <div className="text-[8px] text-slate-500">No Prazo</div>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                {logisticaMetricas.veiculos.slice(0, 4).map((veiculo, i) => (
-                  <div key={i} className="p-2 rounded bg-slate-800/30 border border-slate-700/30">
-                    <div className="flex justify-between">
-                      <span className="text-[10px] text-white truncate">{veiculo.placa} - {veiculo.tipo}</span>
-                      <span className={`text-[8px] px-1.5 py-0.5 rounded ${veiculo.status === 'disponivel' ? 'bg-emerald-500/20 text-emerald-400' : veiculo.status === 'em_transito' ? 'bg-cyan-500/20 text-cyan-400' : 'bg-amber-500/20 text-amber-400'}`}>
-                        {veiculo.status.toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="flex justify-between mt-1">
-                      <span className="text-[8px] text-slate-500">{veiculo.destino}</span>
-                      <span className="text-[8px] font-mono text-cyan-400">ETA: {veiculo.eta}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </DataPanel>
-
-            <DataPanel title="CORTE" icon={Gauge} color="#f59e0b" badge={`${metrics.corteFinalizado}/${metrics.totalCorte}`}>
-              <div className="grid grid-cols-3 gap-1 mb-2">
-                <div className="text-center p-1.5 rounded bg-amber-500/10 border border-amber-500/20">
-                  <div className="text-sm font-mono font-bold text-amber-400">{metrics.corteAguardando}</div>
-                  <div className="text-[7px] text-slate-500">Aguard.</div>
-                </div>
-                <div className="text-center p-1.5 rounded bg-cyan-500/10 border border-cyan-500/20">
-                  <div className="text-sm font-mono font-bold text-cyan-400">{metrics.corteCortando}</div>
-                  <div className="text-[7px] text-slate-500">Cortando</div>
-                </div>
-                <div className="text-center p-1.5 rounded bg-emerald-500/10 border border-emerald-500/20">
-                  <div className="text-sm font-mono font-bold text-emerald-400">{metrics.corteFinalizado}</div>
-                  <div className="text-[7px] text-slate-500">Finaliz.</div>
-                </div>
-              </div>
-              <div className="flex justify-between text-[9px] mb-1">
-                <span className="text-slate-400">Progresso Peso</span>
-                <span className="text-amber-400 font-mono">{metrics.corteProgressoPeso}%</span>
-              </div>
-              <UltraProgress value={metrics.corteProgressoPeso} color="#f59e0b" height={4} />
-              <div className="flex justify-between mt-2 text-[8px]">
-                <span className="text-slate-500">Cortadas hoje: <span className="text-amber-400 font-mono">{metrics.cortadasHoje}</span></span>
-              </div>
-            </DataPanel>
-
-            <DataPanel title="ESTOQUE" icon={Package} color={metrics.stockAlerts > 0 ? '#ef4444' : '#34d399'} badge={metrics.estoqueTotal}>
-              <div className="grid grid-cols-2 gap-1 mb-2">
-                <div className="text-center p-1.5 rounded bg-slate-800/50">
-                  <div className="text-sm font-mono font-bold text-white">{metrics.estoqueTotal}</div>
-                  <div className="text-[7px] text-slate-500">Itens</div>
-                </div>
-                <div className="text-center p-1.5 rounded bg-slate-800/50">
-                  <div className="text-sm font-mono font-bold text-emerald-400">{formatCurrency(metrics.estoqueValor)}</div>
-                  <div className="text-[7px] text-slate-500">Valor</div>
-                </div>
-              </div>
-              {metrics.stockAlerts > 0 ? (
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-red-400 text-[10px]">
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>{metrics.estoqueCritico} críticos, {metrics.estoqueBaixo} baixos</span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-center py-2">
-                  <CheckCircle2 className="w-6 h-6 text-emerald-500 mx-auto mb-1" />
-                  <span className="text-[10px] text-emerald-400">Estoque Normalizado</span>
-                </div>
-              )}
-            </DataPanel>
-          </div>
-
-          {/* COLUMN 7 - Team & Predictions */}
-          <div className="space-y-2">
-            <DataPanel title="EQUIPE" icon={Users} color="#fbbf24">
-              <div className="grid grid-cols-2 gap-2 mb-2">
-                <div className="p-1.5 rounded-lg bg-slate-800/50 text-center">
-                  <div className="text-lg font-bold text-amber-400">{recursosHumanos.totalColaboradores}</div>
-                  <div className="text-[7px] text-slate-500">Total</div>
-                </div>
-                <div className="p-1.5 rounded-lg bg-slate-800/50 text-center">
-                  <div className="text-lg font-bold text-emerald-400">{recursosHumanos.presentes}</div>
-                  <div className="text-[7px] text-slate-500">Presentes</div>
-                </div>
-              </div>
-              <div className="space-y-1">
-                {recursosHumanos.setores.slice(0, 4).map((dept, i) => (
-                  <div key={dept.setor} className="flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded" style={{ backgroundColor: COLORS[i] }} />
-                    <span className="text-[8px] text-slate-400 flex-1">{dept.setor}</span>
-                    <span className="text-[8px] font-mono" style={{ color: COLORS[i] }}>{dept.presentes}/{dept.total}</span>
-                  </div>
-                ))}
-              </div>
-            </DataPanel>
-
-            <DataPanel title="PREVISÃO ML" icon={Activity} color="#a855f7" badge="IA">
-              <ResponsiveContainer width="100%" height={90}>
-                <ComposedChart data={previsaoData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="dia" stroke="#64748b" fontSize={8} />
-                  <YAxis stroke="#64748b" fontSize={8} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(168,85,247,0.3)', borderRadius: 8, fontSize: 9 }} />
-                  <Bar dataKey="previsto" fill="#a855f7" radius={[4, 4, 0, 0]} />
-                  <Line type="monotone" dataKey="confianca" stroke="#22d3ee" strokeWidth={2} dot={false} yAxisId={0} />
-                </ComposedChart>
-              </ResponsiveContainer>
-              <div className="flex justify-between text-[7px] mt-1">
-                <span className="text-purple-400">■ Produção Prevista</span>
-                <span className="text-cyan-400">— Confiança %</span>
-              </div>
-            </DataPanel>
-
-            <DataPanel title="COMPARATIVO" icon={BarChart2} color="#06b6d4">
-              <ResponsiveContainer width="100%" height={90}>
-                <BarChart data={comparativoData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={8} />
-                  <YAxis stroke="#64748b" fontSize={8} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(6,182,212,0.3)', borderRadius: 8, fontSize: 9 }} />
-                  <Bar dataKey="anterior" fill="#64748b" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="atual" fill="#22d3ee" radius={[2, 2, 0, 0]} />
-                  <Bar dataKey="meta" fill="#34d399" radius={[2, 2, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-              <div className="flex justify-center gap-3 text-[7px] mt-1">
-                <span className="text-slate-400">■ Anterior</span>
-                <span className="text-cyan-400">■ Atual</span>
-                <span className="text-emerald-400">■ Meta</span>
-              </div>
-            </DataPanel>
-
-            <DataPanel title="TURNOS" icon={Clock} color="#818cf8">
-              <div className="space-y-1.5">
-                {recursosHumanos.turnos.map((turno, i) => (
-                  <div key={turno.turno} className="p-1.5 rounded bg-slate-800/30">
-                    <div className="flex justify-between mb-1">
-                      <span className="text-[9px] text-white">{turno.turno}</span>
-                      <span className="text-[9px] font-mono text-indigo-400">{turno.colaboradores}</span>
-                    </div>
-                    <UltraProgress value={turno.colaboradores} color={COLORS[i + 3]} height={3} />
-                  </div>
-                ))}
-              </div>
-            </DataPanel>
-          </div>
-
-          {/* COLUMN 8 - Alerts & Analytics */}
-          <div className="space-y-2">
-            <DataPanel title="ALERTAS" icon={Bell} color="#ef4444" badge={alertasInteligentes.length} status={metrics.alertasCriticos > 0 ? 'critical' : 'online'}>
-              <div className="space-y-1 max-h-[180px] overflow-y-auto">
-                {alertasInteligentes.slice(0, 5).map((alert, i) => (
-                  <AlertCard key={i} alert={alert} />
-                ))}
-              </div>
-            </DataPanel>
-
-            <DataPanel title="QUALIDADE TREND" icon={Shield} color="#10b981">
-              <ResponsiveContainer width="100%" height={80}>
-                <AreaChart data={qualidadeMetricas.tendenciaQualidade}>
+          {/* Pipeline 3D */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-cyan-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Activity size={14} /> PIPELINE DE PRODUÇÃO
+            </h3>
+            <div className="flex-1 flex items-center justify-center" style={{ perspective: '800px' }}>
+              <div className="w-full" style={{ transform: 'rotateX(10deg)' }}>
+                <svg viewBox="0 0 600 160" className="w-full">
                   <defs>
-                    <linearGradient id="qualGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                      <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                    {STAGES.map(st => (
+                      <filter key={st.key} id={`glow-${st.key}`}><feGaussianBlur stdDeviation="4" result="blur" />
+                        <feFlood floodColor={st.color} floodOpacity="0.6" /><feComposite in2="blur" operator="in" />
+                        <feMerge><feMergeNode /><feMergeNode in="SourceGraphic" /></feMerge>
+                      </filter>
+                    ))}
+                    <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={C.corte} stopOpacity="0.5" />
+                      <stop offset="100%" stopColor={C.expedicao} stopOpacity="0.5" />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="semana" stroke="#64748b" fontSize={8} />
-                  <YAxis domain={[95, 100]} stroke="#64748b" fontSize={8} />
-                  <Tooltip contentStyle={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 8, fontSize: 9 }} />
-                  <Area type="monotone" dataKey="conformidade" fill="url(#qualGrad)" stroke="#10b981" strokeWidth={2} />
-                </AreaChart>
+                  {/* Connection line */}
+                  <line x1="80" y1="70" x2="520" y2="70" stroke="url(#lineGrad)" strokeWidth="2" strokeDasharray="8 4">
+                    <animate attributeName="stroke-dashoffset" from="24" to="0" dur="2s" repeatCount="indefinite" />
+                  </line>
+                  {/* Stage nodes */}
+                  {STAGES.map((st, i) => {
+                    const x = 80 + i * 110;
+                    const count = i === 0 ? (corte?.cortando || 0) :
+                      i === 1 ? (producao?.fabricacao || 0) :
+                      i === 2 ? (producao?.solda || 0) :
+                      i === 3 ? (producao?.pintura || 0) :
+                      (producao?.expedicao || 0);
+                    const hasItems = count > 0;
+                    return (
+                      <g key={st.key}>
+                        {/* Hex shape */}
+                        <polygon
+                          points={`${x},40 ${x+25},50 ${x+25},90 ${x},100 ${x-25},90 ${x-25},50`}
+                          fill={`${st.color}${hasItems ? '30' : '10'}`}
+                          stroke={st.color}
+                          strokeWidth={hasItems ? 2 : 1}
+                          opacity={hasItems ? 1 : 0.5}
+                          filter={hasItems ? `url(#glow-${st.key})` : undefined}
+                        />
+                        <text x={x} y={78} textAnchor="middle" fill="white" fontSize="16" fontWeight="bold">{count}</text>
+                        <text x={x} y={125} textAnchor="middle" fill={st.color} fontSize="10" fontWeight="600">{st.label}</text>
+                        {/* Pulse ring */}
+                        {hasItems && (
+                          <circle cx={x} cy={70} r="30" fill="none" stroke={st.color} strokeWidth="1" opacity="0.3">
+                            <animate attributeName="r" from="30" to="40" dur="2s" repeatCount="indefinite" />
+                            <animate attributeName="opacity" from="0.3" to="0" dur="2s" repeatCount="indefinite" />
+                          </circle>
+                        )}
+                      </g>
+                    );
+                  })}
+                </svg>
+              </div>
+            </div>
+            {/* Progress bar */}
+            <div className="mt-2">
+              <div className="flex justify-between text-[9px] text-slate-500 mb-1">
+                <span>Progresso Geral</span>
+                <span className="text-sky-400 font-bold">{producao?.progressoGeral || 0}%</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: `${C.dim}50` }}>
+                <motion.div className="h-full rounded-full" initial={{ width: 0 }}
+                  animate={{ width: `${producao?.progressoGeral || 0}%` }}
+                  transition={{ duration: 1.5 }}
+                  style={{ background: `linear-gradient(90deg, ${C.corte}, ${C.fabricacao}, ${C.solda}, ${C.pintura}, ${C.expedicao})` }} />
+              </div>
+            </div>
+          </Glass>
+
+          {/* Production by Stage Chart */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-amber-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <TrendingUp size={14} /> PRODUÇÃO POR ESTÁGIO
+            </h3>
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={stageData} margin={{ top: 5, right: 5, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={C.border} />
+                  <XAxis dataKey="name" stroke={C.muted} tick={{ fontSize: 9 }} />
+                  <YAxis stroke={C.muted} tick={{ fontSize: 9 }} />
+                  <Tooltip content={<GlassTooltip />} />
+                  <Bar dataKey="value" radius={[6, 6, 0, 0]} name="Peças">
+                    {stageData.map((e, i) => <Cell key={i} fill={e.color} />)}
+                  </Bar>
+                </BarChart>
               </ResponsiveContainer>
-            </DataPanel>
-
-            <DataPanel title="AÇÕES RÁPIDAS" icon={Zap} color="#fbbf24">
-              <div className="grid grid-cols-2 gap-1.5">
-                {[
-                  { label: 'Projeto', icon: Building2, color: '#22d3ee' },
-                  { label: 'Orçamento', icon: FileText, color: '#c084fc' },
-                  { label: 'Relatório', icon: BarChart2, color: '#34d399' },
-                  { label: 'Config', icon: Settings, color: '#fbbf24' },
-                ].map((action) => (
-                  <motion.button
-                    key={action.label}
-                    whileHover={{ scale: 1.03, borderColor: action.color }}
-                    whileTap={{ scale: 0.97 }}
-                    className="p-1.5 rounded-lg bg-slate-800/50 border border-slate-700/50 transition-all flex items-center gap-1.5"
-                  >
-                    <action.icon className="w-3 h-3" style={{ color: action.color }} />
-                    <span className="text-[8px] text-slate-300">{action.label}</span>
-                  </motion.button>
-                ))}
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-2">
+              <div className="text-center">
+                <div className="text-lg font-bold text-white">{fmtNum(producao?.total || 0)}</div>
+                <div className="text-[9px] text-slate-500">Total Peças</div>
               </div>
-            </DataPanel>
+              <div className="text-center">
+                <div className="text-lg font-bold" style={{ color: C.success }}>{fmtNum((producao?.finalizado || 0) + (producao?.entregue || 0))}</div>
+                <div className="text-[9px] text-slate-500">Finalizadas</div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-bold" style={{ color: C.warning }}>{fmtWeight(producao?.pesoTotal || 0)}</div>
+                <div className="text-[9px] text-slate-500">Peso Total</div>
+              </div>
+            </div>
+          </Glass>
 
-            <DataPanel title="AMBIENTE" icon={ThermometerSun} color="#f87171">
-              <div className="grid grid-cols-2 gap-1.5">
-                {[
-                  { icon: ThermometerSun, label: 'Temp.', value: '28°C', color: '#f59e0b' },
-                  { icon: Droplets, label: 'Umid.', value: '65%', color: '#22d3ee' },
-                  { icon: Wind, label: 'Vent.', value: 'OK', color: '#34d399' },
-                  { icon: Sun, label: 'Ilum.', value: '850lx', color: '#fbbf24' },
-                ].map((env) => (
-                  <div key={env.label} className="flex items-center gap-2 p-2 rounded bg-slate-800/30">
-                    <env.icon className="w-3.5 h-3.5" style={{ color: env.color }} />
-                    <div>
-                      <div className="text-[10px] font-mono" style={{ color: env.color }}>{env.value}</div>
-                      <div className="text-[8px] text-slate-500">{env.label}</div>
-                    </div>
+          {/* Activity Feed */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-emerald-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Zap size={14} /> ATIVIDADE EM TEMPO REAL
+            </h3>
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+              {recentActivity.length > 0 ? recentActivity.map((act, i) => (
+                <motion.div key={act.id || i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="flex items-center gap-3 p-2 rounded-lg border" style={{ background: `${C.accent}05`, borderColor: C.border }}>
+                  <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] text-slate-300 truncate">
+                      <span className="font-semibold">{act.func}</span>
+                    </p>
+                    <p className="text-[9px] text-slate-500">{act.de} → {act.para}</p>
                   </div>
-                ))}
-              </div>
-            </DataPanel>
-          </div>
+                  <span className="text-[9px] text-slate-600 font-mono">{act.time}</span>
+                </motion.div>
+              )) : (
+                <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">
+                  Aguardando movimentações...
+                </div>
+              )}
+            </div>
+            <div className="mt-2 pt-2 border-t flex justify-between text-[9px] text-slate-600" style={{ borderColor: C.border }}>
+              <span>Movimentações hoje: {historico?.totalHoje || 0}</span>
+              <span className="text-sky-400">{corte?.cortadasHoje || 0} cortadas hoje</span>
+            </div>
+          </Glass>
         </div>
 
-        {/* BOTTOM STATUS BAR */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-center justify-between bg-slate-900/95 backdrop-blur-xl border border-slate-700/50 rounded-xl px-4 py-2"
-        >
-          <div className="flex items-center gap-6">
-            {[
-              { icon: Factory, label: 'Produção', value: 'ATIVO', color: '#34d399' },
-              { icon: Truck, label: 'Logística', value: 'NORMAL', color: '#22d3ee' },
-              { icon: Shield, label: 'Segurança', value: '100%', color: '#34d399' },
-              { icon: Power, label: 'Energia', value: 'ESTÁVEL', color: '#fbbf24' },
-              { icon: Database, label: 'Backup', value: 'SYNC', color: '#c084fc' },
-              { icon: Server, label: 'MES', value: 'ONLINE', color: '#60a5fa' },
-              { icon: CircuitBoard, label: 'SCADA', value: 'ATIVO', color: '#818cf8' },
-              { icon: Wifi, label: 'Rede', value: '1Gbps', color: '#22d3ee' },
-            ].map((item) => (
-              <div key={item.label} className="flex items-center gap-1.5">
-                <item.icon className="w-3 h-3" style={{ color: item.color }} />
-                <span className="text-[9px] text-slate-500">{item.label}:</span>
-                <span className="text-[9px] font-mono" style={{ color: item.color }}>{item.value}</span>
+        {/* ═══ ROW 3: RADAR + TREEMAP + EXPEDICAO + ESTOQUE ═══ */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-4" style={{ minHeight: 320 }}>
+
+          {/* Workforce Radar */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-purple-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Users size={14} /> DESEMPENHO OPERACIONAL
+            </h3>
+            <div className="flex-1 min-h-0">
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart data={radarData} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+                  <PolarGrid stroke={C.border} />
+                  <PolarAngleAxis dataKey="metric" stroke={C.muted} tick={{ fontSize: 9, fill: C.muted }} />
+                  <PolarRadiusAxis stroke={C.border} tick={{ fontSize: 8 }} domain={[0, 100]} />
+                  <Radar name="Real" dataKey="value" stroke={C.neon} fill={C.neon} fillOpacity={0.25} strokeWidth={2} />
+                </RadarChart>
+              </ResponsiveContainer>
+            </div>
+          </Glass>
+
+          {/* Peças por Setor Treemap */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-sky-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Package size={14} /> PEÇAS POR SETOR
+            </h3>
+            {treemapData.length > 0 ? (
+              <div className="flex-1 min-h-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <Treemap data={treemapData} dataKey="size" nameKey="name" stroke={C.border} isAnimationActive>
+                    {treemapData.map((e, i) => <Cell key={i} fill={e.color} fillOpacity={0.7} />)}
+                  </Treemap>
+                </ResponsiveContainer>
               </div>
-            ))}
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">Sem dados</div>
+            )}
+            <div className="flex gap-3 mt-2 flex-wrap">
+              {pecasSetor.map((s, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <div className="w-2 h-2 rounded-full" style={{ background: s.color }} />
+                  <span className="text-[9px] text-slate-500">{s.label}: {s.count}</span>
+                </div>
+              ))}
+            </div>
+          </Glass>
+
+          {/* Expedição */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-pink-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Truck size={14} /> EXPEDIÇÃO
+            </h3>
+            <div className="grid grid-cols-4 gap-2 mb-3">
+              {[
+                { label: 'Total', val: campo?.totalEnvios || 0, color: C.accent },
+                { label: 'Entregues', val: campo?.entregues || 0, color: C.success },
+                { label: 'Trânsito', val: campo?.emTransito || 0, color: C.warning },
+                { label: 'Pendentes', val: campo?.pendentes || 0, color: C.danger },
+              ].map((s, i) => (
+                <div key={i} className="text-center rounded-lg p-2 border" style={{ background: `${s.color}08`, borderColor: `${s.color}15` }}>
+                  <div className="text-lg font-bold" style={{ color: s.color }}>{s.val}</div>
+                  <div className="text-[8px] text-slate-500 uppercase">{s.label}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-1.5 min-h-0">
+              {envios.length > 0 ? envios.slice(0, 6).map((e, i) => (
+                <div key={i} className="flex items-center gap-2 p-2 rounded-lg border text-[10px]" style={{ background: `${C.accent}03`, borderColor: C.border }}>
+                  <div className="w-1.5 h-1.5 rounded-full" style={{ background: e.status === 'ENTREGUE' ? C.success : e.status === 'EM_TRANSITO' ? C.warning : C.accent }} />
+                  <span className="font-semibold text-slate-300 w-16 truncate">{e.numero}</span>
+                  <span className="text-slate-500 flex-1 truncate">{e.destino}</span>
+                  <span className="text-slate-600">{e.peso.toFixed(1)}t</span>
+                </div>
+              )) : (
+                <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">Sem envios</div>
+              )}
+            </div>
+          </Glass>
+
+          {/* Estoque Status */}
+          <Glass className="p-5 flex flex-col">
+            <h3 className="text-sm font-bold text-cyan-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Package size={14} /> STATUS DE ESTOQUE
+            </h3>
+            <div className="flex-1 flex items-center justify-center min-h-0">
+              <div className="relative" style={{ width: 160, height: 160 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <RadialBarChart data={estoqueRadial} innerRadius="55%" outerRadius="90%" startAngle={90} endAngle={450}>
+                    <RadialBar background dataKey="value" cornerRadius={8}>
+                      {estoqueRadial.map((e, i) => <Cell key={i} fill={e.fill} />)}
+                    </RadialBar>
+                  </RadialBarChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-bold text-white">{estoque?.totalItens || 0}</span>
+                  <span className="text-[9px] text-slate-500">TOTAL</span>
+                </div>
+              </div>
+            </div>
+            <div className="space-y-2 mt-2">
+              {estoqueRadial.map((s, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full" style={{ background: s.fill }} />
+                  <span className="text-[10px] text-slate-400 flex-1">{s.name}</span>
+                  <span className="text-[10px] font-bold text-white">{s.value}</span>
+                  <div className="w-16 h-1 rounded-full overflow-hidden" style={{ background: `${C.dim}50` }}>
+                    <div className="h-full rounded-full" style={{ width: `${(estoque?.totalItens || 1) > 0 ? (s.value / (estoque?.totalItens || 1)) * 100 : 0}%`, background: s.fill }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-2 pt-2 border-t flex justify-between text-[9px] text-slate-600" style={{ borderColor: C.border }}>
+              <span>Valor: {fmtCurrency(estoque?.valorTotal || 0)}</span>
+              <span>Entradas hoje: {estoque?.entradasHoje || 0}</span>
+            </div>
+          </Glass>
+        </div>
+
+        {/* ═══ ROW 4: WORKERS + ALERTS ═══ */}
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4" style={{ minHeight: 280 }}>
+
+          {/* Produção por Funcionário */}
+          <Glass className="p-5 flex flex-col lg:col-span-2">
+            <h3 className="text-sm font-bold text-emerald-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Users size={14} /> PRODUÇÃO POR FUNCIONÁRIO
+            </h3>
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+              {prodWorkers.length > 0 ? prodWorkers.map((w, i) => {
+                const max = prodWorkers[0]?.total || 1;
+                return (
+                  <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.04 }} className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full flex items-center justify-center text-[8px] font-bold"
+                          style={{ background: `${C.accent}20`, color: C.accent }}>{i + 1}</div>
+                        <span className="font-medium text-slate-300 truncate max-w-[140px]">{w.nome}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {w.fabricacao > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${C.fabricacao}15`, color: C.fabricacao }}>Fab {w.fabricacao}</span>}
+                        {w.solda > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${C.solda}15`, color: C.solda }}>Sol {w.solda}</span>}
+                        {w.pintura > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${C.pintura}15`, color: C.pintura }}>Pin {w.pintura}</span>}
+                        {w.expedicao > 0 && <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${C.expedicao}15`, color: C.expedicao }}>Exp {w.expedicao}</span>}
+                        <span className="font-bold text-white min-w-[30px] text-right">{w.total}</span>
+                      </div>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden" style={{ background: `${C.dim}40` }}>
+                      <motion.div className="h-full rounded-full" initial={{ width: 0 }}
+                        animate={{ width: `${(w.total / max) * 100}%` }}
+                        transition={{ duration: 0.8, delay: i * 0.05 }}
+                        style={{ background: `linear-gradient(90deg, ${C.accent}, ${C.neon})` }} />
+                    </div>
+                  </motion.div>
+                );
+              }) : (
+                <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">Sem dados de produção</div>
+              )}
+            </div>
+          </Glass>
+
+          {/* Corte por Funcionário */}
+          <Glass className="p-5 flex flex-col lg:col-span-2">
+            <h3 className="text-sm font-bold text-amber-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <Zap size={14} /> CORTE POR FUNCIONÁRIO
+            </h3>
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+              {corteWorkers.length > 0 ? corteWorkers.map((w, i) => (
+                <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.04 }}
+                  className="p-2.5 rounded-lg border" style={{ background: `${C.corte}05`, borderColor: `${C.corte}10` }}>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-[11px] font-semibold text-slate-300">{w.nome}</span>
+                    <span className="text-xs font-bold" style={{ color: C.corte }}>{w.qtd} peças</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-[9px] text-slate-500">
+                    <span>Peso: {(w.peso / 1000).toFixed(2)}t</span>
+                    {w.maquinas?.length > 0 && <span>Máq: {w.maquinas.join(', ')}</span>}
+                  </div>
+                  <div className="flex gap-1 mt-1.5 flex-wrap">
+                    {(w.pecas || []).slice(0, 4).map((p, j) => (
+                      <span key={j} className="text-[8px] px-1.5 py-0.5 rounded border" style={{ borderColor: `${C.corte}20`, color: C.corte, background: `${C.corte}08` }}>
+                        {typeof p === 'string' ? p : (p.peca || p.marca || '-')}
+                      </span>
+                    ))}
+                    {(w.pecas || []).length > 4 && (
+                      <span className="text-[8px] text-slate-600">+{w.pecas.length - 4}</span>
+                    )}
+                  </div>
+                </motion.div>
+              )) : (
+                <div className="flex-1 flex items-center justify-center text-slate-600 text-xs">Sem dados de corte</div>
+              )}
+            </div>
+          </Glass>
+
+          {/* Alerts & System */}
+          <Glass className="p-5 flex flex-col lg:col-span-1">
+            <h3 className="text-sm font-bold text-red-300 tracking-wider uppercase mb-3 flex items-center gap-2">
+              <AlertTriangle size={14} /> ALERTAS
+            </h3>
+            <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+              {alertas.map((a, i) => {
+                const Icon = a.icon;
+                return (
+                  <motion.div key={i} initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    className="flex items-start gap-2 p-2.5 rounded-lg border-l-2" style={{ background: `${a.color}06`, borderLeftColor: a.color }}>
+                    <Icon size={12} style={{ color: a.color, marginTop: 2, flexShrink: 0 }} />
+                    <span className="text-[10px] text-slate-300 leading-tight">{a.msg}</span>
+                  </motion.div>
+                );
+              })}
+            </div>
+            {/* System Status */}
+            <div className="mt-3 pt-3 space-y-2 border-t" style={{ borderColor: C.border }}>
+              <div className="flex items-center gap-2 text-[10px]">
+                <motion.div className="w-1.5 h-1.5 rounded-full" animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }} style={{ background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
+                <span className="text-slate-500">Supabase Conectado</span>
+              </div>
+              <div className="flex items-center gap-2 text-[10px]">
+                <motion.div className="w-1.5 h-1.5 rounded-full" animate={{ scale: [1, 1.3, 1] }}
+                  transition={{ duration: 1, repeat: Infinity }} style={{ background: C.success, boxShadow: `0 0 6px ${C.success}` }} />
+                <span className="text-slate-500">Tempo Real Ativo</span>
+              </div>
+              <div className="flex items-center gap-2 text-[10px]">
+                <Clock size={10} style={{ color: C.muted }} />
+                <span className="text-slate-500">Sync: {lastUpdate ? new Date(lastUpdate).toLocaleTimeString('pt-BR') : '—'}</span>
+              </div>
+            </div>
+          </Glass>
+        </div>
+      </main>
+
+      {/* ═══ FOOTER ═══ */}
+      <footer className="border-t px-8 py-2 flex items-center justify-between text-[10px] text-slate-600" style={{ borderColor: C.border, background: 'rgba(3,7,18,0.9)' }}>
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.success, boxShadow: `0 0 4px ${C.success}` }} />
+            <span>Supabase</span>
           </div>
-          <div className="flex items-center gap-4">
-            <span className="text-[9px] text-slate-500">Atualizado: {ccLastUpdate ? ccLastUpdate.toLocaleTimeString('pt-BR') : currentTime.toLocaleTimeString('pt-BR')}</span>
-            <span className="text-[9px] text-slate-600">|</span>
-            <span className="text-[9px] text-slate-500">MONTEX ERP v6.0.1</span>
-            <span className="text-[9px] text-slate-600">|</span>
-            <motion.span
-              className="text-[9px] font-mono text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/30"
-              animate={{ opacity: [0.7, 1, 0.7] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              5120×1440 • 49" SUPER ULTRAWIDE
-            </motion.span>
+          <div className="flex items-center gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ background: C.success, boxShadow: `0 0 4px ${C.success}` }} />
+            <span>Realtime</span>
           </div>
-        </motion.div>
-      </div>
+          <span>Última sync: {lastUpdate ? new Date(lastUpdate).toLocaleTimeString('pt-BR') : '—'}</span>
+        </div>
+        <span className="text-sky-400 font-bold tracking-wider">MONTEX ERP v5 — ULTRAWIDE</span>
+      </footer>
     </div>
   );
 }
