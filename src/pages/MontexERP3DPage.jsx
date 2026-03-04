@@ -818,12 +818,12 @@ export default function MontexERP3DPage({ obraAtualData }) {
     });
   }, [typeFilter, statusFilter, searchText, ifcElements, statusMap, showFasteners]);
 
-  const handleFile = useCallback(async (file) => {
+  const handleFile = useCallback(async (file, { skipUpload = false } = {}) => {
     if (!file || !file.name.match(/\.ifc$/i)) return;
     setShowUpload(false);
     setLoading(true);
     setProgress(0);
-    setProgressText('Lendo arquivo...');
+    setProgressText(skipUpload ? 'Carregando modelo salvo...' : 'Lendo arquivo...');
     setLoadingStage('');
 
     try {
@@ -860,11 +860,13 @@ export default function MontexERP3DPage({ obraAtualData }) {
       setModelLoaded(true);
       setLoadingStage('');
 
-      // Persistir: IndexedDB (cache local) + Supabase Storage (online)
+      // Persistir: IndexedDB (cache local) + Supabase Storage (online, so em upload manual)
       saveIFCToLocal(file.name, buffer);
-      uploadIFCToSupabase(buffer).then(ok => {
-        if (ok) console.log('IFC persistido online com sucesso');
-      });
+      if (!skipUpload) {
+        uploadIFCToSupabase(buffer).then(ok => {
+          if (ok) console.log('IFC persistido online com sucesso');
+        });
+      }
     } catch (err) {
       console.error('Erro ao processar IFC:', err);
       setProgressText('Erro: ' + err.message);
@@ -886,7 +888,7 @@ export default function MontexERP3DPage({ obraAtualData }) {
       if (local && local.buffer) {
         console.log('Auto-load: IFC encontrado no IndexedDB:', local.fileName);
         const fakeFile = new File([local.buffer], local.fileName || 'model.ifc');
-        handleFile(fakeFile);
+        handleFile(fakeFile, { skipUpload: true });
         return;
       }
 
@@ -897,7 +899,7 @@ export default function MontexERP3DPage({ obraAtualData }) {
         console.log('Auto-load: IFC baixado do Supabase Storage');
         saveIFCToLocal('model.ifc', buffer);
         const fakeFile = new File([buffer], 'model.ifc');
-        handleFile(fakeFile);
+        handleFile(fakeFile, { skipUpload: true });
         return;
       }
 
