@@ -39,8 +39,9 @@ const STATUS_CONFIG = {
   MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',        hex: '#22c55e', opacity: 1.0 },
 };
 
-// IFC type IDs (from IFC2x3/IFC4 spec - same across web-ifc versions)
+// IFC type IDs (from IFC2x3/IFC4 spec - web-ifc v0.0.76)
 const IFC_TYPES = {
+  // Estrutura Principal (Etapa 1)
   IFCBEAM: 753842376,
   IFCCOLUMN: 3495092785,
   IFCPLATE: 3171933400,
@@ -51,6 +52,11 @@ const IFC_TYPES = {
   IFCSTAIRFLIGHT: 4252922144,
   IFCRAILING: 2262370178,
   IFCFOOTING: 900683007,
+  // Detalhes e Conexoes (Etapa 2)
+  IFCMECHANICALFASTENER: 377706215,
+  IFCELEMENTASSEMBLY: 4123344466,
+  IFCFASTENER: 647756555,
+  IFCDISCRETEACCESSORY: 1335981549,
 };
 
 const IFC_TYPE_NAMES = {
@@ -64,32 +70,52 @@ const IFC_TYPE_NAMES = {
   [IFC_TYPES.IFCSTAIRFLIGHT]: 'Escada',
   [IFC_TYPES.IFCRAILING]: 'Guarda-corpo',
   [IFC_TYPES.IFCFOOTING]: 'Fundacao',
+  [IFC_TYPES.IFCMECHANICALFASTENER]: 'Parafuso',
+  [IFC_TYPES.IFCELEMENTASSEMBLY]: 'Conjunto',
+  [IFC_TYPES.IFCFASTENER]: 'Fixador',
+  [IFC_TYPES.IFCDISCRETEACCESSORY]: 'Acessorio',
 };
 
-const STRUCTURAL_TYPES = Object.values(IFC_TYPES);
+// Etapa 1: Estrutura principal (vigas, colunas, chapas)
+const PRIMARY_TYPES = [
+  IFC_TYPES.IFCBEAM,
+  IFC_TYPES.IFCCOLUMN,
+  IFC_TYPES.IFCPLATE,
+  IFC_TYPES.IFCSLAB,
+  IFC_TYPES.IFCWALL,
+  IFC_TYPES.IFCMEMBER,
+  IFC_TYPES.IFCROOF,
+  IFC_TYPES.IFCSTAIRFLIGHT,
+  IFC_TYPES.IFCRAILING,
+  IFC_TYPES.IFCFOOTING,
+];
+
+// Etapa 2: Conexoes e detalhes (parafusos, assemblies)
+const SECONDARY_TYPES = [
+  IFC_TYPES.IFCMECHANICALFASTENER,
+  IFC_TYPES.IFCELEMENTASSEMBLY,
+  IFC_TYPES.IFCFASTENER,
+  IFC_TYPES.IFCDISCRETEACCESSORY,
+];
+
+const ALL_TYPES = [...PRIMARY_TYPES, ...SECONDARY_TYPES];
 
 // ==============================================
 // IFC PARSER - Extrai geometria via web-ifc
 // ==============================================
 
-async function parseIFCFile(fileBuffer, onProgress) {
-  const WebIFC = await getWebIFC();
-  const ifcAPI = new WebIFC.IfcAPI();
-  ifcAPI.SetWasmPath('/');
-  await ifcAPI.Init();
-  onProgress?.(10, 'Abrindo modelo IFC...');
-
-  const data = new Uint8Array(fileBuffer);
-  const modelID = ifcAPI.OpenModel(data);
-  onProgress?.(25, 'Modelo aberto. Extraindo elementos...');
-
+// Extrai geometria de um conjunto de tipos IFC
+function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgress, pctStart, pctEnd) {
   const elements = [];
   let processed = 0;
-  const totalTypes = STRUCTURAL_TYPES.length;
+  const totalTypes = types.length;
 
-  for (const ifcType of STRUCTURAL_TYPES) {
+  for (const ifcType of types) {
+    const typeName = IFC_TYPE_NAMES[ifcType] || 'Outro';
     const ids = ifcAPI.GetLineIDsWithType(modelID, ifcType);
-    for (let i = 0; i < ids.size(); i++) {
+    const count = ids.size();
+
+    for (let i = 0; i < count; i++) {
       const expressID = ids.get(i);
       let props = {};
       try {
@@ -121,25 +147,60 @@ async function parseIFCFile(fileBuffer, onProgress) {
         elements.push({
           expressID,
           ifcType,
-          typeName: IFC_TYPE_NAMES[ifcType] || 'Outro',
+          typeName,
           name,
           globalId,
           description,
           geometry,
+          isPrimary: PRIMARY_TYPES.includes(ifcType),
         });
       }
     }
     processed++;
-    const pct = 25 + Math.round((processed / totalTypes) * 60);
-    onProgress?.(pct, `Processando ${IFC_TYPE_NAMES[ifcType] || 'tipo'}... (${elements.length} elementos)`);
+    const pct = pctStart + Math.round((processed / totalTypes) * (pctEnd - pctStart));
+    const total = existingCount + elements.length;
+    onProgress?.(pct, `${typeName}: ${count} encontrados (${total} total)`);
   }
 
-  onProgress?.(90, `Finalizando... ${elements.length} elementos extraidos`);
+  return elements;
+}
+
+// Parser principal com carregamento em 2 etapas
+async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
+  const WebIFC = await getWebIFC();
+  const ifcAPI = new WebIFC.IfcAPI();
+  ifcAPI.SetWasmPath('/');
+  await ifcAPI.Init();
+  onProgress?.(5, 'WASM inicializado. Abrindo modelo...');
+
+  const data = new Uint8Array(fileBuffer);
+  const modelID = ifcAPI.OpenModel(data);
+  onProgress?.(15, 'Modelo aberto. Etapa 1: Estrutura principal...');
+
+  // ETAPA 1: Estrutura principal (vigas, colunas, chapas)
+  const primaryElements = extractElementsForTypes(
+    ifcAPI, modelID, PRIMARY_TYPES, 0, onProgress, 15, 60
+  );
+  onProgress?.(60, `Etapa 1 concluida: ${primaryElements.length} elementos estruturais`);
+
+  // Notifica que a estrutura principal esta pronta para renderizar
+  onStageComplete?.('primary', primaryElements);
+
+  // ETAPA 2: Detalhes e conexoes (parafusos, assemblies)
+  onProgress?.(62, 'Etapa 2: Conexoes e detalhes...');
+  const secondaryElements = extractElementsForTypes(
+    ifcAPI, modelID, SECONDARY_TYPES, primaryElements.length, onProgress, 62, 90
+  );
+  onProgress?.(90, `Etapa 2 concluida: ${secondaryElements.length} conexoes/detalhes`);
+
+  const allElements = [...primaryElements, ...secondaryElements];
+
+  onProgress?.(95, `Finalizando... ${allElements.length} elementos totais`);
   ifcAPI.CloseModel(modelID);
   ifcAPI.delete?.();
-  onProgress?.(100, 'Concluido!');
+  onProgress?.(100, `Concluido! ${allElements.length} elementos carregados`);
 
-  return elements;
+  return allElements;
 }
 
 // ==============================================
@@ -240,6 +301,57 @@ class SceneManager {
     this.renderer.setSize(w, h);
   }
 
+  // Cria mesh Three.js a partir de um elemento IFC
+  _createMesh(el) {
+    const { verts, indices, transform } = el.geometry;
+    if (!verts || !indices || verts.length === 0 || indices.length === 0) return null;
+
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(indices.length * 3);
+    const normals = new Float32Array(indices.length * 3);
+
+    for (let i = 0; i < indices.length; i++) {
+      const idx = indices[i];
+      positions[i * 3] = verts[idx * 6];
+      positions[i * 3 + 1] = verts[idx * 6 + 1];
+      positions[i * 3 + 2] = verts[idx * 6 + 2];
+      normals[i * 3] = verts[idx * 6 + 3];
+      normals[i * 3 + 1] = verts[idx * 6 + 4];
+      normals[i * 3 + 2] = verts[idx * 6 + 5];
+    }
+
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+
+    const defaultColor = new THREE.Color(0.6, 0.65, 0.7);
+    const mat = new THREE.MeshStandardMaterial({
+      color: defaultColor.clone(),
+      roughness: 0.5,
+      metalness: 0.6,
+      transparent: true,
+      opacity: el.isPrimary ? 0.85 : 0.6,
+      side: THREE.DoubleSide,
+    });
+
+    const mesh = new THREE.Mesh(geom, mat);
+
+    if (transform && transform.length >= 16) {
+      const m4 = new THREE.Matrix4();
+      m4.set(
+        transform[0], transform[4], transform[8], transform[12],
+        transform[1], transform[5], transform[9], transform[13],
+        transform[2], transform[6], transform[10], transform[14],
+        transform[3], transform[7], transform[11], transform[15]
+      );
+      mesh.applyMatrix4(m4);
+    }
+
+    mesh.castShadow = el.isPrimary;
+    mesh.receiveShadow = true;
+    mesh.userData = { element: el, expressID: el.expressID };
+    return mesh;
+  }
+
   loadElements(elements) {
     // Clear previous
     this.allMeshes.forEach(m => {
@@ -250,57 +362,24 @@ class SceneManager {
     this.allMeshes = [];
     this.meshMap.clear();
 
-    const defaultColor = new THREE.Color(0.6, 0.65, 0.7);
+    this._addElementsInternal(elements, true);
+  }
+
+  // Adiciona elementos incrementalmente (sem limpar os existentes)
+  addElements(elements) {
+    this._addElementsInternal(elements, false);
+  }
+
+  _addElementsInternal(elements, centerCamera) {
     const bbox = new THREE.Box3();
+    // Include existing meshes in bbox if not centering fresh
+    if (!centerCamera) {
+      for (const m of this.allMeshes) bbox.expandByObject(m);
+    }
 
     for (const el of elements) {
-      const { verts, indices, transform } = el.geometry;
-      if (!verts || !indices || verts.length === 0 || indices.length === 0) continue;
-
-      const geom = new THREE.BufferGeometry();
-      // web-ifc returns 6 floats per vertex: x,y,z, nx,ny,nz
-      const positions = new Float32Array(indices.length * 3);
-      const normals = new Float32Array(indices.length * 3);
-
-      for (let i = 0; i < indices.length; i++) {
-        const idx = indices[i];
-        positions[i * 3] = verts[idx * 6];
-        positions[i * 3 + 1] = verts[idx * 6 + 1];
-        positions[i * 3 + 2] = verts[idx * 6 + 2];
-        normals[i * 3] = verts[idx * 6 + 3];
-        normals[i * 3 + 1] = verts[idx * 6 + 4];
-        normals[i * 3 + 2] = verts[idx * 6 + 5];
-      }
-
-      geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-      geom.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
-
-      const mat = new THREE.MeshStandardMaterial({
-        color: defaultColor.clone(),
-        roughness: 0.5,
-        metalness: 0.6,
-        transparent: true,
-        opacity: 0.85,
-        side: THREE.DoubleSide,
-      });
-
-      const mesh = new THREE.Mesh(geom, mat);
-
-      // Apply IFC transform
-      if (transform && transform.length >= 16) {
-        const m4 = new THREE.Matrix4();
-        m4.set(
-          transform[0], transform[4], transform[8], transform[12],
-          transform[1], transform[5], transform[9], transform[13],
-          transform[2], transform[6], transform[10], transform[14],
-          transform[3], transform[7], transform[11], transform[15]
-        );
-        mesh.applyMatrix4(m4);
-      }
-
-      mesh.castShadow = true;
-      mesh.receiveShadow = true;
-      mesh.userData = { element: el, expressID: el.expressID };
+      const mesh = this._createMesh(el);
+      if (!mesh) continue;
 
       this.scene.add(mesh);
       this.allMeshes.push(mesh);
@@ -309,7 +388,7 @@ class SceneManager {
     }
 
     // Center camera on model
-    if (this.allMeshes.length > 0) {
+    if (centerCamera && this.allMeshes.length > 0) {
       const center = new THREE.Vector3();
       const size = new THREE.Vector3();
       bbox.getCenter(center);
@@ -344,13 +423,17 @@ class SceneManager {
       'Laje': new THREE.Color(0x8b5cf6),
       'Elemento': new THREE.Color(0x06b6d4),
       'Cobertura': new THREE.Color(0x10b981),
+      'Parafuso': new THREE.Color(0x94a3b8),
+      'Conjunto': new THREE.Color(0xfbbf24),
+      'Fixador': new THREE.Color(0xa78bfa),
+      'Acessorio': new THREE.Color(0xfb923c),
       'Outro': new THREE.Color(0x6b7280),
     };
     for (const mesh of this.allMeshes) {
       const typeName = mesh.userData.element?.typeName || 'Outro';
       const c = typeColors[typeName] || typeColors['Outro'];
       mesh.material.color.copy(c);
-      mesh.material.opacity = 0.85;
+      mesh.material.opacity = mesh.userData.element?.isPrimary ? 0.85 : 0.6;
       mesh.material.needsUpdate = true;
     }
   }
@@ -440,6 +523,8 @@ export default function MontexERP3DPage({ obraAtualData }) {
   const [erpLoading, setErpLoading] = useState(true);
   const [modelLoaded, setModelLoaded] = useState(false);
   const [searchText, setSearchText] = useState('');
+  const [showFasteners, setShowFasteners] = useState(false);
+  const [loadingStage, setLoadingStage] = useState(''); // 'primary' | 'secondary' | ''
 
   const fileInputRef = useRef(null);
 
@@ -548,12 +633,47 @@ export default function MontexERP3DPage({ obraAtualData }) {
   }, [statusMap, colorMode, ifcElements]);
 
   // ==============================================
+  // TOGGLE FASTENERS (parafusos) - carrega sob demanda
+  // ==============================================
+  useEffect(() => {
+    const sm = sceneManagerRef.current;
+    if (!sm || ifcElements.length === 0) return;
+
+    const fastenerIDs = new Set(
+      ifcElements.filter(el => el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER).map(el => el.expressID)
+    );
+    if (fastenerIDs.size === 0) return;
+
+    if (showFasteners) {
+      // Adicionar parafusos que ainda nao estao no scene
+      const missing = ifcElements.filter(el =>
+        el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER && !sm.meshMap.has(el.expressID)
+      );
+      if (missing.length > 0) {
+        sm.addElements(missing);
+        applyColorsToScene(sm, ifcElements);
+      }
+      // Garantir visibilidade
+      for (const [id, mesh] of sm.meshMap.entries()) {
+        if (fastenerIDs.has(id)) mesh.visible = true;
+      }
+    } else {
+      // Esconder parafusos
+      for (const [id, mesh] of sm.meshMap.entries()) {
+        if (fastenerIDs.has(id)) mesh.visible = false;
+      }
+    }
+  }, [showFasteners, ifcElements, applyColorsToScene]);
+
+  // ==============================================
   // APPLY FILTERS
   // ==============================================
   useEffect(() => {
     const sm = sceneManagerRef.current;
     if (!sm || ifcElements.length === 0) return;
     sm.setVisibility(el => {
+      // Parafusos controlados pelo toggle separado
+      if (el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER) return showFasteners;
       if (typeFilter !== 'ALL' && el.typeName !== typeFilter) return false;
       if (statusFilter !== 'ALL') {
         const st = statusMap.get(el.expressID) || 'NAO_INICIADO';
@@ -565,61 +685,80 @@ export default function MontexERP3DPage({ obraAtualData }) {
       }
       return true;
     });
-  }, [typeFilter, statusFilter, searchText, ifcElements, statusMap]);
+  }, [typeFilter, statusFilter, searchText, ifcElements, statusMap, showFasteners]);
 
   // ==============================================
   // IFC FILE HANDLING
   // ==============================================
+  // Helper para aplicar cores ERP a um set de elementos
+  const applyColorsToScene = useCallback((sm, elements) => {
+    if (!sm) return;
+    if (colorMode === 'status') {
+      const newMap = new Map();
+      for (const el of elements) {
+        const elName = (el.name || '').toUpperCase().trim();
+        for (const peca of erpPecas) {
+          const marca = (peca.marca || '').toUpperCase().trim();
+          if (!marca) continue;
+          if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
+            newMap.set(el.expressID, peca.status);
+            break;
+          }
+        }
+      }
+      sm.applyStatusColors(newMap);
+    } else {
+      sm.applyTypeColors();
+    }
+  }, [erpPecas, colorMode]);
+
   const handleFile = useCallback(async (file) => {
     if (!file || !file.name.match(/\.ifc$/i)) return;
     setShowUpload(false);
     setLoading(true);
     setProgress(0);
     setProgressText('Lendo arquivo...');
+    setLoadingStage('');
 
     try {
       const buffer = await file.arrayBuffer();
       setProgressText('Inicializando parser IFC...');
       setProgress(5);
 
+      const sm = sceneManagerRef.current;
+
       const elements = await parseIFCFile(buffer, (pct, txt) => {
         setProgress(pct);
         setProgressText(txt);
+      }, (stage, stageElements) => {
+        // Callback de etapa - renderiza progressivamente
+        if (stage === 'primary' && sm) {
+          setLoadingStage('primary');
+          // Carrega estrutura principal imediatamente
+          sm.loadElements(stageElements);
+          applyColorsToScene(sm, stageElements);
+          setProgressText(`Estrutura principal renderizada (${stageElements.length} elementos). Carregando detalhes...`);
+        }
       });
+
+      // Etapa 2: Adicionar elementos secundarios (exceto parafusos por padrao)
+      const secondaryOnly = elements.filter(el => !el.isPrimary);
+      const withoutFasteners = secondaryOnly.filter(el => el.ifcType !== IFC_TYPES.IFCMECHANICALFASTENER);
+
+      if (sm && withoutFasteners.length > 0) {
+        sm.addElements(withoutFasteners);
+        applyColorsToScene(sm, elements);
+      }
 
       setIfcElements(elements);
       setModelLoaded(true);
-
-      // Load into Three.js
-      const sm = sceneManagerRef.current;
-      if (sm) {
-        sm.loadElements(elements);
-        // Apply status colors
-        if (colorMode === 'status') {
-          // Rebuild status map with new elements
-          const newMap = new Map();
-          for (const el of elements) {
-            const elName = (el.name || '').toUpperCase().trim();
-            for (const peca of erpPecas) {
-              const marca = (peca.marca || '').toUpperCase().trim();
-              if (!marca) continue;
-              if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
-                newMap.set(el.expressID, peca.status);
-                break;
-              }
-            }
-          }
-          sm.applyStatusColors(newMap);
-        } else {
-          sm.applyTypeColors();
-        }
-      }
+      setLoadingStage('');
     } catch (err) {
       console.error('Erro ao processar IFC:', err);
       setProgressText('Erro: ' + err.message);
     }
     setLoading(false);
-  }, [erpPecas, colorMode]);
+  }, [erpPecas, colorMode, applyColorsToScene]);
 
   // ==============================================
   // MOUSE INTERACTION
@@ -699,6 +838,15 @@ export default function MontexERP3DPage({ obraAtualData }) {
                   Tipo IFC
                 </button>
               </div>
+
+              {/* Toggle Fasteners */}
+              {modelLoaded && (
+                <button onClick={() => setShowFasteners(!showFasteners)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${showFasteners ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'}`}
+                  title="Mostrar/ocultar parafusos e conectores">
+                  {showFasteners ? '🔩 Parafusos ON' : '🔩 Parafusos OFF'}
+                </button>
+              )}
 
               {/* Upload IFC */}
               <button onClick={() => setShowUpload(true)}
@@ -881,10 +1029,12 @@ export default function MontexERP3DPage({ obraAtualData }) {
 
             {/* Loading Overlay */}
             {loading && (
-              <div className="absolute inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-30">
+              <div className={`absolute inset-0 flex items-center justify-center z-30 ${loadingStage === 'primary' ? 'bg-black/40 pointer-events-none' : 'bg-black/80 backdrop-blur-sm'}`}>
                 <div className="text-center max-w-md w-full px-8">
-                  <div className="text-5xl mb-4 animate-pulse">⚙️</div>
-                  <h3 className="text-white text-xl font-bold mb-4">Processando Modelo IFC</h3>
+                  <div className="text-5xl mb-4 animate-pulse">{loadingStage === 'primary' ? '🏗️' : '⚙️'}</div>
+                  <h3 className="text-white text-xl font-bold mb-4">
+                    {loadingStage === 'primary' ? 'Carregando Detalhes...' : 'Processando Modelo IFC'}
+                  </h3>
                   <div className="w-full h-3 bg-white/10 rounded-full overflow-hidden mb-3">
                     <div className="h-full bg-gradient-to-r from-cyan-500 to-emerald-500 rounded-full transition-all duration-300" style={{ width: progress + '%' }} />
                   </div>
