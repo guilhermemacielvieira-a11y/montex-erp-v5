@@ -135,11 +135,22 @@ export function useCommandCenter() {
         updatedAt: i.updated_at,
       });
 
+      // Peças pós-pintura prontas para envio (etapa pintura com status finalizado/concluido, ou etapa expedicao)
+      const prontasEnvio = items.filter(i => {
+        const etapa = i.etapa || '';
+        const status = (i.status || '').toLowerCase();
+        // Peças já na expedição
+        if (etapa === 'expedicao' || etapa === 'expedido') return true;
+        // Peças na pintura que já foram finalizadas (prontas para envio)
+        if (etapa === 'pintura' && (status === 'finalizado' || status === 'concluido' || status === 'pronto')) return true;
+        return false;
+      });
+
       const porSetor = {
         fabricacao: fabricacao.map(mapPeca),
         solda: solda.map(mapPeca),
         pintura: pintura.map(mapPeca),
-        expedicao: expedicao.map(mapPeca),
+        expedicao: prontasEnvio.map(mapPeca),
         entregue: entregue.map(mapPeca),
       };
 

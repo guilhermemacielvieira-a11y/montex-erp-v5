@@ -42,7 +42,7 @@ const SETOR_LABELS = {
   fabricacao: 'Fabricação',
   solda: 'Solda',
   pintura: 'Pintura',
-  expedicao: 'Expedição',
+  expedicao: 'Pronta p/ Envio',
   corte: 'Corte',
 };
 
@@ -318,6 +318,28 @@ export default function CommandCenterUltra() {
     })).filter(s => s.total > 0);
   }, [producao?.porSetor]);
 
+  // Peças entregues em obra (etapa entregue + expedições entregues)
+  const pecasEntregues = useMemo(() => {
+    const entregues = producao?.porSetor?.entregue || [];
+    const expItems = campo?.items || [];
+    const expEntregues = expItems.filter(i => (i.status || '').toUpperCase() === 'ENTREGUE');
+    return {
+      pecas: entregues,
+      totalPecas: entregues.length,
+      pesoTotal: entregues.reduce((s, p) => s + (p.peso || 0), 0),
+      envios: expEntregues.map(e => ({
+        id: e.id,
+        numero: e.numero_romaneio || '-',
+        data: e.data_expedicao || e.created_at || '',
+        peso: parseFloat(e.peso_total) || 0,
+        pecas: typeof e.pecas === 'number' ? e.pecas : (Array.isArray(e.pecas) ? e.pecas.length : parseInt(e.pecas) || 0),
+        transportadora: e.transportadora || '-',
+        destino: e.destino || '-',
+      })),
+      totalEnvios: expEntregues.length,
+    };
+  }, [producao?.porSetor?.entregue, campo?.items]);
+
   // Gráfico comparativo financeiro
   const financeiroChart = useMemo(() => [
     { name: 'Contrato', valor: valorContrato, fill: '#3B82F6' },
@@ -548,6 +570,96 @@ export default function CommandCenterUltra() {
             </div>
           </SectionCard>
         </div>
+
+        {/* ROW 3.5: PEÇAS ENTREGUES EM OBRA */}
+        {(pecasEntregues.totalPecas > 0 || pecasEntregues.totalEnvios > 0) && (
+          <SectionCard title="Peças Entregues em Obra" icon={CheckCircle}>
+            <div className="space-y-4">
+              {/* Resumo */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                  <div className="text-xl font-bold text-emerald-400">{pecasEntregues.totalPecas}</div>
+                  <div className="text-[10px] text-slate-400">Peças Entregues</div>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                  <div className="text-xl font-bold text-blue-400">{formatWeight(pecasEntregues.pesoTotal)}</div>
+                  <div className="text-[10px] text-slate-400">Peso Entregue</div>
+                </div>
+                <div className="text-center p-3 rounded-lg bg-purple-500/5 border border-purple-500/10">
+                  <div className="text-xl font-bold text-purple-400">{pecasEntregues.totalEnvios}</div>
+                  <div className="text-[10px] text-slate-400">Envios Entregues</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                {/* Lista de peças entregues */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Peças Entregues ({pecasEntregues.totalPecas})</div>
+                  <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+                    {pecasEntregues.pecas.length > 0 ? pecasEntregues.pecas.slice(0, 20).map((p, i) => (
+                      <motion.div key={p.id || i}
+                        initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.03 }}
+                        className="flex items-center justify-between p-2 rounded-lg bg-slate-800/20 border border-slate-700/20"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <CheckCircle size={12} className="text-emerald-400 flex-shrink-0" />
+                          <span className="text-[11px] text-slate-200 truncate">{p.nome}</span>
+                          {p.tipo !== '-' && <span className="text-[9px] text-slate-500 flex-shrink-0">{p.tipo}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {p.peso > 0 && <span className="text-[10px] text-blue-400 font-medium">{p.peso.toFixed(0)}kg</span>}
+                          <span className="text-[9px] text-slate-500">{p.resp}</span>
+                        </div>
+                      </motion.div>
+                    )) : (
+                      <div className="text-center py-4 text-slate-500 text-xs">Nenhuma peça entregue registrada</div>
+                    )}
+                    {pecasEntregues.totalPecas > 20 && (
+                      <div className="text-center py-2 text-[10px] text-slate-500">+{pecasEntregues.totalPecas - 20} peças adicionais</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lista de envios entregues */}
+                <div className="space-y-2">
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Envios Entregues ({pecasEntregues.totalEnvios})</div>
+                  <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+                    {pecasEntregues.envios.length > 0 ? pecasEntregues.envios.map((env, i) => (
+                      <motion.div key={env.id || i}
+                        initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: i * 0.05 }}
+                        className="p-2.5 rounded-lg border bg-emerald-500/5 border-emerald-500/10"
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-white">ROM {env.numero}</span>
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium text-emerald-400 bg-emerald-500/10">ENTREGUE</span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                          <div className="text-[10px] text-slate-400">
+                            <span className="text-slate-500">Data:</span> <span className="text-slate-300">{env.data ? env.data.slice(0, 10) : '-'}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            <span className="text-slate-500">Destino:</span> <span className="text-slate-300">{env.destino}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            <span className="text-slate-500">Transp:</span> <span className="text-slate-300">{env.transportadora}</span>
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            <span className="text-slate-500">Peso:</span> <span className="text-blue-400 font-medium">{formatWeight(env.peso)}</span>
+                            <span className="text-slate-500 ml-2">Peças:</span> <span className="text-cyan-400 font-medium">{env.pecas}</span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )) : (
+                      <div className="text-center py-4 text-slate-500 text-xs">Nenhum envio entregue registrado</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </SectionCard>
+        )}
 
         {/* ROW 4: PRODUÇÃO POR FUNCIONÁRIO */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
