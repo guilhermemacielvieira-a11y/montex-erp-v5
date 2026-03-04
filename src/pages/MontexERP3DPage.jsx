@@ -26,6 +26,102 @@ async function getWebIFC() {
 }
 
 // ==============================================
+// INDEXEDDB - Persistencia do arquivo IFC
+// ==============================================
+const IFC_DB_NAME = 'MontexIFC';
+const IFC_DB_VERSION = 1;
+const IFC_STORE = 'ifcFiles';
+
+function openIFCDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IFC_DB_NAME, IFC_DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IFC_STORE)) {
+        db.createObjectStore(IFC_STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function saveIFCToLocal(fileName, buffer) {
+  try {
+    const db = await openIFCDB();
+    const tx = db.transaction(IFC_STORE, 'readwrite');
+    tx.objectStore(IFC_STORE).put({
+      id: 'current',
+      fileName,
+      buffer,
+      savedAt: Date.now(),
+    });
+    await new Promise((resolve, reject) => {
+      tx.oncomplete = resolve;
+      tx.onerror = reject;
+    });
+    db.close();
+    console.log('IFC salvo no IndexedDB:', fileName);
+  } catch (e) {
+    console.warn('Erro ao salvar IFC no IndexedDB:', e);
+  }
+}
+
+async function loadIFCFromLocal() {
+  try {
+    const db = await openIFCDB();
+    const tx = db.transaction(IFC_STORE, 'readonly');
+    const req = tx.objectStore(IFC_STORE).get('current');
+    const result = await new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    db.close();
+    return result || null;
+  } catch (e) {
+    console.warn('Erro ao ler IFC do IndexedDB:', e);
+    return null;
+  }
+}
+
+// ==============================================
+// SUPABASE STORAGE - Persistencia online do IFC
+// ==============================================
+const SUPABASE_STORAGE_BUCKET = 'ifc-models';
+const SUPABASE_IFC_PATH = 'current-model.ifc';
+
+async function uploadIFCToSupabase(buffer) {
+  try {
+    const blob = new Blob([buffer], { type: 'application/octet-stream' });
+    const { error } = await supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .upload(SUPABASE_IFC_PATH, blob, { upsert: true, cacheControl: '3600' });
+    if (error) throw error;
+    console.log('IFC uploaded to Supabase Storage');
+    return true;
+  } catch (e) {
+    console.warn('Erro ao enviar IFC para Supabase:', e);
+    return false;
+  }
+}
+
+async function downloadIFCFromSupabase() {
+  try {
+    const { data, error } = await supabase.storage
+      .from(SUPABASE_STORAGE_BUCKET)
+      .download(SUPABASE_IFC_PATH);
+    if (error) throw error;
+    if (!data) return null;
+    const buffer = await data.arrayBuffer();
+    console.log('IFC downloaded from Supabase Storage:', (buffer.byteLength / 1024 / 1024).toFixed(1), 'MB');
+    return buffer;
+  } catch (e) {
+    console.warn('Erro ao baixar IFC do Supabase:', e);
+    return null;
+  }
+}
+
+// ==============================================
 // CONFIGURACOES DE STATUS ERP
 // ==============================================
 
@@ -630,6 +726,45 @@ export default function MontexERP3DPage({ obraAtualData }) {
   }, []);
 
   // ==============================================
+  // AUTO-LOAD IFC: IndexedDB cache -> Supabase Storage fallback
+  // ==============================================
+  useEffect(() => {
+    if (modelLoaded || loading) return; // ja carregado ou carregando
+    let cancelled = false;
+
+    async function autoLoad() {
+      // 1. Tentar IndexedDB (cache local rapido)
+      const local = await loadIFCFromLocal();
+      if (local && local.buffer && !cancelled) {
+        console.log('Auto-load: IFC encontrado no IndexedDB:', local.fileName);
+        const fakeFile = new File([local.buffer], local.fileName || 'model.ifc');
+        handleFile(fakeFile);
+        return;
+      }
+
+      // 2. Fallback: Supabase Storage (online)
+      console.log('Auto-load: Tentando Supabase Storage...');
+      const buffer = await downloadIFCFromSupabase();
+      if (buffer && !cancelled) {
+        console.log('Auto-load: IFC baixado do Supabase Storage');
+        // Salvar no IndexedDB para proxima vez
+        saveIFCToLocal('model.ifc', buffer);
+        const fakeFile = new File([buffer], 'model.ifc');
+        handleFile(fakeFile);
+        return;
+      }
+
+      if (!cancelled) {
+        console.log('Auto-load: Nenhum IFC persistido encontrado');
+      }
+    }
+
+    // Aguardar SceneManager estar pronto
+    const timer = setTimeout(autoLoad, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [modelLoaded, loading, handleFile]);
+
+  // ==============================================
   // APPLY COLORS WHEN STATUS MAP OR COLOR MODE CHANGES
   // ==============================================
   useEffect(() => {
@@ -763,6 +898,12 @@ export default function MontexERP3DPage({ obraAtualData }) {
       setIfcElements(elements);
       setModelLoaded(true);
       setLoadingStage('');
+
+      // Persistir: IndexedDB (cache local) + Supabase Storage (online)
+      saveIFCToLocal(file.name, buffer);
+      uploadIFCToSupabase(buffer).then(ok => {
+        if (ok) console.log('IFC persistido online com sucesso');
+      });
     } catch (err) {
       console.error('Erro ao processar IFC:', err);
       setProgressText('Erro: ' + err.message);
