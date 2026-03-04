@@ -875,14 +875,15 @@ export default function MontexERP3DPage({ obraAtualData }) {
   // ==============================================
   // AUTO-LOAD IFC: IndexedDB cache -> Supabase Storage fallback
   // ==============================================
+  const autoLoadTriedRef = useRef(false);
   useEffect(() => {
-    if (modelLoaded || loading) return;
-    let cancelled = false;
+    if (autoLoadTriedRef.current || modelLoaded || loading) return;
+    autoLoadTriedRef.current = true;
 
     async function autoLoad() {
       // 1. Tentar IndexedDB (cache local rapido)
       const local = await loadIFCFromLocal();
-      if (local && local.buffer && !cancelled) {
+      if (local && local.buffer) {
         console.log('Auto-load: IFC encontrado no IndexedDB:', local.fileName);
         const fakeFile = new File([local.buffer], local.fileName || 'model.ifc');
         handleFile(fakeFile);
@@ -892,7 +893,7 @@ export default function MontexERP3DPage({ obraAtualData }) {
       // 2. Fallback: Supabase Storage (online)
       console.log('Auto-load: Tentando Supabase Storage...');
       const buffer = await downloadIFCFromSupabase();
-      if (buffer && !cancelled) {
+      if (buffer) {
         console.log('Auto-load: IFC baixado do Supabase Storage');
         saveIFCToLocal('model.ifc', buffer);
         const fakeFile = new File([buffer], 'model.ifc');
@@ -900,14 +901,12 @@ export default function MontexERP3DPage({ obraAtualData }) {
         return;
       }
 
-      if (!cancelled) {
-        console.log('Auto-load: Nenhum IFC persistido encontrado');
-      }
+      console.log('Auto-load: Nenhum IFC persistido encontrado');
     }
 
-    const timer = setTimeout(autoLoad, 500);
-    return () => { cancelled = true; clearTimeout(timer); };
-  }, [modelLoaded, loading, handleFile]);
+    setTimeout(autoLoad, 500);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ==============================================
   // MOUSE INTERACTION
