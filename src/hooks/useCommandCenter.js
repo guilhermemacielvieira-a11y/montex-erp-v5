@@ -45,7 +45,7 @@ export function useCommandCenter() {
     try {
       const { data, error } = await supabase
         .from('materiais_corte')
-        .select('id, status_corte, peso_teorico, quantidade, peca, marca, perfil, material, comprimento_mm, responsavel, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at');
+        .select('id, status_corte, peso_teorico, quantidade, peca, marca, perfil, material, comprimento_mm, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at');
       if (error) throw error;
 
       const items = data || [];
@@ -59,10 +59,10 @@ export function useCommandCenter() {
       const hoje = new Date().toISOString().slice(0, 10);
       const cortadasHoje = finalizado.filter(i => (i.data_fim || i.updated_at || '').slice(0, 10) === hoje);
 
-      // Por funcionário de corte (usar funcionario_corte ou responsavel)
+      // Por funcionário de corte
       const porFuncionario = {};
       finalizado.forEach(i => {
-        const func = i.funcionario_corte || i.responsavel || 'Não atribuído';
+        const func = i.funcionario_corte || 'Não atribuído';
         if (!porFuncionario[func]) porFuncionario[func] = { qtd: 0, peso: 0, pecas: [], maquinas: new Set() };
         porFuncionario[func].qtd++;
         porFuncionario[func].peso += parseFloat(i.peso_teorico) || 0;
