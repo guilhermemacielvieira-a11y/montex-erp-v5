@@ -230,7 +230,7 @@ export default function CommandCenterUltra() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [periodo, setPeriodo] = useState('dia');
   const {
-    corte = {}, producao = {}, estoque = {}, financeiro = {}, campo = {},
+    corte = {}, producao = {}, historico = {}, estoque = {}, financeiro = {}, campo = {},
     loading = false, lastUpdate = new Date(), comparacaoDiaria, refresh
   } = useCommandCenter() || {};
   const { obras = [], obraAtualData } = useObras() || {};
@@ -282,23 +282,29 @@ export default function CommandCenterUltra() {
     }));
   }, [producao?.porSetor]);
 
-  // Dados por responsável (produção)
+  // Dados por funcionário (produção) - do kanban produção
   const producaoPorFuncionario = useMemo(() => {
-    const resp = producao?.porResponsavel || {};
-    return Object.entries(resp)
+    // Preferir dados do histórico real se disponíveis
+    const histFunc = historico?.porFuncionario || {};
+    const prodFunc = producao?.porFuncionario || {};
+    const source = Object.keys(histFunc).length > 0 ? histFunc : prodFunc;
+    return Object.entries(source)
       .map(([nome, data]) => ({ nome, ...data }))
-      .sort((a, b) => b.total - a.total)
+      .sort((a, b) => (b.total || 0) - (a.total || 0))
       .slice(0, 10);
-  }, [producao?.porResponsavel]);
+  }, [producao?.porFuncionario, historico?.porFuncionario]);
 
-  // Dados por responsável (corte)
+  // Dados por funcionário (corte) - do kanban corte
   const cortePorFuncionario = useMemo(() => {
-    const resp = corte?.porResponsavel || {};
+    const resp = corte?.porFuncionario || {};
     return Object.entries(resp)
       .map(([nome, data]) => ({ nome, ...data }))
       .sort((a, b) => b.qtd - a.qtd)
       .slice(0, 10);
-  }, [corte?.porResponsavel]);
+  }, [corte?.porFuncionario]);
+
+  // Envios detalhados para seção de expedição
+  const enviosDetalhados = useMemo(() => campo?.enviosDetalhados || [], [campo?.enviosDetalhados]);
 
   // Peças detalhadas por setor
   const pecasPorSetor = useMemo(() => {
@@ -662,17 +668,27 @@ export default function CommandCenterUltra() {
           {/* EXPEDIÇÃO */}
           <SectionCard title="Expedição" icon={Truck}>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="text-center p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
-                  <div className="text-2xl font-bold text-blue-400">{campo?.totalEnvios || 0}</div>
-                  <div className="text-[10px] text-slate-400">Total Envios</div>
+              {/* Resumo numérico */}
+              <div className="grid grid-cols-4 gap-2">
+                <div className="text-center p-2 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                  <div className="text-lg font-bold text-blue-400">{campo?.totalEnvios || 0}</div>
+                  <div className="text-[9px] text-slate-400">Total</div>
                 </div>
-                <div className="text-center p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                  <div className="text-2xl font-bold text-emerald-400">{campo?.enviados || 0}</div>
-                  <div className="text-[10px] text-slate-400">Concluídos</div>
+                <div className="text-center p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                  <div className="text-lg font-bold text-emerald-400">{campo?.entregues || 0}</div>
+                  <div className="text-[9px] text-slate-400">Entregues</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-cyan-500/5 border border-cyan-500/10">
+                  <div className="text-lg font-bold text-cyan-400">{campo?.emTransito || 0}</div>
+                  <div className="text-[9px] text-slate-400">Em Trânsito</div>
+                </div>
+                <div className="text-center p-2 rounded-lg bg-amber-500/5 border border-amber-500/10">
+                  <div className="text-lg font-bold text-amber-400">{campo?.pendentes || 0}</div>
+                  <div className="text-[9px] text-slate-400">Pendentes</div>
                 </div>
               </div>
 
+              {/* Progresso */}
               <div className="space-y-2">
                 <div className="flex justify-between items-center">
                   <span className="text-xs text-slate-400">Progresso Envios</span>
@@ -683,20 +699,76 @@ export default function CommandCenterUltra() {
                 <MiniBar value={campo?.enviados || 0} max={campo?.totalEnvios || 1} color="#10B981" />
               </div>
 
+              {/* Peso e envios hoje */}
               <div className="grid grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
-                <div className="text-center">
-                  <div className="text-xs text-slate-500">Pendentes</div>
-                  <div className="text-sm font-bold text-amber-400">{campo?.pendentes || 0}</div>
-                </div>
                 <div className="text-center">
                   <div className="text-xs text-slate-500">Peso Env.</div>
                   <div className="text-sm font-bold text-blue-400">{formatWeight(campo?.pesoEnviado || 0)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-xs text-slate-500">Peças Env.</div>
+                  <div className="text-sm font-bold text-cyan-400">{campo?.pecasEnviadas || 0}</div>
                 </div>
                 <div className="text-center">
                   <div className="text-xs text-slate-500">Hoje</div>
                   <div className="text-sm font-bold text-emerald-400">{campo?.enviosHoje || 0}</div>
                 </div>
               </div>
+
+              {/* Lista detalhada de envios recentes */}
+              {enviosDetalhados.length > 0 && (
+                <div className="pt-3 border-t space-y-2" style={{ borderColor: colors.border }}>
+                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Envios Recentes</div>
+                  <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
+                    {enviosDetalhados.map((env, idx) => {
+                      const statusColor = env.status === 'ENTREGUE' ? 'text-emerald-400' :
+                        env.status === 'EM_TRANSITO' ? 'text-cyan-400' :
+                        env.status === 'ENVIADO' ? 'text-blue-400' : 'text-amber-400';
+                      const statusBg = env.status === 'ENTREGUE' ? 'bg-emerald-500/10' :
+                        env.status === 'EM_TRANSITO' ? 'bg-cyan-500/10' :
+                        env.status === 'ENVIADO' ? 'bg-blue-500/10' : 'bg-amber-500/10';
+                      return (
+                        <motion.div key={env.id || idx}
+                          initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: idx * 0.05 }}
+                          className="p-2.5 rounded-lg border"
+                          style={{ background: colors.cardBg, borderColor: colors.border }}
+                        >
+                          <div className="flex items-center justify-between mb-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-white">ROM {env.numero}</span>
+                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${statusColor} ${statusBg}`}>
+                                {env.status === 'EM_TRANSITO' ? 'EM TRÂNSITO' : env.status}
+                              </span>
+                            </div>
+                            <span className="text-[10px] text-slate-500">{env.data ? env.data.slice(0, 10) : '-'}</span>
+                          </div>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                            <div className="text-[10px] text-slate-400">
+                              <span className="text-slate-500">Transp:</span> <span className="text-slate-300">{env.transportadora}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              <span className="text-slate-500">Motorista:</span> <span className="text-slate-300">{env.motorista}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              <span className="text-slate-500">Placa:</span> <span className="text-slate-300">{env.placa}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              <span className="text-slate-500">Destino:</span> <span className="text-slate-300">{env.destino}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              <span className="text-slate-500">Peso:</span> <span className="text-blue-400 font-medium">{formatWeight(env.peso)}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              <span className="text-slate-500">Peças:</span> <span className="text-cyan-400 font-medium">{env.pecas}</span>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </SectionCard>
 

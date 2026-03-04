@@ -1,20 +1,37 @@
-0// ============================================
-// USE COMMAND CENTER - Hook Central de Métricas em Tempo Real
 // ============================================
-// Agrega dados de: Corte, Produção, Estoque, Financeiro, Campo
+// USE COMMAND CENTER - Hook Central de Métricas em Tempo Real v3
+// ============================================
+// Agrega dados de: Corte, Produção, Estoque, Financeiro, Campo, Histórico
 // Supabase realtime subscriptions para atualizações em tempo real
-// Comparação diária automática
+// Dados reais dos módulos Kanban Corte, Kanban Produção e Expedição
 // ============================================
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../api/supabaseClient';
 
-// Chave para snapshot diário no localStorage
 const SNAPSHOT_KEY = 'montex_daily_snapshot';
+
+// Helper: datas para filtros de período
+function getDateRange(periodo) {
+  const now = new Date();
+  const hoje = now.toISOString().slice(0, 10);
+  if (periodo === 'dia') {
+    return { start: hoje + 'T00:00:00', end: hoje + 'T23:59:59', startDate: hoje };
+  }
+  if (periodo === 'semana') {
+    const d = new Date(now);
+    d.setDate(d.getDate() - d.getDay()); // domingo
+    return { start: d.toISOString().slice(0, 10) + 'T00:00:00', end: hoje + 'T23:59:59', startDate: d.toISOString().slice(0, 10) };
+  }
+  // mes
+  const startMonth = hoje.slice(0, 7) + '-01';
+  return { start: startMonth + 'T00:00:00', end: hoje + 'T23:59:59', startDate: startMonth };
+}
 
 export function useCommandCenter() {
   const [corte, setCorte] = useState(null);
   const [producao, setProducao] = useState(null);
+  const [historico, setHistorico] = useState(null);
   const [estoque, setEstoque] = useState(null);
   const [financeiro, setFinanceiro] = useState(null);
   const [campo, setCampo] = useState(null);
@@ -22,12 +39,13 @@ export function useCommandCenter() {
   const [lastUpdate, setLastUpdate] = useState(null);
   const [snapshotOntem, setSnapshotOntem] = useState(null);
   const channelRef = useRef(null);
-  // ===== CARREGAR DADOS DE CORTE =====
+
+  // ===== CARREGAR DADOS DE CORTE (Kanban Corte) =====
   const fetchCorte = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('materiais_corte')
-        .select('status_corte, peso_teorico, quantidade, peca, marca, conjunto, responsavel, updated_at');
+        .select('id, status_corte, peso_teorico, quantidade, peca, marca, conjunto, perfil, material, comprimento_mm, responsavel, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at');
       if (error) throw error;
 
       const items = data || [];
@@ -38,18 +56,30 @@ export function useCommandCenter() {
       const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso_teorico) || 0), 0);
       const pesoFinalizado = finalizado.reduce((s, i) => s + (parseFloat(i.peso_teorico) || 0), 0);
 
-      // Hoje cortadas
       const hoje = new Date().toISOString().slice(0, 10);
-      const cortadasHoje = finalizado.filter(i => i.updated_at && i.updated_at.slice(0, 10) === hoje);
+      const cortadasHoje = finalizado.filter(i => (i.data_fim || i.updated_at || '').slice(0, 10) === hoje);
 
-      // Por responsável
-      const porResponsavel = {};
+      // Por funcionário de corte (usar funcionario_corte ou responsavel)
+      const porFuncionario = {};
       finalizado.forEach(i => {
-        const resp = i.responsavel || 'Não atribuído';
-        if (!porResponsavel[resp]) porResponsavel[resp] = { qtd: 0, peso: 0, pecas: [] };
-        porResponsavel[resp].qtd++;
-        porResponsavel[resp].peso += parseFloat(i.peso_teorico) || 0;
-        porResponsavel[resp].pecas.push(i.peca || i.marca || '-');
+        const func = i.funcionario_corte || i.responsavel || 'Não atribuído';
+        if (!porFuncionario[func]) porFuncionario[func] = { qtd: 0, peso: 0, pecas: [], maquinas: new Set() };
+        porFuncionario[func].qtd++;
+        porFuncionario[func].peso += parseFloat(i.peso_teorico) || 0;
+        porFuncionario[func].pecas.push({ marca: i.marca || '-', peca: i.peca || '-', perfil: i.perfil || '', peso: parseFloat(i.peso_teorico) || 0 });
+        if (i.maquina) porFuncionario[func].maquinas.add(i.maquina);
+      });
+      // Converter Sets para arrays
+      Object.values(porFuncionario).forEach(f => { f.maquinas = [...f.maquinas]; });
+
+      // Peças por tipo/conjunto
+      const porConjunto = {};
+      items.forEach(i => {
+        const conj = i.conjunto || i.peca || 'Outros';
+        if (!porConjunto[conj]) porConjunto[conj] = { total: 0, cortadas: 0, peso: 0 };
+        porConjunto[conj].total++;
+        porConjunto[conj].peso += parseFloat(i.peso_teorico) || 0;
+        if (i.status_corte === 'finalizado' || i.status_corte === 'liberado') porConjunto[conj].cortadas++;
       });
 
       return {
@@ -63,7 +93,8 @@ export function useCommandCenter() {
         progressoPecas: items.length > 0 ? Math.round((finalizado.length / items.length) * 100) : 0,
         cortadasHoje: cortadasHoje.length,
         cortadasHojeItens: cortadasHoje,
-        porResponsavel,
+        porFuncionario,
+        porConjunto,
         items
       };
     } catch (e) {
@@ -72,12 +103,12 @@ export function useCommandCenter() {
     }
   }, []);
 
-  // ===== CARREGAR DADOS DE PRODUÇÃO =====
+  // ===== CARREGAR DADOS DE PRODUÇÃO (Kanban Produção) =====
   const fetchProducao = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from('pecas_producao')
-        .select('etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, peca, responsavel, obra_id, updated_at, created_at');
+        .select('id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, peca, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at');
       if (error) throw error;
 
       const items = data || [];
@@ -90,31 +121,42 @@ export function useCommandCenter() {
 
       const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
       const pesoExpedido = [...expedicao, ...finalizado, ...entregue].reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
-
-      // Progresso baseado em etapas avançadas
       const avancados = solda.length + pintura.length + expedicao.length + finalizado.length + entregue.length;
-      const movidasHoje = avancados;
 
-      // Por setor com identificação de peças
+      // Por setor com identificação completa de peças
+      const mapPeca = i => ({
+        id: i.id,
+        nome: i.nome || i.peca || i.marca || '-',
+        marca: i.marca || '-',
+        tipo: i.tipo || i.peca || '-',
+        perfil: i.perfil || '',
+        peso: parseFloat(i.peso_total) || 0,
+        resp: i.responsavel || 'Não atribuído',
+        updatedAt: i.updated_at,
+      });
+
       const porSetor = {
-        fabricacao: fabricacao.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
-        solda: solda.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
-        pintura: pintura.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
-        expedicao: expedicao.map(i => ({ nome: i.nome || i.peca || '-', peso: parseFloat(i.peso_total) || 0, resp: i.responsavel })),
+        fabricacao: fabricacao.map(mapPeca),
+        solda: solda.map(mapPeca),
+        pintura: pintura.map(mapPeca),
+        expedicao: expedicao.map(mapPeca),
+        entregue: entregue.map(mapPeca),
       };
 
-      // Por responsável
-      const porResponsavel = {};
+      // Por responsável com detalhamento
+      const porFuncionario = {};
       items.forEach(i => {
         const resp = i.responsavel || 'Não atribuído';
-        if (!porResponsavel[resp]) porResponsavel[resp] = { total: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, peso: 0 };
-        porResponsavel[resp].total++;
-        porResponsavel[resp].peso += parseFloat(i.peso_total) || 0;
+        if (!porFuncionario[resp]) porFuncionario[resp] = { total: 0, fabricacao: 0, solda: 0, pintura: 0, expedicao: 0, entregue: 0, peso: 0, pecas: [] };
+        porFuncionario[resp].total++;
+        porFuncionario[resp].peso += parseFloat(i.peso_total) || 0;
+        porFuncionario[resp].pecas.push({ nome: i.nome || i.marca || '-', etapa: i.etapa || 'fabricacao' });
         const etapa = i.etapa || 'fabricacao';
-        if (etapa === 'fabricacao' || !i.etapa) porResponsavel[resp].fabricacao++;
-        else if (etapa === 'solda') porResponsavel[resp].solda++;
-        else if (etapa === 'pintura') porResponsavel[resp].pintura++;
-        else if (etapa === 'expedicao' || etapa === 'expedido') porResponsavel[resp].expedicao++;
+        if (etapa === 'fabricacao' || !i.etapa) porFuncionario[resp].fabricacao++;
+        else if (etapa === 'solda') porFuncionario[resp].solda++;
+        else if (etapa === 'pintura') porFuncionario[resp].pintura++;
+        else if (etapa === 'expedicao' || etapa === 'expedido') porFuncionario[resp].expedicao++;
+        else if (etapa === 'entregue') porFuncionario[resp].entregue++;
       });
 
       return {
@@ -128,14 +170,78 @@ export function useCommandCenter() {
         pesoTotal: Math.round(pesoTotal * 10) / 10,
         pesoExpedido: Math.round(pesoExpedido * 10) / 10,
         progressoGeral: pesoTotal > 0 ? Math.round((pesoExpedido / pesoTotal) * 100) : 0,
-        movidasHoje,
+        movidasHoje: avancados,
         porSetor,
-        porResponsavel,
+        porFuncionario,
         items
       };
     } catch (e) {
       console.warn('[CommandCenter] Erro produção:', e.message);
       return null;
+    }
+  }, []);
+
+  // ===== CARREGAR HISTÓRICO DE PRODUÇÃO (movimentações reais) =====
+  const fetchHistorico = useCallback(async () => {
+    try {
+      const { data, error } = await supabase
+        .from('producao_historico')
+        .select('id, peca_id, etapa_de, etapa_para, funcionario_id, funcionario_nome, data_inicio, data_fim, observacoes, created_at')
+        .order('created_at', { ascending: false })
+        .limit(500);
+
+      if (error) {
+        // Tabela pode não existir
+        console.warn('[CommandCenter] producao_historico:', error.message);
+        return { movimentacoes: [], porFuncionario: {}, porDia: {}, porEtapa: {} };
+      }
+
+      const items = data || [];
+      const hoje = new Date().toISOString().slice(0, 10);
+
+      // Movimentações de hoje
+      const movHoje = items.filter(i => (i.created_at || '').slice(0, 10) === hoje);
+
+      // Por funcionário (histórico real)
+      const porFuncionario = {};
+      items.forEach(i => {
+        const func = i.funcionario_nome || 'Não identificado';
+        if (!porFuncionario[func]) porFuncionario[func] = { total: 0, hoje: 0, etapas: {} };
+        porFuncionario[func].total++;
+        if ((i.created_at || '').slice(0, 10) === hoje) porFuncionario[func].hoje++;
+        const etapa = i.etapa_para || 'outro';
+        porFuncionario[func].etapas[etapa] = (porFuncionario[func].etapas[etapa] || 0) + 1;
+      });
+
+      // Por dia (últimos 7 dias)
+      const porDia = {};
+      items.forEach(i => {
+        const dia = (i.created_at || '').slice(0, 10);
+        if (!dia) return;
+        if (!porDia[dia]) porDia[dia] = { total: 0, etapas: {} };
+        porDia[dia].total++;
+        const etapa = i.etapa_para || 'outro';
+        porDia[dia].etapas[etapa] = (porDia[dia].etapas[etapa] || 0) + 1;
+      });
+
+      // Por etapa destino
+      const porEtapa = {};
+      items.forEach(i => {
+        const etapa = i.etapa_para || 'outro';
+        porEtapa[etapa] = (porEtapa[etapa] || 0) + 1;
+      });
+
+      return {
+        movimentacoes: items,
+        movHoje,
+        totalHoje: movHoje.length,
+        porFuncionario,
+        porDia,
+        porEtapa
+      };
+    } catch (e) {
+      console.warn('[CommandCenter] Erro histórico:', e.message);
+      return { movimentacoes: [], porFuncionario: {}, porDia: {}, porEtapa: {} };
     }
   }, []);
 
@@ -149,7 +255,6 @@ export function useCommandCenter() {
 
       const items = data || [];
       const totalItens = items.length;
-      // Classificar por nível de estoque
       const critico = items.filter(i => (parseFloat(i.quantidade) || 0) === 0).length;
       const baixo = items.filter(i => {
         const qty = parseFloat(i.quantidade) || 0;
@@ -157,13 +262,10 @@ export function useCommandCenter() {
         return qty > 0 && min > 0 && qty <= min;
       }).length;
       const normal = totalItens - critico - baixo;
-      // Calcular valor total do estoque (quantidade * preço)
       const valorTotalCalc = items.reduce((s, i) => s + ((parseFloat(i.quantidade) || 0) * (parseFloat(i.preco) || 0)), 0);
 
-      // Movimentações de hoje
       const hoje = new Date().toISOString().slice(0, 10);
-      let entradas = 0;
-      let saidas = 0;
+      let entradas = 0, saidas = 0;
       try {
         const { data: movHoje } = await supabase
           .from('movimentacoes_estoque')
@@ -172,20 +274,9 @@ export function useCommandCenter() {
           .lte('data', hoje + 'T23:59:59');
         entradas = (movHoje || []).filter(m => m.tipo === 'entrada').length;
         saidas = (movHoje || []).filter(m => m.tipo === 'saida' || m.tipo === 'corte').length;
-      } catch (movErr) {
-        // movimentacoes_estoque pode não existir ainda
-      }
+      } catch (movErr) { /* tabela pode não existir */ }
 
-      return {
-        totalItens,
-        valorTotal: Math.round(valorTotalCalc),
-        normal,
-        baixo,
-        critico,
-        entradasHoje: entradas,
-        saidasHoje: saidas,
-        alertas: baixo + critico
-      };
+      return { totalItens, valorTotal: Math.round(valorTotalCalc), normal, baixo, critico, entradasHoje: entradas, saidasHoje: saidas, alertas: baixo + critico };
     } catch (e) {
       console.warn('[CommandCenter] Erro estoque:', e.message);
       return null;
@@ -195,12 +286,9 @@ export function useCommandCenter() {
   // ===== CARREGAR DADOS FINANCEIROS =====
   const fetchFinanceiro = useCallback(async () => {
     try {
-      // Lançamentos de despesas
       const { data: lancamentos } = await supabase
         .from('lancamentos_despesas')
         .select('valor, tipo, status, categoria, data_emissao, obra_id');
-
-      // Medições
       const { data: medicoes } = await supabase
         .from('medicoes')
         .select('valor_total, status, tipo, data_medicao');
@@ -211,18 +299,15 @@ export function useCommandCenter() {
       const totalDespesas = lancs.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
       const despesasPagas = lancs.filter(l => l.status === 'pago').reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
       const despesasPendentes = lancs.filter(l => l.status === 'pendente' || l.status === 'aprovado').reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
-
       const totalMedicoes = meds.reduce((s, m) => s + (parseFloat(m.valor_total) || 0), 0);
       const medicoesAprovadas = meds.filter(m => m.status === 'aprovada' || m.status === 'faturada' || m.status === 'paga').reduce((s, m) => s + (parseFloat(m.valor_total) || 0), 0);
 
-      // Por categoria
       const porCategoria = {};
       lancs.forEach(l => {
         const cat = l.categoria || 'outros';
         porCategoria[cat] = (porCategoria[cat] || 0) + (parseFloat(l.valor) || 0);
       });
 
-      // Hoje
       const hoje = new Date().toISOString().slice(0, 10);
       const lancHoje = lancs.filter(l => l.data_emissao && l.data_emissao.slice(0, 10) === hoje);
 
@@ -244,20 +329,28 @@ export function useCommandCenter() {
     }
   }, []);
 
-  // ===== CARREGAR DADOS DE CAMPO (Expedição/Montagem) =====
+  // ===== CARREGAR DADOS DE EXPEDIÇÃO (módulo Envios completo) =====
   const fetchCampo = useCallback(async () => {
     try {
-      // Colunas reais: id, obra_id, numero_romaneio, data_expedicao, status, transportadora, motorista, placa, peso_total, pecas, destino, observacoes, created_at, updated_at
       const { data: expedicoes } = await supabase
         .from('expedicoes')
-        .select('status, peso_total, pecas, data_expedicao, created_at');
+        .select('id, numero_romaneio, obra_id, status, peso_total, pecas, data_expedicao, transportadora, motorista, placa, destino, observacoes, created_at, updated_at');
 
       const items = expedicoes || [];
-      const enviados = items.filter(i => i.status === 'enviado' || i.status === 'entregue');
-      const pendentes = items.filter(i => i.status === 'pendente' || i.status === 'preparando');
+      const enviados = items.filter(i => {
+        const st = (i.status || '').toUpperCase();
+        return st === 'ENVIADO' || st === 'ENTREGUE' || st === 'EM_TRANSITO';
+      });
+      const entregues = items.filter(i => (i.status || '').toUpperCase() === 'ENTREGUE');
+      const emTransito = items.filter(i => (i.status || '').toUpperCase() === 'EM_TRANSITO');
+      const pendentes = items.filter(i => {
+        const st = (i.status || '').toUpperCase();
+        return st === 'PENDENTE' || st === 'PREPARANDO' || st === 'AGUARDANDO_TRANSPORTE';
+      });
 
       const pesoEnviado = enviados.reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
-      // pecas pode ser integer ou jsonb - tratar ambos
+      const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso_total) || 0), 0);
+
       const pecasEnviadas = enviados.reduce((s, i) => {
         if (typeof i.pecas === 'number') return s + i.pecas;
         if (Array.isArray(i.pecas)) return s + i.pecas.length;
@@ -265,15 +358,37 @@ export function useCommandCenter() {
       }, 0);
 
       const hoje = new Date().toISOString().slice(0, 10);
-      const enviosHoje = items.filter(i => (i.data_expedicao || i.created_at || '').slice(0, 10) === hoje).length;
+      const enviosHoje = items.filter(i => (i.data_expedicao || i.created_at || '').slice(0, 10) === hoje);
+
+      // Lista detalhada de envios para o dashboard
+      const enviosDetalhados = items
+        .sort((a, b) => (b.data_expedicao || b.created_at || '').localeCompare(a.data_expedicao || a.created_at || ''))
+        .slice(0, 10)
+        .map(i => ({
+          id: i.id,
+          numero: i.numero_romaneio || '-',
+          status: (i.status || 'pendente').toUpperCase(),
+          peso: parseFloat(i.peso_total) || 0,
+          pecas: typeof i.pecas === 'number' ? i.pecas : (Array.isArray(i.pecas) ? i.pecas.length : parseInt(i.pecas) || 0),
+          data: i.data_expedicao || i.created_at || '',
+          transportadora: i.transportadora || '-',
+          motorista: i.motorista || '-',
+          placa: i.placa || '-',
+          destino: i.destino || '-',
+        }));
 
       return {
         totalEnvios: items.length,
         enviados: enviados.length,
+        entregues: entregues.length,
+        emTransito: emTransito.length,
         pendentes: pendentes.length,
         pesoEnviado: Math.round(pesoEnviado * 10) / 10,
+        pesoTotal: Math.round(pesoTotal * 10) / 10,
         pecasEnviadas,
-        enviosHoje
+        enviosHoje: enviosHoje.length,
+        enviosDetalhados,
+        items
       };
     } catch (e) {
       console.warn('[CommandCenter] Erro campo:', e.message);
@@ -283,37 +398,35 @@ export function useCommandCenter() {
 
   // ===== CARREGAR TUDO =====
   const fetchAll = useCallback(async () => {
-    const [c, p, e, f, ca] = await Promise.all([
+    setLoading(true);
+    const [c, p, h, e, f, ca] = await Promise.all([
       fetchCorte(),
       fetchProducao(),
+      fetchHistorico(),
       fetchEstoque(),
       fetchFinanceiro(),
       fetchCampo()
     ]);
     setCorte(c);
     setProducao(p);
+    setHistorico(h);
     setEstoque(e);
     setFinanceiro(f);
     setCampo(ca);
     setLastUpdate(new Date());
     setLoading(false);
 
-    // Salvar snapshot para comparação diária
     saveSnapshot({ corte: c, producao: p, estoque: e, financeiro: f, campo: ca });
-  }, [fetchCorte, fetchProducao, fetchEstoque, fetchFinanceiro, fetchCampo]);
+  }, [fetchCorte, fetchProducao, fetchHistorico, fetchEstoque, fetchFinanceiro, fetchCampo]);
 
-  // ===== SNAPSHOT DIÁRIO =====
+  // ===== SNAPSHOT =====
   const saveSnapshot = useCallback((data) => {
     try {
       const hoje = new Date().toISOString().slice(0, 10);
       const stored = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '{}');
-      // Salvar snapshot de hoje (sobrescreve ao longo do dia)
       stored[hoje] = { ...data, timestamp: new Date().toISOString() };
-      // Manter apenas 7 dias
       const keys = Object.keys(stored).sort().reverse();
-      if (keys.length > 7) {
-        keys.slice(7).forEach(k => delete stored[k]);
-      }
+      if (keys.length > 7) keys.slice(7).forEach(k => delete stored[k]);
       localStorage.setItem(SNAPSHOT_KEY, JSON.stringify(stored));
     } catch (e) { /* localStorage indisponível */ }
   }, []);
@@ -322,26 +435,25 @@ export function useCommandCenter() {
     try {
       const stored = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '{}');
       const keys = Object.keys(stored).sort().reverse();
-      // Pegar o dia anterior (segundo key mais recente)
-      if (keys.length >= 2) {
-        setSnapshotOntem(stored[keys[1]]);
-      }
-    } catch (e) { /* fallback silencioso */ }
+      if (keys.length >= 2) setSnapshotOntem(stored[keys[1]]);
+    } catch (e) { /* fallback */ }
   }, []);
 
-  // ===== SUPABASE REALTIME SUBSCRIPTIONS =====
+  // ===== REALTIME =====
   useEffect(() => {
     fetchAll();
     loadSnapshotOntem();
 
-    // Subscription para mudanças em tempo real
     const channel = supabase
-      .channel('command-center-realtime')
+      .channel('command-center-realtime-v3')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'materiais_corte' }, () => {
         fetchCorte().then(c => { setCorte(c); setLastUpdate(new Date()); });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'pecas_producao' }, () => {
         fetchProducao().then(p => { setProducao(p); setLastUpdate(new Date()); });
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'producao_historico' }, () => {
+        fetchHistorico().then(h => { setHistorico(h); setLastUpdate(new Date()); });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque' }, () => {
         fetchEstoque().then(e => { setEstoque(e); setLastUpdate(new Date()); });
@@ -358,25 +470,18 @@ export function useCommandCenter() {
       .subscribe();
 
     channelRef.current = channel;
-
-    // Refresh periódico a cada 60s como fallback
     const interval = setInterval(fetchAll, 60000);
 
     return () => {
       clearInterval(interval);
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-      }
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
     };
-  }, [fetchAll, fetchCorte, fetchProducao, fetchEstoque, fetchFinanceiro, fetchCampo, loadSnapshotOntem]);
+  }, [fetchAll, fetchCorte, fetchProducao, fetchHistorico, fetchEstoque, fetchFinanceiro, fetchCampo, loadSnapshotOntem]);
 
   // ===== COMPARAÇÃO DIÁRIA =====
   const comparacaoDiaria = useCallback(() => {
     if (!snapshotOntem) return null;
-    const diff = (atual, anterior) => {
-      if (atual == null || anterior == null) return null;
-      return atual - anterior;
-    };
+    const diff = (a, b) => (a != null && b != null) ? a - b : null;
     return {
       corte: {
         finalizadasDiff: diff(corte?.finalizado, snapshotOntem.corte?.finalizado),
@@ -386,9 +491,7 @@ export function useCommandCenter() {
         expedicaoDiff: diff(producao?.expedicao, snapshotOntem.producao?.expedicao),
         progressoDiff: diff(producao?.progressoGeral, snapshotOntem.producao?.progressoGeral),
       },
-      estoque: {
-        alertasDiff: diff(estoque?.alertas, snapshotOntem.estoque?.alertas),
-      },
+      estoque: { alertasDiff: diff(estoque?.alertas, snapshotOntem.estoque?.alertas) },
       financeiro: {
         despesasDiff: diff(financeiro?.totalDespesas, snapshotOntem.financeiro?.totalDespesas),
         saldoDiff: diff(financeiro?.saldoObra, snapshotOntem.financeiro?.saldoObra),
@@ -399,6 +502,7 @@ export function useCommandCenter() {
   return {
     corte,
     producao,
+    historico,
     estoque,
     financeiro,
     campo,
