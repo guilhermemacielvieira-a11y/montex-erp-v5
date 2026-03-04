@@ -8,15 +8,14 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 
-// Load web-ifc dynamically from CDN to avoid Vercel build issues
+// Load web-ifc dynamically from same-origin public folder to avoid Vercel build issues
 let _WebIFC = null;
 async function getWebIFC() {
   if (_WebIFC) return _WebIFC;
-  // Load IIFE version from CDN
   if (!window.WebIFC) {
     await new Promise((resolve, reject) => {
       const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/web-ifc@0.0.66/web-ifc-api-iife.js';
+      script.src = '/web-ifc-api-iife.js';
       script.onload = resolve;
       script.onerror = reject;
       document.head.appendChild(script);
@@ -76,7 +75,7 @@ const STRUCTURAL_TYPES = Object.values(IFC_TYPES);
 async function parseIFCFile(fileBuffer, onProgress) {
   const WebIFC = await getWebIFC();
   const ifcAPI = new WebIFC.IfcAPI();
-  ifcAPI.SetWasmPath('https://cdn.jsdelivr.net/npm/web-ifc@0.0.66/');
+  ifcAPI.SetWasmPath(window.location.origin + '/');
   await ifcAPI.Init();
   onProgress?.(10, 'Abrindo modelo IFC...');
 
