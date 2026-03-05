@@ -2589,6 +2589,16 @@ export default function GestaoFinanceiraObra() {
 }
 
 // ==================== FORMULÁRIO NOVA MEDIÇÃO ====================
+// Tipos de lançamento avulso (sem peso)
+const TIPOS_MEDICAO_AVULSA = [
+  { id: 'entrada_contrato', label: 'Entrada de Contrato', desc: 'Adiantamento / sinal do contrato', color: '#10B981', icon: '💰' },
+  { id: 'chaparia', label: 'Chaparia / Corte', desc: 'Medição de chaparia ou corte avulso', color: '#F59E0B', icon: '🔩' },
+  { id: 'adiantamento', label: 'Adiantamento', desc: 'Adiantamento parcial de valores', color: '#3B82F6', icon: '💵' },
+  { id: 'retencao_final', label: 'Retenção Final de Obra', desc: 'Liberação da retenção contratual ao final', color: '#8B5CF6', icon: '🔓' },
+  { id: 'ajuste', label: 'Ajuste / Aditivo', desc: 'Ajuste contratual ou aditivo de valor', color: '#06B6D4', icon: '📋' },
+  { id: 'outros', label: 'Outros', desc: 'Lançamento avulso diverso', color: '#94A3B8', icon: '📌' },
+];
+
 function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
   const inputClass = "w-full px-3 py-2.5 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-colors";
   const labelClass = "text-sm text-slate-400 mb-1.5 block font-medium";
@@ -2596,6 +2606,9 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
     background: 'linear-gradient(135deg, rgba(30,41,59,0.6), rgba(15,23,42,0.8))',
     border: '1px solid rgba(56,72,100,0.4)',
   };
+
+  // Modo: 'peso' = medição por peso (fabricação/montagem) | 'avulsa' = valor direto
+  const [modo, setModo] = useState('peso');
 
   const [formData, setFormData] = useState({
     numero: '',
@@ -2606,28 +2619,43 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
     dataMedicao: new Date().toISOString().split('T')[0],
     status: STATUS_MEDICAO.AGUARDANDO,
     observacao: '',
-    // Detalhamento por sub-etapa
-    detCorte: '',
-    detFabricacao: '',
-    detSolda: '',
-    detPintura: '',
-    detExpedicao: '',
-    detDescarga: '',
-    detMontagem: '',
-    detTorqueamento: '',
-    detAcabamento: '',
+    // Campos avulsos
+    tipoAvulso: 'entrada_contrato',
+    descricaoAvulsa: '',
+    valorBrutoManual: '',
+    aplicarRetencoes: false,
+    // Detalhamento por sub-etapa (modo peso)
+    detCorte: '', detFabricacao: '', detSolda: '', detPintura: '', detExpedicao: '',
+    detDescarga: '', detMontagem: '', detTorqueamento: '', detAcabamento: '',
   });
 
-  // Calcular valores automaticamente baseado no peso e valores por kg
   const pesoNum = parseFloat(formData.pesoMedido) || 0;
   const isFabricacao = formData.etapa === ETAPA_MEDICAO.FABRICACAO;
+  const valorBrutoManual = parseFloat(formData.valorBrutoManual) || 0;
 
+  // Calcular valores — modo peso
   const valoresCalculados = useMemo(() => {
+    if (modo === 'avulsa') {
+      // Modo avulso: retenções opcionais
+      if (valorBrutoManual <= 0) return { detalhamento: {}, bruto: 0, liquido: 0, retencoes: {} };
+      if (formData.aplicarRetencoes) {
+        const retISS = valorBrutoManual * (contrato?.retencaoISS || 0.02);
+        const retINSS = valorBrutoManual * (contrato?.retencaoINSS || 0.035);
+        const retContratual = valorBrutoManual * (contrato?.retencaoContratual || 0.05);
+        return {
+          detalhamento: {},
+          bruto: valorBrutoManual,
+          liquido: valorBrutoManual - retISS - retINSS - retContratual,
+          retencoes: { iss: retISS, inss: retINSS, contratual: retContratual, total: retISS + retINSS + retContratual },
+        };
+      }
+      return { detalhamento: {}, bruto: valorBrutoManual, liquido: valorBrutoManual, retencoes: { iss: 0, inss: 0, contratual: 0, total: 0 } };
+    }
+
+    // Modo peso
     if (!valoresKg || pesoNum <= 0) return { detalhamento: {}, bruto: 0, liquido: 0, retencoes: {} };
 
     let detalhamento = {};
-    let totalBruto = 0;
-
     if (isFabricacao) {
       const vk = valoresKg.fabricacao || {};
       detalhamento = {
@@ -2647,201 +2675,366 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
       };
     }
 
-    // Aplicar valores manuais se preenchidos (override)
     Object.keys(detalhamento).forEach(key => {
       const manualKey = `det${key.charAt(0).toUpperCase() + key.slice(1)}`;
       const manualVal = parseFloat(formData[manualKey]);
-      if (!isNaN(manualVal) && manualVal > 0) {
-        detalhamento[key].valor = manualVal;
-      }
+      if (!isNaN(manualVal) && manualVal > 0) detalhamento[key].valor = manualVal;
     });
 
-    totalBruto = Object.values(detalhamento).reduce((s, d) => s + d.valor, 0);
-
-    // Retenções
+    const totalBruto = Object.values(detalhamento).reduce((s, d) => s + d.valor, 0);
     const retISS = totalBruto * (contrato?.retencaoISS || 0.02);
     const retINSS = totalBruto * (contrato?.retencaoINSS || 0.035);
     const retContratual = totalBruto * (contrato?.retencaoContratual || 0.05);
-    const totalRetencoes = retISS + retINSS + retContratual;
 
     return {
       detalhamento,
       bruto: totalBruto,
-      liquido: totalBruto - totalRetencoes,
-      retencoes: { iss: retISS, inss: retINSS, contratual: retContratual, total: totalRetencoes },
+      liquido: totalBruto - retISS - retINSS - retContratual,
+      retencoes: { iss: retISS, inss: retINSS, contratual: retContratual, total: retISS + retINSS + retContratual },
     };
-  }, [pesoNum, isFabricacao, valoresKg, contrato, formData]);
+  }, [modo, pesoNum, isFabricacao, valoresKg, contrato, formData, valorBrutoManual]);
+
+  const isValid = modo === 'avulsa'
+    ? (formData.numero && valorBrutoManual > 0)
+    : (formData.numero && pesoNum > 0);
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!formData.numero || pesoNum <= 0) return;
+    if (!isValid) return;
 
-    onSubmit({
-      numero: parseInt(formData.numero) || Date.now(),
-      setor: formData.setor,
-      etapa: formData.etapa,
-      pesoMedido: pesoNum,
-      dataReferencia: formData.dataReferencia,
-      dataMedicao: formData.dataMedicao,
-      status: formData.status,
-      observacao: formData.observacao,
-      valorBruto: valoresCalculados.bruto,
-      valorLiquido: valoresCalculados.liquido,
-      retencoes: valoresCalculados.retencoes,
-      detalhamento: valoresCalculados.detalhamento,
-    });
+    const tipoAvulsoObj = TIPOS_MEDICAO_AVULSA.find(t => t.id === formData.tipoAvulso);
+
+    if (modo === 'avulsa') {
+      onSubmit({
+        numero: parseInt(formData.numero) || Date.now(),
+        setor: formData.setor || '-',
+        etapa: formData.tipoAvulso,
+        tipoLancamento: formData.tipoAvulso,
+        tipoLabel: tipoAvulsoObj?.label || formData.tipoAvulso,
+        descricao: formData.descricaoAvulsa || tipoAvulsoObj?.label || 'Lançamento avulso',
+        pesoMedido: 0,
+        dataReferencia: formData.dataReferencia,
+        dataMedicao: formData.dataMedicao,
+        status: formData.status,
+        observacao: formData.observacao,
+        valorBruto: valoresCalculados.bruto,
+        valorLiquido: valoresCalculados.liquido,
+        retencoes: valoresCalculados.retencoes,
+        detalhamento: {},
+        isAvulsa: true,
+      });
+    } else {
+      onSubmit({
+        numero: parseInt(formData.numero) || Date.now(),
+        setor: formData.setor,
+        etapa: formData.etapa,
+        pesoMedido: pesoNum,
+        dataReferencia: formData.dataReferencia,
+        dataMedicao: formData.dataMedicao,
+        status: formData.status,
+        observacao: formData.observacao,
+        valorBruto: valoresCalculados.bruto,
+        valorLiquido: valoresCalculados.liquido,
+        retencoes: valoresCalculados.retencoes,
+        detalhamento: valoresCalculados.detalhamento,
+      });
+    }
   };
 
   const setField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
-      {/* Número + Setor + Etapa */}
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className={labelClass}>Nº Medição</label>
-          <input type="number" value={formData.numero} onChange={e => setField('numero', e.target.value)}
-            className={inputClass} style={inputStyle} placeholder="Ex: 1" required />
-        </div>
-        <div>
-          <label className={labelClass}>Setor</label>
-          <select value={formData.setor} onChange={e => setField('setor', e.target.value)}
-            className={inputClass} style={inputStyle}>
-            {setores.map(s => (
-              <option key={s.id} value={s.nome} style={{ background: '#1e293b' }}>{s.nome}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>Etapa</label>
-          <select value={formData.etapa} onChange={e => setField('etapa', e.target.value)}
-            className={inputClass} style={inputStyle}>
-            <option value={ETAPA_MEDICAO.FABRICACAO} style={{ background: '#1e293b' }}>Fabricação</option>
-            <option value={ETAPA_MEDICAO.MONTAGEM} style={{ background: '#1e293b' }}>Montagem</option>
-          </select>
-        </div>
+      {/* Seletor de Modo */}
+      <div className="flex gap-2 p-1 rounded-xl" style={{
+        background: 'linear-gradient(135deg, rgba(12,20,38,0.6), rgba(15,25,48,0.4))',
+        border: '1px solid rgba(56,72,100,0.25)',
+      }}>
+        {[
+          { id: 'peso', label: 'Medição por Peso', icon: Weight, desc: 'Fabricação / Montagem' },
+          { id: 'avulsa', label: 'Lançamento Avulso', icon: Receipt, desc: 'Entrada / Retenção / Outros' },
+        ].map(m => (
+          <button key={m.id} type="button" onClick={() => setModo(m.id)}
+            className={`flex-1 flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              modo === m.id ? 'text-white' : 'text-slate-500 hover:text-slate-300'
+            }`}
+            style={modo === m.id ? {
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(59,130,246,0.1))',
+              border: '1px solid rgba(139,92,246,0.3)',
+              boxShadow: '0 2px 10px rgba(139,92,246,0.1)',
+            } : { border: '1px solid transparent' }}
+          >
+            <m.icon className="w-4 h-4" />
+            <div className="text-left">
+              <div className="text-xs font-semibold">{m.label}</div>
+              <div className="text-[10px] text-slate-500">{m.desc}</div>
+            </div>
+          </button>
+        ))}
       </div>
 
-      {/* Peso + Datas */}
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className={labelClass}>Peso Medido (kg)</label>
-          <input type="number" step="0.01" value={formData.pesoMedido} onChange={e => setField('pesoMedido', e.target.value)}
-            className={inputClass} style={inputStyle} placeholder="Ex: 15000" required />
-          {pesoNum > 0 && <p className="text-[10px] text-slate-500 mt-1">{(pesoNum / 1000).toFixed(2)} ton</p>}
-        </div>
-        <div>
-          <label className={labelClass}>Data Referência</label>
-          <input type="date" value={formData.dataReferencia} onChange={e => setField('dataReferencia', e.target.value)}
-            className={inputClass} style={inputStyle} />
-        </div>
-        <div>
-          <label className={labelClass}>Data Medição</label>
-          <input type="date" value={formData.dataMedicao} onChange={e => setField('dataMedicao', e.target.value)}
-            className={inputClass} style={inputStyle} />
-        </div>
-      </div>
-
-      {/* Status */}
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className={labelClass}>Status</label>
-          <select value={formData.status} onChange={e => setField('status', e.target.value)}
-            className={inputClass} style={inputStyle}>
-            {Object.entries(STATUS_MEDICAO).map(([key, value]) => (
-              <option key={key} value={value} style={{ background: '#1e293b' }}>{key.replace(/_/g, ' ')}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>Observação</label>
-          <input type="text" value={formData.observacao} onChange={e => setField('observacao', e.target.value)}
-            className={inputClass} style={inputStyle} placeholder="Observação opcional" />
-        </div>
-      </div>
-
-      {/* Preview de Valores Calculados */}
-      {pesoNum > 0 && (
-        <div className="rounded-xl border p-4 space-y-3" style={{
-          background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(59,130,246,0.04))',
-          borderColor: 'rgba(139,92,246,0.2)',
-          boxShadow: 'inset 0 1px 0 rgba(139,92,246,0.05)',
-        }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="w-4 h-4 text-purple-400" />
-            <span className="text-sm font-semibold text-purple-300">Valores Calculados Automaticamente</span>
+      {modo === 'avulsa' ? (
+        <>
+          {/* ===== MODO AVULSO ===== */}
+          {/* Tipo de lançamento avulso */}
+          <div>
+            <label className={labelClass}>Tipo de Lançamento</label>
+            <div className="grid grid-cols-3 gap-2">
+              {TIPOS_MEDICAO_AVULSA.map(tipo => (
+                <button key={tipo.id} type="button" onClick={() => setField('tipoAvulso', tipo.id)}
+                  className={`p-2.5 rounded-lg border text-left transition-all ${
+                    formData.tipoAvulso === tipo.id ? 'border-opacity-50' : 'border-transparent'
+                  }`}
+                  style={{
+                    background: formData.tipoAvulso === tipo.id
+                      ? `linear-gradient(135deg, ${tipo.color}12, ${tipo.color}06)`
+                      : 'rgba(30,41,59,0.4)',
+                    borderColor: formData.tipoAvulso === tipo.id ? `${tipo.color}40` : 'rgba(56,72,100,0.2)',
+                    boxShadow: formData.tipoAvulso === tipo.id ? `0 2px 8px ${tipo.color}10` : 'none',
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{tipo.icon}</span>
+                    <span className="text-xs font-semibold text-white">{tipo.label}</span>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-0.5">{tipo.desc}</p>
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Detalhamento por sub-etapa */}
-          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-            {Object.entries(valoresCalculados.detalhamento).map(([etapa, dados]) => (
-              <div key={etapa} className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: 'rgba(56,72,100,0.2)' }}>
-                <div className="flex items-center gap-2">
-                  <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
-                  <span className="text-xs text-slate-400 capitalize">{etapa}</span>
-                  <span className="text-[10px] text-slate-600">R$ {dados.valorKg?.toFixed(2)}/kg</span>
-                </div>
-                <span className="text-xs font-medium text-white">R$ {formatMoney(dados.valor)}</span>
+          {/* Nº + Descrição */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelClass}>Nº Medição</label>
+              <input type="number" value={formData.numero} onChange={e => setField('numero', e.target.value)}
+                className={inputClass} style={inputStyle} placeholder="Ex: 1" required />
+            </div>
+            <div className="col-span-2">
+              <label className={labelClass}>Descrição</label>
+              <input type="text" value={formData.descricaoAvulsa} onChange={e => setField('descricaoAvulsa', e.target.value)}
+                className={inputClass} style={inputStyle}
+                placeholder={TIPOS_MEDICAO_AVULSA.find(t => t.id === formData.tipoAvulso)?.label || 'Descrição do lançamento'} />
+            </div>
+          </div>
+
+          {/* Valor Bruto + Datas */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelClass}>Valor Bruto (R$)</label>
+              <input type="number" step="0.01" value={formData.valorBrutoManual}
+                onChange={e => setField('valorBrutoManual', e.target.value)}
+                className={inputClass} style={inputStyle} placeholder="Ex: 135000.00" required />
+            </div>
+            <div>
+              <label className={labelClass}>Data Referência</label>
+              <input type="date" value={formData.dataReferencia} onChange={e => setField('dataReferencia', e.target.value)}
+                className={inputClass} style={inputStyle} />
+            </div>
+            <div>
+              <label className={labelClass}>Data Medição</label>
+              <input type="date" value={formData.dataMedicao} onChange={e => setField('dataMedicao', e.target.value)}
+                className={inputClass} style={inputStyle} />
+            </div>
+          </div>
+
+          {/* Status + Retenções + Setor */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelClass}>Status</label>
+              <select value={formData.status} onChange={e => setField('status', e.target.value)}
+                className={inputClass} style={inputStyle}>
+                {Object.entries(STATUS_MEDICAO).map(([key, value]) => (
+                  <option key={key} value={value} style={{ background: '#1e293b' }}>{key.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Setor (opcional)</label>
+              <select value={formData.setor} onChange={e => setField('setor', e.target.value)}
+                className={inputClass} style={inputStyle}>
+                <option value="" style={{ background: '#1e293b' }}>Nenhum</option>
+                {setores.map(s => (
+                  <option key={s.id} value={s.nome} style={{ background: '#1e293b' }}>{s.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex items-end pb-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input type="checkbox" checked={formData.aplicarRetencoes}
+                  onChange={e => setField('aplicarRetencoes', e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-600 bg-slate-700 text-purple-500 focus:ring-purple-500/50" />
+                <span className="text-xs text-slate-400">Aplicar retenções (ISS/INSS/Contr.)</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Observação */}
+          <div>
+            <label className={labelClass}>Observação</label>
+            <input type="text" value={formData.observacao} onChange={e => setField('observacao', e.target.value)}
+              className={inputClass} style={inputStyle} placeholder="Observação opcional" />
+          </div>
+
+          {/* Preview de valores */}
+          {valorBrutoManual > 0 && (
+            <div className="rounded-xl border p-4 space-y-3" style={{
+              background: `linear-gradient(135deg, ${TIPOS_MEDICAO_AVULSA.find(t => t.id === formData.tipoAvulso)?.color || '#8B5CF6'}08, rgba(59,130,246,0.03))`,
+              borderColor: `${TIPOS_MEDICAO_AVULSA.find(t => t.id === formData.tipoAvulso)?.color || '#8B5CF6'}20`,
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+            }}>
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-300">Resumo do Lançamento</span>
               </div>
-            ))}
-          </div>
-
-          {/* Totais */}
-          <div className="pt-3 mt-2 border-t space-y-2" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
-            <div className="flex justify-between">
-              <span className="text-sm text-white font-semibold">Valor Bruto</span>
-              <span className="text-lg font-bold text-white">R$ {formatMoney(valoresCalculados.bruto)}</span>
+              <div className="flex justify-between py-2">
+                <span className="text-sm text-white">Valor Bruto</span>
+                <span className="text-lg font-bold text-white">R$ {formatMoney(valoresCalculados.bruto)}</span>
+              </div>
+              {formData.aplicarRetencoes && valoresCalculados.retencoes.total > 0 && (
+                <>
+                  <div className="flex items-center gap-4 text-[11px] text-slate-500">
+                    <span>ISS: -R$ {formatMoney(valoresCalculados.retencoes.iss)}</span>
+                    <span>INSS: -R$ {formatMoney(valoresCalculados.retencoes.inss)}</span>
+                    <span>Contratual: -R$ {formatMoney(valoresCalculados.retencoes.contratual)}</span>
+                  </div>
+                  <div className="flex justify-between pt-2 border-t" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
+                    <span className="text-sm text-emerald-400 font-semibold">Valor Líquido</span>
+                    <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.liquido)}</span>
+                  </div>
+                </>
+              )}
+              {!formData.aplicarRetencoes && (
+                <p className="text-[10px] text-slate-500">Sem retenções — valor líquido = valor bruto</p>
+              )}
             </div>
-
-            {/* Retenções */}
-            <div className="flex items-center gap-4 text-[11px] text-slate-500">
-              <span>ISS ({((contrato?.retencaoISS || 0.02) * 100).toFixed(1)}%): -R$ {formatMoney(valoresCalculados.retencoes.iss)}</span>
-              <span>INSS ({((contrato?.retencaoINSS || 0.035) * 100).toFixed(1)}%): -R$ {formatMoney(valoresCalculados.retencoes.inss)}</span>
-              <span>Contratual ({((contrato?.retencaoContratual || 0.05) * 100).toFixed(1)}%): -R$ {formatMoney(valoresCalculados.retencoes.contratual)}</span>
-            </div>
-
-            <div className="flex justify-between pt-2 border-t" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
-              <span className="text-sm text-emerald-400 font-semibold">Valor Líquido</span>
-              <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.liquido)}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Detalhamento Manual (override) */}
-      <details className="group">
-        <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5">
-          <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
-          Editar valores por sub-etapa manualmente (opcional)
-        </summary>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          {isFabricacao ? (
-            <>
-              {['Corte', 'Fabricacao', 'Solda', 'Pintura', 'Expedicao'].map(etapa => (
-                <div key={etapa}>
-                  <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
-                  <input type="number" step="0.01" value={formData[`det${etapa}`]}
-                    onChange={e => setField(`det${etapa}`, e.target.value)}
-                    className={inputClass} style={inputStyle}
-                    placeholder={`Auto: R$ ${formatMoney(valoresCalculados.detalhamento[etapa.toLowerCase()]?.valor || 0)}`} />
-                </div>
-              ))}
-            </>
-          ) : (
-            <>
-              {['Descarga', 'Montagem', 'Torqueamento', 'Acabamento'].map(etapa => (
-                <div key={etapa}>
-                  <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
-                  <input type="number" step="0.01" value={formData[`det${etapa}`]}
-                    onChange={e => setField(`det${etapa}`, e.target.value)}
-                    className={inputClass} style={inputStyle}
-                    placeholder={`Auto: R$ ${formatMoney(valoresCalculados.detalhamento[etapa.toLowerCase()]?.valor || 0)}`} />
-                </div>
-              ))}
-            </>
           )}
-        </div>
-      </details>
+        </>
+      ) : (
+        <>
+          {/* ===== MODO POR PESO ===== */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelClass}>Nº Medição</label>
+              <input type="number" value={formData.numero} onChange={e => setField('numero', e.target.value)}
+                className={inputClass} style={inputStyle} placeholder="Ex: 1" required />
+            </div>
+            <div>
+              <label className={labelClass}>Setor</label>
+              <select value={formData.setor} onChange={e => setField('setor', e.target.value)}
+                className={inputClass} style={inputStyle}>
+                {setores.map(s => (
+                  <option key={s.id} value={s.nome} style={{ background: '#1e293b' }}>{s.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Etapa</label>
+              <select value={formData.etapa} onChange={e => setField('etapa', e.target.value)}
+                className={inputClass} style={inputStyle}>
+                <option value={ETAPA_MEDICAO.FABRICACAO} style={{ background: '#1e293b' }}>Fabricação</option>
+                <option value={ETAPA_MEDICAO.MONTAGEM} style={{ background: '#1e293b' }}>Montagem</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelClass}>Peso Medido (kg)</label>
+              <input type="number" step="0.01" value={formData.pesoMedido} onChange={e => setField('pesoMedido', e.target.value)}
+                className={inputClass} style={inputStyle} placeholder="Ex: 15000" required />
+              {pesoNum > 0 && <p className="text-[10px] text-slate-500 mt-1">{(pesoNum / 1000).toFixed(2)} ton</p>}
+            </div>
+            <div>
+              <label className={labelClass}>Data Referência</label>
+              <input type="date" value={formData.dataReferencia} onChange={e => setField('dataReferencia', e.target.value)}
+                className={inputClass} style={inputStyle} />
+            </div>
+            <div>
+              <label className={labelClass}>Data Medição</label>
+              <input type="date" value={formData.dataMedicao} onChange={e => setField('dataMedicao', e.target.value)}
+                className={inputClass} style={inputStyle} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Status</label>
+              <select value={formData.status} onChange={e => setField('status', e.target.value)}
+                className={inputClass} style={inputStyle}>
+                {Object.entries(STATUS_MEDICAO).map(([key, value]) => (
+                  <option key={key} value={value} style={{ background: '#1e293b' }}>{key.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClass}>Observação</label>
+              <input type="text" value={formData.observacao} onChange={e => setField('observacao', e.target.value)}
+                className={inputClass} style={inputStyle} placeholder="Observação opcional" />
+            </div>
+          </div>
+
+          {/* Preview peso */}
+          {pesoNum > 0 && (
+            <div className="rounded-xl border p-4 space-y-3" style={{
+              background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(59,130,246,0.04))',
+              borderColor: 'rgba(139,92,246,0.2)',
+              boxShadow: 'inset 0 1px 0 rgba(139,92,246,0.05)',
+            }}>
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="w-4 h-4 text-purple-400" />
+                <span className="text-sm font-semibold text-purple-300">Valores Calculados Automaticamente</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                {Object.entries(valoresCalculados.detalhamento).map(([etapa, dados]) => (
+                  <div key={etapa} className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: 'rgba(56,72,100,0.2)' }}>
+                    <div className="flex items-center gap-2">
+                      <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                      <span className="text-xs text-slate-400 capitalize">{etapa}</span>
+                      <span className="text-[10px] text-slate-600">R$ {dados.valorKg?.toFixed(2)}/kg</span>
+                    </div>
+                    <span className="text-xs font-medium text-white">R$ {formatMoney(dados.valor)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-3 mt-2 border-t space-y-2" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
+                <div className="flex justify-between">
+                  <span className="text-sm text-white font-semibold">Valor Bruto</span>
+                  <span className="text-lg font-bold text-white">R$ {formatMoney(valoresCalculados.bruto)}</span>
+                </div>
+                <div className="flex items-center gap-4 text-[11px] text-slate-500">
+                  <span>ISS: -R$ {formatMoney(valoresCalculados.retencoes.iss)}</span>
+                  <span>INSS: -R$ {formatMoney(valoresCalculados.retencoes.inss)}</span>
+                  <span>Contratual: -R$ {formatMoney(valoresCalculados.retencoes.contratual)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
+                  <span className="text-sm text-emerald-400 font-semibold">Valor Líquido</span>
+                  <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.liquido)}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Override manual */}
+          <details className="group">
+            <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5">
+              <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+              Editar valores por sub-etapa manualmente (opcional)
+            </summary>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              {(isFabricacao ? ['Corte','Fabricacao','Solda','Pintura','Expedicao'] : ['Descarga','Montagem','Torqueamento','Acabamento']).map(etapa => (
+                <div key={etapa}>
+                  <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
+                  <input type="number" step="0.01" value={formData[`det${etapa}`]}
+                    onChange={e => setField(`det${etapa}`, e.target.value)}
+                    className={inputClass} style={inputStyle}
+                    placeholder={`Auto: R$ ${formatMoney(valoresCalculados.detalhamento[etapa.toLowerCase()]?.valor || 0)}`} />
+                </div>
+              ))}
+            </div>
+          </details>
+        </>
+      )}
 
       {/* Botões */}
       <div className="flex items-center gap-3 pt-3">
@@ -2850,12 +3043,12 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
           style={{ background: 'rgba(51,65,85,0.4)', border: '1px solid rgba(56,72,100,0.3)' }}>
           <X className="w-4 h-4" /> Cancelar
         </button>
-        <button type="submit" disabled={!formData.numero || pesoNum <= 0}
+        <button type="submit" disabled={!isValid}
           className="flex-1 px-4 py-2.5 rounded-xl text-white font-medium transition-all
                    flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
           style={{
             background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
-            boxShadow: formData.numero && pesoNum > 0 ? '0 4px 15px rgba(139,92,246,0.3)' : 'none',
+            boxShadow: isValid ? '0 4px 15px rgba(139,92,246,0.3)' : 'none',
           }}>
           <Save className="w-4 h-4" /> Criar Medição
         </button>
