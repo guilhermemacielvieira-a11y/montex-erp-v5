@@ -19,6 +19,7 @@ import { useEstoqueReal } from '../contexts/EstoqueRealContext';
 import { useEstoque } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
+import { useCorteSupabase } from '../hooks/useCorteSupabase';
 
 // ==========================================
 // CONSTANTES DE VISUAL
