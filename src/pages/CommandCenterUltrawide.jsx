@@ -83,11 +83,13 @@ const GlassTooltip = ({ active, payload, label }) => {
 
 // ═══════════════ MAIN COMPONENT ═══════════════
 export default function CommandCenterUltrawide() {
-  const { obraAtual, obraAtualData } = useObras() || {};
+  const { obraAtual, obraAtualData, obras = [] } = useObras() || {};
+  const [modoAnalise, setModoAnalise] = useState('obra'); // 'obra' | 'geral'
+  const obraIdParaHook = modoAnalise === 'geral' ? '__all__' : obraAtual;
   const {
     corte = {}, producao = {}, historico = {}, estoque = {}, financeiro = {}, campo = {},
     loading, lastUpdate, comparacaoDiaria, refresh
-  } = useCommandCenter(obraAtual) || {};
+  } = useCommandCenter(obraIdParaHook) || {};
 
   const [time, setTime] = useState(new Date());
   const [colonBlink, setColonBlink] = useState(true);
@@ -103,7 +105,9 @@ export default function CommandCenterUltrawide() {
     try { return (typeof comparacaoDiaria === 'function' ? comparacaoDiaria() : comparacaoDiaria) || {}; } catch { return {}; }
   }, [comparacaoDiaria]);
 
-  const valorContrato = obraAtualData?.valorContrato || obraAtualData?.valor_contrato || 0;
+  const valorContrato = modoAnalise === 'geral'
+    ? obras.reduce((s, o) => s + (parseFloat(o.contrato_valor_total) || parseFloat(o.valorContrato) || parseFloat(o.valor_contrato) || 0), 0)
+    : (obraAtualData?.valorContrato || obraAtualData?.valor_contrato || obraAtualData?.contrato_valor_total || 0);
   const faturamento = financeiro?.totalMedicoes || 0;
   const despesas = financeiro?.totalDespesas || 0;
   const saldo = valorContrato - despesas;
@@ -271,8 +275,37 @@ export default function CommandCenterUltrawide() {
             </span>
           </div>
 
+          {/* Center-Right: Modo Análise Toggle */}
+          <div className="flex items-center gap-1 p-1 rounded-lg border" style={{ background: 'rgba(6,12,30,0.6)', borderColor: C.border }}>
+            <button
+              onClick={() => setModoAnalise('obra')}
+              className="px-3 py-1.5 rounded-md text-[11px] font-bold tracking-wider transition-all duration-200"
+              style={modoAnalise === 'obra' ? { background: `${C.accent}25`, color: C.accent, boxShadow: `0 0 10px ${C.accent}20` } : { color: C.muted }}
+            >
+              <span className="flex items-center gap-1.5">
+                <Building2 size={12} />
+                {obraAtualData?.codigo || 'OBRA'}
+              </span>
+            </button>
+            <button
+              onClick={() => setModoAnalise('geral')}
+              className="px-3 py-1.5 rounded-md text-[11px] font-bold tracking-wider transition-all duration-200"
+              style={modoAnalise === 'geral' ? { background: `${C.neon}25`, color: C.neon, boxShadow: `0 0 10px ${C.neon}20` } : { color: C.muted }}
+            >
+              <span className="flex items-center gap-1.5">
+                <Activity size={12} />
+                ANÁLISE GERAL
+              </span>
+            </button>
+          </div>
+
           {/* Right: Status */}
           <div className="flex items-center gap-5">
+            {modoAnalise === 'geral' && (
+              <span className="text-[10px] px-2 py-0.5 rounded border font-bold" style={{ color: C.neon, borderColor: `${C.neon}30`, background: `${C.neon}08` }}>
+                {obras.length} OBRAS
+              </span>
+            )}
             <div className="flex items-center gap-2">
               <motion.div className="w-2 h-2 rounded-full" animate={{ scale: [1, 1.4, 1] }}
                 transition={{ duration: 1.5, repeat: Infinity }} style={{ background: C.success, boxShadow: `0 0 8px ${C.success}` }} />
@@ -291,7 +324,7 @@ export default function CommandCenterUltrawide() {
         {/* ═══ ROW 1: KPI CARDS ═══ */}
         <div className="grid grid-cols-4 xl:grid-cols-8 gap-3">
           {[
-            { icon: Building2, label: 'Obra Ativa', value: obraAtualData?.numero || obraAtualData?.nome || '—', sub: obraAtualData?.nome || 'Super Luna', color: C.accent, isText: true },
+            { icon: modoAnalise === 'geral' ? Activity : Building2, label: modoAnalise === 'geral' ? 'Análise Geral' : 'Obra Ativa', value: modoAnalise === 'geral' ? `${obras.length} Obras` : (obraAtualData?.codigo || obraAtualData?.nome || '—'), sub: modoAnalise === 'geral' ? obras.map(o => o.codigo || o.nome).join(' • ') : (obraAtualData?.nome || ''), color: modoAnalise === 'geral' ? C.neon : C.accent, isText: true },
             { icon: Weight, label: 'Peso Total', value: fmtWeight(pesoTotal), sub: `Expedido: ${fmtWeight(producao?.pesoExpedido || 0)}`, color: C.warning },
             { icon: Package, label: 'Peças Produção', value: fmtNum(producao?.total || 0), sub: `${producao?.progressoGeral || 0}% progresso`, color: C.neon },
             { icon: DollarSign, label: 'Faturamento', value: fmtCurrency(faturamento), sub: `${financeiro?.numMedicoes || 0} medições`, color: C.success },

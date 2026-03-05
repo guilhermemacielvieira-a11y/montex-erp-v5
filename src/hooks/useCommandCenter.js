@@ -40,14 +40,16 @@ export function useCommandCenter(obraId) {
   const [snapshotOntem, setSnapshotOntem] = useState(null);
   const channelRef = useRef(null);
 
+  const isAll = obraId === '__all__';
+
   // ===== CARREGAR DADOS DE CORTE (Kanban Corte) =====
   const fetchCorte = useCallback(async () => {
     if (!obraId) return null;
     try {
       let query = supabase
         .from('materiais_corte')
-        .select('id, status_corte, peso_teorico, quantidade, peca, marca, perfil, material, comprimento_mm, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at');
-      query = query.eq('obra_id', obraId);
+        .select('id, status_corte, peso_teorico, quantidade, peca, marca, perfil, material, comprimento_mm, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at, obra_id');
+      if (!isAll) query = query.eq('obra_id', obraId);
       const { data, error } = await query;
       if (error) throw error;
 
@@ -113,7 +115,7 @@ export function useCommandCenter(obraId) {
       let query = supabase
         .from('pecas_producao')
         .select('id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at');
-      query = query.eq('obra_id', obraId);
+      if (!isAll) query = query.eq('obra_id', obraId);
       const { data, error } = await query;
       if (error) throw error;
 
@@ -304,14 +306,12 @@ export function useCommandCenter(obraId) {
   const fetchFinanceiro = useCallback(async () => {
     if (!obraId) return null;
     try {
-      const { data: lancamentos } = await supabase
-        .from('lancamentos_despesas')
-        .select('valor, tipo, status, categoria, data_emissao, obra_id')
-        .eq('obra_id', obraId);
-      const { data: medicoes } = await supabase
-        .from('medicoes')
-        .select('valor_total, status, tipo, data_medicao')
-        .eq('obra_id', obraId);
+      let qLanc = supabase.from('lancamentos_despesas').select('valor, tipo, status, categoria, data_emissao, obra_id');
+      if (!isAll) qLanc = qLanc.eq('obra_id', obraId);
+      const { data: lancamentos } = await qLanc;
+      let qMed = supabase.from('medicoes').select('valor_total, status, tipo, data_medicao');
+      if (!isAll) qMed = qMed.eq('obra_id', obraId);
+      const { data: medicoes } = await qMed;
 
       const lancs = lancamentos || [];
       const meds = medicoes || [];
@@ -353,10 +353,9 @@ export function useCommandCenter(obraId) {
   const fetchCampo = useCallback(async () => {
     if (!obraId) return null;
     try {
-      const { data: expedicoes } = await supabase
-        .from('expedicoes')
-        .select('id, numero_romaneio, obra_id, status, peso_total, pecas, data_expedicao, transportadora, motorista, placa, destino, observacoes, created_at, updated_at')
-        .eq('obra_id', obraId);
+      let qExp = supabase.from('expedicoes').select('id, numero_romaneio, obra_id, status, peso_total, pecas, data_expedicao, transportadora, motorista, placa, destino, observacoes, created_at, updated_at');
+      if (!isAll) qExp = qExp.eq('obra_id', obraId);
+      const { data: expedicoes } = await qExp;
 
       const items = expedicoes || [];
       const enviados = items.filter(i => {
