@@ -86,8 +86,8 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
-  const { obras } = useObras();
-  const { moverPecaEtapa: moverPecaEtapaContext, pecas: pecasSupabase, updatePeca, addPecas: addPecasContext } = useProducao();
+  const { obras, obraAtual } = useObras();
+  const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, updatePeca, addPecas: addPecasContext } = useProducao();
 
   // ========================================
   // BASE DE DADOS DE PRODUÇÃO INDEPENDENTE
@@ -136,6 +136,12 @@ export default function KanbanProducaoIntegrado() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const [itensPorPagina, setItensPorPagina] = useState(25);
   const [ordenacao, setOrdenacao] = useState({ campo: 'conjunto', direcao: 'asc' });
+
+  // Reset ao mudar de obra
+  useEffect(() => {
+    initialLoadDone.current = false;
+    setProducaoFabrica([]);
+  }, [obraAtual]);
 
   // ========================================
   // AUTO-CARREGAR dados do SUPABASE (via ERPContext) no mount
