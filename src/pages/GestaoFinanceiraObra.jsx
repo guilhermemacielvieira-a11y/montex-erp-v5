@@ -143,47 +143,84 @@ const CATEGORIA_LABELS = {
 };
 
 // Componente KPI Card
-const KPICard = ({ icon: Icon, label, value, subvalue, color, trend, highlight = false }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    className={`bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-               rounded-xl border p-4 relative overflow-hidden
-               ${highlight ? `border-${color}-500/50` : 'border-slate-700/50'}`}
-  >
-    {highlight && (
-      <div className={`absolute inset-0 bg-${color}-500/5`} />
-    )}
-    <div className="relative">
-      <div className="flex items-start justify-between">
-        <div className={`p-2 bg-${color}-500/20 rounded-lg`}>
-          <Icon className={`w-5 h-5 text-${color}-400`} />
+const KPICard = ({ icon: Icon, label, value, subvalue, color, trend, highlight = false }) => {
+  const colorMap = {
+    emerald: '#10B981',
+    red: '#EF4444',
+    cyan: '#06B6D4',
+    amber: '#F59E0B',
+    purple: '#8B5CF6',
+    teal: '#14B8A6',
+    blue: '#3B82F6',
+    slate: '#94A3B8',
+  };
+  const hex = colorMap[color] || '#3B82F6';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="relative group cursor-default rounded-xl border backdrop-blur-md overflow-hidden"
+      style={{
+        background: 'linear-gradient(135deg, rgba(12,20,38,0.75), rgba(15,25,48,0.4))',
+        borderColor: highlight ? `${hex}35` : 'rgba(56,72,100,0.35)',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)',
+      }}
+      whileHover={{ y: -3, boxShadow: `0 8px 32px ${hex}15, inset 0 1px 0 rgba(255,255,255,0.05)` }}
+      transition={{ duration: 0.25 }}
+    >
+      <div className="absolute top-0 left-0 w-full h-[2px]" style={{ background: `linear-gradient(90deg, ${hex}, ${hex}40, transparent)` }} />
+      <div className="p-4 relative">
+        <div className="flex items-start justify-between">
+          <div className="p-2 rounded-lg" style={{ background: `${hex}15`, boxShadow: `0 0 12px ${hex}15` }}>
+            <Icon className="w-5 h-5" style={{ color: hex }} />
+          </div>
+          {trend !== undefined && (
+            <span className={`flex items-center text-xs ${trend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+              {trend >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
+              {Math.abs(trend).toFixed(1)}%
+            </span>
+          )}
         </div>
-        {trend !== undefined && (
-          <span className={`flex items-center text-xs ${trend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {trend >= 0 ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-            {Math.abs(trend).toFixed(1)}%
-          </span>
-        )}
+        <p className="text-xs text-slate-400 mt-3">{label}</p>
+        <p className="text-xl font-bold" style={{ color: highlight ? hex : '#F1F5F9' }}>{value}</p>
+        {subvalue && <p className="text-xs text-slate-500 mt-0.5">{subvalue}</p>}
       </div>
-      <p className="text-xs text-slate-400 mt-3">{label}</p>
-      <p className={`text-xl font-bold ${highlight ? `text-${color}-400` : 'text-white'}`}>{value}</p>
-      {subvalue && <p className="text-xs text-slate-500">{subvalue}</p>}
-    </div>
-  </motion.div>
-);
+    </motion.div>
+  );
+};
 
 // Componente Progress Bar
 const ProgressBar = ({ value, max, color = 'cyan', showLabel = true, height = 'h-2' }) => {
+  const colorMap = {
+    cyan: '#06B6D4',
+    emerald: '#10B981',
+    red: '#EF4444',
+    amber: '#F59E0B',
+    purple: '#8B5CF6',
+    blue: '#3B82F6',
+  };
+  const hex = colorMap[color] || '#06B6D4';
   const percentage = max > 0 ? (value / max) * 100 : 0;
+
   return (
     <div className="w-full">
-      <div className={`${height} bg-slate-700 rounded-full overflow-hidden`}>
+      <div
+        className={`${height} rounded-full overflow-hidden`}
+        style={{
+          background: 'linear-gradient(180deg, rgba(30,41,59,0.6), rgba(51,65,85,0.3))',
+          boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)',
+        }}
+      >
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${Math.min(percentage, 100)}%` }}
           transition={{ duration: 0.8 }}
-          className={`h-full bg-${color}-500 rounded-full`}
+          className="h-full rounded-full"
+          style={{
+            background: `linear-gradient(180deg, ${hex}, ${hex}cc)`,
+            boxShadow: `inset 0 1px 0 rgba(255,255,255,0.2), 0 0 6px ${hex}25`,
+          }}
         />
       </div>
       {showLabel && (
@@ -526,8 +563,8 @@ export default function GestaoFinanceiraObra() {
   }, [importData, obra.id, addLancamentoCtx]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="min-h-screen text-slate-100" style={{ background: 'linear-gradient(180deg, #060A14 0%, #080E1C 50%, #0A1020 100%)' }}>
+      <div className="w-full px-4 2xl:px-6 py-4 space-y-5">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -536,7 +573,13 @@ export default function GestaoFinanceiraObra() {
         >
           <div>
             <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <div className="p-3 bg-gradient-to-br from-emerald-500 to-teal-600 rounded-xl">
+              <div
+                className="p-3 rounded-xl"
+                style={{
+                  background: 'linear-gradient(135deg, #10B981, #0D9488)',
+                  boxShadow: '0 4px 15px rgba(16,185,129,0.3), inset 0 1px 0 rgba(255,255,255,0.1)',
+                }}
+              >
                 <DollarSign className="w-8 h-8 text-white" />
               </div>
               Gestão Financeira da Obra
@@ -590,8 +633,12 @@ export default function GestaoFinanceiraObra() {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-r from-emerald-900/40 via-teal-900/30 to-cyan-900/40 backdrop-blur-xl
-                   rounded-2xl border border-emerald-500/30 p-6"
+          className="rounded-2xl border backdrop-blur-xl p-6 relative overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(6,182,212,0.05), rgba(139,92,246,0.05))',
+            borderColor: 'rgba(16,185,129,0.2)',
+            boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(16,185,129,0.06)',
+          }}
         >
           <div className="grid grid-cols-1 md:grid-cols-7 gap-4">
             {/* Valor Contrato */}
@@ -609,7 +656,14 @@ export default function GestaoFinanceiraObra() {
             </div>
 
             {/* Receitas Realizadas (Medições Pagas) */}
-            <div className="text-center bg-emerald-900/20 rounded-xl p-2 border border-emerald-500/20">
+            <div
+              className="text-center rounded-xl p-2 border backdrop-blur-md overflow-hidden"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(16,185,129,0.25)',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(16,185,129,0.05)',
+              }}
+            >
               <p className="text-xs text-emerald-300 mb-1">RECEITAS PAGAS</p>
               <p className="text-xl font-bold text-emerald-400">
                 R$ {formatMoney(totalReceitasRealizadas)}
@@ -623,7 +677,14 @@ export default function GestaoFinanceiraObra() {
             </div>
 
             {/* Despesas Pagas */}
-            <div className="text-center bg-red-900/20 rounded-xl p-2 border border-red-500/20">
+            <div
+              className="text-center rounded-xl p-2 border backdrop-blur-md overflow-hidden"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(239,68,68,0.25)',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(239,68,68,0.05)',
+              }}
+            >
               <p className="text-xs text-red-300 mb-1">DESPESAS PAGAS</p>
               <p className="text-xl font-bold text-red-400">
                 R$ {formatMoney(totalPago)}
@@ -637,7 +698,14 @@ export default function GestaoFinanceiraObra() {
             </div>
 
             {/* Saldo do Contrato (Abatido automaticamente) */}
-            <div className="text-center bg-purple-900/30 rounded-xl p-2 border border-purple-500/30">
+            <div
+              className="text-center rounded-xl p-2 border backdrop-blur-md overflow-hidden"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(139,92,246,0.3)',
+                boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(139,92,246,0.1)',
+              }}
+            >
               <p className="text-xs text-purple-300 mb-1">SALDO CONTRATO</p>
               <p className="text-xl font-bold text-purple-400">
                 R$ {formatMoney(saldoContrato.saldoRestante)}
@@ -652,18 +720,26 @@ export default function GestaoFinanceiraObra() {
               <span>Progresso Financeiro</span>
               <span>{saldoContrato.percentualExecutado.toFixed(1)}% executado</span>
             </div>
-            <div className="h-3 bg-slate-700 rounded-full overflow-hidden flex">
+            <div
+              className="h-4 rounded-full overflow-hidden flex"
+              style={{
+                background: 'linear-gradient(180deg, rgba(15,23,42,0.8), rgba(30,41,59,0.6))',
+                boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.03)',
+              }}
+            >
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${saldoContrato.percentualExecutado}%` }}
                 className="bg-red-500 h-full"
                 title="Despesas Pagas"
+                style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)' }}
               />
               <motion.div
                 initial={{ width: 0 }}
                 animate={{ width: `${saldoContrato.percentualMedido}%` }}
                 className="bg-emerald-500 h-full"
                 title="Receitas (Medições Pagas)"
+                style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)' }}
               />
             </div>
             <div className="flex items-center gap-4 mt-2 text-xs">
@@ -745,7 +821,14 @@ export default function GestaoFinanceiraObra() {
 
         {/* Tabs */}
         <Tabs.Root value={activeTab} onValueChange={setActiveTab}>
-          <Tabs.List className="flex gap-2 bg-slate-800/50 p-1 rounded-xl w-fit mb-4 overflow-x-auto">
+          <Tabs.List
+            className="flex gap-1.5 p-1 rounded-xl w-fit mb-4 overflow-x-auto"
+            style={{
+              background: 'linear-gradient(135deg, rgba(12,20,38,0.6), rgba(15,25,48,0.4))',
+              border: '1px solid rgba(56,72,100,0.25)',
+              boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.02)',
+            }}
+          >
             {[
               { value: 'dashboard', label: 'Dashboard', icon: BarChart3 },
               { value: 'dre', label: 'DRE Obra', icon: TrendingUp },
@@ -772,8 +855,14 @@ export default function GestaoFinanceiraObra() {
           <Tabs.Content value="dashboard" className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Despesas por Categoria */}
-              <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div
+                className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                  borderColor: 'rgba(56,72,100,0.35)',
+                  boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+                }}
+              >
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <PieChartIcon className="w-5 h-5 text-purple-400" />
                   Despesas por Categoria
@@ -794,7 +883,13 @@ export default function GestaoFinanceiraObra() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      contentStyle={{
+                        background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.9))',
+                        border: '1px solid rgba(100,116,139,0.3)',
+                        borderRadius: '12px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)',
+                        backdropFilter: 'blur(10px)',
+                      }}
                       formatter={(value) => `R$ ${formatMoney(value)}`}
                     />
                   </PieChart>
@@ -813,19 +908,31 @@ export default function GestaoFinanceiraObra() {
               </div>
 
               {/* Medições por Setor */}
-              <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div
+                className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                  borderColor: 'rgba(56,72,100,0.35)',
+                  boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+                }}
+              >
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <Layers className="w-5 h-5 text-cyan-400" />
                   Medições por Setor
                 </h3>
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={dadosMedicoes} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.2)" />
                     <XAxis type="number" stroke="#64748b" fontSize={12} />
                     <YAxis type="category" dataKey="setor" stroke="#64748b" fontSize={12} width={100} />
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      contentStyle={{
+                        background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.9))',
+                        border: '1px solid rgba(100,116,139,0.3)',
+                        borderRadius: '12px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)',
+                        backdropFilter: 'blur(10px)',
+                      }}
                       formatter={(value) => `${(value / 1000).toFixed(1)} ton`}
                     />
                     <Bar dataKey="fabricacao" name="Fabricação" fill="#8b5cf6" stackId="a" />
@@ -848,8 +955,14 @@ export default function GestaoFinanceiraObra() {
             </div>
 
             {/* Fluxo de Caixa Preview */}
-            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                          rounded-xl border border-slate-700/50 p-5">
+            <div
+              className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(56,72,100,0.35)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+              }}
+            >
               <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                 <Activity className="w-5 h-5 text-amber-400" />
                 Fluxo de Caixa Projetado
@@ -877,8 +990,12 @@ export default function GestaoFinanceiraObra() {
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              className="bg-gradient-to-r from-emerald-900/40 via-teal-900/30 to-cyan-900/40 backdrop-blur-xl
-                       rounded-2xl border border-emerald-500/30 p-6"
+              className="rounded-2xl border backdrop-blur-xl p-6 relative overflow-hidden"
+              style={{
+                background: 'linear-gradient(135deg, rgba(16,185,129,0.08), rgba(6,182,212,0.05), rgba(139,92,246,0.05))',
+                borderColor: 'rgba(16,185,129,0.2)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(16,185,129,0.06)',
+              }}
             >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-bold text-white flex items-center gap-3">
@@ -896,7 +1013,14 @@ export default function GestaoFinanceiraObra() {
               {/* Resumo Principal */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 {/* RECEITAS */}
-                <div className="bg-emerald-900/30 rounded-xl p-4 border border-emerald-500/30">
+                <div
+                  className="rounded-xl p-4 border backdrop-blur-md overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                    borderColor: 'rgba(16,185,129,0.3)',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(16,185,129,0.1)',
+                  }}
+                >
                   <p className="text-xs text-emerald-300 flex items-center gap-1 mb-2">
                     <ArrowUpRight className="w-3 h-3" /> RECEITAS REALIZADAS
                   </p>
@@ -909,7 +1033,14 @@ export default function GestaoFinanceiraObra() {
                 </div>
 
                 {/* CUSTOS */}
-                <div className="bg-red-900/30 rounded-xl p-4 border border-red-500/30">
+                <div
+                  className="rounded-xl p-4 border backdrop-blur-md overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                    borderColor: 'rgba(239,68,68,0.3)',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(239,68,68,0.1)',
+                  }}
+                >
                   <p className="text-xs text-red-300 flex items-center gap-1 mb-2">
                     <ArrowDownRight className="w-3 h-3" /> CUSTOS REALIZADOS
                   </p>
@@ -945,7 +1076,14 @@ export default function GestaoFinanceiraObra() {
                 </div>
 
                 {/* SALDO CONTRATO */}
-                <div className="bg-purple-900/30 rounded-xl p-4 border border-purple-500/30">
+                <div
+                  className="rounded-xl p-4 border backdrop-blur-md overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                    borderColor: 'rgba(139,92,246,0.3)',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(139,92,246,0.1)',
+                  }}
+                >
                   <p className="text-xs text-purple-300 flex items-center gap-1 mb-2">
                     <Wallet className="w-3 h-3" /> SALDO DO CONTRATO
                   </p>
@@ -962,8 +1100,14 @@ export default function GestaoFinanceiraObra() {
             {/* Receitas Detalhadas */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {/* Lista de Receitas (Medições Pagas) */}
-              <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div
+                className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                  borderColor: 'rgba(56,72,100,0.35)',
+                  boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+                }}
+              >
                 <h4 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <ArrowUpRight className="w-5 h-5 text-emerald-400" />
                   Receitas Realizadas (Medições Pagas)
@@ -1021,8 +1165,14 @@ export default function GestaoFinanceiraObra() {
               </div>
 
               {/* Composição do Contrato */}
-              <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div
+                className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                  borderColor: 'rgba(56,72,100,0.35)',
+                  boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+                }}
+              >
                 <h4 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <Layers className="w-5 h-5 text-purple-400" />
                   Composição do Contrato
@@ -1092,8 +1242,14 @@ export default function GestaoFinanceiraObra() {
 
           {/* Tab: Lançamentos */}
           <Tabs.Content value="lancamentos" className="space-y-4">
-            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                          rounded-xl border border-slate-700/50 p-5">
+            <div
+              className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(56,72,100,0.35)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+              }}
+            >
               {/* Header e Filtros */}
               <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                 <h3 className="text-lg font-semibold text-white">Lançamentos de Despesas</h3>
@@ -1339,7 +1495,14 @@ export default function GestaoFinanceiraObra() {
               {/* Cards de Comparação */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 {/* REAL */}
-                <div className="bg-emerald-900/30 rounded-xl p-4 border border-emerald-500/30">
+                <div
+                  className="rounded-xl p-4 border backdrop-blur-md overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                    borderColor: 'rgba(16,185,129,0.3)',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(16,185,129,0.1)',
+                  }}
+                >
                   <div className="flex items-center gap-2 mb-3">
                     <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                     <h4 className="text-emerald-300 font-medium">DESPESAS REAIS</h4>
@@ -1359,7 +1522,14 @@ export default function GestaoFinanceiraObra() {
                 </div>
 
                 {/* FUTURO (Pré-Aprovados) */}
-                <div className="bg-amber-900/30 rounded-xl p-4 border border-amber-500/30">
+                <div
+                  className="rounded-xl p-4 border backdrop-blur-md overflow-hidden"
+                  style={{
+                    background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                    borderColor: 'rgba(245,158,11,0.3)',
+                    boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(245,158,11,0.1)',
+                  }}
+                >
                   <div className="flex items-center gap-2 mb-3">
                     <Clock className="w-5 h-5 text-amber-400" />
                     <h4 className="text-amber-300 font-medium">PEDIDOS PRÉ-APROVADOS</h4>
@@ -1454,8 +1624,14 @@ export default function GestaoFinanceiraObra() {
             </motion.div>
 
             {/* Lista de Pedidos Pré-Aprovados */}
-            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                          rounded-xl border border-slate-700/50 p-5">
+            <div
+              className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(56,72,100,0.35)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+              }}
+            >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                   <FileText className="w-5 h-5 text-amber-400" />
@@ -1632,8 +1808,14 @@ export default function GestaoFinanceiraObra() {
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Gráfico Estoque por Tipo */}
-              <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div
+                className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+                style={{
+                  background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                  borderColor: 'rgba(56,72,100,0.35)',
+                  boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+                }}
+              >
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <PieChartIcon className="w-5 h-5 text-cyan-400" />
                   Estoque por Tipo de Material
@@ -1655,7 +1837,13 @@ export default function GestaoFinanceiraObra() {
                       ))}
                     </Pie>
                     <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      contentStyle={{
+                        background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.9))',
+                        border: '1px solid rgba(100,116,139,0.3)',
+                        borderRadius: '12px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)',
+                        backdropFilter: 'blur(10px)',
+                      }}
                       formatter={(value) => [`${(value || 0).toLocaleString('pt-BR')} kg`, 'Peso']}
                     />
                   </PieChart>
@@ -1672,8 +1860,13 @@ export default function GestaoFinanceiraObra() {
               </div>
 
               {/* Lista de Materiais com Pendência */}
-              <div className="lg:col-span-2 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden"
+            style={{
+              background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+              borderColor: 'rgba(56,72,100,0.35)',
+              boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+            }}
+            className=" p-5">
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <AlertTriangle className="w-5 h-5 text-amber-400" />
                   Materiais com Entrega Pendente
@@ -1734,8 +1927,14 @@ export default function GestaoFinanceiraObra() {
             </div>
 
             {/* Tabela Completa de Materiais */}
-            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                          rounded-xl border border-slate-700/50 p-5">
+            <div
+              className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(56,72,100,0.35)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+              }}
+            >
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                   <ClipboardList className="w-5 h-5 text-cyan-400" />
@@ -1887,8 +2086,13 @@ export default function GestaoFinanceiraObra() {
           <Tabs.Content value="medicoes" className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Lista de Medições */}
-              <div className="lg:col-span-2 bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                            rounded-xl border border-slate-700/50 p-5">
+              <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden"
+            style={{
+              background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+              borderColor: 'rgba(56,72,100,0.35)',
+              boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+            }}
+            className=" p-5">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">Medições Realizadas</h3>
                   <button
@@ -2131,8 +2335,14 @@ export default function GestaoFinanceiraObra() {
 
           {/* Tab: Fluxo de Caixa */}
           <Tabs.Content value="fluxo" className="space-y-4">
-            <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
-                          rounded-xl border border-slate-700/50 p-5">
+            <div
+              className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(56,72,100,0.35)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+              }}
+            >
               <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                 <Activity className="w-5 h-5 text-amber-400" />
                 Fluxo de Caixa - Próximos 6 Meses
