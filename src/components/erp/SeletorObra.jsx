@@ -49,19 +49,23 @@ export default function SeletorObra({ compact = false }) {
   if (compact) {
     return (
       <Select.Root value={obraAtual} onValueChange={setObraAtual}>
-        <Select.Trigger className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-700/50 transition-colors outline-none">
+        <Select.Trigger className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-700/50 transition-colors outline-none cursor-pointer">
           <Building2 className="w-4 h-4 text-orange-400" />
           <Select.Value>
-            <span className="text-sm text-white font-medium truncate max-w-[150px]">
-              {obraAtualData?.codigo || 'Selecionar'}
+            <span className="text-sm text-white font-medium truncate max-w-[200px]">
+              {obraAtualData ? `${obraAtualData.codigo} | ${obraAtualData.nome}` : 'Selecionar obra'}
             </span>
           </Select.Value>
           <ChevronDown className="w-4 h-4 text-slate-400" />
         </Select.Trigger>
 
         <Select.Portal>
-          <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50">
-            <Select.Viewport className="p-2">
+          <Select.Content
+            position="popper"
+            sideOffset={8}
+            className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[9999] min-w-[300px]"
+          >
+            <Select.Viewport className="p-2 max-h-[400px]">
               {obrasAtivas.map(obra => {
                 const Icon = statusConfig[obra.status]?.icon || Building2;
                 return (
@@ -116,7 +120,11 @@ export default function SeletorObra({ compact = false }) {
         </Select.Trigger>
 
         <Select.Portal>
-          <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-50 min-w-[320px]">
+          <Select.Content
+            position="popper"
+            sideOffset={8}
+            className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[9999] min-w-[320px]"
+          >
             <Select.Viewport className="p-2 max-h-[400px]">
               {obrasAtivas.map(obra => {
                 const Icon = statusConfig[obra.status]?.icon || Building2;

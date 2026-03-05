@@ -720,14 +720,7 @@ function LayoutContent({ children, currentPageName }) {
             <h2 className="text-white font-medium">
               {filteredCategoriesByRole.flatMap(c => c.items).find(i => i.href === currentPageName)?.name || 'Dashboard'}
             </h2>
-            {obraAtualData && (
-              <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/50 rounded-lg">
-                <Building2 className="w-4 h-4 text-orange-400" />
-                <span className="text-sm text-slate-300">{obraAtualData.codigo}</span>
-                <span className="text-xs text-slate-500">|</span>
-                <span className="text-sm text-slate-400">{obraAtualData.nome}</span>
-              </div>
-            )}
+            <SeletorObra compact />
           </div>
           <div className="flex items-center gap-3">
             <ProgressoObra compact />
