@@ -16,9 +16,11 @@ import { useObras, useEstoque, useProducao } from '../contexts/ERPContext';
 
 // ============ DESIGN TOKENS ============
 const colors = {
-  bg: '#0B1120',
-  card: 'rgba(15, 23, 42, 0.6)',
-  border: 'rgba(51, 65, 85, 0.5)',
+  bg: '#060A14',
+  card: 'rgba(12, 20, 38, 0.75)',
+  cardHover: 'rgba(15, 25, 48, 0.85)',
+  border: 'rgba(56, 72, 100, 0.35)',
+  borderHover: 'rgba(80, 100, 140, 0.5)',
   accent: '#3B82F6',
   success: '#10B981',
   warning: '#F59E0B',
@@ -28,6 +30,7 @@ const colors = {
   text: '#F1F5F9',
   muted: '#94A3B8',
   dimmed: '#64748B',
+  glow: 'rgba(59,130,246,0.08)',
 };
 
 const SETOR_COLORS = {
@@ -100,21 +103,26 @@ const MiniBar = ({ value = 0, max = 100, color = '#3B82F6', height = 6 }) => (
 
 const StatCard = ({ icon: Icon, label, value, subtitle, trend, color = '#3B82F6', small }) => (
   <motion.div
-    className="relative group cursor-default rounded-xl border backdrop-blur-sm overflow-hidden"
-    style={{ background: colors.card, borderColor: colors.border }}
-    whileHover={{ y: -2, borderColor: color }}
-    transition={{ duration: 0.2 }}
+    className="relative group cursor-default rounded-xl border backdrop-blur-md overflow-hidden"
+    style={{
+      background: `linear-gradient(135deg, ${colors.card}, rgba(15,25,48,0.4))`,
+      borderColor: colors.border,
+      boxShadow: `0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)`,
+    }}
+    whileHover={{ y: -3, borderColor: color, boxShadow: `0 8px 32px ${color}15, inset 0 1px 0 rgba(255,255,255,0.05)` }}
+    transition={{ duration: 0.25 }}
   >
-    <div className="absolute top-0 left-0 w-full h-0.5" style={{ background: `linear-gradient(90deg, ${color}, transparent)` }} />
-    <div className={small ? 'p-3' : 'p-4'}>
+    <div className="absolute top-0 left-0 w-full h-[2px]" style={{ background: `linear-gradient(90deg, ${color}, ${color}40, transparent)` }} />
+    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: `radial-gradient(ellipse at top left, ${color}08, transparent 70%)` }} />
+    <div className={small ? 'p-3 relative' : 'p-4 relative'}>
       <div className="flex items-start justify-between mb-2">
-        <div className="p-1.5 rounded-lg" style={{ background: `${color}15` }}>
-          <Icon size={small ? 14 : 18} style={{ color }} />
+        <div className="p-2 rounded-lg" style={{ background: `${color}12`, boxShadow: `0 0 12px ${color}15` }}>
+          <Icon size={small ? 15 : 18} style={{ color }} />
         </div>
         {trend !== undefined && <TrendBadge value={trend} />}
       </div>
       <div className={`${small ? 'text-xl' : 'text-2xl'} font-bold text-white tracking-tight`}>{value}</div>
-      <div className="text-xs text-slate-400 mt-1">{label}</div>
+      <div className="text-[11px] text-slate-400 mt-1 font-medium">{label}</div>
       {subtitle && <div className="text-[10px] text-slate-500 mt-0.5">{subtitle}</div>}
     </div>
   </motion.div>
@@ -122,13 +130,17 @@ const StatCard = ({ icon: Icon, label, value, subtitle, trend, color = '#3B82F6'
 
 const SectionCard = ({ title, icon: Icon, children, className = '', action }) => (
   <div
-    className={`rounded-xl border backdrop-blur-sm ${className}`}
-    style={{ background: colors.card, borderColor: colors.border }}
+    className={`rounded-xl border backdrop-blur-md overflow-hidden ${className}`}
+    style={{
+      background: `linear-gradient(145deg, ${colors.card}, rgba(8,15,30,0.65))`,
+      borderColor: colors.border,
+      boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+    }}
   >
-    <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: colors.border }}>
+    <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: colors.border, background: 'rgba(15,23,42,0.3)' }}>
       <div className="flex items-center gap-2.5">
-        {Icon && <Icon size={16} className="text-slate-400" />}
-        <h3 className="text-sm font-semibold text-slate-200 tracking-wide uppercase">{title}</h3>
+        {Icon && <Icon size={15} className="text-blue-400/70" />}
+        <h3 className="text-xs font-bold text-slate-300 tracking-widest uppercase">{title}</h3>
       </div>
       {action}
     </div>
@@ -138,15 +150,16 @@ const SectionCard = ({ title, icon: Icon, children, className = '', action }) =>
 
 const StageChip = ({ label, value, color, active }) => (
   <motion.div
-    className={`flex flex-col items-center gap-1 px-3 py-2.5 rounded-lg border transition-colors ${active ? 'border-opacity-60' : 'border-transparent'}`}
+    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border transition-all ${active ? '' : 'border-transparent'}`}
     style={{
-      background: active ? `${color}10` : 'rgba(30,41,59,0.4)',
-      borderColor: active ? color : 'transparent'
+      background: active ? `linear-gradient(135deg, ${color}12, ${color}05)` : 'rgba(20,30,50,0.4)',
+      borderColor: active ? `${color}40` : 'transparent',
+      boxShadow: active ? `0 4px 16px ${color}15, inset 0 1px 0 rgba(255,255,255,0.03)` : 'none',
     }}
-    whileHover={{ scale: 1.03 }}
+    whileHover={{ scale: 1.04, boxShadow: `0 6px 20px ${color}20` }}
   >
-    <span className="text-lg font-bold text-white">{value}</span>
-    <span className="text-[10px] text-slate-400 uppercase tracking-wider">{label}</span>
+    <span className="text-xl font-bold text-white">{value}</span>
+    <span className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">{label}</span>
   </motion.div>
 );
 
@@ -362,10 +375,10 @@ export default function CommandCenterUltra() {
   // ============ RENDER ============
 
   return (
-    <div className="min-h-screen text-slate-100" style={{ background: colors.bg }}>
+    <div className="min-h-screen text-slate-100" style={{ background: `linear-gradient(180deg, ${colors.bg} 0%, #080E1C 50%, #0A1020 100%)` }}>
       {/* HEADER */}
-      <header className="sticky top-0 z-30 border-b backdrop-blur-md" style={{ background: 'rgba(11,17,32,0.85)', borderColor: colors.border }}>
-        <div className="max-w-[1920px] mx-auto px-6 h-14 flex items-center justify-between">
+      <header className="sticky top-0 z-30 border-b backdrop-blur-xl" style={{ background: 'rgba(6,10,20,0.88)', borderColor: colors.border, boxShadow: '0 4px 24px rgba(0,0,0,0.4)' }}>
+        <div className="w-full px-6 h-12 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <Cpu size={20} className="text-blue-400" />
@@ -395,10 +408,10 @@ export default function CommandCenterUltra() {
         </div>
       </header>
 
-      <main className="max-w-[1920px] mx-auto px-4 xl:px-8 py-5 space-y-5">
+      <main className="w-full px-4 2xl:px-6 py-4 space-y-4">
 
         {/* ROW 1: KPI CARDS - Obra + Financeiro + Produção */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           <StatCard icon={Building2} label="Obra Ativa" value={obrasAtivas.length} color="#3B82F6"
             subtitle={obraAtualData?.nome || obraAtualData?.codigo || 'SUPER LUNA'} small />
           <StatCard icon={Receipt} label="Faturamento Total" value={formatCurrency(faturamentoTotal)} color="#10B981"
@@ -414,7 +427,7 @@ export default function CommandCenterUltra() {
         </div>
 
         {/* ROW 2: FINANCIAL OVERVIEW + PRODUCTION PIPELINE */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
 
           {/* FINANCIAL CHART */}
           <SectionCard title="Visão Financeira" icon={DollarSign} className="lg:col-span-2">
@@ -460,7 +473,7 @@ export default function CommandCenterUltra() {
                   <span className="text-xs text-slate-400">Progresso Geral por Peso</span>
                   <span className="text-xs font-bold text-white">{progressoGeralPeso.toFixed(1)}%</span>
                 </div>
-                <div className="relative h-3 rounded-full overflow-hidden bg-slate-800/60">
+                <div className="relative h-4 rounded-full overflow-hidden bg-slate-800/60" style={{ boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.3)' }}>
                   {producaoStages.map((s, i) => {
                     const totalPecas = producaoStages.reduce((a, b) => a + b.value, 0) || 1;
                     const pct = (s.value / totalPecas) * 100;
@@ -510,7 +523,7 @@ export default function CommandCenterUltra() {
         </div>
 
         {/* ROW 3: PRODUÇÃO POR SETOR + PEÇAS IDENTIFICADAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
           {/* GRÁFICO POR SETOR */}
           <SectionCard title="Quantidade por Setor" icon={Layers}
@@ -662,7 +675,7 @@ export default function CommandCenterUltra() {
         )}
 
         {/* ROW 4: PRODUÇÃO POR FUNCIONÁRIO */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
 
           {/* FUNCIONÁRIOS - PRODUÇÃO */}
           <SectionCard title="Produção por Funcionário" icon={Users}
@@ -742,7 +755,7 @@ export default function CommandCenterUltra() {
         </div>
 
         {/* ROW 5: ESTOQUE + EXPEDIÇÃO + ALERTAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
           {/* ESTOQUE */}
           <SectionCard title="Estoque" icon={Package}>
@@ -906,8 +919,8 @@ export default function CommandCenterUltra() {
       </main>
 
       {/* FOOTER */}
-      <footer className="border-t py-3 mt-2" style={{ borderColor: colors.border, background: 'rgba(11,17,32,0.6)' }}>
-        <div className="max-w-[1920px] mx-auto px-6 flex items-center justify-between text-[10px] text-slate-600">
+      <footer className="border-t py-2 mt-1" style={{ borderColor: colors.border, background: 'rgba(6,10,20,0.7)' }}>
+        <div className="w-full px-6 flex items-center justify-between text-[10px] text-slate-600">
           <div className="flex items-center gap-4">
             <span>Supabase <span className="text-emerald-500">●</span> Conectado</span>
             <span>Real-time <span className="text-blue-500">●</span> Ativo</span>
