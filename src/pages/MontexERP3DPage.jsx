@@ -7,6 +7,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
+import { useObras } from '../contexts/ERPContext';
 
 // Load web-ifc dynamically from same-origin public folder to avoid Vercel build issues
 let _WebIFC = null;
@@ -608,7 +609,9 @@ class SceneManager {
 // COMPONENTE PRINCIPAL
 // ==============================================
 
-export default function MontexERP3DPage({ obraAtualData }) {
+export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
+  const { obraAtual, obraAtualData: obraAtualDataCtx } = useObras();
+  const obraAtualData = obraAtualDataProp || obraAtualDataCtx;
   const containerRef = useRef(null);
   const sceneManagerRef = useRef(null);
   const hoveredRef = useRef(null);
@@ -638,12 +641,13 @@ export default function MontexERP3DPage({ obraAtualData }) {
   // FETCH ERP DATA
   // ==============================================
   useEffect(() => {
+    if (!obraAtual) return;
     async function loadERP() {
       setErpLoading(true);
       try {
         const [{ data: corte }, { data: producao }] = await Promise.all([
-          supabase.from('materiais_corte').select('id, marca, peca, status_corte, perfil, peso_teorico, comprimento_mm'),
-          supabase.from('pecas_producao').select('id, marca, nome, tipo, etapa, status, peso_total, perfil'),
+          supabase.from('materiais_corte').select('id, marca, peca, status_corte, perfil, peso_teorico, comprimento_mm').eq('obra_id', obraAtual),
+          supabase.from('pecas_producao').select('id, marca, nome, tipo, etapa, status, peso_total, perfil').eq('obra_id', obraAtual),
         ]);
         const allPecas = [];
         (corte || []).forEach(c => {
@@ -671,7 +675,7 @@ export default function MontexERP3DPage({ obraAtualData }) {
       setErpLoading(false);
     }
     loadERP();
-  }, []);
+  }, [obraAtual]);
 
   function mapCorteStatus(st) {
     if (!st || st === 'aguardando' || st === 'programacao') return 'NAO_INICIADO';

@@ -19,16 +19,22 @@ import { supabase } from '../api/supabaseClient';
  * @returns {object} { items, metrics, categorias, iniciarCorte, finalizarCorte,
  *                      resetarCorte, finalizarCorteEmLote, contarCortadasParaConjunto, loading }
  */
-export function useCorteSupabase() {
+export function useCorteSupabase(obraId) {
   const [rawItems, setRawItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // ===== CARREGAR DADOS DO SUPABASE =====
   const fetchData = useCallback(async () => {
+    if (!obraId) {
+      setRawItems([]);
+      setLoading(false);
+      return;
+    }
     try {
       const { data, error } = await supabase
         .from('materiais_corte')
         .select('*')
+        .eq('obra_id', obraId)
         .order('marca', { ascending: true });
 
       if (error) throw error;
@@ -39,7 +45,7 @@ export function useCorteSupabase() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [obraId]);
 
   useEffect(() => {
     fetchData();

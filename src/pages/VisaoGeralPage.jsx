@@ -14,6 +14,7 @@ import {
   Layers, Target, Zap, Shield
 } from 'lucide-react';
 import { useCommandCenter } from '../hooks/useCommandCenter';
+import { useObras } from '../contexts/ERPContext';
 
 // ===== FORMATADORES =====
 const fmt = (v) => v == null ? '—' : v.toLocaleString('pt-BR');
@@ -171,10 +172,11 @@ function ProductionPipeline({ producao }) {
 
 // ===== COMPONENTE PRINCIPAL =====
 export default function VisaoGeralPage() {
+  const { obraAtual } = useObras();
   const {
     corte, producao, estoque, financeiro, campo,
     loading, lastUpdate, comparacaoDiaria, refresh
-  } = useCommandCenter();
+  } = useCommandCenter(obraAtual);
 
   const [view, setView] = useState('grid'); // grid | list
 

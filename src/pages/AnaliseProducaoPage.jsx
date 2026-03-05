@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
+import { useObras } from '../contexts/ERPContext';
 
 // ==================== 3D CHART COMPONENT ====================
 function Production3DChart({ data, width = 700, height = 400, title }) {
@@ -238,21 +239,23 @@ const CHART_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 
 // ==================== MAIN PAGE ====================
 export default function AnaliseProducaoPage() {
+  const { obraAtual } = useObras();
   const [pecas, setPecas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [activeTab, setActiveTab] = useState('visao-geral');
   const [showFilter, setShowFilter] = useState(false);
 
-  // Fetch data from Supabase
+  // Fetch data from Supabase (filtrado por obra selecionada)
   useEffect(() => {
+    if (!obraAtual) { setPecas([]); setLoading(false); return; }
     const fetchData = async () => {
       try {
         setLoading(true);
         const { data, error } = await supabase
           .from('pecas_producao')
           .select('*')
-          .not('obra_id', 'is', null);
+          .eq('obra_id', obraAtual);
         if (error) throw error;
         setPecas(data || []);
       } catch (err) {
@@ -262,7 +265,7 @@ export default function AnaliseProducaoPage() {
       }
     };
     fetchData();
-  }, []);
+  }, [obraAtual]);
 
   // Filtered data
   const pecasFiltradas = useMemo(() => {

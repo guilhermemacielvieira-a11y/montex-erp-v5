@@ -83,11 +83,11 @@ const GlassTooltip = ({ active, payload, label }) => {
 
 // ═══════════════ MAIN COMPONENT ═══════════════
 export default function CommandCenterUltrawide() {
+  const { obraAtual, obraAtualData } = useObras() || {};
   const {
     corte = {}, producao = {}, historico = {}, estoque = {}, financeiro = {}, campo = {},
     loading, lastUpdate, comparacaoDiaria, refresh
-  } = useCommandCenter() || {};
-  const { obraAtualData } = useObras() || {};
+  } = useCommandCenter(obraAtual) || {};
 
   const [time, setTime] = useState(new Date());
   const [colonBlink, setColonBlink] = useState(true);

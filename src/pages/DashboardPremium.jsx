@@ -484,8 +484,8 @@ function FinancialChart({ financeiro }) {
 }
 
 export default function DashboardPremium() {
-  const { corte, producao, estoque, financeiro, campo, loading } = useCommandCenter();
-  const { obras } = useObras();
+  const { obras, obraAtual } = useObras();
+  const { corte, producao, estoque, financeiro, campo, loading } = useCommandCenter(obraAtual);
   const { pecas, maquinas } = useProducao();
   const { estoque: estoqueData } = useEstoque();
   const { lancamentos } = useLancamentos();

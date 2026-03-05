@@ -274,11 +274,11 @@ const CustomTooltip = ({ active, payload, label }) => {
 export default function CommandCenterUltra() {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [periodo, setPeriodo] = useState('dia');
+  const { obraAtual, obras = [], obraAtualData } = useObras() || {};
   const {
     corte = {}, producao = {}, historico = {}, estoque = {}, financeiro = {}, campo = {},
     loading = false, lastUpdate = new Date(), comparacaoDiaria, refresh
-  } = useCommandCenter() || {};
-  const { obras = [], obraAtualData } = useObras() || {};
+  } = useCommandCenter(obraAtual) || {};
   const { maquinas = [] } = useProducao() || {};
   const { materiaisEstoque = [] } = useEstoque() || {};
 

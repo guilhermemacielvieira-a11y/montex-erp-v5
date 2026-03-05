@@ -16,7 +16,7 @@ import {
 } from '../data/corteStatusStore';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
-import { useEstoque } from '../contexts/ERPContext';
+import { useEstoque, useObras } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
 import { useCorteSupabase } from '../hooks/useCorteSupabase';
@@ -81,12 +81,15 @@ const GRID_COLS = '36px 62px 125px minmax(140px,1fr) 80px minmax(100px,1fr) 48px
 // COMPONENTE PRINCIPAL
 // ==========================================
 export default function KanbanCortePage() {
-  // --- Hook de dados reais do Supabase ---
+  // --- Obra selecionada ---
+  const { obraAtual } = useObras();
+
+  // --- Hook de dados reais do Supabase (filtrado por obra) ---
   const {
     items, metrics, categorias,
     iniciarCorte, finalizarCorte, resetarCorte, finalizarCorteEmLote,
     contarCortadasParaConjunto, loading: corteLoading
-  } = useCorteSupabase();
+  } = useCorteSupabase(obraAtual);
 
   // --- Estado local da UI ---
   const [viewMode, setViewMode] = useState('lista');

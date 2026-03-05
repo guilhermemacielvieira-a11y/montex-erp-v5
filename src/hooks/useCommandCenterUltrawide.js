@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../api/supabaseClient';
 
-export const useCommandCenterUltrawide = () => {
+export const useCommandCenterUltrawide = (obraId) => {
   // State for all data sections
   const [corte, setCorte] = useState({
     total: 0,
@@ -180,12 +180,14 @@ export const useCommandCenterUltrawide = () => {
 
   // Fetch Corte data
   const fetchCorte = useCallback(async () => {
+    if (!obraId) { setCorte(prev => ({ ...prev, total: 0, items: [], byStatus: { aguardando: 0, cortando: 0, finalizado: 0 } })); return; }
     try {
       const { data, error } = await supabase
         .from('materiais_corte')
         .select(
           'id, status_corte, peso_teorico, quantidade, peca, marca, perfil, material, comprimento_mm, funcionario_corte, maquina, data_inicio, data_fim, updated_at, created_at'
-        );
+        )
+        .eq('obra_id', obraId);
 
       if (error) {
         console.warn('Error fetching corte:', error);
@@ -279,16 +281,18 @@ export const useCommandCenterUltrawide = () => {
         items: [],
       }));
     }
-  }, [getTodayMidnight, getHourKey]);
+  }, [getTodayMidnight, getHourKey, obraId]);
 
   // Fetch Producao data
   const fetchProducao = useCallback(async () => {
+    if (!obraId) { setProducao(prev => ({ ...prev, total: 0, items: [] })); return; }
     try {
       const { data, error } = await supabase
         .from('pecas_producao')
         .select(
           'id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at'
-        );
+        )
+        .eq('obra_id', obraId);
 
       if (error) {
         console.warn('Error fetching producao:', error);
@@ -376,7 +380,7 @@ export const useCommandCenterUltrawide = () => {
         items: [],
       }));
     }
-  }, [getTodayMidnight]);
+  }, [getTodayMidnight, obraId]);
 
   // Fetch Historico data
   const fetchHistorico = useCallback(async () => {
@@ -564,10 +568,11 @@ export const useCommandCenterUltrawide = () => {
 
   // Fetch Financeiro data
   const fetchFinanceiro = useCallback(async () => {
+    if (!obraId) { setFinanceiro(prev => ({ ...prev, totalDespesas: 0 })); return; }
     try {
       const [despesasRes, medicoesRes] = await Promise.all([
-        supabase.from('lancamentos_despesas').select('*'),
-        supabase.from('medicoes').select('*'),
+        supabase.from('lancamentos_despesas').select('*').eq('obra_id', obraId),
+        supabase.from('medicoes').select('*').eq('obra_id', obraId),
       ]);
 
       if (despesasRes.error) console.warn('Error fetching despesas:', despesasRes.error);
@@ -648,12 +653,13 @@ export const useCommandCenterUltrawide = () => {
         totalDespesas: 0,
       }));
     }
-  }, []);
+  }, [obraId]);
 
   // Fetch Expedição data
   const fetchCampo = useCallback(async () => {
+    if (!obraId) { setCampo(prev => ({ ...prev, totalEnvios: 0, enviosDetalhados: [] })); return; }
     try {
-      const { data, error } = await supabase.from('expedicoes').select('*');
+      const { data, error } = await supabase.from('expedicoes').select('*').eq('obra_id', obraId);
 
       if (error) {
         console.warn('Error fetching expedicoes:', error);
@@ -723,7 +729,7 @@ export const useCommandCenterUltrawide = () => {
         enviosDetalhados: [],
       }));
     }
-  }, [getTodayMidnight]);
+  }, [getTodayMidnight, obraId]);
 
   // Fetch Equipes data
   const fetchEquipes = useCallback(async () => {
