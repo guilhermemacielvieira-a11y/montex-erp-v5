@@ -111,7 +111,7 @@ export default function CommandCenterUltrawide() {
   const faturamento = financeiro?.totalMedicoes || 0;
   const despesas = financeiro?.totalDespesas || 0;
   const saldo = valorContrato - despesas;
-  const pesoTotal = (corte?.pesoTotal || 0) + (producao?.pesoTotal || 0);
+  const pesoTotal = producao?.pesoTotal || 0;
 
   // Production stages data
   const stageData = useMemo(() => [
