@@ -293,6 +293,33 @@ export default function GestaoFinanceiraObra() {
     }
   }, [lancamentosSupabase, obra.id]);
 
+  // Mesclar medições do Supabase quando disponíveis
+  React.useEffect(() => {
+    if (medicoesSupabase && medicoesSupabase.length > 0) {
+      const idsEstaticos = new Set(MEDICOES.map(m => m.id));
+      const novosDoSupabase = medicoesSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => ({
+        id: m.id,
+        numero: m.numero || 0,
+        obraId: m.obraId || m.obra_id || obra.id,
+        setor: m.setor || '',
+        etapa: m.etapa || 'fabricacao',
+        tipo: m.tipo || 'peso',
+        pesoMedido: m.pesoMedido || m.peso_medido || 0,
+        dataMedicao: m.dataMedicao || m.data_medicao || '',
+        dataReferencia: m.dataReferencia || m.data_referencia || '',
+        valorBruto: m.valorBruto || m.valor_bruto || 0,
+        valorLiquido: m.valorLiquido || m.valor_liquido || 0,
+        status: m.status || 'aguardando',
+        descricao: m.descricao || '',
+        observacao: m.observacoes || m.observacao || '',
+        retencoes: typeof m.retencoes === 'string' ? JSON.parse(m.retencoes) : (m.retencoes || {}),
+        detalhamento: typeof m.detalhamento === 'string' ? JSON.parse(m.detalhamento) : (m.detalhamento || {}),
+        isAvulsa: m.isAvulsa || m.is_avulsa || false,
+      }));
+      setMedicoes([...MEDICOES, ...novosDoSupabase]);
+    }
+  }, [medicoesSupabase, obra.id]);
+
   // Cálculos principais
   const saldo = useMemo(() =>
     calcularSaldoObra(obra, lancamentos, medicoes),

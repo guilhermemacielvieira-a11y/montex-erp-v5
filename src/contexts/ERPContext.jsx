@@ -776,7 +776,28 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.ADD_MEDICAO, payload: medicao });
     if (dataSource === 'supabase') {
       try {
-        const record = reverseTransformRecord(medicao);
+        // Mapeamento específico: só enviar colunas que existem na tabela medicoes
+        const record = {
+          id: medicao.id,
+          obra_id: medicao.obraId || medicao.obra_id,
+          numero: medicao.numero || null,
+          setor: medicao.setor || null,
+          etapa: medicao.etapa || null,
+          tipo: medicao.tipo || (medicao.isAvulsa ? 'avulsa' : 'peso'),
+          peso_medido: parseFloat(medicao.pesoMedido) || 0,
+          data_medicao: medicao.dataMedicao || null,
+          data_referencia: medicao.dataReferencia || null,
+          valor_bruto: parseFloat(medicao.valorBruto) || 0,
+          valor_liquido: parseFloat(medicao.valorLiquido) || 0,
+          valor_total: parseFloat(medicao.valorBruto) || 0,
+          status: medicao.status || 'aguardando',
+          descricao: medicao.descricao || medicao.tipoLabel || null,
+          observacoes: medicao.observacao || medicao.observacoes || null,
+          responsavel: medicao.responsavel || null,
+          retencoes: medicao.retencoes ? JSON.stringify(medicao.retencoes) : null,
+          detalhamento: medicao.detalhamento ? JSON.stringify(medicao.detalhamento) : null,
+          is_avulsa: medicao.isAvulsa || false,
+        };
         await medicoesApi.create(record);
         console.log(`✅ Medição ${medicao.id} criada no Supabase`);
       } catch (err) {
