@@ -237,7 +237,7 @@ export default function GestaoFinanceiraObra() {
   // ERPContext - dados reais do Supabase
   const { obras: obrasERP, obraAtualData } = useObras();
   const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx, deleteLancamento: deleteLancamentoCtx } = useLancamentos();
-  const { medicoes: medicoesSupabase } = useMedicoes();
+  const { medicoes: medicoesSupabase, addMedicao: addMedicaoCtx } = useMedicoes();
 
   // Estados
   const [obra, setObra] = useState(OBRA_MODELO);
@@ -503,6 +503,22 @@ export default function GestaoFinanceiraObra() {
       console.error('Erro ao editar lançamento:', err3);
     }
   }, [updateLancamentoCtx]);
+
+  // Adicionar medição manual - persiste no Supabase
+  const adicionarMedicao = useCallback(async (novaMedicao) => {
+    const medicao = {
+      id: `med-${Date.now()}`,
+      obraId: obra.id,
+      ...novaMedicao,
+    };
+    setMedicoes(prev => [...prev, medicao]);
+    setShowNovaMedicao(false);
+    try {
+      await addMedicaoCtx(medicao);
+    } catch (err) {
+      console.error('Erro ao salvar medição:', err);
+    }
+  }, [obra.id, addMedicaoCtx]);
 
   // Abrir edição de um lançamento
   const abrirEdicaoLancamento = useCallback((lanc) => {
@@ -2535,8 +2551,316 @@ export default function GestaoFinanceiraObra() {
             </Dialog.Content>
           </Dialog.Portal>
         </Dialog.Root>
+
+        {/* Modal Nova Medição */}
+        <Dialog.Root open={showNovaMedicao} onOpenChange={setShowNovaMedicao}>
+          <Dialog.Portal>
+            <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
+            <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
+                                      w-full max-w-2xl z-50 max-h-[90vh] overflow-y-auto rounded-2xl border"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.98), rgba(8,15,30,0.95))',
+                borderColor: 'rgba(139,92,246,0.3)',
+                boxShadow: '0 25px 60px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05)',
+              }}
+            >
+              <div className="p-6">
+                <Dialog.Title className="text-xl font-bold text-white mb-5 flex items-center gap-3">
+                  <div className="p-2 rounded-lg" style={{ background: 'rgba(139,92,246,0.15)', boxShadow: '0 0 12px rgba(139,92,246,0.15)' }}>
+                    <ClipboardList className="w-5 h-5 text-purple-400" />
+                  </div>
+                  Nova Medição Manual
+                </Dialog.Title>
+
+                <NovaMedicaoForm
+                  setores={obra.setores}
+                  valoresKg={obra.valoresKg}
+                  contrato={obra.contrato}
+                  onSubmit={adicionarMedicao}
+                  onCancel={() => setShowNovaMedicao(false)}
+                />
+              </div>
+            </Dialog.Content>
+          </Dialog.Portal>
+        </Dialog.Root>
       </div>
     </div>
+  );
+}
+
+// ==================== FORMULÁRIO NOVA MEDIÇÃO ====================
+function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
+  const inputClass = "w-full px-3 py-2.5 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-colors";
+  const labelClass = "text-sm text-slate-400 mb-1.5 block font-medium";
+  const inputStyle = {
+    background: 'linear-gradient(135deg, rgba(30,41,59,0.6), rgba(15,23,42,0.8))',
+    border: '1px solid rgba(56,72,100,0.4)',
+  };
+
+  const [formData, setFormData] = useState({
+    numero: '',
+    setor: setores[0]?.nome || '',
+    etapa: ETAPA_MEDICAO.FABRICACAO,
+    pesoMedido: '',
+    dataReferencia: new Date().toISOString().split('T')[0],
+    dataMedicao: new Date().toISOString().split('T')[0],
+    status: STATUS_MEDICAO.AGUARDANDO,
+    observacao: '',
+    // Detalhamento por sub-etapa
+    detCorte: '',
+    detFabricacao: '',
+    detSolda: '',
+    detPintura: '',
+    detExpedicao: '',
+    detDescarga: '',
+    detMontagem: '',
+    detTorqueamento: '',
+    detAcabamento: '',
+  });
+
+  // Calcular valores automaticamente baseado no peso e valores por kg
+  const pesoNum = parseFloat(formData.pesoMedido) || 0;
+  const isFabricacao = formData.etapa === ETAPA_MEDICAO.FABRICACAO;
+
+  const valoresCalculados = useMemo(() => {
+    if (!valoresKg || pesoNum <= 0) return { detalhamento: {}, bruto: 0, liquido: 0, retencoes: {} };
+
+    let detalhamento = {};
+    let totalBruto = 0;
+
+    if (isFabricacao) {
+      const vk = valoresKg.fabricacao || {};
+      detalhamento = {
+        corte: { peso: pesoNum, valorKg: vk.corte || 2.50, valor: pesoNum * (vk.corte || 2.50) },
+        fabricacao: { peso: pesoNum, valorKg: vk.fabricacao || 4.00, valor: pesoNum * (vk.fabricacao || 4.00) },
+        solda: { peso: pesoNum, valorKg: vk.solda || 3.00, valor: pesoNum * (vk.solda || 3.00) },
+        pintura: { peso: pesoNum, valorKg: vk.pintura || 1.80, valor: pesoNum * (vk.pintura || 1.80) },
+        expedicao: { peso: pesoNum, valorKg: vk.expedicao || 0.50, valor: pesoNum * (vk.expedicao || 0.50) },
+      };
+    } else {
+      const vk = valoresKg.montagem || {};
+      detalhamento = {
+        descarga: { peso: pesoNum, valorKg: vk.descarga || 0.50, valor: pesoNum * (vk.descarga || 0.50) },
+        montagem: { peso: pesoNum, valorKg: vk.montagem || 4.50, valor: pesoNum * (vk.montagem || 4.50) },
+        torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
+        acabamento: { peso: pesoNum, valorKg: vk.acabamento || 0.60, valor: pesoNum * (vk.acabamento || 0.60) },
+      };
+    }
+
+    // Aplicar valores manuais se preenchidos (override)
+    Object.keys(detalhamento).forEach(key => {
+      const manualKey = `det${key.charAt(0).toUpperCase() + key.slice(1)}`;
+      const manualVal = parseFloat(formData[manualKey]);
+      if (!isNaN(manualVal) && manualVal > 0) {
+        detalhamento[key].valor = manualVal;
+      }
+    });
+
+    totalBruto = Object.values(detalhamento).reduce((s, d) => s + d.valor, 0);
+
+    // Retenções
+    const retISS = totalBruto * (contrato?.retencaoISS || 0.02);
+    const retINSS = totalBruto * (contrato?.retencaoINSS || 0.035);
+    const retContratual = totalBruto * (contrato?.retencaoContratual || 0.05);
+    const totalRetencoes = retISS + retINSS + retContratual;
+
+    return {
+      detalhamento,
+      bruto: totalBruto,
+      liquido: totalBruto - totalRetencoes,
+      retencoes: { iss: retISS, inss: retINSS, contratual: retContratual, total: totalRetencoes },
+    };
+  }, [pesoNum, isFabricacao, valoresKg, contrato, formData]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!formData.numero || pesoNum <= 0) return;
+
+    onSubmit({
+      numero: parseInt(formData.numero) || Date.now(),
+      setor: formData.setor,
+      etapa: formData.etapa,
+      pesoMedido: pesoNum,
+      dataReferencia: formData.dataReferencia,
+      dataMedicao: formData.dataMedicao,
+      status: formData.status,
+      observacao: formData.observacao,
+      valorBruto: valoresCalculados.bruto,
+      valorLiquido: valoresCalculados.liquido,
+      retencoes: valoresCalculados.retencoes,
+      detalhamento: valoresCalculados.detalhamento,
+    });
+  };
+
+  const setField = (field, value) => setFormData(prev => ({ ...prev, [field]: value }));
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-5">
+      {/* Número + Setor + Etapa */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className={labelClass}>Nº Medição</label>
+          <input type="number" value={formData.numero} onChange={e => setField('numero', e.target.value)}
+            className={inputClass} style={inputStyle} placeholder="Ex: 1" required />
+        </div>
+        <div>
+          <label className={labelClass}>Setor</label>
+          <select value={formData.setor} onChange={e => setField('setor', e.target.value)}
+            className={inputClass} style={inputStyle}>
+            {setores.map(s => (
+              <option key={s.id} value={s.nome} style={{ background: '#1e293b' }}>{s.nome}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Etapa</label>
+          <select value={formData.etapa} onChange={e => setField('etapa', e.target.value)}
+            className={inputClass} style={inputStyle}>
+            <option value={ETAPA_MEDICAO.FABRICACAO} style={{ background: '#1e293b' }}>Fabricação</option>
+            <option value={ETAPA_MEDICAO.MONTAGEM} style={{ background: '#1e293b' }}>Montagem</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Peso + Datas */}
+      <div className="grid grid-cols-3 gap-4">
+        <div>
+          <label className={labelClass}>Peso Medido (kg)</label>
+          <input type="number" step="0.01" value={formData.pesoMedido} onChange={e => setField('pesoMedido', e.target.value)}
+            className={inputClass} style={inputStyle} placeholder="Ex: 15000" required />
+          {pesoNum > 0 && <p className="text-[10px] text-slate-500 mt-1">{(pesoNum / 1000).toFixed(2)} ton</p>}
+        </div>
+        <div>
+          <label className={labelClass}>Data Referência</label>
+          <input type="date" value={formData.dataReferencia} onChange={e => setField('dataReferencia', e.target.value)}
+            className={inputClass} style={inputStyle} />
+        </div>
+        <div>
+          <label className={labelClass}>Data Medição</label>
+          <input type="date" value={formData.dataMedicao} onChange={e => setField('dataMedicao', e.target.value)}
+            className={inputClass} style={inputStyle} />
+        </div>
+      </div>
+
+      {/* Status */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className={labelClass}>Status</label>
+          <select value={formData.status} onChange={e => setField('status', e.target.value)}
+            className={inputClass} style={inputStyle}>
+            {Object.entries(STATUS_MEDICAO).map(([key, value]) => (
+              <option key={key} value={value} style={{ background: '#1e293b' }}>{key.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className={labelClass}>Observação</label>
+          <input type="text" value={formData.observacao} onChange={e => setField('observacao', e.target.value)}
+            className={inputClass} style={inputStyle} placeholder="Observação opcional" />
+        </div>
+      </div>
+
+      {/* Preview de Valores Calculados */}
+      {pesoNum > 0 && (
+        <div className="rounded-xl border p-4 space-y-3" style={{
+          background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(59,130,246,0.04))',
+          borderColor: 'rgba(139,92,246,0.2)',
+          boxShadow: 'inset 0 1px 0 rgba(139,92,246,0.05)',
+        }}>
+          <div className="flex items-center gap-2 mb-3">
+            <Activity className="w-4 h-4 text-purple-400" />
+            <span className="text-sm font-semibold text-purple-300">Valores Calculados Automaticamente</span>
+          </div>
+
+          {/* Detalhamento por sub-etapa */}
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            {Object.entries(valoresCalculados.detalhamento).map(([etapa, dados]) => (
+              <div key={etapa} className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: 'rgba(56,72,100,0.2)' }}>
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                  <span className="text-xs text-slate-400 capitalize">{etapa}</span>
+                  <span className="text-[10px] text-slate-600">R$ {dados.valorKg?.toFixed(2)}/kg</span>
+                </div>
+                <span className="text-xs font-medium text-white">R$ {formatMoney(dados.valor)}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Totais */}
+          <div className="pt-3 mt-2 border-t space-y-2" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
+            <div className="flex justify-between">
+              <span className="text-sm text-white font-semibold">Valor Bruto</span>
+              <span className="text-lg font-bold text-white">R$ {formatMoney(valoresCalculados.bruto)}</span>
+            </div>
+
+            {/* Retenções */}
+            <div className="flex items-center gap-4 text-[11px] text-slate-500">
+              <span>ISS ({((contrato?.retencaoISS || 0.02) * 100).toFixed(1)}%): -R$ {formatMoney(valoresCalculados.retencoes.iss)}</span>
+              <span>INSS ({((contrato?.retencaoINSS || 0.035) * 100).toFixed(1)}%): -R$ {formatMoney(valoresCalculados.retencoes.inss)}</span>
+              <span>Contratual ({((contrato?.retencaoContratual || 0.05) * 100).toFixed(1)}%): -R$ {formatMoney(valoresCalculados.retencoes.contratual)}</span>
+            </div>
+
+            <div className="flex justify-between pt-2 border-t" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
+              <span className="text-sm text-emerald-400 font-semibold">Valor Líquido</span>
+              <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.liquido)}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Detalhamento Manual (override) */}
+      <details className="group">
+        <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5">
+          <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
+          Editar valores por sub-etapa manualmente (opcional)
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          {isFabricacao ? (
+            <>
+              {['Corte', 'Fabricacao', 'Solda', 'Pintura', 'Expedicao'].map(etapa => (
+                <div key={etapa}>
+                  <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
+                  <input type="number" step="0.01" value={formData[`det${etapa}`]}
+                    onChange={e => setField(`det${etapa}`, e.target.value)}
+                    className={inputClass} style={inputStyle}
+                    placeholder={`Auto: R$ ${formatMoney(valoresCalculados.detalhamento[etapa.toLowerCase()]?.valor || 0)}`} />
+                </div>
+              ))}
+            </>
+          ) : (
+            <>
+              {['Descarga', 'Montagem', 'Torqueamento', 'Acabamento'].map(etapa => (
+                <div key={etapa}>
+                  <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
+                  <input type="number" step="0.01" value={formData[`det${etapa}`]}
+                    onChange={e => setField(`det${etapa}`, e.target.value)}
+                    className={inputClass} style={inputStyle}
+                    placeholder={`Auto: R$ ${formatMoney(valoresCalculados.detalhamento[etapa.toLowerCase()]?.valor || 0)}`} />
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </details>
+
+      {/* Botões */}
+      <div className="flex items-center gap-3 pt-3">
+        <button type="button" onClick={onCancel}
+          className="flex-1 px-4 py-2.5 rounded-xl text-slate-300 transition-colors flex items-center justify-center gap-2"
+          style={{ background: 'rgba(51,65,85,0.4)', border: '1px solid rgba(56,72,100,0.3)' }}>
+          <X className="w-4 h-4" /> Cancelar
+        </button>
+        <button type="submit" disabled={!formData.numero || pesoNum <= 0}
+          className="flex-1 px-4 py-2.5 rounded-xl text-white font-medium transition-all
+                   flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+          style={{
+            background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
+            boxShadow: formData.numero && pesoNum > 0 ? '0 4px 15px rgba(139,92,246,0.3)' : 'none',
+          }}>
+          <Save className="w-4 h-4" /> Criar Medição
+        </button>
+      </div>
+    </form>
   );
 }
 
