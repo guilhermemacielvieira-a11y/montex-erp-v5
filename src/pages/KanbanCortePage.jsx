@@ -211,15 +211,11 @@ export default function KanbanCortePage() {
     prevReadyRef.current = newReady;
   }, [conjuntosInfo]);
 
-  // Cleanup do timer
+  // Carregar status persistido do Supabase e cleanup
   useEffect(() => {
-    refresh();
-    // Carregar status persistido do Supabase, depois atualizar UI
     loadFromSupabase()
-      .then(() => { refresh(); })
       .catch(() => {})
       .finally(() => setSupabaseLoading(false));
-    const unsub = subscribeCorteChanges(refresh);
     return () => {
       if (toastTimer.current) clearTimeout(toastTimer.current);
     };
