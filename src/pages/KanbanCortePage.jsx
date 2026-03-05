@@ -20,6 +20,7 @@ import { useEstoque } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
 import { useCorteSupabase } from '../hooks/useCorteSupabase';
+import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
 
 // ==========================================
 // CONSTANTES DE VISUAL
@@ -714,7 +715,7 @@ export default function KanbanCortePage() {
                 const cor = getCor(item.peca);
                 const sc = STATUS_CONF[item.status] || STATUS_CONF['aguardando'];
                 const isSel = selectedIds.has(item.id);
-                const isExp = expandedId === item.id;
+                const isExp = expandedMarca === item.id;
 
                 return (
                   <React.Fragment key={item.id}>
@@ -727,7 +728,7 @@ export default function KanbanCortePage() {
                         fontSize: 12, alignItems: 'center',
                         transition: 'background 0.1s', cursor: 'pointer'
                       }}
-                      onClick={() => setExpandedId(isExp ? null : item.id)}
+                      onClick={() => setExpandedMarca(isExp ? null : item.id)}
                       onMouseEnter={e => { if (!isSel) e.currentTarget.style.background = '#181e2e'; }}
                       onMouseLeave={e => { if (!isSel) e.currentTarget.style.background = idx % 2 === 0 ? '#111827' : '#0f1520'; }}
                     >
