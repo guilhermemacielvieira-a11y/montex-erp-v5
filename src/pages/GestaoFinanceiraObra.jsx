@@ -237,7 +237,7 @@ export default function GestaoFinanceiraObra() {
   // ERPContext - dados reais do Supabase
   const { obras: obrasERP, obraAtualData } = useObras();
   const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx, deleteLancamento: deleteLancamentoCtx } = useLancamentos();
-  const { medicoes: medicoesSupabase, addMedicao: addMedicaoCtx } = useMedicoes();
+  const { medicoesObraAtual: medicoesSupabase, addMedicao: addMedicaoCtx, updateMedicao: updateMedicaoCtx, deleteMedicao: deleteMedicaoCtx } = useMedicoes();
 
   // Estados
   const [obra, setObra] = useState(OBRA_MODELO);
@@ -259,6 +259,7 @@ export default function GestaoFinanceiraObra() {
   const [importData, setImportData] = useState([]);
   const [importFile, setImportFile] = useState(null);
   const [showNovaMedicao, setShowNovaMedicao] = useState(false);
+  const [editandoMedicao, setEditandoMedicao] = useState(null);
   const [setorSelecionado, setSetorSelecionado] = useState('todos');
   const [viewMode, setViewMode] = useState('real'); // 'real', 'futuro', 'projecao'
 
@@ -546,6 +547,35 @@ export default function GestaoFinanceiraObra() {
       console.error('Erro ao salvar medição:', err);
     }
   }, [obra.id, addMedicaoCtx]);
+
+  // Editar medição existente - persiste no Supabase
+  const editarMedicao = useCallback(async (medicaoAtualizada) => {
+    const { id, ...dados } = medicaoAtualizada;
+    setMedicoes(prev => prev.map(m => m.id === id ? { ...m, ...dados } : m));
+    setEditandoMedicao(null);
+    setShowNovaMedicao(false);
+    try {
+      await updateMedicaoCtx(id, dados);
+    } catch (err) {
+      console.error('Erro ao editar medição:', err);
+    }
+  }, [updateMedicaoCtx]);
+
+  // Excluir medição - persiste no Supabase
+  const excluirMedicao = useCallback(async (id) => {
+    setMedicoes(prev => prev.filter(m => m.id !== id));
+    try {
+      await deleteMedicaoCtx(id);
+    } catch (err) {
+      console.error('Erro ao excluir medição:', err);
+    }
+  }, [deleteMedicaoCtx]);
+
+  // Abrir edição de uma medição
+  const abrirEdicaoMedicao = useCallback((med) => {
+    setEditandoMedicao(med);
+    setShowNovaMedicao(true);
+  }, []);
 
   // Abrir edição de um lançamento
   const abrirEdicaoLancamento = useCallback((lanc) => {
@@ -2149,6 +2179,13 @@ export default function GestaoFinanceiraObra() {
                 </div>
 
                 <div className="space-y-3">
+                  {medicoes.length === 0 && (
+                    <div className="text-center py-8 text-slate-500">
+                      <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm">Nenhuma medição registrada</p>
+                      <p className="text-xs mt-1">Clique em "Nova Medição" para adicionar</p>
+                    </div>
+                  )}
                   {medicoes.map((med, idx) => {
                     const statusConfig = MEDICAO_STATUS_COLORS[med.status];
                     const StatusIcon = statusConfig?.icon || Clock;
@@ -2169,41 +2206,67 @@ export default function GestaoFinanceiraObra() {
                               <div className="flex items-center gap-2">
                                 <span className="text-white font-medium">Medição #{med.numero}</span>
                                 <span className={`px-2 py-0.5 text-xs rounded-full ${statusConfig?.bg} ${statusConfig?.text}`}>
-                                  {med.etapa === ETAPA_MEDICAO.FABRICACAO ? 'Fabricação' : 'Montagem'}
+                                  {med.etapa === ETAPA_MEDICAO.FABRICACAO ? 'Fabricação' : med.isAvulsa ? 'Avulsa' : 'Montagem'}
                                 </span>
                               </div>
                               <p className="text-sm text-slate-400">
-                                {med.setor} • {(med.pesoMedido / 1000).toFixed(2)} ton
+                                {med.setor} {med.pesoMedido ? `• ${(med.pesoMedido / 1000).toFixed(2)} ton` : ''}
                               </p>
                             </div>
                           </div>
 
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-white">
-                              R$ {(med.valorBruto || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </p>
-                            <p className="text-xs text-slate-400">
-                              Líquido: R$ {(med.valorLiquido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                            </p>
+                          <div className="flex items-start gap-3">
+                            <div className="text-right">
+                              <p className="text-lg font-bold text-white">
+                                R$ {(med.valorBruto || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </p>
+                              <p className="text-xs text-slate-400">
+                                Líquido: R$ {(med.valorLiquido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              </p>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <button
+                                onClick={() => abrirEdicaoMedicao(med)}
+                                className="p-1.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 transition-colors"
+                                title="Editar medição"
+                              >
+                                <Edit className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Excluir Medição #${med.numero}?`)) {
+                                    excluirMedicao(med.id);
+                                  }
+                                }}
+                                className="p-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors"
+                                title="Excluir medição"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </div>
 
                         {/* Detalhamento */}
-                        <div className="mt-3 pt-3 border-t border-slate-700/50 grid grid-cols-5 gap-2">
-                          {Object.entries(med.detalhamento).map(([etapa, dados]) => (
-                            <div key={etapa} className="text-center">
-                              <p className="text-xs text-slate-500 capitalize">{etapa}</p>
-                              <p className="text-sm text-white">R$ {formatMoney(dados.valor)}</p>
-                            </div>
-                          ))}
-                        </div>
+                        {med.detalhamento && Object.keys(med.detalhamento).length > 0 && (
+                          <div className="mt-3 pt-3 border-t border-slate-700/50 grid grid-cols-5 gap-2">
+                            {Object.entries(med.detalhamento).map(([etapa, dados]) => (
+                              <div key={etapa} className="text-center">
+                                <p className="text-xs text-slate-500 capitalize">{etapa}</p>
+                                <p className="text-sm text-white">R$ {formatMoney(typeof dados === 'object' ? dados.valor : dados)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
 
                         {/* Retenções */}
-                        <div className="mt-2 flex items-center gap-4 text-xs text-slate-500">
-                          <span>ISS: R$ {((med.retencoes?.iss) || 0).toFixed(2)}</span>
-                          <span>INSS: R$ {((med.retencoes?.inss) || 0).toFixed(2)}</span>
-                          <span>Contratual: R$ {((med.retencoes?.contratual) || 0).toFixed(2)}</span>
-                        </div>
+                        {med.retencoes && (med.retencoes.iss > 0 || med.retencoes.inss > 0 || med.retencoes.contratual > 0) && (
+                          <div className="mt-2 flex items-center gap-4 text-xs text-slate-500">
+                            <span>ISS: R$ {((med.retencoes?.iss) || 0).toFixed(2)}</span>
+                            <span>INSS: R$ {((med.retencoes?.inss) || 0).toFixed(2)}</span>
+                            <span>Contratual: R$ {((med.retencoes?.contratual) || 0).toFixed(2)}</span>
+                          </div>
+                        )}
                       </motion.div>
                     );
                   })}
@@ -2579,8 +2642,8 @@ export default function GestaoFinanceiraObra() {
           </Dialog.Portal>
         </Dialog.Root>
 
-        {/* Modal Nova Medição */}
-        <Dialog.Root open={showNovaMedicao} onOpenChange={setShowNovaMedicao}>
+        {/* Modal Nova/Editar Medição */}
+        <Dialog.Root open={showNovaMedicao} onOpenChange={(open) => { setShowNovaMedicao(open); if (!open) setEditandoMedicao(null); }}>
           <Dialog.Portal>
             <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
             <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2
@@ -2596,15 +2659,16 @@ export default function GestaoFinanceiraObra() {
                   <div className="p-2 rounded-lg" style={{ background: 'rgba(139,92,246,0.15)', boxShadow: '0 0 12px rgba(139,92,246,0.15)' }}>
                     <ClipboardList className="w-5 h-5 text-purple-400" />
                   </div>
-                  Nova Medição Manual
+                  {editandoMedicao ? 'Editar Medição' : 'Nova Medição Manual'}
                 </Dialog.Title>
 
                 <NovaMedicaoForm
                   setores={obra.setores}
                   valoresKg={obra.valoresKg}
                   contrato={obra.contrato}
-                  onSubmit={adicionarMedicao}
-                  onCancel={() => setShowNovaMedicao(false)}
+                  editando={editandoMedicao}
+                  onSubmit={editandoMedicao ? (dados) => editarMedicao({ id: editandoMedicao.id, ...dados }) : adicionarMedicao}
+                  onCancel={() => { setShowNovaMedicao(false); setEditandoMedicao(null); }}
                 />
               </div>
             </Dialog.Content>
@@ -2626,7 +2690,7 @@ const TIPOS_MEDICAO_AVULSA = [
   { id: 'outros', label: 'Outros', desc: 'Lançamento avulso diverso', color: '#94A3B8', icon: '📌' },
 ];
 
-function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
+function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, editando }) {
   const inputClass = "w-full px-3 py-2.5 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-colors";
   const labelClass = "text-sm text-slate-400 mb-1.5 block font-medium";
   const inputStyle = {
@@ -2635,22 +2699,22 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel }) {
   };
 
   // Modo: 'peso' = medição por peso (fabricação/montagem) | 'avulsa' = valor direto
-  const [modo, setModo] = useState('peso');
+  const [modo, setModo] = useState(editando?.isAvulsa ? 'avulsa' : 'peso');
 
   const [formData, setFormData] = useState({
-    numero: '',
-    setor: setores[0]?.nome || '',
-    etapa: ETAPA_MEDICAO.FABRICACAO,
-    pesoMedido: '',
-    dataReferencia: new Date().toISOString().split('T')[0],
-    dataMedicao: new Date().toISOString().split('T')[0],
-    status: STATUS_MEDICAO.AGUARDANDO,
-    observacao: '',
+    numero: editando?.numero || '',
+    setor: editando?.setor || setores[0]?.nome || '',
+    etapa: editando?.etapa || ETAPA_MEDICAO.FABRICACAO,
+    pesoMedido: editando?.pesoMedido || '',
+    dataReferencia: editando?.dataReferencia || new Date().toISOString().split('T')[0],
+    dataMedicao: editando?.dataMedicao || new Date().toISOString().split('T')[0],
+    status: editando?.status || STATUS_MEDICAO.AGUARDANDO,
+    observacao: editando?.observacao || '',
     // Campos avulsos
-    tipoAvulso: 'entrada_contrato',
-    descricaoAvulsa: '',
-    valorBrutoManual: '',
-    aplicarRetencoes: false,
+    tipoAvulso: editando?.isAvulsa ? (editando?.etapa || 'entrada_contrato') : 'entrada_contrato',
+    descricaoAvulsa: editando?.descricao || '',
+    valorBrutoManual: editando?.isAvulsa ? (editando?.valorBruto || '') : '',
+    aplicarRetencoes: editando?.retencoes?.total > 0 || false,
     // Detalhamento por sub-etapa (modo peso)
     detCorte: '', detFabricacao: '', detSolda: '', detPintura: '', detExpedicao: '',
     detDescarga: '', detMontagem: '', detTorqueamento: '', detAcabamento: '',

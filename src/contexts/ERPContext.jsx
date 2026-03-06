@@ -806,6 +806,48 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  const updateMedicao = useCallback(async (id, dados) => {
+    dispatch({ type: ACTIONS.UPDATE_MEDICAO, payload: { id, dados } });
+    if (dataSource === 'supabase') {
+      try {
+        const record = {};
+        if (dados.numero !== undefined) record.numero = dados.numero;
+        if (dados.setor !== undefined) record.setor = dados.setor;
+        if (dados.etapa !== undefined) record.etapa = dados.etapa;
+        if (dados.tipo !== undefined) record.tipo = dados.tipo;
+        if (dados.pesoMedido !== undefined) record.peso_medido = parseFloat(dados.pesoMedido) || 0;
+        if (dados.dataMedicao !== undefined) record.data_medicao = dados.dataMedicao;
+        if (dados.dataReferencia !== undefined) record.data_referencia = dados.dataReferencia;
+        if (dados.valorBruto !== undefined) record.valor_bruto = parseFloat(dados.valorBruto) || 0;
+        if (dados.valorLiquido !== undefined) record.valor_liquido = parseFloat(dados.valorLiquido) || 0;
+        if (dados.valorBruto !== undefined) record.valor_total = parseFloat(dados.valorBruto) || 0;
+        if (dados.status !== undefined) record.status = dados.status;
+        if (dados.descricao !== undefined) record.descricao = dados.descricao;
+        if (dados.observacao !== undefined) record.observacoes = dados.observacao;
+        if (dados.responsavel !== undefined) record.responsavel = dados.responsavel;
+        if (dados.retencoes !== undefined) record.retencoes = JSON.stringify(dados.retencoes);
+        if (dados.detalhamento !== undefined) record.detalhamento = JSON.stringify(dados.detalhamento);
+        if (dados.isAvulsa !== undefined) record.is_avulsa = dados.isAvulsa;
+        await medicoesApi.update(id, record);
+        console.log(`✅ Medição ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar medição no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const deleteMedicao = useCallback(async (id) => {
+    dispatch({ type: ACTIONS.DELETE_MEDICAO, payload: id });
+    if (dataSource === 'supabase') {
+      try {
+        await medicoesApi.delete(id);
+        console.log(`✅ Medição ${id} deletada do Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao deletar medição no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
   const updateConfigMedicao = useCallback(async (tipo, etapa, config) => {
     dispatch({ type: ACTIONS.UPDATE_CONFIG_MEDICAO, payload: { tipo, etapa, config } });
     if (dataSource === 'supabase') {
@@ -1268,6 +1310,8 @@ export function ERPProvider({ children }) {
     medicoesObraAtual,
     configMedicao: state.configMedicao,
     addMedicao,
+    updateMedicao,
+    deleteMedicao,
     updateConfigMedicao,
     lancamentosDespesas: state.lancamentosDespesas,
     addLancamento,
@@ -1292,6 +1336,8 @@ export function ERPProvider({ children }) {
     medicoesObraAtual,
     state.configMedicao,
     addMedicao,
+    updateMedicao,
+    deleteMedicao,
     updateConfigMedicao,
     state.lancamentosDespesas,
     addLancamento,
@@ -1360,6 +1406,8 @@ export function ERPProvider({ children }) {
 
     // Ações - Medições
     addMedicao,
+    updateMedicao,
+    deleteMedicao,
     updateConfigMedicao,
 
     // Ações - Lançamentos / Despesas
@@ -1424,6 +1472,8 @@ export function ERPProvider({ children }) {
     addCompra,
     receberCompra,
     addMedicao,
+    updateMedicao,
+    deleteMedicao,
     updateConfigMedicao,
     addLancamento,
     updateLancamento,
@@ -1564,6 +1614,8 @@ export function useMedicoes() {
     medicoesObraAtual: context.medicoesObraAtual,
     configMedicao: context.configMedicao,
     addMedicao: context.addMedicao,
+    updateMedicao: context.updateMedicao,
+    deleteMedicao: context.deleteMedicao,
     updateConfigMedicao: context.updateConfigMedicao
   };
 }
