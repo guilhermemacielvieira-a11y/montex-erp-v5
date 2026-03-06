@@ -3141,7 +3141,7 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
             background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
             boxShadow: isValid ? '0 4px 15px rgba(139,92,246,0.3)' : 'none',
           }}>
-          <Save className="w-4 h-4" /> Criar Medição
+          <Save className="w-4 h-4" /> {editando ? 'Salvar Medição' : 'Criar Medição'}
         </button>
       </div>
     </form>
