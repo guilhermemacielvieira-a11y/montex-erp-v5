@@ -363,15 +363,45 @@ export default function CommandCenterUltra() {
     })).filter(s => s.total > 0);
   }, [producao?.porSetor]);
 
-  // Peças entregues em obra (etapa entregue + expedições entregues)
+  // Peças entregues em obra (etapa entregue + peças dos envios ENTREGUE)
   const pecasEntregues = useMemo(() => {
-    const entregues = producao?.porSetor?.entregue || [];
+    const entreguesPorEtapa = producao?.porSetor?.entregue || [];
+    const todasPecas = producao?.items || [];
     const expItems = campo?.items || [];
     const expEntregues = expItems.filter(i => (i.status || '').toUpperCase() === 'ENTREGUE');
+
+    // Extrair peças dos envios entregues e buscar detalhes em producao.items
+    const idsJaEntregues = new Set(entreguesPorEtapa.map(p => p.id));
+    const pecasDoEnvio = [];
+    expEntregues.forEach(envio => {
+      const pecasArr = Array.isArray(envio.pecas) ? envio.pecas : [];
+      pecasArr.forEach(pe => {
+        const pecaId = typeof pe === 'object' ? (pe.id || pe.pecaId) : pe;
+        if (!pecaId || idsJaEntregues.has(pecaId)) return;
+        idsJaEntregues.add(pecaId);
+        // Buscar detalhes da peça em producao.items
+        const detalhes = todasPecas.find(p => p.id === pecaId);
+        pecasDoEnvio.push({
+          id: pecaId,
+          nome: detalhes?.nome || detalhes?.marca || pecaId,
+          marca: detalhes?.marca || '-',
+          tipo: detalhes?.tipo || '-',
+          perfil: detalhes?.perfil || '',
+          peso: parseFloat(detalhes?.peso_total) || 0,
+          resp: detalhes?.responsavel || 'Via Envio',
+          envioNumero: envio.numero_romaneio || '-',
+          qtdEnviada: typeof pe === 'object' ? (pe.qtd_enviada || 1) : 1,
+        });
+      });
+    });
+
+    const todasEntregues = [...entreguesPorEtapa, ...pecasDoEnvio];
+    const pesoTotalEntregue = todasEntregues.reduce((s, p) => s + (p.peso || 0), 0);
+
     return {
-      pecas: entregues,
-      totalPecas: entregues.length,
-      pesoTotal: entregues.reduce((s, p) => s + (p.peso || 0), 0),
+      pecas: todasEntregues,
+      totalPecas: todasEntregues.length,
+      pesoTotal: pesoTotalEntregue,
       envios: expEntregues.map(e => ({
         id: e.id,
         numero: e.numero_romaneio || '-',
@@ -383,7 +413,7 @@ export default function CommandCenterUltra() {
       })),
       totalEnvios: expEntregues.length,
     };
-  }, [producao?.porSetor?.entregue, campo?.items]);
+  }, [producao?.porSetor?.entregue, producao?.items, campo?.items]);
 
   // Gráfico comparativo financeiro
   const financeiroChart = useMemo(() => [
