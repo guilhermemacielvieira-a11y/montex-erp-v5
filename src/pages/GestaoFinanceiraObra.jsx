@@ -381,6 +381,7 @@ export default function GestaoFinanceiraObra() {
     const saldoRestante = valorContrato - totalMedicoesBruto;
     const percentualExecutado = valorContrato > 0 ? (totalMedicoesBruto / valorContrato) * 100 : 0;
     const percentualRestante = 100 - percentualExecutado;
+    const percentualMedido = percentualExecutado; // alias
     return {
       valorContrato,
       receitasRealizadas: totalMedicoesBruto,
@@ -388,6 +389,7 @@ export default function GestaoFinanceiraObra() {
       despesasPagas,
       saldoRestante,
       percentualExecutado,
+      percentualMedido,
       percentualRestante,
       resultado: totalMedicoesLiquido - despesasPagas,
       margemReal: totalMedicoesLiquido > 0 ? ((totalMedicoesLiquido - despesasPagas) / totalMedicoesLiquido) * 100 : 0,
@@ -422,6 +424,7 @@ export default function GestaoFinanceiraObra() {
     return {
       receitas: { total: totalReceitas, medicoes: totalReceitas },
       despesas: { total: totalDespesas },
+      custos: { realizados: totalDespesas, previstos: totalDespesas },
       resultado: { lucroBruto, margemBruta }
     };
   }, [obra, lancamentos, medicoes]);
