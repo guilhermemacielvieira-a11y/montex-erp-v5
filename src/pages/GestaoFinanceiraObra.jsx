@@ -377,11 +377,12 @@ export default function GestaoFinanceiraObra() {
     const despesasPagas = lancamentos
       .filter(l => l.obraId === obra.id && l.status === 'pago')
       .reduce((sum, l) => sum + l.valor, 0);
-    // Saldo restante = Contrato - Medições (receitas abatem do contrato)
-    const saldoRestante = valorContrato - totalMedicoesBruto;
-    const percentualExecutado = valorContrato > 0 ? (totalMedicoesBruto / valorContrato) * 100 : 0;
+    // Saldo restante = Contrato - Receitas (Medições) - Despesas Pagas
+    const saldoRestante = valorContrato - totalMedicoesBruto - despesasPagas;
+    const percentualExecutado = valorContrato > 0 ? ((totalMedicoesBruto + despesasPagas) / valorContrato) * 100 : 0;
     const percentualRestante = 100 - percentualExecutado;
-    const percentualMedido = percentualExecutado; // alias
+    const percentualDespesas = valorContrato > 0 ? (despesasPagas / valorContrato) * 100 : 0;
+    const percentualMedido = valorContrato > 0 ? (totalMedicoesBruto / valorContrato) * 100 : 0;
     return {
       valorContrato,
       receitasRealizadas: totalMedicoesBruto,
@@ -389,6 +390,7 @@ export default function GestaoFinanceiraObra() {
       despesasPagas,
       saldoRestante,
       percentualExecutado,
+      percentualDespesas,
       percentualMedido,
       percentualRestante,
       resultado: totalMedicoesLiquido - despesasPagas,
@@ -837,7 +839,7 @@ export default function GestaoFinanceiraObra() {
             >
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${saldoContrato.percentualExecutado}%` }}
+                animate={{ width: `${saldoContrato.percentualDespesas}%` }}
                 className="bg-red-500 h-full"
                 title="Despesas Pagas"
                 style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)' }}
@@ -852,7 +854,7 @@ export default function GestaoFinanceiraObra() {
             </div>
             <div className="flex items-center gap-4 mt-2 text-xs">
               <span className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-red-500 rounded" /> Despesas Pagas ({saldoContrato.percentualExecutado.toFixed(1)}%)
+                <div className="w-3 h-3 bg-red-500 rounded" /> Despesas Pagas ({saldoContrato.percentualDespesas.toFixed(1)}%)
               </span>
               <span className="flex items-center gap-1">
                 <div className="w-3 h-3 bg-emerald-500 rounded" /> Receitas ({saldoContrato.percentualMedido.toFixed(1)}%)

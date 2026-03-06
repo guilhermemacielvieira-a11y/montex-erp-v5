@@ -36,12 +36,15 @@ const STATUS_ENVIO = [
 export default function EnviosExpedicaoPage() {
   // ==== DADOS DO ERP CONTEXT ====
   const { expedicoes, addExpedicao, updateExpedicao, deleteExpedicao } = useExpedicao();
-  const { obras } = useObras();
+  const { obras, obraAtual, setObraAtual } = useObras();
 
-  // ==== OBRA ATIVA ====
+  // ==== OBRA ATIVA (respeita seletor global da sidebar) ====
   const obraAtiva = useMemo(() => {
+    if (obraAtual) {
+      return obras?.find(o => o.id === obraAtual) || null;
+    }
     return obras?.find(o => o.status === 'em_producao' || o.status === 'ativo') || obras?.[0] || null;
-  }, [obras]);
+  }, [obras, obraAtual]);
 
   // ==== ESTADO LOCAL ====
   const [pecasExpedidas, setPecasExpedidas] = useState([]);
@@ -75,10 +78,14 @@ export default function EnviosExpedicaoPage() {
       const todasPecasRaw = await pecasApi.getAll('id', true);
       // Transformar snake_case -> camelCase e aplicar aliases (peso_total -> peso)
       const todasPecas = transformPecaArray(todasPecasRaw);
-      const expedidas = todasPecas.filter(p => p.etapa === 'expedido');
+      // Filtrar por obra ativa (se selecionada)
+      const pecasDaObra = obraAtiva
+        ? todasPecas.filter(p => (p.obraId || p.obra_id) === obraAtiva.id)
+        : todasPecas;
+      const expedidas = pecasDaObra.filter(p => p.etapa === 'expedido');
 
       // Peças em pintura (processo que precede expedição no Kanban Corte)
-      const emPintura = todasPecas.filter(p => p.etapa === 'pintura');
+      const emPintura = pecasDaObra.filter(p => p.etapa === 'pintura');
       setPecasPintura(emPintura);
 
       // Pegar IDs das peças já incluídas em expedições existentes (carregadas ou entregues)
@@ -107,21 +114,30 @@ export default function EnviosExpedicaoPage() {
     } finally {
       setLoadingPecas(false);
     }
-  }, [expedicoes]);
+  }, [expedicoes, obraAtiva]);
 
   useEffect(() => {
     carregarPecasExpedidas();
   }, [carregarPecasExpedidas]);
 
+  // ==== EXPEDIÇÕES DA OBRA SELECIONADA ====
+  const expedicoesObra = useMemo(() => {
+    if (!obraAtiva) return expedicoes || [];
+    return (expedicoes || []).filter(e => {
+      const eid = e.obra_id || e.obraId;
+      return eid === obraAtiva.id;
+    });
+  }, [expedicoes, obraAtiva]);
+
   // ==== KPIs ====
   const kpis = useMemo(() => {
-    const total = expedicoes?.length || 0;
-    const emTransito = expedicoes?.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length || 0;
-    const entregues = expedicoes?.filter(e => (e.status || '').toUpperCase() === 'ENTREGUE').length || 0;
-    const pesoTotal = expedicoes?.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0) || 0;
+    const total = expedicoesObra.length;
+    const emTransito = expedicoesObra.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length;
+    const entregues = expedicoesObra.filter(e => (e.status || '').toUpperCase() === 'ENTREGUE').length;
+    const pesoTotal = expedicoesObra.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0);
     const prontas = pecasExpedidas.length;
     return { total, emTransito, entregues, pesoTotal, prontas };
-  }, [expedicoes, pecasExpedidas]);
+  }, [expedicoesObra, pecasExpedidas]);
 
   // ==== PEÇAS FILTRADAS NA FILA ====
   const pecasFiltradas = useMemo(() => {
@@ -137,7 +153,7 @@ export default function EnviosExpedicaoPage() {
 
   // ==== ENVIOS FILTRADOS ====
   const enviosFiltrados = useMemo(() => {
-    let lista = expedicoes || [];
+    let lista = expedicoesObra;
     if (filtroStatus !== 'todos') lista = lista.filter(e => (e.status || '').toUpperCase() === filtroStatus);
     if (busca) {
       const b = busca.toLowerCase();
@@ -148,7 +164,7 @@ export default function EnviosExpedicaoPage() {
       );
     }
     return lista;
-  }, [expedicoes, filtroStatus, busca]);
+  }, [expedicoesObra, filtroStatus, busca]);
 
   // ==== TOGGLE SELEÇÃO DE PEÇA ====
   const togglePeca = useCallback((peca) => {
@@ -484,6 +500,21 @@ export default function EnviosExpedicaoPage() {
           </h1>
           <p className="text-gray-400 text-sm mt-1">Controle de remessas e entregas</p>
         </div>
+        {/* Seletor de Obra */}
+        <div className="flex items-center gap-2 bg-gray-900 rounded-lg px-3 py-2 border border-gray-700">
+          <Building2 className="w-4 h-4 text-blue-400" />
+          <select
+            value={obraAtiva?.id || ''}
+            onChange={(e) => setObraAtual(e.target.value)}
+            className="bg-transparent text-white text-sm font-medium border-none outline-none cursor-pointer"
+          >
+            {(obras || []).map(o => (
+              <option key={o.id} value={o.id} className="bg-gray-900 text-white">
+                {o.codigo || o.numero || o.id} - {o.nome}
+              </option>
+            ))}
+          </select>
+        </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={() => exportToExcel(enviosFiltrados, 'envios')}>
             <Download className="w-4 h-4 mr-1" /> Exportar
@@ -816,14 +847,14 @@ export default function EnviosExpedicaoPage() {
                 <Truck className="w-5 h-5 text-blue-400" />
                 <h3 className="font-semibold text-white">Em Trânsito</h3>
                 <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-blue-500/20 text-blue-400">
-                  {(expedicoes || []).filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length}
+                  {expedicoesObra.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mb-3">Envios criados a partir do romaneio expedido</p>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {(expedicoes || []).filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length === 0 ? (
+                {expedicoesObra.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-4">Nenhum envio em trânsito</p>
-                ) : (expedicoes || []).filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').map(e => (
+                ) : expedicoesObra.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').map(e => (
                   <div key={e.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-blue-500">
                     <div className="flex justify-between items-start">
                       <div>
@@ -860,7 +891,7 @@ export default function EnviosExpedicaoPage() {
           {/* Status secundários: Entregue e Problema */}
           <div className="grid grid-cols-2 gap-6 mb-6">
             {STATUS_ENVIO.filter(s => s.id === 'ENTREGUE' || s.id === 'PROBLEMA').map(status => {
-              const enviosDoStatus = (expedicoes || []).filter(e => (e.status || '').toUpperCase() === status.id);
+              const enviosDoStatus = expedicoesObra.filter(e => (e.status || '').toUpperCase() === status.id);
               const pesoTotalStatus = enviosDoStatus.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0);
               const qtdPecasStatus = enviosDoStatus.reduce((sum, e) => {
                 const pecasArr = e.pecas_ids || e.pecas || [];
