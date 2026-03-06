@@ -237,7 +237,7 @@ export default function GestaoFinanceiraObra() {
   // ERPContext - dados reais do Supabase
   const { obras: obrasERP, obraAtualData } = useObras();
   const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx, deleteLancamento: deleteLancamentoCtx } = useLancamentos();
-  const { medicoesObraAtual: medicoesSupabase, addMedicao: addMedicaoCtx, updateMedicao: updateMedicaoCtx, deleteMedicao: deleteMedicaoCtx } = useMedicoes();
+  const { medicoes: todasMedicoes, addMedicao: addMedicaoCtx, updateMedicao: updateMedicaoCtx, deleteMedicao: deleteMedicaoCtx } = useMedicoes();
 
   // Estados
   const [obra, setObra] = useState(OBRA_MODELO);
@@ -294,11 +294,15 @@ export default function GestaoFinanceiraObra() {
     }
   }, [lancamentosSupabase, obra.id]);
 
-  // Mesclar medições do Supabase quando disponíveis
+  // Mesclar medições do Supabase quando disponíveis (filtra pela obra atual)
   React.useEffect(() => {
-    if (medicoesSupabase && medicoesSupabase.length > 0) {
+    const medicoesDoSupabase = (todasMedicoes || []).filter(m => {
+      const mObraId = m.obraId || m.obra_id;
+      return mObraId === obra.id;
+    });
+    if (medicoesDoSupabase.length > 0) {
       const idsEstaticos = new Set(MEDICOES.map(m => m.id));
-      const novosDoSupabase = medicoesSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => ({
+      const novosDoSupabase = medicoesDoSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => ({
         id: m.id,
         numero: m.numero || 0,
         obraId: m.obraId || m.obra_id || obra.id,
@@ -319,7 +323,7 @@ export default function GestaoFinanceiraObra() {
       }));
       setMedicoes([...MEDICOES, ...novosDoSupabase]);
     }
-  }, [medicoesSupabase, obra.id]);
+  }, [todasMedicoes, obra.id]);
 
   // Cálculos principais
   const saldo = useMemo(() =>
@@ -363,11 +367,32 @@ export default function GestaoFinanceiraObra() {
     [lancamentos]
   );
 
-  // Calcular saldo do contrato (abatendo despesas pagas + receitas)
-  const saldoContrato = useMemo(() =>
-    calcularSaldoContratoComReceitas(obra, medicoesReceitas, lancamentos),
-    [obra, medicoesReceitas, lancamentos]
-  );
+  // Calcular saldo do contrato (abatendo medições lançadas como receitas)
+  const saldoContrato = useMemo(() => {
+    const valorContrato = obra.contrato?.valorTotal || 2700000;
+    // Total de medições lançadas = receitas realizadas (abate do contrato)
+    const totalMedicoesBruto = medicoes.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
+    const totalMedicoesLiquido = medicoes.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
+    // Total de despesas pagas
+    const despesasPagas = lancamentos
+      .filter(l => l.obraId === obra.id && l.status === 'pago')
+      .reduce((sum, l) => sum + l.valor, 0);
+    // Saldo restante = Contrato - Medições (receitas abatem do contrato)
+    const saldoRestante = valorContrato - totalMedicoesBruto;
+    const percentualExecutado = valorContrato > 0 ? (totalMedicoesBruto / valorContrato) * 100 : 0;
+    const percentualRestante = 100 - percentualExecutado;
+    return {
+      valorContrato,
+      receitasRealizadas: totalMedicoesBruto,
+      receitasLiquidas: totalMedicoesLiquido,
+      despesasPagas,
+      saldoRestante,
+      percentualExecutado,
+      percentualRestante,
+      resultado: totalMedicoesLiquido - despesasPagas,
+      margemReal: totalMedicoesLiquido > 0 ? ((totalMedicoesLiquido - despesasPagas) / totalMedicoesLiquido) * 100 : 0,
+    };
+  }, [obra, lancamentos, medicoes]);
 
   // Calcular composição do contrato dinâmica (puxando dos lançamentos reais)
   const composicaoCalculada = useMemo(() => {
@@ -386,11 +411,20 @@ export default function GestaoFinanceiraObra() {
     return { ...composicaoContrato, categorias: categoriasAtualizadas };
   }, [composicaoContrato, lancamentos, obra.id]);
 
-  // Calcular DRE da obra
-  const dreObra = useMemo(() =>
-    calcularDREObra(obra, lancamentos, medicoesReceitas),
-    [obra, lancamentos, medicoesReceitas]
-  );
+  // Calcular DRE da obra (usando medições reais como receitas)
+  const dreObra = useMemo(() => {
+    const totalReceitas = medicoes.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
+    const totalDespesas = lancamentos
+      .filter(l => l.obraId === obra.id)
+      .reduce((sum, l) => sum + l.valor, 0);
+    const lucroBruto = totalReceitas - totalDespesas;
+    const margemBruta = totalReceitas > 0 ? (lucroBruto / totalReceitas) * 100 : 0;
+    return {
+      receitas: { total: totalReceitas, medicoes: totalReceitas },
+      despesas: { total: totalDespesas },
+      resultado: { lucroBruto, margemBruta }
+    };
+  }, [obra, lancamentos, medicoes]);
 
   // Calcular resumo de materiais (Pedido x Entrega)
   const resumoMateriais = useMemo(() =>
@@ -409,12 +443,10 @@ export default function GestaoFinanceiraObra() {
     }));
   }, [materiais, obra.id]);
 
-  // Total de receitas realizadas
+  // Total de receitas realizadas = soma de todas as medições lançadas
   const totalReceitasRealizadas = useMemo(() =>
-    medicoesReceitas
-      .filter(r => r.status === STATUS_MEDICAO.PAGA)
-      .reduce((sum, r) => sum + r.valorBruto, 0),
-    [medicoesReceitas]
+    medicoes.reduce((sum, m) => sum + (m.valorBruto || 0), 0),
+    [medicoes]
   );
 
   // Filtros de lançamentos
@@ -872,8 +904,8 @@ export default function GestaoFinanceiraObra() {
           <KPICard
             icon={Receipt}
             label="Receitas/Medições"
-            value={medicoesReceitas.length}
-            subvalue={`${medicoesReceitas.filter(r => r.status === STATUS_MEDICAO.PAGA).length} pagas`}
+            value={medicoes.length}
+            subvalue={`R$ ${formatMoney(totalReceitasRealizadas)}`}
             color="teal"
           />
           <KPICard
@@ -1187,7 +1219,7 @@ export default function GestaoFinanceiraObra() {
                 </h4>
 
                 <div className="space-y-3">
-                  {medicoesReceitas.map((receita, idx) => (
+                  {medicoes.map((receita, idx) => (
                     <motion.div
                       key={receita.id}
                       initial={{ opacity: 0, x: -20 }}
@@ -1200,12 +1232,13 @@ export default function GestaoFinanceiraObra() {
                           <div className="flex items-center gap-2">
                             <span className="text-emerald-400 font-medium">#{receita.numero}</span>
                             <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-400">
-                              {receita.tipoReceita === TIPO_RECEITA.ENTRADA ? 'Entrada' : 'Chaparia'}
+                              {receita.isAvulsa ? 'Avulsa' : receita.tipo || receita.etapa || 'Medição'}
                             </span>
                           </div>
-                          <p className="text-sm text-white mt-1">{receita.descricao}</p>
+                          <p className="text-sm text-white mt-1">{receita.descricao || `Medição #${receita.numero}`}</p>
                           <p className="text-xs text-slate-400 mt-1">
-                            NF: {receita.notaFiscal} • {new Date(receita.dataPagamento).toLocaleDateString('pt-BR')}
+                            {receita.dataMedicao ? new Date(receita.dataMedicao).toLocaleDateString('pt-BR') : ''}
+                            {receita.setor ? ` • ${receita.setor}` : ''}
                           </p>
                         </div>
                         <div className="text-right">
@@ -1219,11 +1252,13 @@ export default function GestaoFinanceiraObra() {
                       </div>
 
                       {/* Retenções */}
+                      {receita.retencoes && (
                       <div className="mt-3 pt-3 border-t border-emerald-500/20 flex gap-4 text-xs">
                         <span className="text-slate-400">ISS: R$ {((receita.retencoes?.iss) || 0).toLocaleString('pt-BR')}</span>
                         <span className="text-slate-400">INSS: R$ {((receita.retencoes?.inss) || 0).toLocaleString('pt-BR')}</span>
                         <span className="text-slate-400">Retenção: R$ {((receita.retencoes?.contratual) || 0).toLocaleString('pt-BR')}</span>
                       </div>
+                      )}
                     </motion.div>
                   ))}
                 </div>
