@@ -51,9 +51,6 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
-
-// ========== STORAGE INDEPENDENTE (SEM vínculo com obras) ==========
-const STORAGE_KEY = 'montex_despesas_gerais';
 import {
   BarChart,
   Bar,
@@ -67,6 +64,9 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts';
+
+// ========== STORAGE INDEPENDENTE (SEM vínculo com obras) ==========
+const STORAGE_KEY = 'montex_despesas_gerais';
 
 // Mock Data - Categorias
 const categorias = [
@@ -331,6 +331,14 @@ export default function DespesasPage() {
     setImporting(false);
   };
 
+  // Mapeamento de origem para categorias (definido antes dos useMemo)
+  const origemCategorias = {
+    fabrica: ['Matéria Prima', 'Manutenção', 'Energia/Utilidades'],
+    administrativo: ['Administrativo'],
+    transporte: ['Transporte'],
+    maodeobra: ['Mão de Obra', 'Impostos'],
+  };
+
   // Helper: filtrar por período (definido antes dos useMemo que o usam)
   const filtrarPorPeriodo = (lista) => {
     if (filtroPeriodo === 'geral') return lista;
@@ -391,14 +399,6 @@ export default function DespesasPage() {
 
     return { totalPago, totalPendente, totalAtrasado, total };
   }, [despesasPeriodo]);
-
-  // Mapeamento de origem para categorias
-  const origemCategorias = {
-    fabrica: ['Matéria Prima', 'Manutenção', 'Energia/Utilidades'],
-    administrativo: ['Administrativo'],
-    transporte: ['Transporte'],
-    maodeobra: ['Mão de Obra', 'Impostos'],
-  };
 
   // Filtrar despesas
   const despesasFiltradas = useMemo(() => {
