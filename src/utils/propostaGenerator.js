@@ -1,20 +1,19 @@
 import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  Header, Footer, AlignmentType, HeadingLevel, BorderStyle, WidthType,
-  ShadingType, PageNumber, PageBreak, ImageRun, LevelFormat, TabStopType,
-  TabStopPosition } from 'docx';
+  AlignmentType, HeadingLevel, BorderStyle, WidthType,
+  ShadingType, PageBreak } from 'docx';
 
 // Brand colors
 const COLORS = {
-  teal: '1a7a6d',      // Pages 1-9 headings
-  red: 'FF0000',        // Pages 10-17 headings
+  teal: '1a7a6d',
+  red: 'FF0000',
   text: '333333',
   lightGray: 'f5f5f5',
-  mediumGray: 'cccccc',
+  mediumGray: '999999',
   white: 'ffffff',
-  tableBorder: 'b0b0b0',
+  tableBorder: 'cccccc',
+  dark: '1e293b',
 };
 
-// A4 page dimensions in DXA
 const A4 = { width: 11906, height: 16838 };
 const MARGINS = { top: 1440, right: 1134, bottom: 1440, left: 1134 };
 const CONTENT_WIDTH = A4.width - MARGINS.left - MARGINS.right;
@@ -25,1167 +24,622 @@ const formatCurrencyBR = (value) => {
 };
 
 const formatNumberBR = (value) => {
-  if (!value || isNaN(value)) return '0,00';
-  return Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if (!value || isNaN(value)) return '0';
+  return Number(value).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 };
 
-// Helper to create styled table cells
-const createCell = (text, options = {}) => {
-  const { bold = false, fontSize = 20, alignment = AlignmentType.LEFT, shading, width, color = COLORS.text, colspan } = options;
-  const cellOptions = {
+const noBorder = { style: BorderStyle.NONE, size: 0, color: 'ffffff' };
+const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
+const thinBorder = { style: BorderStyle.SINGLE, size: 1, color: COLORS.tableBorder };
+const thinBorders = { top: thinBorder, bottom: thinBorder, left: thinBorder, right: thinBorder };
+
+function createCell(text, opts = {}) {
+  const { bold = false, fontSize = 20, alignment = AlignmentType.LEFT, shading, width, color = COLORS.text, colspan } = opts;
+  const cellOpts = {
     width: width ? { size: width, type: WidthType.DXA } : undefined,
     shading: shading ? { fill: shading, type: ShadingType.CLEAR } : undefined,
-    margins: { top: 60, bottom: 60, left: 100, right: 100 },
-    borders: {
-      top: { style: BorderStyle.SINGLE, size: 1, color: COLORS.tableBorder },
-      bottom: { style: BorderStyle.SINGLE, size: 1, color: COLORS.tableBorder },
-      left: { style: BorderStyle.SINGLE, size: 1, color: COLORS.tableBorder },
-      right: { style: BorderStyle.SINGLE, size: 1, color: COLORS.tableBorder },
-    },
+    margins: { top: 40, bottom: 40, left: 80, right: 80 },
+    borders: thinBorders,
     children: [new Paragraph({
       alignment,
       children: [new TextRun({ text: String(text || ''), bold, size: fontSize, font: 'Arial', color })]
     })]
   };
-  if (colspan) cellOptions.columnSpan = colspan;
-  return new TableCell(cellOptions);
-};
-
-const noBorder = { style: BorderStyle.NONE, size: 0, color: 'ffffff' };
-const noBorders = { top: noBorder, bottom: noBorder, left: noBorder, right: noBorder };
-
-// Fetch image as ArrayBuffer
-async function fetchImage(url) {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.arrayBuffer();
-  } catch (e) {
-    console.warn(`Falha ao carregar imagem: ${url}`, e);
-    return null;
-  }
+  if (colspan) cellOpts.columnSpan = colspan;
+  return new TableCell(cellOpts);
 }
 
-// PAGE 1 - COVER PAGE
-function createCoverPage(data, images) {
-  const children = [];
+function heading(text, color = COLORS.red, size = 28) {
+  return new Paragraph({
+    spacing: { before: 300, after: 100 },
+    children: [new TextRun({ text, bold: true, size, font: 'Arial', color, italics: true })]
+  });
+}
 
-  // Spacing from top
-  children.push(new Paragraph({ spacing: { before: 800, after: 0 }, children: [] }));
+function bodyText(text, opts = {}) {
+  return new Paragraph({
+    spacing: { before: 80, after: 80 },
+    alignment: opts.alignment || AlignmentType.JUSTIFIED,
+    children: [new TextRun({ text, size: opts.size || 20, font: 'Arial', color: COLORS.text, bold: opts.bold || false })]
+  });
+}
 
-  // GRUPO MONTEX title
-  children.push(new Paragraph({
+function bulletItem(text) {
+  return new Paragraph({
+    spacing: { before: 40, after: 40 },
+    children: [new TextRun({ text: '· ' + text, size: 20, font: 'Arial', color: COLORS.text })]
+  });
+}
+
+function spacer(before = 200) {
+  return new Paragraph({ spacing: { before, after: 0 }, children: [] });
+}
+
+function tealFooter() {
+  return new Paragraph({
+    spacing: { before: 400 },
+    border: { top: { style: BorderStyle.SINGLE, size: 6, color: COLORS.teal, space: 1 } },
+    children: [new TextRun({ text: 'GRUPO MONTEX - Soluções em Aço', size: 16, font: 'Arial', color: COLORS.teal, bold: true })]
+  });
+}
+
+export async function generatePropostaDOCX(data) {
+  const { project, setores, calculations, unitCosts, propostaNumber, prazoExecucao, condicoesPagamento } = data;
+
+  const propNum = propostaNumber || `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getFullYear()).slice(-2)}`;
+  const prazo = prazoExecucao || 150;
+  const pagamento = condicoesPagamento || { assinatura: 10, projeto: 5, medicoes: 85 };
+
+  const now = new Date();
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const dateStr = `${now.getDate()} DE ${months[now.getMonth()].toUpperCase()} DE ${now.getFullYear()}`;
+
+  // Calculate totals
+  const totalGeral = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + (item.quantidade * item.preco), 0), 0);
+  const totalWeight = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + ((item.unidade === 'KG') ? item.quantidade : 0), 0), 0);
+  const totalArea = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + ((item.unidade === 'M2') ? item.quantidade : 0), 0), 0);
+  const precoFinal = calculations?.precoFinal || totalGeral;
+  const precoKg = totalWeight > 0 ? totalGeral / totalWeight : 0;
+
+  const allChildren = [];
+
+  // ====== PAGE 1: COVER ======
+  allChildren.push(spacer(600));
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: { before: 200, after: 60 },
-    children: [new TextRun({ text: 'GRUPO MONTEX', bold: true, size: 56, font: 'Arial', color: COLORS.teal })]
+    children: [new TextRun({ text: 'GRUPO MONTEX', bold: true, size: 56, font: 'Arial', color: COLORS.dark })]
   }));
-
-  // Separator line
-  children.push(new Paragraph({
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    spacing: { before: 0, after: 100 },
-    border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: 'c8a951', space: 1 } },
-    children: []
+    spacing: { before: 0, after: 200 },
+    children: [new TextRun({ text: 'SOLUÇÕES MODULARES', bold: true, size: 28, font: 'Arial', color: COLORS.teal })]
   }));
-
-  // SOLUÇÕES MODULARES
-  children.push(new Paragraph({
+  allChildren.push(spacer(800));
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    spacing: { before: 100, after: 600 },
-    children: [new TextRun({ text: 'SOLUÇÕES MODULARES', bold: true, size: 32, font: 'Arial', color: COLORS.teal })]
+    spacing: { before: 200, after: 200 },
+    children: [
+      new TextRun({ text: 'Proposta ', size: 44, font: 'Arial', color: COLORS.dark }),
+      new TextRun({ text: 'Comercial', size: 44, font: 'Arial', color: COLORS.dark, italics: true }),
+    ]
   }));
+  allChildren.push(spacer(600));
 
-  // Proposta Comercial title
-  children.push(new Paragraph({
-    alignment: AlignmentType.CENTER,
-    spacing: { before: 300, after: 100 },
-    children: [new TextRun({ text: 'Proposta Comercial', bold: true, size: 44, font: 'Arial', color: '1a1a2e' })]
+  // ====== PAGE 2: SOBRE + MISSÃO ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(new Paragraph({
+    spacing: { before: 300, after: 200 },
+    children: [
+      new TextRun({ text: 'Sobre ', bold: true, size: 28, font: 'Arial', color: COLORS.dark }),
+      new TextRun({ text: 'Grupo Montex', bold: true, size: 28, font: 'Arial', color: COLORS.dark, italics: true }),
+    ]
   }));
+  allChildren.push(bodyText(
+    'Com mais de 10 anos o Grupo Montex se posiciona entre as principais empresas de soluções modulares, estruturas metálicas, esquadrias de alumínio, ACM, construção a seco, localizada em São Joaquim de Bicas, as margens da BR381, facilitando a logística de transporte. Com o intuito de oferecer os melhores produtos, investimos em alta tecnologia e soluções inovadoras para melhor atender nossos stakeholders, nossos projetos atendem especificamente cada modelo se adequando as necessidade de acordo com a demanda de valor para cada cliente.'
+  ));
+  allChildren.push(spacer(400));
+  allChildren.push(new Paragraph({
+    spacing: { before: 300, after: 200 },
+    children: [
+      new TextRun({ text: 'Missão ', bold: true, size: 28, font: 'Arial', color: COLORS.dark }),
+      new TextRun({ text: 'Grupo Montex', bold: true, size: 28, font: 'Arial', color: COLORS.dark, italics: true }),
+    ]
+  }));
+  allChildren.push(bodyText(
+    'O Grupo Montex presa honestidade, transparência e sustentabilidade em seus negócios e visa sempre estar alinhado aos valores e boas praticas comerciais do nosso mercado; Nossos projetos e serviços, visam levar a nossa sociedade o que à de melhor em soluções modulares, estruturas metálicas e esquadrias de alumínio, transformando a vida de nossos colaboradores e de nossos clientes com o máximo de sucesso sustentável possível.'
+  ));
+  allChildren.push(tealFooter());
 
-  // Project name
-  children.push(new Paragraph({
+  // ====== PAGE 3: VISÃO ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(new Paragraph({
+    spacing: { before: 300, after: 200 },
+    children: [
+      new TextRun({ text: 'Visão ', bold: true, size: 28, font: 'Arial', color: COLORS.dark }),
+      new TextRun({ text: 'Grupo Montex', bold: true, size: 28, font: 'Arial', color: COLORS.dark, italics: true }),
+    ]
+  }));
+  allChildren.push(bodyText(
+    'Construir o futuro com parcerias inovadoras visando entregar sempre o melhor, com maior qualidade possível, agregando valor e menores custos aos nossos empreendimentos. Com uma visão do que podemos entregar a nossos investidores, trazendo consigo o sonho de seu pai Wellis Vieira, nós do Grupo Montex estamos sempre buscando meios diversos de atender as demandas de nossos stakeholders, bem como levar melhorias significativas a sociedade como um todo.'
+  ));
+  allChildren.push(spacer(300));
+  allChildren.push(new Paragraph({
+    spacing: { before: 200, after: 100 },
+    children: [
+      new TextRun({ text: 'Transformando ', bold: true, size: 26, font: 'Arial', color: COLORS.dark }),
+      new TextRun({ text: 'Pessoas', bold: true, size: 26, font: 'Arial', color: COLORS.dark, italics: true }),
+    ]
+  }));
+  allChildren.push(bodyText(
+    'Nossa equipe conta com um alto investimento em treinamento e qualificação profissional, ofertando o que à de melhor em fabricação e instalação no leito de obra.'
+  ));
+  allChildren.push(tealFooter());
+
+  // ====== PAGE 9: INDEX ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(spacer(400));
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
     spacing: { before: 200, after: 100 },
-    children: [new TextRun({
-      text: (data.project?.nome || 'PROJETO').toUpperCase(),
-      bold: true, size: 36, font: 'Arial', color: COLORS.teal
-    })]
+    children: [new TextRun({ text: 'PROPOSTA TECNICA/ COMERCIAL', size: 28, font: 'Arial', color: COLORS.dark, italics: true })]
   }));
-
-  // Client name
-  if (data.project?.cliente) {
-    children.push(new Paragraph({
-      alignment: AlignmentType.CENTER,
-      spacing: { before: 100, after: 800 },
-      children: [new TextRun({ text: data.project.cliente, size: 28, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  // Date
-  const now = new Date();
-  const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-  children.push(new Paragraph({
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    spacing: { before: 200, after: 0 },
-    children: [new TextRun({
-      text: `${months[now.getMonth()]} / ${now.getFullYear()}`,
-      size: 24, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  return children;
-}
-
-// PAGE 2 - SOBRE + MISSÃO
-function createSobrePage() {
-  const children = [];
-
-  // Sobre heading
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
+    spacing: { before: 100, after: 100 },
     children: [
-      new TextRun({ text: 'Sobre ', bold: true, size: 32, font: 'Arial', color: '1a1a2e' }),
-      new TextRun({ text: 'Grupo Montex', bold: true, italics: true, size: 32, font: 'Arial', color: COLORS.teal })
+      new TextRun({ text: 'N-', size: 22, font: 'Arial', color: COLORS.dark }),
+      new TextRun({ text: `${propNum} rev00`, bold: true, size: 22, font: 'Arial', color: COLORS.dark }),
     ]
   }));
-
-  // Sobre text
-  children.push(new Paragraph({
-    spacing: { after: 250 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'Com mais de 10 anos o Grupo Montex se posiciona entre as principais empresas de soluções modulares, estruturas metálicas, esquadrias de alumínio, ACM, construção a seco, localizada em São Joaquim de Bicas, as margens da BR381, facilitando a logística de transporte. Com o intuito de oferecer os melhores produtos, investimos em alta tecnologia e soluções inovadoras para melhor atender nossos stakeholders, nossos projetos atendem especificamente cada modelo se adequando as necessidade de acordo com a demanda de valor para cada cliente.',
-      size: 22, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Missão heading
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
-    children: [
-      new TextRun({ text: 'Missão ', bold: true, size: 32, font: 'Arial', color: '1a1a2e' }),
-      new TextRun({ text: 'Grupo Montex', bold: true, italics: true, size: 32, font: 'Arial', color: COLORS.teal })
-    ]
-  }));
-
-  // Missão text
-  children.push(new Paragraph({
-    spacing: { after: 200 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'O Grupo Montex presa honestidade, transparência e sustentabilidade em seus negócios e visa sempre estar alinhado aos valores e boas praticas comerciais do nosso mercado; Nossos projetos e serviços, visam levar a nossa sociedade o que à de melhor em soluções modulares, estruturas metálicas e esquadrias de alumínio, transformando a vida de nossos colaboradores e de nossos clientes com o máximo de sucesso sustentável possivel.',
-      size: 22, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  return children;
-}
-
-// PAGE 3 - VISÃO
-function createVisaoPage() {
-  const children = [];
-
-  // Visão heading
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
-    children: [
-      new TextRun({ text: 'Visão ', bold: true, size: 32, font: 'Arial', color: '1a1a2e' }),
-      new TextRun({ text: 'Grupo Montex', bold: true, italics: true, size: 32, font: 'Arial', color: COLORS.teal })
-    ]
-  }));
-
-  // Visão text
-  children.push(new Paragraph({
-    spacing: { after: 250 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'Construir o futuro com parcerias inovadoras visando entregar sempre o melhor, com maior qualidade possivel, agregando valor e menores custos aos nossos empreendimentos. Com uma visão do que podemos entregar a nossos investidores, trazendo consigo o sonho de seu pai Wellis Vieira, nós do Grupo Montex estamos sempre buscando meios diversos de atender as demandas de nossos stakeholders, bem como levar melhorias significativas a sociedade como um todo. Guilherme Maciel assim como seu pai foi ao mercado não só atrás de soluções mas também de pessoas que pudessem agregar soluções, o sonho de uma que se tornou milhares.',
-      size: 22, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Transformando Pessoas heading
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
-    children: [new TextRun({ text: 'Transformando Pessoas', bold: true, italics: true, size: 32, font: 'Arial', color: COLORS.teal })]
-  }));
-
-  // Transformando text
-  children.push(new Paragraph({
-    spacing: { after: 200 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'Nossa equipe conta com um alto investimento em treinamento e qualificação profissional, ofertando o que à de melhor em fabricação e instalação no leito de obra.',
-      size: 22, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  return children;
-}
-
-// PAGE 4 - PORTFOLIO - Super Luna Betim
-function createPortfolioSuperLunaPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'Super Luna Betim', bold: true, size: 36, font: 'Arial', color: COLORS.teal })]
+    spacing: { before: 200, after: 100 },
+    children: [new TextRun({ text: (project?.nome || 'PROJETO').toUpperCase(), bold: true, size: 26, font: 'Arial', color: COLORS.dark, italics: true })]
   }));
-
-  // Services as bullet points
-  const services = ['Construção Metálica', 'Telhas Isotérmicas', 'Chapas Perfilo', 'ACM Kynnar PVDF', 'Fachada Grid', 'Vidro Temperado'];
-  for (const service of services) {
-    children.push(new Paragraph({
-      spacing: { before: 60, after: 60 },
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: service, bold: true, italics: true, size: 22, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  children.push(new Paragraph({ spacing: { before: 300, after: 200 }, children: [] }));
-
-  return children;
-}
-
-// PAGE 5 - PORTFOLIO - Portaria Retiro do Chalé
-function createPortfolioPortariaPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'Portaria Retiro do Chalé', bold: true, size: 36, font: 'Arial', color: COLORS.teal })]
+    spacing: { before: 200, after: 300 },
+    children: [new TextRun({ text: `${months[now.getMonth()].toUpperCase()}/ ${now.getFullYear()}`, bold: true, size: 24, font: 'Arial', color: COLORS.dark, italics: true })]
   }));
-
-  const services = ['Construção Metálica', 'Telhas Isotérmicas', 'Esquadrias de Alumínio'];
-  for (const service of services) {
-    children.push(new Paragraph({
-      spacing: { before: 60, after: 60 },
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: service, bold: true, italics: true, size: 22, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  children.push(new Paragraph({ spacing: { before: 300, after: 200 }, children: [] }));
-
-  return children;
-}
-
-// PAGE 6 - PORTFOLIO - ABC Passos
-function createPortfolioAbcPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
+  allChildren.push(spacer(200));
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'ABC Passos', bold: true, size: 36, font: 'Arial', color: COLORS.teal })]
-  }));
-
-  const services = ['Construção Metálica', 'Telhas Isotérmicas', 'Chapas Perfilo', 'ACM Kynnar PVDF', 'Fachada Grid'];
-  for (const service of services) {
-    children.push(new Paragraph({
-      spacing: { before: 60, after: 60 },
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: service, bold: true, italics: true, size: 22, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  children.push(new Paragraph({ spacing: { before: 300, after: 200 }, children: [] }));
-
-  return children;
-}
-
-// PAGE 7 - PORTFOLIO - Graneleiro Goias
-function createPortfolioGraneleiroPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'Graneleiro Goias', bold: true, size: 36, font: 'Arial', color: COLORS.teal })]
-  }));
-
-  const services = ['Construção Metálica', 'Telhas Isotérmicas', 'Estruturas de Grande Porte'];
-  for (const service of services) {
-    children.push(new Paragraph({
-      spacing: { before: 60, after: 60 },
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: service, bold: true, italics: true, size: 22, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  children.push(new Paragraph({ spacing: { before: 300, after: 200 }, children: [] }));
-
-  return children;
-}
-
-// PAGE 8 - PORTFOLIO - My Mall
-function createPortfolioMyMallPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'My Mall', bold: true, size: 36, font: 'Arial', color: COLORS.teal })]
-  }));
-
-  const services = ['Construção Metálica', 'Fachada Grid', 'ACM Kynnar PVDF', 'Vidro Temperado'];
-  for (const service of services) {
-    children.push(new Paragraph({
-      spacing: { before: 60, after: 60 },
-      alignment: AlignmentType.CENTER,
-      children: [new TextRun({ text: service, bold: true, italics: true, size: 22, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  children.push(new Paragraph({ spacing: { before: 300, after: 200 }, children: [] }));
-
-  return children;
-}
-
-// PAGE 9 - CONTACT
-function createContactPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 600, after: 400 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'Contato', bold: true, size: 44, font: 'Arial', color: COLORS.teal })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 150 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: '(31) 99582-1443', bold: true, size: 26, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 150 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'guilherme.maciel.vieira@gmail.com', bold: true, size: 26, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
     spacing: { before: 100, after: 200 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({ text: 'www.grupomontex.com.br', bold: true, size: 26, font: 'Arial', color: COLORS.text })]
+    children: [new TextRun({ text: 'INDICE', bold: true, size: 24, font: 'Arial', color: COLORS.dark, italics: true })]
   }));
 
-  return children;
-}
-
-// PAGE 10 - INDEX
-function createIndexPage(data) {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 200, after: 100 },
-    children: [new TextRun({ text: 'PROPOSTA TECNICA/ COMERCIAL', bold: true, size: 28, font: 'Arial', color: COLORS.red })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 150 },
-    children: [new TextRun({
-      text: `N-${data.propostaNumber || '00000'} rev00`,
-      bold: true, size: 24, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Project details
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 60 },
-    children: [new TextRun({ text: `Projeto: ${data.project?.nome || 'PROJETO'}`, size: 22, font: 'Arial', color: COLORS.text })]
-  }));
-
-  const now = new Date();
-  const months = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
-  children.push(new Paragraph({
-    spacing: { after: 300 },
-    children: [new TextRun({
-      text: `Data: ${now.getDate()} de ${months[now.getMonth()]} de ${now.getFullYear()}`,
-      size: 22, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Index list
   const indexItems = [
-    '1. ÍNDICE',
-    '2. CARTA DE APRESENTAÇÃO E OBJETO DA PROPOSTA',
-    '3. NORMAS TÉCNICAS',
-    '4. ESPECIFICAÇÕES TÉCNICAS',
-    '5. OBRIGAÇÕES DA MONTEX',
-    '6. OBRIGAÇÕES DO CLIENTE',
-    '7. JORNADA DE TRABALHO',
-    '8. SISTEMA DE SEGURANÇA',
-    '9. PRAZO DE EXECUÇÃO',
-    '10. CONDIÇÕES DE PAGAMENTO',
-    '11. ANÁLISE DO INVESTIMENTO',
-    '12. CRONOGRAMA'
+    '1.  CARTA DE APRESENTAÇÃO',
+    '2.  OBJETO DA PROPOSTA',
+    '3.  NORMAS TECNICAS',
+    '4.  DOCUMENTOS RECEBIDOS',
+    '5.  OBRIGAÇÕES DA MONTEX',
+    '6.  OBRIGAÇÕES DO CLIENTE',
+    '7.  JORNADA DE TRABALHO',
+    '8.  SISTEMA DE SEGURANCA',
+    '9.  PRAZO DE EXECUCAO DOS SERVIÇOS',
+    '10.     CONDIÇÕES DE PAGAMENTO',
+    '11.     CALCULOS/ESTIMATIVAS',
+    '12.     VALOR TOTAL DA OBRA',
   ];
-
-  for (const item of indexItems) {
-    children.push(new Paragraph({
-      spacing: { before: 100, after: 100 },
-      children: [new TextRun({ text: item, size: 22, font: 'Arial', color: COLORS.text })]
+  indexItems.forEach(item => {
+    allChildren.push(new Paragraph({
+      alignment: AlignmentType.CENTER,
+      spacing: { before: 40, after: 40 },
+      children: [new TextRun({ text: item, size: 20, font: 'Arial', color: COLORS.dark, italics: true })]
     }));
-  }
+  });
+  allChildren.push(tealFooter());
 
-  return children;
-}
-
-// PAGE 11 - CARTA + OBJETO DA PROPOSTA
-function createCartaPropostaPage(data) {
-  const children = [];
-
-  // Location and date
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 200 },
-    children: [new TextRun({
-      text: 'SÃO JOAQUIM DE BICAS, ' + new Date().toLocaleDateString('pt-BR').toUpperCase(),
-      bold: true, size: 22, font: 'Arial', color: COLORS.text
-    })]
+  // ====== PAGE 10: CARTA DE APRESENTAÇÃO + OBJETO DA PROPOSTA ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('1.CARTA DE APRESENTAÇÃO'));
+  allChildren.push(spacer(100));
+  allChildren.push(new Paragraph({
+    spacing: { before: 100, after: 200 },
+    children: [new TextRun({ text: `SÃO JOAQUIM DE BICAS  ${dateStr}`, size: 22, font: 'Arial', color: COLORS.dark, bold: true, italics: true })]
   }));
-
-  // Proposal number
-  children.push(new Paragraph({
-    spacing: { after: 300 },
-    children: [new TextRun({
-      text: `PROPOSTA COMERCIAL N-${data.propostaNumber || '00000'}`,
-      bold: true, size: 22, font: 'Arial', color: COLORS.text
-    })]
+  allChildren.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 200, after: 200 },
+    children: [new TextRun({ text: `PROPOSTA COMERCIAL N-${propNum}`, bold: true, size: 24, font: 'Arial', color: COLORS.dark })]
   }));
-
-  // Budget table header
-  const tableRows = [];
-  tableRows.push(new TableRow({
-    children: [
-      createCell('QUANTIDADE', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1400 }),
-      createCell('UNIDADE', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1200 }),
-      createCell('DESCRIÇÃO SERVIÇO', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3500 }),
-      createCell('VALOR UNITÁRIO', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1900 }),
-      createCell('VALOR TOTAL', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1900 }),
-    ]
-  }));
-
-  // Dynamic rows from data.setores
-  let subtotal = 0;
-  if (data.setores && Array.isArray(data.setores)) {
-    for (const setor of data.setores) {
-      if (setor.itens && Array.isArray(setor.itens)) {
-        for (const item of setor.itens) {
-          const quantidade = parseFloat(item.quantidade) || 0;
-          const valorUnitario = parseFloat(item.valorUnitario) || 0;
-          const valorTotal = quantidade * valorUnitario;
-          subtotal += valorTotal;
-
-          tableRows.push(new TableRow({
-            children: [
-              createCell(formatNumberBR(quantidade), { fontSize: 18, alignment: AlignmentType.CENTER, width: 1400 }),
-              createCell(item.unidade || '', { fontSize: 18, alignment: AlignmentType.CENTER, width: 1200 }),
-              createCell(item.descricao || '', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-              createCell(formatCurrencyBR(valorUnitario), { fontSize: 18, alignment: AlignmentType.RIGHT, width: 1900 }),
-              createCell(formatCurrencyBR(valorTotal), { fontSize: 18, alignment: AlignmentType.RIGHT, width: 1900 }),
-            ]
-          }));
-        }
-      }
-    }
-  }
-
-  // SUBTOTAL row
-  tableRows.push(new TableRow({
-    children: [
-      createCell('', { fontSize: 18, width: 1400 }),
-      createCell('', { fontSize: 18, width: 1200 }),
-      createCell('', { fontSize: 18, width: 3500 }),
-      createCell('SUBTOTAL:', { bold: true, fontSize: 20, alignment: AlignmentType.RIGHT, width: 1900 }),
-      createCell(formatCurrencyBR(subtotal), { bold: true, fontSize: 20, alignment: AlignmentType.RIGHT, shading: COLORS.lightGray, width: 1900 }),
-    ]
-  }));
-
-  // TOTAL row
-  tableRows.push(new TableRow({
-    children: [
-      createCell('', { fontSize: 18, width: 1400 }),
-      createCell('', { fontSize: 18, width: 1200 }),
-      createCell('', { fontSize: 18, width: 3500 }),
-      createCell('TOTAL:', { bold: true, fontSize: 22, alignment: AlignmentType.RIGHT, color: COLORS.red, width: 1900 }),
-      createCell(formatCurrencyBR(subtotal), { bold: true, fontSize: 22, alignment: AlignmentType.RIGHT, color: COLORS.red, shading: COLORS.lightGray, width: 1900 }),
-    ]
-  }));
-
-  children.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: tableRows
-  }));
-
-  // Specifications section
-  children.push(new Paragraph({ spacing: { before: 300, after: 150 }, children: [] }));
-
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 100 },
-    children: [new TextRun({ text: '2.1 ESTRUTURA METÁLICA', bold: true, size: 22, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 150 },
-    children: [new TextRun({ text: 'Estrutura metálica conforme detalhamento técnico fornecido.', size: 20, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 100 },
-    children: [new TextRun({ text: '2.2 AÇO', bold: true, size: 22, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 150 },
-    children: [new TextRun({ text: 'Aço estrutural ASTM A36 conforme especificação técnica.', size: 20, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 100 },
-    children: [new TextRun({ text: '2.3 PINTURA', bold: true, size: 22, font: 'Arial', color: COLORS.text })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 0 },
-    children: [new TextRun({ text: 'Pintura conforme especificação e projeto executivo.', size: 20, font: 'Arial', color: COLORS.text })]
-  }));
-
-  return children;
-}
-
-// PAGE 12 - NORMAS TÉCNICAS + OBRIGAÇÕES
-function createNormasObrigacoesPage() {
-  const children = [];
-
-  // Normas Técnicas section
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 150 },
-    children: [new TextRun({ text: '3. NORMAS TÉCNICAS', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 100 },
-    children: [new TextRun({
-      text: 'As estruturas metálicas deverão ser fabricadas e montadas em conformidade com as seguintes normas técnicas brasileiras e internacionais:',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  const nbrs = [
-    'NBR 8800 - Projeto e execução de estruturas de aço',
-    'NBR 6120 - Ações e segurança nas estruturas',
-    'NBR 7190 - Projeto de estruturas de madeira',
-    'NBR 14716 - Soldagem de estruturas',
-    'Especificação para estruturas de aço e parafusos'
-  ];
-
-  for (const nbr of nbrs) {
-    children.push(new Paragraph({
-      spacing: { before: 60, after: 60 },
-      children: [new TextRun({ text: `• ${nbr}`, size: 20, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  // Obrigações da Montex section
-  children.push(new Paragraph({
-    spacing: { before: 300, after: 150 },
-    children: [new TextRun({ text: '5. OBRIGAÇÕES DA MONTEX', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  const obrigacoesMontex = [
-    'DETALHAMENTO DE TODA A ESTRUTURA METÁLICA',
-    'FORNECIMENTO DE TODO O MATERIAL NECESSÁRIOS PARA A FABRICAÇÃO',
-    'FABRICAÇÃO DAS ESTRUTURAS',
-    'FORNECIMENTO DOS CHUMBADORES',
-    'TRATAMENTO DE TODA A ESTRUTURA METÁLICA CONFORME ESPECIFICADO',
-    'TRANSPORTE DE TODO O NOSSO FORNECIMENTO ATÉ O LOCAL DA OBRA',
-    'MONTAGEM DE TODO O NOSSO FORNECIMENTO',
-    'FORNECIMENTO DE TODO EQUIPAMENTO NECESSARIO, COMO MUNCK, GUINDASTE PLATAFORMAS ETC',
-    'TRANSPORTE, ALIMENTAÇÃO E ESTADIA DA EQUIPE DE MONTAGEM',
-    'ANOTAÇÃO DE RESPONSABILIDADE TÉCNICA (ART) DOS SERVIÇOS EXECUTADOS',
-    'GARANTIA DA OBRA CONFORME LEGISLAÇÃO EM VIGOR (CÓDIGO CIVIL - ARTIGO 1245)'
-  ];
-
-  for (const obr of obrigacoesMontex) {
-    children.push(new Paragraph({
-      spacing: { before: 80, after: 80 },
-      children: [new TextRun({ text: `· ${obr}`, size: 20, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  // Obrigações do Cliente section
-  children.push(new Paragraph({
-    spacing: { before: 250, after: 150 },
-    children: [new TextRun({ text: '6. OBRIGAÇÕES DO CLIENTE', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  const obrigacoesCliente = [
-    'CÁLCULO E EXECUÇÃO DE TODOS OS SERVIÇOS EM ALVENARIA E CONCRETO',
-    'LOCAÇÃO E INSTALAÇÃO DOS CHUMBADORES E INSERTS METÁLICOS',
-    'FORNECER ENERGIA ELÉTRICA NECESSÁRIA AOS SERVIÇOS',
-    'FORNECER LOCAL SEGURO PARA GUARDA DE NOSSOS EQUIPAMENTOS E FORNECIMENTOS',
-    'FORNECIMENTO E EXECUÇÃO DE QUALQUER TIPO DE ESQUADRIAS METÁLICAS',
-    'FORNECER LOCAL LIMPO E DESIMPEDIDO PARA EXECUÇÃO DOS SERVIÇOS',
-    'FORNECIMENTO PARA A EQUIPE DE MONTAGEM DE ÁGUA POTÁVEL, VESTIÁRIO/BANHEIRO COM CHUVEIRO E REFEITÓRIO',
-    'FORNECIMENTO E EXECUÇÃO DO GROUTEAMENTO APÓS O NIVELAMENTO DA ESTRUTURA METÁLICA'
-  ];
-
-  for (const obr of obrigacoesCliente) {
-    children.push(new Paragraph({
-      spacing: { before: 80, after: 80 },
-      children: [new TextRun({ text: `· ${obr}`, size: 20, font: 'Arial', color: COLORS.text })]
-    }));
-  }
-
-  return children;
-}
-
-// PAGE 13 - JORNADA + SEGURANÇA + PRAZO + PAGAMENTO
-function createCondicionaisPage(data) {
-  const children = [];
-
-  // Jornada
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 100 },
-    children: [new TextRun({ text: '7. JORNADA DE TRABALHO', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 250 },
-    children: [new TextRun({
-      text: 'Jornada de trabalho: 44 horas semanais, de segunda a sexta-feira, conforme legislação trabalhista vigente.',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Segurança
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 100 },
-    children: [new TextRun({ text: '8. SISTEMA DE SEGURANÇA', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 250 },
-    children: [new TextRun({
-      text: 'Todos os trabalhos serão executados em conformidade com as Normas Regulamentadoras de Segurança do Trabalho (NR-18), com fornecimento de EPIs e treinamento adequado.',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Prazo
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 100 },
-    children: [new TextRun({ text: '9. PRAZO DE EXECUÇÃO', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 250 },
-    children: [new TextRun({
-      text: `Prazo de execução: ${data.prazoExecucao || 30} dias a partir da mobilização da equipe em canteiro.`,
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  // Pagamento
-  children.push(new Paragraph({
-    spacing: { before: 100, after: 100 },
-    children: [new TextRun({ text: '10. CONDIÇÕES DE PAGAMENTO', bold: true, size: 26, font: 'Arial', color: COLORS.red })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 0 },
-    children: [new TextRun({
-      text: data.condicoesPagamento || 'Conforme análise de crédito e contrato comercial.',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  return children;
-}
-
-// PAGE 14 - CÁLCULOS + VALOR TOTAL
-function createCalculosPage(data) {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 200 },
-    children: [new TextRun({ text: 'RESUMO DO ORÇAMENTO', bold: true, size: 28, font: 'Arial', color: COLORS.red })]
+  allChildren.push(heading('2.OBJETO DA PROPOSTA'));
+  allChildren.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
+    spacing: { before: 60, after: 100 },
+    children: [new TextRun({ text: 'PREÇOS ABAIXO INCLUEM MATERIAL, FABRICAÇÃO, PINTURA, TRANSPORTE E MONTAGEM.', bold: true, size: 18, font: 'Arial', color: COLORS.red, italics: true })]
   }));
 
   // Budget table
-  const tableRows = [];
-  tableRows.push(new TableRow({
+  const headerRow = new TableRow({
     children: [
-      createCell('QUANTIDADE', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1400 }),
-      createCell('UNIDADE', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1200 }),
-      createCell('DESCRIÇÃO SERVIÇO', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3500 }),
-      createCell('VALOR UNITÁRIO', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1900 }),
-      createCell('VALOR TOTAL', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 1900 }),
+      createCell('QUANTIDADE', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1600 }),
+      createCell('UNIDADE', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1200 }),
+      createCell('DESCRIÇÃO SERVIÇO', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 4000 }),
+      createCell('VALOR UNITARIO', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1600 }),
+      createCell('VALOR TOTAL', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1600 }),
+    ]
+  });
+
+  const dataRows = [];
+  setores.forEach(setor => {
+    // Setor header row
+    dataRows.push(new TableRow({
+      children: [
+        createCell(setor.nome.toUpperCase(), { bold: true, fontSize: 16, shading: 'FFA500', color: COLORS.white, alignment: AlignmentType.CENTER, colspan: 5 }),
+      ]
+    }));
+    setor.itens.forEach(item => {
+      dataRows.push(new TableRow({
+        children: [
+          createCell(formatNumberBR(item.quantidade), { fontSize: 16, alignment: AlignmentType.CENTER, width: 1600 }),
+          createCell(item.unidade, { fontSize: 16, alignment: AlignmentType.CENTER, width: 1200 }),
+          createCell(item.descricao, { fontSize: 16, width: 4000 }),
+          createCell(formatCurrencyBR(item.preco), { fontSize: 16, alignment: AlignmentType.RIGHT, width: 1600 }),
+          createCell(formatCurrencyBR(item.quantidade * item.preco), { fontSize: 16, alignment: AlignmentType.RIGHT, width: 1600 }),
+        ]
+      }));
+    });
+  });
+
+  // Subtotal row
+  dataRows.push(new TableRow({
+    children: [
+      createCell('SUBTOTAL', { bold: true, fontSize: 16, shading: 'FFA500', color: COLORS.white, alignment: AlignmentType.CENTER, colspan: 4 }),
+      createCell(formatCurrencyBR(totalGeral), { bold: true, fontSize: 16, alignment: AlignmentType.RIGHT }),
     ]
   }));
 
-  let totalValue = 0;
-  if (data.setores && Array.isArray(data.setores)) {
-    for (const setor of data.setores) {
-      if (setor.itens && Array.isArray(setor.itens)) {
-        for (const item of setor.itens) {
-          const quantidade = parseFloat(item.quantidade) || 0;
-          const valorUnitario = parseFloat(item.valorUnitario) || 0;
-          const valorTotal = quantidade * valorUnitario;
-          totalValue += valorTotal;
-
-          tableRows.push(new TableRow({
-            children: [
-              createCell(formatNumberBR(quantidade), { fontSize: 18, alignment: AlignmentType.CENTER, width: 1400 }),
-              createCell(item.unidade || '', { fontSize: 18, alignment: AlignmentType.CENTER, width: 1200 }),
-              createCell(item.descricao || '', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-              createCell(formatCurrencyBR(valorUnitario), { fontSize: 18, alignment: AlignmentType.RIGHT, width: 1900 }),
-              createCell(formatCurrencyBR(valorTotal), { fontSize: 18, alignment: AlignmentType.RIGHT, width: 1900 }),
-            ]
-          }));
-        }
-      }
-    }
-  }
-
-  children.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: tableRows
+  // Total row
+  dataRows.push(new TableRow({
+    children: [
+      createCell('TOTAL DA OBRA COM DESCONTO', { bold: true, fontSize: 16, shading: 'FF6600', color: COLORS.white, alignment: AlignmentType.CENTER, colspan: 4 }),
+      createCell(formatCurrencyBR(precoFinal), { bold: true, fontSize: 16, alignment: AlignmentType.RIGHT }),
+    ]
   }));
 
-  // Total value
-  children.push(new Paragraph({ spacing: { before: 400, after: 200 }, children: [] }));
+  allChildren.push(new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    rows: [headerRow, ...dataRows],
+  }));
 
-  children.push(new Paragraph({
+  // Technical sections
+  allChildren.push(spacer(200));
+  allChildren.push(bodyText('2.1 - ESTRUTURA METÁLICA:', { bold: true }));
+  allChildren.push(bulletItem('ESTRUTURA METÁLICA CONFECCIONADA COM, TESOURAS, TERÇAS E COLUNAS EM PERFIL U DOBRADO'));
+  allChildren.push(bodyText('2.2 - AÇO:', { bold: true }));
+  allChildren.push(bulletItem('CHAPAS: ASTM A 36;'));
+  allChildren.push(bulletItem('PERFIS "U" CIVIL 300'));
+  allChildren.push(bodyText('2.3 PINTURA:', { bold: true }));
+  allChildren.push(bodyText('2.3.1 - TRATAMENTO SUPERFICIAL:', { bold: true }));
+  allChildren.push(bulletItem('JATEAMENTO DS 2,5 + 2 DEMÃOS DE 60 MICRAS'));
+  allChildren.push(tealFooter());
+
+  // ====== PAGE: NORMAS TÉCNICAS ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('3.NORMAS TECNICAS'));
+  allChildren.push(bodyText('3.1 - CARGAS E CÁLCULOS:', { bold: true }));
+  allChildren.push(bulletItem('CÁLCULO ESTRUTURAL E DETALHAMENTOS FEITOS POR PROFISSIONAIS CAPACITADOS, USANDO PROGRAMAS DE ÚLTIMA GERAÇÃO O QUE PERMITE A MODELAGEM EM 3D E UMA COMPATIBILIZAÇÃO PERFEITA COM AS OUTRAS ESTRUTURAS EVITANDO RETRABALHO.'));
+  allChildren.push(bulletItem('PARA DIMENSIONAMENTO DA ESTRUTURA METÁLICA FORAM OBEDECIDAS AS SEGUINTES NORMAS E MANUAIS:'));
+  allChildren.push(spacer(60));
+  const normas = [
+    'NBR -6.120 - CARGAS PARA ESTRUTURAS DE EDIFICAÇÕES;',
+    'NBR- 6.123 - AÇÕES DO VENTO EM ESTRUTURAS;',
+    'NBR - 8.800 - PROJETO E EXECUÇÃO DE AÇO DE EDIFÍCIOS;',
+    'MANUAL DO AISC/1993 - PARA EXECUÇÃO DE ESTRUTURAS DE AÇO DE EDIFÍCIOS;',
+    'MANUAL DO AISI/1991 - PERFIS DE CHAPA DOBRADOS A FRIO;',
+    'ESPECIAÇÃO DO AISE N.º 13 - EDIFÍCIOS INDUSTRIAIS',
+  ];
+  normas.forEach(n => allChildren.push(bodyText(n)));
+  allChildren.push(bodyText('3.2 - SOLDAS:', { bold: true }));
+  allChildren.push(bulletItem('SOLDADORES QUALIFICADOS DE ACORDO COM NORMA AWS -D1-1.'));
+  allChildren.push(bodyText('3.3 - PARAFUSOS:', { bold: true }));
+  allChildren.push(bulletItem('DE ACORDO COM NORMA ASTMA-307 / A-325.'));
+
+  // ====== OBRIGAÇÕES DA MONTEX ======
+  allChildren.push(heading('5.OBRIGAÇÕES DA MONTEX'));
+  const obrigMontex = [
+    'DETALHAMENTO DE TODA A ESTRUTURA METÁLICA;',
+    'FORNECIMENTO DE TODO O MATERIAL NECESSÁRIOS PARA A FABRICAÇÃO;',
+    'FABRICAÇÃO DAS ESTRUTURAS;',
+    'FORNECIMENTO DOS CHUMBADORES;',
+    'TRATAMENTO DE TODA A ESTRUTURA METÁLICA CONFORME ESPECIFICADO NO ITEM 2.3;',
+    'TRANSPORTE DE TODO O NOSSO FORNECIMENTO ATÉ O LOCAL DA OBRA;',
+    'MONTAGEM DE TODO O NOSSO FORNECIMENTO;',
+    'FORNECIMENTO DE TODO EQUIPAMENTO NECESSARIO, COMO MUNCK, GUINDASTE PLATAFORMAS ETC;',
+    'TRANSPORTE, ALIMENTAÇÃO E ESTADIA DA EQUIPE DE MONTAGEM;',
+    'ANOTAÇÃO DE RESPONSABILIDADE TÉCNICA (ART) DOS SERVIÇOS EXECUTADOS;',
+    'GARANTIA DA OBRA CONFORME LEGISLAÇÃO EM VIGOR (CÓDIGO CIVIL - ARTIGO 1245).',
+  ];
+  obrigMontex.forEach(o => allChildren.push(bulletItem(o)));
+
+  // ====== OBRIGAÇÕES DO CLIENTE ======
+  allChildren.push(heading('6. OBRIGAÇÕES DO CLIENTE'));
+  const obrigCliente = [
+    'CÁLCULO E EXECUÇÃO DE TODOS OS SERVIÇOS EM ALVENARIA E CONCRETO;',
+    'LOCAÇÃO E INSTALAÇÃO DOS CHUMBADORES E INSERTS METÁLICOS;',
+    'FORNECER ENERGIA ELÉTRICA NECESSÁRIA AOS SERVIÇOS;',
+    'FORNECER LOCAL SEGURO PARA GUARDA DE NOSSOS EQUIPAMENTOS E FORNECIMENTOS;',
+    'FORNECIMENTO E EXECUÇÃO DE QUALQUER TIPO DE ESQUADRIAS METÁLICAS (SERRALHERIA EM GERAL TAIS COMO: CORRIMÃOS, DÔMUS, CÚPULAS, PARAPEITOS, PORTAS, PORTÕES, ETC.);',
+    'FORNECER LOCAL LIMPO E DESIMPEDIDO PARA EXECUÇÃO DOS SERVIÇOS, COM TERRENO NIVELADO E COMPACTADO EM TODO O INTERIOR E LATERAL DA OBRA;',
+    'FORNECIMENTO PARA A EQUIPE DE MONTAGEM DE ÁGUA POTÁVEL, VESTIÁRIO/BANHEIRO COM CHUVEIRO E REFEITÓRIO CONFORME EXIGÊNCIAS DA NR-18, ALÉM DE ENERGIA ELÉTRICA E LOCAL PARA ALMOXARIFADO E ESCRITÓRIO.',
+    'FORNECIMENTO E EXECUÇÃO DO GROUTEAMENTO APÓS O NIVELAMENTO DA ESTRUTURA METÁLICA',
+  ];
+  obrigCliente.forEach(o => allChildren.push(bulletItem(o)));
+  allChildren.push(tealFooter());
+
+  // ====== JORNADA + SEGURANÇA + PRAZO + PAGAMENTO ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('7.JORNADA DE TRABALHO'));
+  allChildren.push(bodyText('ESTAMOS CONSIDERANDO JORNADA DE TRABALHO DE 44 HORAS SEMANAIS', { bold: true }));
+  allChildren.push(new Paragraph({
+    alignment: AlignmentType.CENTER,
     spacing: { before: 100, after: 100 },
+    children: [new TextRun({ text: 'DE SEGUNDA A SEXTA FEIRAS;', size: 20, font: 'Arial', color: COLORS.text })]
+  }));
+  allChildren.push(bodyText('1. ESTA JORNADA FOI IDEALIZADA EM FUNÇÃO DO VOLUME DE SERVIÇOS, CASO SEJA NECESSARIO ESTUDAREMOS ALTERNATIVAS PARA CUMPRIR PRAZO DA OBRA.'));
+
+  allChildren.push(heading('8.SISTEMA DE SEGURANÇA'));
+  allChildren.push(bodyText('OBJETIVO', { bold: true }));
+  allChildren.push(bodyText('ESTABELECER COMO META A PREVENÇÃO DE ACIDENTES CONSIDERANDO:'));
+  allChildren.push(bodyText('AVALIAR PREVIAMENTE OS RISCOS AMBIENTAIS E OPERACIONAIS DE CADA TAREFA'));
+  allChildren.push(bodyText('A MONTEX FORNECERA GRATUITAMENTE AOS SEUS FUNCIONARIOS OS EPI´s NECESSARIOS DE ACORDO COM A NR-6 DA PORTARIA 3.214 DE 08/06/78 OU NORMAS INTERNAS DO CLIENTE DE ESTAS FOREM MAIS ABRANGENTE.'));
+
+  allChildren.push(heading(`9.PRAZO DE EXECUÇÃO DAS ESTRUTURAS`));
+  allChildren.push(new Paragraph({
+    spacing: { before: 60, after: 100 },
+    children: [new TextRun({ text: `      ${prazo} DIAS`, bold: true, size: 22, font: 'Arial', color: COLORS.text })]
+  }));
+
+  allChildren.push(heading('10.CONDIÇÕES DE PAGAMENTO:'));
+  allChildren.push(bodyText(`-${pagamento.assinatura}% NA ASSINATURA DO CONTRATO`, { bold: true }));
+  allChildren.push(bodyText(`-${pagamento.projeto}% NA ENTREGA DO PROJETO METALICO`, { bold: true }));
+  allChildren.push(bodyText(`- ${pagamento.medicoes}% MEDIANTE A MEDIÇÕES E CONFORME ACEITE (DESCONTAR MATERIAL FATURADO)`));
+  allChildren.push(tealFooter());
+
+  // ====== CÁLCULOS/ESTIMATIVAS (repeat table) ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('11.CALCULO DE ESTIMATIVA'));
+  allChildren.push(new Paragraph({
+    spacing: { before: 60, after: 100 },
+    children: [new TextRun({ text: 'PREÇOS ABAIXO INCLUEM MATERIAL, FABRICAÇÃO, PINTURA, TRANSPORTE E MONTAGEM.', bold: true, size: 18, font: 'Arial', color: COLORS.red, italics: true })]
+  }));
+
+  // Same budget table again
+  const headerRow2 = new TableRow({
+    children: [
+      createCell('QUANTIDADE', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1600 }),
+      createCell('UNIDADE', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1200 }),
+      createCell('DESCRIÇÃO SERVIÇO', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 4000 }),
+      createCell('VALOR UNITARIO', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1600 }),
+      createCell('VALOR TOTAL', { bold: true, fontSize: 16, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER, width: 1600 }),
+    ]
+  });
+
+  const dataRows2 = [];
+  setores.forEach(setor => {
+    dataRows2.push(new TableRow({
+      children: [
+        createCell(setor.nome.toUpperCase(), { bold: true, fontSize: 16, shading: 'FFA500', color: COLORS.white, alignment: AlignmentType.CENTER, colspan: 5 }),
+      ]
+    }));
+    setor.itens.forEach(item => {
+      dataRows2.push(new TableRow({
+        children: [
+          createCell(formatNumberBR(item.quantidade), { fontSize: 16, alignment: AlignmentType.CENTER, width: 1600 }),
+          createCell(item.unidade, { fontSize: 16, alignment: AlignmentType.CENTER, width: 1200 }),
+          createCell(item.descricao, { fontSize: 16, width: 4000 }),
+          createCell(formatCurrencyBR(item.preco), { fontSize: 16, alignment: AlignmentType.RIGHT, width: 1600 }),
+          createCell(formatCurrencyBR(item.quantidade * item.preco), { fontSize: 16, alignment: AlignmentType.RIGHT, width: 1600 }),
+        ]
+      }));
+    });
+  });
+  dataRows2.push(new TableRow({
+    children: [
+      createCell('SUBTOTAL', { bold: true, fontSize: 16, shading: 'FFA500', color: COLORS.white, alignment: AlignmentType.CENTER, colspan: 4 }),
+      createCell(formatCurrencyBR(totalGeral), { bold: true, fontSize: 16, alignment: AlignmentType.RIGHT }),
+    ]
+  }));
+  dataRows2.push(new TableRow({
+    children: [
+      createCell('TOTAL DA OBRA COM DESCONTO', { bold: true, fontSize: 16, shading: 'FF6600', color: COLORS.white, alignment: AlignmentType.CENTER, colspan: 4 }),
+      createCell(formatCurrencyBR(precoFinal), { bold: true, fontSize: 16, alignment: AlignmentType.RIGHT }),
+    ]
+  }));
+
+  allChildren.push(new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    rows: [headerRow2, ...dataRows2],
+  }));
+
+  // VALOR TOTAL
+  allChildren.push(spacer(300));
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    children: [new TextRun({
-      text: 'VALOR TOTAL DA OBRA',
-      bold: true, size: 28, font: 'Arial', color: COLORS.red
-    })]
+    spacing: { before: 200, after: 100 },
+    children: [new TextRun({ text: 'VALOR TOTAL DA OBRA', bold: true, size: 32, font: 'Arial', color: COLORS.teal, italics: true })]
   }));
-
-  children.push(new Paragraph({
-    spacing: { before: 150, after: 0 },
+  allChildren.push(new Paragraph({
     alignment: AlignmentType.CENTER,
-    children: [new TextRun({
-      text: formatCurrencyBR(totalValue),
-      bold: true, size: 60, font: 'Arial', color: COLORS.red
-    })]
+    spacing: { before: 100, after: 300 },
+    children: [new TextRun({ text: formatCurrencyBR(precoFinal), bold: true, size: 44, font: 'Arial', color: COLORS.dark, italics: true })]
+  }));
+  allChildren.push(tealFooter());
+
+  // ====== ANÁLISE DO INVESTIMENTO ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('13.ANÁLISE DO INVESTIMENTO'));
+  allChildren.push(new Paragraph({
+    spacing: { before: 60, after: 200 },
+    children: [new TextRun({ text: 'COMPOSIÇÃO DOS CUSTOS E COMPARATIVO DE MERCADO', bold: true, size: 20, font: 'Arial', color: COLORS.red, italics: true })]
   }));
 
-  return children;
-}
+  // Detalhamento table
+  allChildren.push(bodyText('DETALHAMENTO DOS CUSTOS:', { bold: true }));
+  const detailHeader = new TableRow({
+    children: [
+      createCell('ITEM', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white }),
+      createCell('QTDE', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER }),
+      createCell('UN', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER }),
+      createCell('UNIT.', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.RIGHT }),
+      createCell('TOTAL', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.RIGHT }),
+    ]
+  });
 
-// PAGE 15 - ANÁLISE DO INVESTIMENTO
-function createAnaliseInvestimentoPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 150 },
-    children: [new TextRun({ text: '11. ANÁLISE DO INVESTIMENTO', bold: true, size: 28, font: 'Arial', color: COLORS.red })]
+  const detailRows = [];
+  setores.forEach(setor => {
+    setor.itens.forEach(item => {
+      detailRows.push(new TableRow({
+        children: [
+          createCell(item.descricao, { fontSize: 18 }),
+          createCell(formatNumberBR(item.quantidade), { fontSize: 18, alignment: AlignmentType.CENTER }),
+          createCell(item.unidade, { fontSize: 18, alignment: AlignmentType.CENTER }),
+          createCell(formatCurrencyBR(item.preco), { fontSize: 18, alignment: AlignmentType.RIGHT }),
+          createCell(formatCurrencyBR(item.quantidade * item.preco), { fontSize: 18, alignment: AlignmentType.RIGHT }),
+        ]
+      }));
+    });
+  });
+  detailRows.push(new TableRow({
+    children: [
+      createCell('TOTAL DA OBRA', { bold: true, fontSize: 18, colspan: 4 }),
+      createCell(formatCurrencyBR(precoFinal), { bold: true, fontSize: 18, alignment: AlignmentType.RIGHT, color: COLORS.red }),
+    ]
   }));
 
-  children.push(new Paragraph({
-    spacing: { after: 150 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'O investimento em estruturas metálicas modernas representa uma solução eficiente em custo-benefício. A Grupo Montex oferece soluções otimizadas que reduzem prazos de execução e maximizam a qualidade técnica.',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
+  allChildren.push(new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    rows: [detailHeader, ...detailRows],
   }));
 
-  children.push(new Paragraph({
-    spacing: { after: 150 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'Nossa expertise em fabricação e montagem garante estruturas de alta durabilidade, reduzindo custos de manutenção no longo prazo. Comparado a soluções tradicionais, oferecemos uma economia significativa sem comprometer a segurança.',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
+  if (precoKg > 0) {
+    const mercado = precoKg * 1.17;
+    const premium = precoKg * 1.46;
+    allChildren.push(spacer(100));
+    allChildren.push(bodyText(`ECONOMIA ESTIMADA: Até ${formatCurrencyBR((mercado - precoKg) * totalWeight)} em relação à média de mercado (${formatCurrencyBR(mercado)}/kg)`, { bold: true }));
+    allChildren.push(bodyText(`ECONOMIA PREMIUM: Até ${formatCurrencyBR((premium - precoKg) * totalWeight)} em relação a concorrentes premium (${formatCurrencyBR(premium)}/kg)`, { bold: true }));
+  }
+  allChildren.push(tealFooter());
+
+  // ====== CRONOGRAMA ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('14.CRONOGRAMA DETALHADO DE EXECUÇÃO'));
+  allChildren.push(new Paragraph({
+    spacing: { before: 60, after: 200 },
+    children: [new TextRun({ text: `PLANEJAMENTO DAS ETAPAS DO PROJETO — ${prazo} DIAS`, bold: true, size: 20, font: 'Arial', color: COLORS.red, italics: true })]
   }));
 
-  // Comparison table
-  const comparisonRows = [
-    new TableRow({
-      children: [
-        createCell('ASPECTO', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3000 }),
-        createCell('MÉTODO TRADICIONAL', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3000 }),
-        createCell('ESTRUTURA METÁLICA', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3000 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('Prazo de Execução', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('60-90 dias', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('30-45 dias', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('Precisão Dimensional', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Baixa a Média', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Muito Alta', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('Flexibilidade de Projeto', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Limitada', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Alta', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-      ]
-    }),
+  const phases = [
+    { fase: '1. Detalhamento', prazo: '30 dias', desc: 'Projeto executivo, modelagem 3D e compatibilização' },
+    { fase: '2. Materiais', prazo: '30 dias', desc: 'Aquisição de chapas ASTM A36 e perfis U Civil 300' },
+    { fase: '3. Fabricação', prazo: '60 dias', desc: 'Corte, solda e montagem das peças na fábrica' },
+    { fase: '4. Pintura', prazo: '30 dias', desc: 'Jateamento DS 2,5 + 2 demãos de 60 micras' },
+    { fase: '5. Transporte', prazo: '15 dias', desc: 'Logística via BR-381 até o canteiro de obras' },
+    { fase: '6. Montagem', prazo: '55 dias', desc: 'Instalação com munck/guindaste e equipe especializada' },
   ];
 
-  children.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: comparisonRows
+  allChildren.push(bodyText('DETALHAMENTO DAS FASES:', { bold: true }));
+  const phaseHeader = new TableRow({
+    children: [
+      createCell('FASE', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white }),
+      createCell('PRAZO', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white, alignment: AlignmentType.CENTER }),
+      createCell('DESCRIÇÃO', { bold: true, fontSize: 18, shading: COLORS.teal, color: COLORS.white }),
+    ]
+  });
+  const phaseRows = phases.map(p => new TableRow({
+    children: [
+      createCell(p.fase, { fontSize: 18 }),
+      createCell(p.prazo, { fontSize: 18, bold: true, color: COLORS.teal, alignment: AlignmentType.CENTER }),
+      createCell(p.desc, { fontSize: 18 }),
+    ]
+  }));
+  allChildren.push(new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    rows: [phaseHeader, ...phaseRows],
   }));
 
-  children.push(new Paragraph({ spacing: { before: 200, after: 150 }, children: [] }));
-
-  children.push(new Paragraph({
-    spacing: { after: 0 },
-    alignment: AlignmentType.JUSTIFIED,
-    children: [new TextRun({
-      text: 'Estimativa de economia: 15-25% em relação aos métodos tradicionais, com superior qualidade técnica e garantia estrutural.',
-      size: 20, font: 'Arial', color: COLORS.text, bold: true
-    })]
+  // Summary boxes
+  allChildren.push(spacer(200));
+  const summaryRow = new TableRow({
+    children: [
+      createCell(`${formatNumberBR(totalWeight)} kg\nde aço`, { bold: true, fontSize: 18, color: COLORS.teal, alignment: AlignmentType.CENTER }),
+      createCell(`${formatNumberBR(totalArea)} m²\nde cobertura`, { bold: true, fontSize: 18, color: COLORS.teal, alignment: AlignmentType.CENTER }),
+      createCell(`${prazo} dias\nprazo total`, { bold: true, fontSize: 18, color: COLORS.teal, alignment: AlignmentType.CENTER }),
+      createCell(`44h/semana\njornada`, { bold: true, fontSize: 18, color: COLORS.teal, alignment: AlignmentType.CENTER }),
+    ]
+  });
+  allChildren.push(new Table({
+    width: { size: CONTENT_WIDTH, type: WidthType.DXA },
+    rows: [summaryRow],
   }));
+  allChildren.push(tealFooter());
 
-  return children;
-}
-
-// PAGE 16 - CRONOGRAMA
-function createCronogramaPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 200 },
-    children: [new TextRun({ text: '12. CRONOGRAMA', bold: true, size: 28, font: 'Arial', color: COLORS.red })]
-  }));
-
-  // Timeline table
-  const cronRows = [
-    new TableRow({
-      children: [
-        createCell('FASE', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3000 }),
-        createCell('DESCRIÇÃO', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 3500 }),
-        createCell('DURAÇÃO (dias)', { bold: true, fontSize: 20, alignment: AlignmentType.CENTER, shading: COLORS.lightGray, width: 2500 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('1', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Detalhamento Técnico e Preparação', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-        createCell('5', { fontSize: 18, alignment: AlignmentType.CENTER, width: 2500 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('2', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Fabricação da Estrutura', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-        createCell('15', { fontSize: 18, alignment: AlignmentType.CENTER, width: 2500 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('3', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Transporte e Mobilização', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-        createCell('3', { fontSize: 18, alignment: AlignmentType.CENTER, width: 2500 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('4', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Montagem e Execução', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-        createCell('10', { fontSize: 18, alignment: AlignmentType.CENTER, width: 2500 }),
-      ]
-    }),
-    new TableRow({
-      children: [
-        createCell('5', { fontSize: 18, alignment: AlignmentType.CENTER, width: 3000 }),
-        createCell('Inspeção e Entrega', { fontSize: 18, alignment: AlignmentType.LEFT, width: 3500 }),
-        createCell('2', { fontSize: 18, alignment: AlignmentType.CENTER, width: 2500 }),
-      ]
-    }),
-  ];
-
-  children.push(new Table({
-    width: { size: 100, type: WidthType.PERCENTAGE },
-    rows: cronRows
-  }));
-
-  children.push(new Paragraph({ spacing: { before: 250, after: 150 }, children: [] }));
-
-  children.push(new Paragraph({
-    spacing: { after: 100 },
-    children: [new TextRun({
-      text: 'RESUMO DO CRONOGRAMA',
-      bold: true, size: 24, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 80 },
-    children: [new TextRun({
-      text: '• Prazo Total de Execução: 35 dias corridos',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 80 },
-    children: [new TextRun({
-      text: '• Data de Início: Conforme mobilização da equipe',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  children.push(new Paragraph({
-    spacing: { after: 0 },
-    children: [new TextRun({
-      text: '• Data de Término: Conforme cronograma pós-assinatura de contrato',
-      size: 20, font: 'Arial', color: COLORS.text
-    })]
-  }));
-
-  return children;
-}
-
-// PAGE 17 - POR QUE ESCOLHER
-function createPorQueEscolherPage() {
-  const children = [];
-
-  children.push(new Paragraph({
-    spacing: { before: 0, after: 250 },
-    alignment: AlignmentType.CENTER,
-    children: [new TextRun({
-      text: 'POR QUE ESCOLHER GRUPO MONTEX?',
-      bold: true, size: 36, font: 'Arial', color: COLORS.red
-    })]
+  // ====== POR QUE ESCOLHER O GRUPO MONTEX? ======
+  allChildren.push(new Paragraph({ children: [new PageBreak()] }));
+  allChildren.push(heading('15.POR QUE ESCOLHER O GRUPO MONTEX?'));
+  allChildren.push(new Paragraph({
+    spacing: { before: 60, after: 200 },
+    children: [new TextRun({ text: 'DIFERENCIAIS COMPETITIVOS PARA O SEU PROJETO', bold: true, size: 20, font: 'Arial', color: COLORS.red, italics: true })]
   }));
 
   const diferenciais = [
-    {
-      titulo: '1. Experiência Comprovada',
-      desc: 'Mais de 10 anos de mercado com portfólio diversificado em projetos de alto padrão.'
-    },
-    {
-      titulo: '2. Equipe Qualificada',
-      desc: 'Profissionais treinados e certificados em fabricação e montagem de estruturas metálicas.'
-    },
-    {
-      titulo: '3. Tecnologia de Ponta',
-      desc: 'Equipamentos modernos para precisão dimensional e qualidade superior.'
-    },
-    {
-      titulo: '4. Cumprimento de Prazos',
-      desc: 'Processos otimizados que garantem entregas dentro do cronograma acordado.'
-    },
-    {
-      titulo: '5. Garantia Estrutural',
-      desc: 'Conformidade com normas brasileiras e garantia conforme legislação vigente.'
-    },
-    {
-      titulo: '6. Suporte Técnico',
-      desc: 'Acompanhamento durante toda a execução e pós-obra conforme solicitação.'
-    }
+    { title: 'PREÇO COMPETITIVO', desc: `${formatCurrencyBR(precoKg)}/kg — 14% abaixo da média de mercado. Economia de até ${formatCurrencyBR((precoKg * 0.17) * totalWeight)} no valor total da obra comparado a concorrentes convencionais.` },
+    { title: 'EXPERIÊNCIA COMPROVADA', desc: 'Mais de 10 anos de atuação com +50 projetos entregues em 5 estados brasileiros. Portfólio inclui supermercados, shoppings, galpões industriais e infraestrutura pública.' },
+    { title: 'SOLUÇÃO TURNKEY COMPLETA', desc: 'Detalhamento, material, fabricação, pintura, transporte e montagem — tudo incluso. Fornecimento de equipamentos como munck, guindaste e plataformas.' },
+    { title: 'LOGÍSTICA ESTRATÉGICA', desc: 'Sede em São Joaquim de Bicas/MG, às margens da BR-381, facilitando o transporte e reduzindo custos logísticos para todo o estado de Minas Gerais.' },
+    { title: 'CONFORMIDADE TÉCNICA TOTAL', desc: 'Atendimento às normas NBR 6.120, 6.123, 8.800, AISC, AISI, AWS D1-1 e ASTM. Soldadores qualificados, ART e garantia conforme Código Civil Art. 1245.' },
+    { title: 'EQUIPE QUALIFICADA', desc: '+200 profissionais capacitados. Técnico de segurança dedicado com DDS diário. EPIs fornecidos conforme NR-6 da Portaria 3.214.' },
   ];
 
-  for (const diff of diferenciais) {
-    children.push(new Paragraph({
-      spacing: { before: 150, after: 80 },
-      children: [new TextRun({
-        text: diff.titulo,
-        bold: true, size: 22, font: 'Arial', color: COLORS.red
-      })]
+  diferenciais.forEach(d => {
+    allChildren.push(new Paragraph({
+      spacing: { before: 200, after: 60 },
+      border: { left: { style: BorderStyle.SINGLE, size: 6, color: COLORS.teal, space: 8 } },
+      children: [new TextRun({ text: d.title, bold: true, size: 22, font: 'Arial', color: COLORS.dark })]
     }));
-
-    children.push(new Paragraph({
-      spacing: { after: 100 },
-      alignment: AlignmentType.JUSTIFIED,
-      children: [new TextRun({
-        text: diff.desc,
-        size: 20, font: 'Arial', color: COLORS.text
-      })]
+    allChildren.push(new Paragraph({
+      spacing: { before: 20, after: 60 },
+      indent: { left: 300 },
+      children: [new TextRun({ text: d.desc, size: 18, font: 'Arial', color: COLORS.text })]
     }));
-  }
+  });
 
-  children.push(new Paragraph({ spacing: { before: 300, after: 150 }, children: [] }));
-
-  // Investment summary box
-  children.push(new Paragraph({
-    spacing: { before: 150, after: 150 },
-    alignment: AlignmentType.CENTER,
-    border: {
-      top: { style: BorderStyle.SINGLE, size: 6, color: COLORS.red, space: 1 },
-      bottom: { style: BorderStyle.SINGLE, size: 6, color: COLORS.red, space: 1 },
-      left: { style: BorderStyle.SINGLE, size: 6, color: COLORS.red, space: 1 },
-      right: { style: BorderStyle.SINGLE, size: 6, color: COLORS.red, space: 1 },
-    },
-    children: [new TextRun({
-      text: 'Seu investimento em estruturas metálicas com Grupo Montex é seguro, econômico e entregue no prazo.',
-      bold: true, size: 22, font: 'Arial', color: COLORS.red
-    })]
+  // Final investment box
+  allChildren.push(spacer(200));
+  allChildren.push(new Paragraph({
+    spacing: { before: 100, after: 60 },
+    shading: { fill: COLORS.lightGray, type: ShadingType.CLEAR },
+    border: { left: { style: BorderStyle.SINGLE, size: 6, color: COLORS.teal, space: 8 } },
+    children: [new TextRun({ text: `INVESTIMENTO TOTAL: ${formatCurrencyBR(precoFinal)}`, bold: true, size: 26, font: 'Arial', color: COLORS.dark })]
   }));
-
-  return children;
-}
-
-// ============================================================================
-// MAIN EXPORT FUNCTION
-// ============================================================================
-
-export async function generatePropostaDOCX(data) {
-  // Fetch all images
-  const basePath = '/images/proposta';
-  const images = {};
-
-  // Image URLs to fetch
-  const imageUrls = {
-    capaBg: `${basePath}/capa-bg.jpg`,
-    logo: `${basePath}/logo-montex.png`,
-    logoOutline: `${basePath}/logo-m-outline.png`,
-    badge: `${basePath}/montex-badge.png`,
-    portfolioSuperluna: `${basePath}/super-luna-thumb.jpeg`,
-    portfolioPortaria: `${basePath}/portaria-chale-thumb.jpeg`,
-    portfolioAbc: `${basePath}/abc-passos-thumb.jpeg`,
-    portfolioGraneleiro: `${basePath}/graneleiro-goias-thumb.jpeg`,
-    portfolioMyMall: `${basePath}/my-mall-thumb.jpeg`,
-    workerWelding: `${basePath}/worker-welding-thumb.jpeg`,
-    workerOnSite: `${basePath}/worker-on-site-main.jpeg`,
-  };
-
-  for (const [key, url] of Object.entries(imageUrls)) {
-    images[key] = await fetchImage(url);
-  }
-
-  // Build document sections
-  const sections = [];
-
-  // Page 1 - Cover
-  sections.push({
-    children: createCoverPage(data, images),
-    pageBreakBefore: false,
-  });
-
-  // Page 2 - Sobre
-  sections.push({
-    children: createSobrePage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 3 - Visão
-  sections.push({
-    children: createVisaoPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 4 - Portfolio Super Luna
-  sections.push({
-    children: createPortfolioSuperLunaPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 5 - Portfolio Portaria
-  sections.push({
-    children: createPortfolioPortariaPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 6 - Portfolio ABC
-  sections.push({
-    children: createPortfolioAbcPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 7 - Portfolio Graneleiro
-  sections.push({
-    children: createPortfolioGraneleiroPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 8 - Portfolio My Mall
-  sections.push({
-    children: createPortfolioMyMallPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 9 - Contact
-  sections.push({
-    children: createContactPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 10 - Index
-  sections.push({
-    children: createIndexPage(data),
-    pageBreakBefore: true,
-  });
-
-  // Page 11 - Carta + Proposta
-  sections.push({
-    children: createCartaPropostaPage(data),
-    pageBreakBefore: true,
-  });
-
-  // Page 12 - Normas + Obrigações
-  sections.push({
-    children: createNormasObrigacoesPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 13 - Jornada + Segurança + Prazo + Pagamento
-  sections.push({
-    children: createCondicionaisPage(data),
-    pageBreakBefore: true,
-  });
-
-  // Page 14 - Cálculos + Valor Total
-  sections.push({
-    children: createCalculosPage(data),
-    pageBreakBefore: true,
-  });
-
-  // Page 15 - Análise do Investimento
-  sections.push({
-    children: createAnaliseInvestimentoPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 16 - Cronograma
-  sections.push({
-    children: createCronogramaPage(),
-    pageBreakBefore: true,
-  });
-
-  // Page 17 - Por Que Escolher
-  sections.push({
-    children: createPorQueEscolherPage(),
-    pageBreakBefore: true,
-  });
-
-  // Flatten all children
-  const allChildren = [];
-  for (let i = 0; i < sections.length; i++) {
-    if (i > 0) {
-      allChildren.push(new PageBreak());
-    }
-    allChildren.push(...sections[i].children);
-  }
+  allChildren.push(new Paragraph({
+    indent: { left: 300 },
+    spacing: { before: 40, after: 40 },
+    children: [new TextRun({ text: `Proposta válida por 15 dias a partir de ${new Date().toLocaleDateString('pt-BR')}`, size: 18, font: 'Arial', color: COLORS.text })]
+  }));
+  allChildren.push(new Paragraph({
+    indent: { left: 300 },
+    spacing: { before: 0, after: 100 },
+    children: [new TextRun({ text: `Condições: ${pagamento.assinatura}% assinatura | ${pagamento.projeto}% entrega projeto | ${pagamento.medicoes}% medições`, size: 18, font: 'Arial', color: COLORS.teal })]
+  }));
+  allChildren.push(tealFooter());
 
   // Create document
   const doc = new Document({
     sections: [{
-      margins: MARGINS,
+      properties: {
+        page: {
+          size: { width: A4.width, height: A4.height, orientation: 'portrait' },
+          margin: MARGINS,
+        }
+      },
       children: allChildren,
     }]
   });
 
-  // Export to BLOB
   const blob = await Packer.toBlob(doc);
   return blob;
 }

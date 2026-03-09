@@ -1437,13 +1437,9 @@ export default function SimuladorOrcamento() {
     }));
   }, [setores, calculations.margemPct, calculations.impostosPct]);
 
-  const handleSaveOrcamento = useCallback(() => {
+  const handleSaveOrcamento = useCallback(async () => {
     if (!project.nome || !project.cliente) {
-      toast.error('Preencha nome do projeto e cliente');
-      return;
-    }
-    if (setores.length === 0) {
-      toast.error('Adicione pelo menos um setor');
+      toast.error('Preencha nome do projeto e cliente (Passo 1)');
       return;
     }
 
@@ -1453,12 +1449,12 @@ export default function SimuladorOrcamento() {
       nome: project.nome,
       projeto: project.nome,
       cliente: project.cliente,
-      tipo: project.tipo,
-      regiao: project.regiao,
-      valor: calculations.precoFinal,
-      valor_total: calculations.precoFinal,
-      valorBDI: calculations.precoVendaBDI,
-      peso_estimado: calculations.totalPeso,
+      tipo: project.tipo || 'Galpão Industrial',
+      regiao: project.regiao || 'sudeste',
+      valor: calculations.precoFinal || 0,
+      valor_total: calculations.precoFinal || 0,
+      valorBDI: calculations.precoVendaBDI || 0,
+      peso_estimado: calculations.totalPeso || 0,
       status: 'rascunho',
       probabilidade: 50,
       responsavel: 'Guilherme Maciel',
@@ -1467,35 +1463,53 @@ export default function SimuladorOrcamento() {
       validade: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
       setores: setores.map((s) => ({
         nome: s.nome,
-        itens: s.itens,
+        itens: s.itens.map(item => ({
+          descricao: item.descricao,
+          quantidade: item.quantidade,
+          unidade: item.unidade,
+          preco: item.preco,
+          precoMaterial: item.precoMaterial || 0,
+          precoInstalacao: item.precoInstalacao || 0,
+        })),
         total: s.itens.reduce((sum, item) => sum + item.quantidade * item.preco, 0),
       })),
       custosUnitarios: unitCosts,
       resumo: {
-        pesoTotal: calculations.totalPeso,
-        precoKgMedio: calculations.precoKgMedio,
-        margemPct: calculations.margemPct,
-        prazo: calculations.prazo.total,
+        pesoTotal: calculations.totalPeso || 0,
+        precoKgMedio: calculations.precoKgMedio || 0,
+        margemPct: calculations.margemPct || 18,
+        prazo: calculations.prazo?.total || 0,
       },
     };
+
+    let savedLocal = false;
+    let savedSupabase = false;
 
     // Save to localStorage (guaranteed persistence)
     try {
       const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
       saved.push(orc);
       localStorage.setItem('montex_orcamentos', JSON.stringify(saved));
+      savedLocal = true;
+      console.log('✅ Orçamento salvo no localStorage:', orc.numero);
     } catch (e) {
-      console.error('localStorage save error:', e);
+      console.error('❌ localStorage save error:', e);
     }
 
     // Also try Supabase via context
     try {
-      addOrcamento(orc);
+      await addOrcamento(orc);
+      savedSupabase = true;
+      console.log('✅ Orçamento salvo no Supabase:', orc.numero);
     } catch (e) {
-      console.warn('Supabase save failed:', e);
+      console.warn('⚠️ Supabase save failed:', e);
     }
 
-    toast.success('Orçamento salvo com sucesso!');
+    if (savedLocal || savedSupabase) {
+      toast.success(`Orçamento ${orc.numero} salvo com sucesso!${savedSupabase ? ' (Supabase + Local)' : ' (Local)'}`);
+    } else {
+      toast.error('Erro ao salvar orçamento. Tente novamente.');
+    }
   }, [project, setores, calculations, unitCosts, addOrcamento]);
 
   const canProceed = () => {
