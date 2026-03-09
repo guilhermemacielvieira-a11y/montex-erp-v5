@@ -34,6 +34,8 @@ import {
   FileText,
   ArrowUpRight,
   ArrowDownRight,
+  FileDown,
+  File,
 } from 'lucide-react';
 import {
   PieChart,
@@ -1012,7 +1014,101 @@ const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
           <p className="text-gray-500">Nenhum setor criado</p>
         )}
       </div>
+
+      {/* Gerar Proposta Comercial */}
+      <div className="bg-gradient-to-r from-emerald-50 to-teal-50 rounded-lg shadow p-6 border border-emerald-200">
+        <h3 className="text-lg font-semibold mb-3 flex items-center gap-2 text-emerald-900">
+          <FileText className="h-5 w-5 text-emerald-700" />
+          Gerar Proposta Comercial
+        </h3>
+        <p className="text-sm text-emerald-700 mb-4">
+          Gere a proposta comercial completa baseada nos dados do simulador, com a identidade visual do Grupo Montex.
+        </p>
+        <div className="flex flex-wrap gap-3">
+          <PropostaButton
+            type="docx"
+            project={project}
+            setores={setores}
+            calculations={calculations}
+            unitCosts={unitCosts}
+          />
+          <PropostaButton
+            type="pdf"
+            project={project}
+            setores={setores}
+            calculations={calculations}
+            unitCosts={unitCosts}
+          />
+        </div>
+      </div>
     </div>
+  );
+};
+
+// ============================================================================
+// PROPOSTA BUTTON COMPONENT
+// ============================================================================
+
+const PropostaButton = ({ type, project, setores, calculations, unitCosts }) => {
+  const [loading, setLoading] = React.useState(false);
+
+  const handleGenerate = async () => {
+    setLoading(true);
+    try {
+      const propostaData = {
+        project,
+        setores,
+        calculations,
+        unitCosts,
+        propostaNumber: `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getFullYear()).slice(-2)}`,
+        prazoExecucao: 150,
+        condicoesPagamento: { assinatura: 10, projeto: 5, medicoes: 85 },
+      };
+
+      let blob;
+      let filename;
+
+      if (type === 'docx') {
+        const { generatePropostaDOCX } = await import('../utils/propostaGenerator');
+        blob = await generatePropostaDOCX(propostaData);
+        filename = `Proposta_${(project?.nome || 'Montex').replace(/\s+/g, '_')}.docx`;
+      } else {
+        const { generatePropostaPDF } = await import('../utils/propostaPDFGenerator');
+        blob = await generatePropostaPDF(propostaData);
+        filename = `Proposta_${(project?.nome || 'Montex').replace(/\s+/g, '_')}.pdf`;
+      }
+
+      // Download the file
+      const { saveAs } = await import('file-saver');
+      saveAs(blob, filename);
+      toast.success(`Proposta ${type.toUpperCase()} gerada com sucesso!`);
+    } catch (error) {
+      console.error('Erro ao gerar proposta:', error);
+      toast.error(`Erro ao gerar proposta: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleGenerate}
+      disabled={loading}
+      className={`flex items-center gap-2 px-5 py-3 rounded-lg font-medium transition-all ${
+        type === 'docx'
+          ? 'bg-blue-600 hover:bg-blue-700 text-white'
+          : 'bg-red-600 hover:bg-red-700 text-white'
+      } ${loading ? 'opacity-70 cursor-wait' : ''}`}
+    >
+      {loading ? (
+        <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
+      ) : type === 'docx' ? (
+        <File className="h-4 w-4" />
+      ) : (
+        <FileDown className="h-4 w-4" />
+      )}
+      {loading ? 'Gerando...' : `Proposta ${type.toUpperCase()}`}
+    </button>
   );
 };
 
