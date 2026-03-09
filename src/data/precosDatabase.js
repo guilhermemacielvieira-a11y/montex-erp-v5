@@ -234,6 +234,18 @@ export const PRECOS_COBERTURA = [
     precoAlto: 130.00,
     pesoM2: 7.0,
     isolamentoTermico: true
+  },
+  {
+    id: 'cob-007',
+    codigo: 'COB-STEELDECK-MF75',
+    descricao: 'Steel Deck MF 75 - 0,80mm',
+    categoria: CATEGORIAS_SERVICO.COBERTURA,
+    unidade: 'M2',
+    precoBase: 95.00,
+    precoMedio: 115.00,
+    precoAlto: 135.00,
+    pesoM2: 10.2,
+    observacao: 'Fôrma colaborante Steel Deck MF 75 espessura 0,80mm - para lajes mistas aço/concreto'
   }
 ];
 
@@ -282,6 +294,19 @@ export const PRECOS_FECHAMENTO = [
     precoMedio: 80.00,
     precoAlto: 95.00,
     pesoM2: 6.0
+  },
+  {
+    id: 'fec-005',
+    codigo: 'FEC-THERMCOLD-70',
+    descricao: 'Painel Thermcold 70mm Branco/Branco para Fechamento',
+    categoria: CATEGORIAS_SERVICO.FECHAMENTO,
+    unidade: 'M2',
+    precoBase: 135.00,
+    precoMedio: 155.00,
+    precoAlto: 180.00,
+    pesoM2: 11.5,
+    isolamentoTermico: true,
+    observacao: 'Painel termoacústico Thermcold 70mm dupla face branca - isolamento térmico e acústico'
   }
 ];
 
