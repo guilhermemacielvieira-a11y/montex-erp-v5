@@ -1173,6 +1173,7 @@ export async function generatePropostaDOCX(data) {
     ],
   });
 
-  const buffer = await Packer.toBuffer(doc);
-  return new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' });
+  // Use toBlob for browser environment (toBuffer only works in Node.js)
+  const blob = await Packer.toBlob(doc);
+  return blob;
 }
