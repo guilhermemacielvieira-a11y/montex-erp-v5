@@ -15,7 +15,9 @@ import {
   TrendingDown,
   Eye,
   Tag,
-  Layers
+  Layers,
+  Calendar,
+  Filter,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -124,6 +126,7 @@ export default function DespesasPage() {
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [filtroCentro, setFiltroCentro] = useState('todos');
+  const [filtroPeriodo, setFiltroPeriodo] = useState('geral'); // geral, semanal, mensal, trimestral
   const [dialogOpen, setDialogOpen] = useState(false);
   const [despesas, setDespesas] = useState([]);
   const [formData, setFormData] = useState({
@@ -136,12 +139,11 @@ export default function DespesasPage() {
     formaPagto: ''
   });
 
-  // Sincronizar despesas com dados do Supabase
+  // Sincronizar despesas com dados do Supabase (TODAS, sem filtro de obra)
   useEffect(() => {
     if (lancamentosDespesas && lancamentosDespesas.length > 0) {
-      // Apenas despesas SEM obra_id (independente de GestaoFinanceiraObra)
-        const despesasGerais = lancamentosDespesas.filter(l => !l.obraId && !l.obra_id && l.tipo !== 'receita');
-        const despesasConvertidas = despesasGerais.map(l => ({
+      const despesasGerais = lancamentosDespesas.filter(l => l.tipo !== 'receita');
+      const despesasConvertidas = despesasGerais.map(l => ({
         id: l.id,
         data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
         descricao: l.descricao || l.nome || '-',
@@ -157,10 +159,13 @@ export default function DespesasPage() {
     }
   }, [lancamentosDespesas]);
 
-  // Dados para gráficos - dinâmicos
+  // Despesas filtradas por período (para KPIs e gráficos)
+  const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtroPeriodo]);
+
+  // Dados para gráficos - dinâmicos (usam período)
   const dadosCategorias = useMemo(() => {
     const catMap = {};
-    despesas.forEach(d => {
+    despesasPeriodo.forEach(d => {
       const cat = d.categoria || 'Outros';
       catMap[cat] = (catMap[cat] || 0) + (d.valor || 0);
     });
@@ -169,30 +174,48 @@ export default function DespesasPage() {
       valor,
       cor: categorias.find(c => c.nome === nome)?.cor || '#64748b'
     }));
-  }, [despesas]);
+  }, [despesasPeriodo]);
 
   const dadosCentros = useMemo(() => {
     const ccMap = {};
-    despesas.forEach(d => {
+    despesasPeriodo.forEach(d => {
       const cc = d.centroCusto || 'Outros';
       ccMap[cc] = (ccMap[cc] || 0) + (d.valor || 0);
     });
     return Object.entries(ccMap).map(([nome, valor]) => ({ nome, valor }));
-  }, [despesas]);
+  }, [despesasPeriodo]);
 
-  // KPIs - calculados dos dados reais
+  // KPIs - calculados dos dados filtrados por período
   const kpis = useMemo(() => {
-    const totalPago = despesas.filter(d => d.status === 'pago').reduce((sum, d) => sum + (d.valor || 0), 0);
-    const totalPendente = despesas.filter(d => d.status === 'pendente').reduce((sum, d) => sum + (d.valor || 0), 0);
-    const totalAtrasado = despesas.filter(d => d.status === 'atrasado').reduce((sum, d) => sum + (d.valor || 0), 0);
-    const total = despesas.reduce((sum, d) => sum + (d.valor || 0), 0);
+    const totalPago = despesasPeriodo.filter(d => d.status === 'pago').reduce((sum, d) => sum + (d.valor || 0), 0);
+    const totalPendente = despesasPeriodo.filter(d => d.status === 'pendente').reduce((sum, d) => sum + (d.valor || 0), 0);
+    const totalAtrasado = despesasPeriodo.filter(d => d.status === 'atrasado').reduce((sum, d) => sum + (d.valor || 0), 0);
+    const total = despesasPeriodo.reduce((sum, d) => sum + (d.valor || 0), 0);
 
     return { totalPago, totalPendente, totalAtrasado, total };
-  }, [despesas]);
+  }, [despesasPeriodo]);
+
+  // Helper: filtrar por período
+  const filtrarPorPeriodo = (lista) => {
+    if (filtroPeriodo === 'geral') return lista;
+    const hoje = new Date();
+    const inicio = new Date();
+    if (filtroPeriodo === 'semanal') {
+      inicio.setDate(hoje.getDate() - 7);
+    } else if (filtroPeriodo === 'mensal') {
+      inicio.setMonth(hoje.getMonth() - 1);
+    } else if (filtroPeriodo === 'trimestral') {
+      inicio.setMonth(hoje.getMonth() - 3);
+    }
+    return lista.filter(d => {
+      const dataDesp = new Date(d.data || d.vencimento);
+      return dataDesp >= inicio && dataDesp <= hoje;
+    });
+  };
 
   // Filtrar despesas
   const despesasFiltradas = useMemo(() => {
-    return despesas.filter(d => {
+    let resultado = despesas.filter(d => {
       if (searchTerm && !d.descricao.toLowerCase().includes(searchTerm.toLowerCase()) &&
           !d.fornecedor.toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos' && d.status !== filtroStatus) return false;
@@ -200,7 +223,8 @@ export default function DespesasPage() {
       if (filtroCentro !== 'todos' && d.centroCusto !== filtroCentro) return false;
       return true;
     });
-  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro]);
+    return filtrarPorPeriodo(resultado);
+  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo]);
 
   const handleSaveDespesa = async () => {
     if (!formData.descricao || !formData.fornecedor || !formData.categoria || !formData.centroCusto || !formData.valor || !formData.vencimento || !formData.formaPagto) {
@@ -364,6 +388,31 @@ export default function DespesasPage() {
             </div>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Filtros de Período */}
+      <div className="flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-slate-400" />
+        <span className="text-sm text-slate-400 mr-1">Período:</span>
+        {[
+          { value: 'geral', label: 'Geral' },
+          { value: 'semanal', label: 'Semanal' },
+          { value: 'mensal', label: 'Mensal' },
+          { value: 'trimestral', label: 'Trimestral' },
+        ].map(p => (
+          <button
+            key={p.value}
+            onClick={() => setFiltroPeriodo(p.value)}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+              filtroPeriodo === p.value
+                ? "bg-rose-500 text-white shadow-lg shadow-rose-500/25"
+                : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
       {/* KPIs */}
