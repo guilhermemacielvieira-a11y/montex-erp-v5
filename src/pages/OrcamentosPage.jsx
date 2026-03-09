@@ -24,7 +24,10 @@ import {
   Clock,
   XCircle,
   Target,
-  BarChart3
+  BarChart3,
+  Trash2,
+  ExternalLink,
+  AlertTriangle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -164,7 +167,7 @@ function KPICard({ title, value, subtitle, icon: Icon, color, trend }) {
 }
 
 // Card de Orçamento para o Pipeline
-const OrcamentoCard = React.forwardRef(({ orcamento, onDragStart, onDragEnd, isDragging, onVerDetalhes, onEditar, onDuplicar, onEnviarCliente }, ref) => {
+const OrcamentoCard = React.forwardRef(({ orcamento, onDragStart, onDragEnd, isDragging, onVerDetalhes, onEditar, onDuplicar, onEnviarCliente, onApagar, onAbrirSimulador }, ref) => {
   const config = statusConfig[orcamento.status];
   const diasRestantes = Math.ceil(
     (new Date(orcamento.validade) - new Date()) / (1000 * 60 * 60 * 24)
@@ -224,6 +227,15 @@ const OrcamentoCard = React.forwardRef(({ orcamento, onDragStart, onDragEnd, isD
             <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => onEnviarCliente(orcamento)}>
               <Send className="h-4 w-4 mr-2" />
               Enviar ao cliente
+            </DropdownMenuItem>
+            <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => onAbrirSimulador(orcamento)}>
+              <ExternalLink className="h-4 w-4 mr-2" />
+              Abrir no Simulador
+            </DropdownMenuItem>
+            <DropdownMenuSeparator className="bg-slate-700" />
+            <DropdownMenuItem className="text-red-400 hover:bg-red-500/20" onClick={() => onApagar(orcamento)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Apagar
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -302,6 +314,8 @@ export default function OrcamentosPage() {
   const [showModal, setShowModal] = useState(false);
   const [selectedOrcamento, setSelectedOrcamento] = useState(null);
   const [modalMode, setModalMode] = useState('view'); // 'view', 'create', 'edit'
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [orcamentoToDelete, setOrcamentoToDelete] = useState(null);
   const [formData, setFormData] = useState({
     numero: '',
     projeto: '',
@@ -456,6 +470,39 @@ export default function OrcamentosPage() {
 
   const handleEnviarCliente = (orcamento) => {
     toast.success(`Orçamento ${orcamento.numero} enviado ao cliente!`);
+  };
+
+  const handleDeleteOrcamento = (orcamento) => {
+    setOrcamentoToDelete(orcamento);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    if (!orcamentoToDelete) return;
+    // Remove from local state
+    setOrcamentosLocal(prev => prev.filter(o => o.id !== orcamentoToDelete.id));
+    // Remove from localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
+      const updated = saved.filter(o => o.id !== orcamentoToDelete.id);
+      localStorage.setItem('montex_orcamentos', JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Erro ao remover do localStorage:', e);
+    }
+    toast.success(`Orçamento ${orcamentoToDelete.numero} apagado!`);
+    setShowDeleteConfirm(false);
+    setOrcamentoToDelete(null);
+  };
+
+  const handleAbrirNoSimulador = (orcamento) => {
+    // Save orcamento data to localStorage for the simulator to load
+    try {
+      localStorage.setItem('montex_orcamento_editar', JSON.stringify(orcamento));
+      window.location.href = '/SimuladorOrcamento?editar=' + encodeURIComponent(orcamento.id);
+    } catch (e) {
+      console.error('Erro ao abrir no simulador:', e);
+      toast.error('Erro ao abrir orçamento no simulador');
+    }
   };
 
   const handleExportar = () => {
@@ -651,6 +698,8 @@ export default function OrcamentosPage() {
                             onEditar={openEditModal}
                             onDuplicar={handleDuplicateOrcamento}
                             onEnviarCliente={handleEnviarCliente}
+                            onApagar={handleDeleteOrcamento}
+                            onAbrirSimulador={handleAbrirNoSimulador}
                           />
                         ))}
                       </AnimatePresence>
@@ -784,6 +833,16 @@ export default function OrcamentosPage() {
                                   <Copy className="h-4 w-4 mr-2" />
                                   Duplicar
                                 </DropdownMenuItem>
+                                <DropdownMenuSeparator className="bg-slate-700" />
+                                <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => handleAbrirNoSimulador(orc)}>
+                                  <ExternalLink className="h-4 w-4 mr-2" />
+                                  Abrir no Simulador
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="bg-slate-700" />
+                                <DropdownMenuItem className="text-red-400 hover:bg-red-500/20" onClick={() => handleDeleteOrcamento(orc)}>
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Apagar
+                                </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </td>
@@ -796,6 +855,37 @@ export default function OrcamentosPage() {
             </div>
           </TabsContent>
         </Tabs>
+
+        {/* Modal de Confirmação de Exclusão */}
+        <Dialog open={showDeleteConfirm} onOpenChange={() => setShowDeleteConfirm(false)}>
+          <DialogContent className="max-w-md bg-slate-900 border-slate-700">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-red-400" />
+                Confirmar Exclusão
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <p className="text-slate-300">
+                Tem certeza que deseja apagar o orçamento{' '}
+                <span className="font-bold text-white">{orcamentoToDelete?.numero}</span>?
+              </p>
+              <p className="text-sm text-slate-500 mt-2">
+                {orcamentoToDelete?.projeto} — {formatCurrency(orcamentoToDelete?.valor_total || 0)}
+              </p>
+              <p className="text-xs text-red-400/80 mt-3">Esta ação não pode ser desfeita.</p>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} className="border-slate-600 text-white">
+                Cancelar
+              </Button>
+              <Button onClick={confirmDelete} className="bg-red-500 hover:bg-red-600 text-white">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Apagar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* Modal de Orçamento */}
         <Dialog open={showModal} onOpenChange={closeModal}>

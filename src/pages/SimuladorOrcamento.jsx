@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -1401,6 +1401,66 @@ export default function SimuladorOrcamento() {
     impostosPct: 12,
     prazo: { total: 0, projeto: 10, fabricacao: 0, montagem: 0 }
   });
+
+  // Load saved orcamento for editing (from OrcamentosPage)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const editarId = params.get('editar');
+    if (!editarId) return;
+
+    try {
+      const savedData = localStorage.getItem('montex_orcamento_editar');
+      if (!savedData) return;
+      const orc = JSON.parse(savedData);
+
+      // Restore project info
+      setProject({
+        nome: orc.nome || orc.projeto || '',
+        cliente: orc.cliente || '',
+        tipo: orc.tipo || '',
+        regiao: orc.regiao || 'sudeste',
+      });
+
+      // Restore unit costs
+      if (orc.custosUnitarios) {
+        setUnitCosts(orc.custosUnitarios);
+      }
+
+      // Restore setores
+      if (orc.setores && Array.isArray(orc.setores) && orc.setores.length > 0) {
+        setSetores(orc.setores.map((s, idx) => ({
+          id: `setor_${idx}_${Date.now()}`,
+          nome: s.nome || `Setor ${idx + 1}`,
+          itens: (s.itens || []).map((item, iIdx) => ({
+            id: `item_${idx}_${iIdx}_${Date.now()}`,
+            descricao: item.descricao || '',
+            quantidade: item.quantidade || 0,
+            unidade: item.unidade || 'KG',
+            preco: item.preco || 0,
+            precoMaterial: item.precoMaterial || 0,
+            precoInstalacao: item.precoInstalacao || 0,
+          })),
+        })));
+      }
+
+      // Restore calculations
+      if (orc.resumo) {
+        setCalculations(prev => ({
+          ...prev,
+          margemPct: orc.resumo.margemPct || prev.margemPct,
+        }));
+      }
+
+      // Clean up to avoid reloading on refresh
+      localStorage.removeItem('montex_orcamento_editar');
+      // Clean URL params
+      window.history.replaceState({}, '', window.location.pathname);
+
+      toast.success(`Orçamento "${orc.nome || orc.projeto}" carregado para edição!`);
+    } catch (e) {
+      console.error('Erro ao carregar orçamento para edição:', e);
+    }
+  }, []);
 
   // Update calculations when setores change
   useMemo(() => {
