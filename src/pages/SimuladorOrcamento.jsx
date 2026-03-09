@@ -844,7 +844,7 @@ export default function SimuladorOrcamento() {
 
       toast.success('Orçamento salvo com sucesso!');
       setTimeout(() => {
-        window.location.href = '/orcamentos';
+        window.location.href = '/OrcamentosPage';
       }, 1500);
     } catch (error) {
       console.error('Error saving budget:', error);
