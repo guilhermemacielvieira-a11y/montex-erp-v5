@@ -1,0 +1,463 @@
+{
+  "metadata": {
+    "description": "Image manifest for Montex Estruturas Metálicas proposal/website",
+    "totalImages": 72,
+    "totalSize": "4.7MB",
+    "generatedDate": "2026-03-09",
+    "sourceFormat": "DOCX extracted media files"
+  },
+  "images": {
+    "backgrounds": {
+      "cover-bg.jpg": {
+        "description": "Cover page background - modern glass buildings against sky",
+        "purpose": "Hero/cover section background",
+        "dimensions": "1014x1507",
+        "originalFormat": "PNG",
+        "optimizedFormat": "JPEG",
+        "fileSize": "1.8MB"
+      },
+      "about-bg.jpg": {
+        "description": "About page background - large industrial warehouse structure",
+        "purpose": "About/Sobre section background",
+        "dimensions": "2168x1607",
+        "originalFormat": "PNG",
+        "optimizedFormat": "JPEG",
+        "fileSize": "2.0MB"
+      },
+      "sobre-bg.jpg": {
+        "description": "Sobre section background image",
+        "purpose": "About/company vision section",
+        "dimensions": "Unknown",
+        "fileSize": "573KB"
+      },
+      "capa-bg.jpg": {
+        "description": "Cover/capa page background",
+        "purpose": "Initial cover section",
+        "fileSize": "Unknown"
+      },
+      "contact-strip.jpg": {
+        "description": "Contact section decorative strip",
+        "purpose": "Contact/footer section background",
+        "fileSize": "Unknown"
+      }
+    },
+    "logos": {
+      "logo-m-main.png": {
+        "description": "Main Montex logo - M icon in teal color",
+        "purpose": "Header/navbar primary logo",
+        "dimensions": "527x393",
+        "fileSize": "26KB"
+      },
+      "logo-m-outline.png": {
+        "description": "Logo M outline variant - lighter/stroke version",
+        "purpose": "Footer or alternative branding contexts",
+        "dimensions": "286x378",
+        "fileSize": "31KB"
+      },
+      "logo-m-light.png": {
+        "description": "Logo M light variant for backgrounds",
+        "purpose": "Watermark or light background branding",
+        "dimensions": "346x359",
+        "fileSize": "30KB"
+      },
+      "logo-m-outline-alt.png": {
+        "description": "Logo M outline alternative version",
+        "purpose": "Alternative header/branding",
+        "dimensions": "529x387",
+        "fileSize": "34KB"
+      },
+      "logo-montex.png": {
+        "description": "Montex company logo/watermark",
+        "purpose": "Document watermark or secondary branding",
+        "dimensions": "282x195",
+        "fileSize": "4KB"
+      },
+      "logo-montex-full.png": {
+        "description": "Full Montex company logo with text",
+        "purpose": "Complete logo with company name",
+        "fileSize": "27KB"
+      },
+      "montex-logo-variant.png": {
+        "description": "Montex logo variant",
+        "purpose": "Alternative branding usage",
+        "dimensions": "298x270",
+        "fileSize": "23KB"
+      },
+      "montex-badge.png": {
+        "description": "Montex company badge",
+        "purpose": "Certification or quality badge",
+        "dimensions": "416x321",
+        "fileSize": "24KB"
+      }
+    },
+    "icons": {
+      "icon-whatsapp.png": {
+        "description": "WhatsApp contact icon",
+        "purpose": "Contact section - WhatsApp link",
+        "dimensions": "176x188",
+        "fileSize": "8.7KB"
+      },
+      "icon-email.png": {
+        "description": "Email contact icon with @ symbol",
+        "purpose": "Contact section - email link",
+        "dimensions": "200x200",
+        "fileSize": "12KB"
+      },
+      "icon-globe.png": {
+        "description": "Globe/website icon",
+        "purpose": "Contact section - website link",
+        "dimensions": "188x188",
+        "fileSize": "13KB"
+      },
+      "whatsapp-icon.png": {
+        "description": "Alternative WhatsApp icon",
+        "purpose": "Contact or social media section",
+        "fileSize": "8.7KB"
+      }
+    },
+    "charts_and_tables": {
+      "chart-timeline-150days.png": {
+        "description": "150-day execution timeline Gantt chart",
+        "purpose": "Project timeline display in proposal",
+        "dimensions": "1421x582",
+        "content": "Detalhamento, Materiais, Fabricação, Pintura, Transporte, Montagem",
+        "fileSize": "46KB"
+      },
+      "chart-investment-composition.png": {
+        "description": "Investment composition pie chart and price comparison bar chart",
+        "purpose": "Financial/investment analysis section",
+        "dimensions": "1355x597",
+        "content": "Estrutura Metálica (92.6%), Telha Termoacústica (7.4%), price comparison per kg",
+        "fileSize": "81KB"
+      },
+      "table-obra-quotation.png": {
+        "description": "Obra BRT Santa Luzia quotation table",
+        "purpose": "Project quotation and pricing details",
+        "dimensions": "1421x582",
+        "content": "Montex logo, BRT Santa Luzia project details, materials, quantities, pricing",
+        "fileSize": "46KB"
+      }
+    },
+    "portfolio_projects": {
+      "graneleiro-goias": {
+        "description": "Graneleiro Goias project - metal grain storage structure",
+        "purpose": "Portfolio showcase project",
+        "photos": {
+          "graneleiro-goias-thumb.jpeg": {
+            "description": "Project thumbnail - red metal structure facade",
+            "purpose": "Portfolio grid thumbnail",
+            "dimensions": "472x354",
+            "fileSize": "26KB"
+          },
+          "graneleiro-goias-02.jpeg": {
+            "description": "Project photo 2",
+            "dimensions": "472x354",
+            "fileSize": "37KB"
+          },
+          "graneleiro-goias-03.jpeg": {
+            "description": "Project photo 3",
+            "dimensions": "472x354",
+            "fileSize": "57KB"
+          },
+          "graneleiro-goias-04.jpeg": {
+            "description": "Project photo 4",
+            "dimensions": "472x354",
+            "fileSize": "64KB"
+          },
+          "graneleiro-goias-05.jpeg": {
+            "description": "Project photo 5",
+            "dimensions": "472x354",
+            "fileSize": "61KB"
+          }
+        }
+      },
+      "portaria-retiro-do-chale": {
+        "description": "Portaria Retiro do Chalé - retail storefront project",
+        "purpose": "Portfolio showcase project",
+        "photos": {
+          "portaria-chale-thumb.jpeg": {
+            "description": "Project thumbnail - red storefront facade",
+            "purpose": "Portfolio grid thumbnail",
+            "dimensions": "472x354",
+            "fileSize": "36KB"
+          },
+          "portaria-chale-02.jpeg": {
+            "description": "Project photo 2",
+            "dimensions": "472x354",
+            "fileSize": "35KB"
+          },
+          "portaria-chale-03.jpeg": {
+            "description": "Project photo 3",
+            "dimensions": "472x354",
+            "fileSize": "42KB"
+          },
+          "portaria-chale-04.jpeg": {
+            "description": "Project photo 4",
+            "dimensions": "472x354",
+            "fileSize": "39KB"
+          }
+        }
+      },
+      "abc-passos": {
+        "description": "ABC Passos - Super Luna commercial building",
+        "purpose": "Portfolio showcase project",
+        "photos": {
+          "abc-passos-thumb.jpeg": {
+            "description": "Project thumbnail - Super Luna storefront with red signage",
+            "purpose": "Portfolio grid thumbnail",
+            "dimensions": "472x354",
+            "fileSize": "74KB"
+          },
+          "abc-passos-02.jpeg": {
+            "description": "Project photo 2",
+            "dimensions": "472x354",
+            "fileSize": "69KB"
+          },
+          "abc-passos-03.jpeg": {
+            "description": "Project photo 3",
+            "dimensions": "472x354",
+            "fileSize": "43KB"
+          },
+          "abc-passos-04.jpeg": {
+            "description": "Project photo 4",
+            "dimensions": "472x354",
+            "fileSize": "67KB"
+          }
+        }
+      },
+      "super-luna": {
+        "description": "Super Luna - warehouse and commercial structure",
+        "purpose": "Portfolio showcase project",
+        "photos": {
+          "super-luna-thumb.jpeg": {
+            "description": "Project thumbnail - industrial warehouse structure",
+            "purpose": "Portfolio grid thumbnail",
+            "dimensions": "472x354",
+            "fileSize": "24KB"
+          },
+          "super-luna-02.jpeg": {
+            "description": "Project photo 2 - roof structure detail",
+            "dimensions": "531x335",
+            "fileSize": "33KB"
+          },
+          "super-luna-03.jpeg": {
+            "description": "Project photo 3",
+            "dimensions": "472x354",
+            "fileSize": "37KB"
+          }
+        }
+      },
+      "my-mall": {
+        "description": "My Mall - large commercial shopping complex",
+        "purpose": "Portfolio showcase project",
+        "photos": {
+          "my-mall-thumb.jpeg": {
+            "description": "Project thumbnail - commercial complex",
+            "purpose": "Portfolio grid thumbnail",
+            "dimensions": "472x354",
+            "fileSize": "32KB"
+          },
+          "my-mall-02.jpeg": {
+            "description": "Project photo 2",
+            "dimensions": "472x354",
+            "fileSize": "30KB"
+          },
+          "my-mall-03.jpeg": {
+            "description": "Project photo 3",
+            "dimensions": "472x354",
+            "fileSize": "38KB"
+          },
+          "my-mall-04.jpeg": {
+            "description": "Project photo 4",
+            "dimensions": "472x354",
+            "fileSize": "46KB"
+          },
+          "my-mall-05.jpeg": {
+            "description": "Project photo 5",
+            "dimensions": "473x354",
+            "fileSize": "38KB"
+          },
+          "my-mall-06.jpeg": {
+            "description": "Project photo 6",
+            "dimensions": "472x354",
+            "fileSize": "33KB"
+          }
+        }
+      },
+      "abc-atacado": {
+        "description": "ABC Atacado - large warehouse facility with truck",
+        "purpose": "Portfolio showcase project - main featured image",
+        "photos": {
+          "abc-atacado-main.jpeg": {
+            "description": "Project main photo - large warehouse with truck (1749x1536)",
+            "purpose": "Full-size project showcase image",
+            "dimensions": "1749x1536",
+            "fileSize": "612KB"
+          },
+          "abc-atacado-02.jpeg": {
+            "description": "Project photo 2 - thumbnail view",
+            "dimensions": "472x354",
+            "fileSize": "83KB"
+          },
+          "abc-atacado-03.jpeg": {
+            "description": "Project photo 3 - detailed view",
+            "dimensions": "1027x597",
+            "fileSize": "123KB"
+          }
+        }
+      }
+    },
+    "team_and_workers": {
+      "worker-team-photo.jpeg": {
+        "description": "Team worker group photo at construction site",
+        "purpose": "Team/company culture section",
+        "dimensions": "1080x721",
+        "fileSize": "111KB"
+      },
+      "worker-welding-thumb.jpeg": {
+        "description": "Worker welding thumbnail - quality work showcase",
+        "purpose": "Skills/capabilities section thumbnail",
+        "dimensions": "298x361",
+        "fileSize": "17KB"
+      },
+      "worker-welding-02.jpeg": {
+        "description": "Worker welding photo 2 - close-up of welding work",
+        "purpose": "Technical capabilities showcase",
+        "dimensions": "298x361",
+        "fileSize": "34KB"
+      },
+      "worker-welding-03.jpeg": {
+        "description": "Worker welding photo 3 - precision drilling/tool work",
+        "purpose": "Technical capabilities showcase",
+        "dimensions": "488x371",
+        "fileSize": "48KB"
+      },
+      "worker-welding-large.jpeg": {
+        "description": "Large welding worker photo - main team showcase",
+        "purpose": "Full-size team/capabilities image",
+        "dimensions": "1740x971",
+        "fileSize": "314KB"
+      },
+      "worker-on-site-main.jpeg": {
+        "description": "Worker on construction site - main team photo",
+        "purpose": "Team profile/company culture",
+        "dimensions": "1080x721",
+        "fileSize": "91KB"
+      },
+      "worker-metalwork-tool.jpeg": {
+        "description": "Worker using metalworking tool in factory",
+        "purpose": "Technical expertise showcase",
+        "dimensions": "488x370",
+        "fileSize": "35KB"
+      },
+      "worker-factory-site.jpeg": {
+        "description": "Factory site worker photo - manufacturing process",
+        "purpose": "Production/manufacturing capabilities",
+        "dimensions": "906x768",
+        "fileSize": "75KB"
+      }
+    },
+    "construction_and_industrial": {
+      "description": "Various construction, industrial, and structural photos",
+      "purpose": "Generic portfolio and project documentation images",
+      "photos": {
+        "construction-industrial-01.jpeg": {
+          "description": "Industrial construction site 1",
+          "dimensions": "472x354",
+          "fileSize": "26KB"
+        },
+        "construction-industrial-02.jpeg": {
+          "description": "Industrial construction site 2",
+          "dimensions": "472x354",
+          "fileSize": "43KB"
+        },
+        "construction-industrial-03.jpeg": {
+          "description": "Industrial construction site 3",
+          "dimensions": "472x354",
+          "fileSize": "58KB"
+        },
+        "construction-industrial-04.jpeg": {
+          "description": "Industrial construction site 4",
+          "dimensions": "472x354",
+          "fileSize": "65KB"
+        },
+        "construction-industrial-05.jpeg": {
+          "description": "Industrial construction site 5 - quality control",
+          "dimensions": "1138x960",
+          "fileSize": "86KB"
+        },
+        "construction-industrial-06.jpeg": {
+          "description": "Industrial construction site 6",
+          "dimensions": "473x354",
+          "fileSize": "65KB"
+        },
+        "construction-industrial-14.jpeg": {
+          "description": "Construction crane lifting structural elements",
+          "dimensions": "1191x957",
+          "fileSize": "251KB"
+        },
+        "construction-industrial-15.jpeg": {
+          "description": "Industrial construction detail 15",
+          "dimensions": "472x354",
+          "fileSize": "69KB"
+        },
+        "construction-industrial-16.jpeg": {
+          "description": "Industrial construction detail 16",
+          "dimensions": "472x354",
+          "fileSize": "59KB"
+        },
+        "construction-industrial-17.jpeg": {
+          "description": "Industrial construction detail 17",
+          "dimensions": "472x342",
+          "fileSize": "49KB"
+        },
+        "construction-industrial-18.jpeg": {
+          "description": "Industrial construction detail 18",
+          "dimensions": "472x354",
+          "fileSize": "31KB"
+        },
+        "construction-industrial-19.jpeg": {
+          "description": "Industrial construction detail 19",
+          "dimensions": "472x354",
+          "fileSize": "28KB"
+        },
+        "construction-industrial-20.jpeg": {
+          "description": "Industrial construction detail 20",
+          "dimensions": "472x354",
+          "fileSize": "36KB"
+        },
+        "construction-industrial-21.jpeg": {
+          "description": "Industrial construction detail 21",
+          "dimensions": "472x354",
+          "fileSize": "48KB"
+        },
+        "construction-industrial-22.jpeg": {
+          "description": "Industrial construction detail 22",
+          "dimensions": "472x354",
+          "fileSize": "67KB"
+        }
+      }
+    }
+  },
+  "usage_guide": {
+    "cover-bg.jpg": "Use as hero background in cover/landing page",
+    "about-bg.jpg": "Use as background for company about/sobre section",
+    "logo-m-main.png": "Use in header/navbar as primary logo",
+    "logo-m-outline.png": "Use in footer or alternative branding contexts",
+    "icon-whatsapp.png": "Link to WhatsApp contact",
+    "icon-email.png": "Link to email contact",
+    "icon-globe.png": "Link to website or external resources",
+    "chart-timeline-150days.png": "Display in proposal timeline section",
+    "chart-investment-composition.png": "Display financial analysis section",
+    "worker-*": "Use in team/about section to showcase company culture",
+    "*-thumb.jpeg": "Use in portfolio grid as thumbnails",
+    "*-main.jpeg": "Use as full-size project showcase images"
+  },
+  "optimization_notes": {
+    "large_pngs_converted": "Large PNG backgrounds (>500KB) were converted to JPEG with quality 70 for optimal web performance",
+    "total_size_reduction": "Reduced from original 24MB across 120 files to 4.7MB across 72 unique files",
+    "unique_images": 62,
+    "with_duplicates": 120,
+    "duplicate_removal_method": "Identified by exact file size matching and kept lowest-numbered versions"
+  }
+}
