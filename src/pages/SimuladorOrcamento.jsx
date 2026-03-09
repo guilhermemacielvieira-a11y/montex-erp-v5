@@ -80,1372 +80,1209 @@ import { useOrcamentos } from '../contexts/ERPContext';
 // Color palette for charts
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1'];
 
-// Helper functions
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
 const formatCurrency = (value) => {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-  }).format(value);
+  return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
-const formatNumber = (value, decimals = 2) => {
-  return new Intl.NumberFormat('pt-BR', {
-    minimumFractionDigits: decimals,
-    maximumFractionDigits: decimals,
-  }).format(value);
+const formatNumber = (value) => {
+  return value.toLocaleString('pt-BR', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 };
 
-// Step indicator component
-const StepIndicator = ({ currentStep, totalSteps, steps }) => (
-  <div className="bg-slate-800/50 backdrop-blur border border-slate-700 rounded-lg p-6 mb-6">
-    <div className="flex items-center justify-between">
-      {steps.map((step, idx) => (
-        <React.Fragment key={idx}>
-          <motion.div
-            initial={{ scale: 0.8 }}
-            animate={{ scale: currentStep === idx ? 1.1 : 1 }}
-            className={`flex flex-col items-center ${idx <= currentStep ? 'text-blue-400' : 'text-slate-500'}`}
-          >
-            <div
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold mb-2 transition-all ${
-                idx < currentStep
-                  ? 'bg-green-500/30 border border-green-500'
-                  : idx === currentStep
-                    ? 'bg-blue-500/30 border border-blue-500 ring-2 ring-blue-500/50'
-                    : 'bg-slate-700 border border-slate-600'
-              }`}
-            >
-              {idx < currentStep ? '✓' : idx + 1}
+// ============================================================================
+// COMPONENTS
+// ============================================================================
+
+// Step 1: Informações do Projeto
+const StepInfo = ({ project, setProject }) => {
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-blue-600" />
+            Dados do Projeto
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Projeto *</label>
+              <input
+                type="text"
+                value={project.nome}
+                onChange={(e) => setProject({ ...project, nome: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Ex: Galpão Industrial XYZ"
+              />
             </div>
-            <span className="text-xs text-center font-medium max-w-16">{step}</span>
-          </motion.div>
-          {idx < steps.length - 1 && (
-            <div
-              className={`flex-1 h-0.5 mx-3 mb-6 transition-colors ${
-                idx < currentStep ? 'bg-green-500' : 'bg-slate-600'
-              }`}
-            />
-          )}
-        </React.Fragment>
-      ))}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cliente *</label>
+              <input
+                type="text"
+                value={project.cliente}
+                onChange={(e) => setProject({ ...project, cliente: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Ex: Empresa ABC Ltda"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Estrutura</label>
+              <select
+                value={project.tipo}
+                onChange={(e) => setProject({ ...project, tipo: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Selecione...</option>
+                {Object.entries(TIPOS_ESTRUTURA).map(([key, value]) => (
+                  <option key={key} value={key}>{value.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Região</label>
+              <select
+                value={project.regiao}
+                onChange={(e) => setProject({ ...project, regiao: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="sudeste">Sudeste</option>
+                <option value="sul">Sul</option>
+                <option value="nordeste">Nordeste</option>
+                <option value="centrooeste">Centro-Oeste</option>
+                <option value="norte">Norte</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow p-6 border border-blue-200">
+          <h3 className="text-lg font-semibold mb-4 text-blue-900 flex items-center gap-2">
+            <Info className="h-5 w-5" />
+            Dicas
+          </h3>
+          <ul className="space-y-2 text-sm text-blue-800">
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>Complete os dados do projeto para prosseguir</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>O tipo e região afetam os preços sugeridos</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>Todos os dados podem ser editados em qualquer momento</span>
+            </li>
+          </ul>
+        </div>
+      </div>
     </div>
-  </div>
-);
-
-// Catalog picker component
-const CatalogPicker = ({ onSelect, onClose, category }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [priceLevel, setPriceLevel] = useState('medio');
-
-  const catalogData = {
-    [CATEGORIAS_SERVICO.ESTRUTURA_METALICA]: PRECOS_ESTRUTURA,
-    [CATEGORIAS_SERVICO.COBERTURA]: PRECOS_COBERTURA,
-    [CATEGORIAS_SERVICO.FECHAMENTO]: PRECOS_FECHAMENTO,
-    [CATEGORIAS_SERVICO.COMPLEMENTOS]: PRECOS_COMPLEMENTOS,
-    [CATEGORIAS_SERVICO.MAO_DE_OBRA]: PRECOS_MAO_OBRA,
-    [CATEGORIAS_SERVICO.TRANSPORTE]: PRECOS_TRANSPORTE,
-  };
-
-  const items = catalogData[category] || [];
-  const filtered = items.filter((item) =>
-    item.descricao.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    item.codigo.toLowerCase().includes(searchTerm.toLowerCase())
   );
+};
 
-  const getPriceForLevel = (item, level) => {
-    if (level === 'baixo') return item.precoBase;
-    if (level === 'alto') return item.precoAlto;
-    return item.precoMedio;
+// Step 2: Custos Unitários
+const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
+  const updateCost = (section, field, value) => {
+    setUnitCosts(prev => ({
+      ...prev,
+      [section]: { ...prev[section], [field]: parseFloat(value) || 0 }
+    }));
   };
+
+  const updateCoverageType = (tipo) => {
+    let newCosts = { ...unitCosts.cobertura, tipo };
+
+    // Auto-update prices based on selected type
+    const tipoMap = {
+      'galvanizada_050': { material: 75.00, montagem: 18.00 },
+      'galvanizada_043': { material: 65.00, montagem: 18.00 },
+      'sanduiche_pir_30': { material: 135.00, montagem: 20.00 },
+      'steeldeck_mf75': { material: 115.00, montagem: 25.00 }
+    };
+
+    if (tipoMap[tipo]) {
+      newCosts = { ...newCosts, ...tipoMap[tipo] };
+    }
+
+    setUnitCosts(prev => ({ ...prev, cobertura: newCosts }));
+  };
+
+  const updateClosureType = (tipo) => {
+    let newCosts = { ...unitCosts.fechamento, tipo };
+
+    const tipoMap = {
+      'pir_30mm': { material: 125.00, montagem: 15.00 },
+      'thermcold_70': { material: 155.00, montagem: 18.00 },
+      'galvanizado': { material: 80.00, montagem: 12.00 }
+    };
+
+    if (tipoMap[tipo]) {
+      newCosts = { ...newCosts, ...tipoMap[tipo] };
+    }
+
+    setUnitCosts(prev => ({ ...prev, fechamento: newCosts }));
+  };
+
+  const calcTotalStructure = () => {
+    const totalWeight = setores.reduce((sum, s) => {
+      return sum + s.itens.reduce((itemSum, item) => {
+        return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
+      }, 0);
+    }, 0);
+    return totalWeight;
+  };
+
+  const calcTotalArea = (unit) => {
+    return setores.reduce((sum, s) => {
+      return sum + s.itens.reduce((itemSum, item) => {
+        return itemSum + (item.quantidade || 0) * (item.unidade === unit ? 1 : 0);
+      }, 0);
+    }, 0);
+  };
+
+  const estruturaKg = calcTotalStructure();
+  const coberturaM2 = calcTotalArea('M2');
+  const fechamentoM2 = calcTotalArea('M2');
+
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Estrutura Metálica */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-blue-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Layers className="h-5 w-5 text-blue-600" />
+            Estrutura Metálica
+          </h3>
+          <div className="space-y-3 text-sm">
+            {estruturaKg > 0 && (
+              <div className="bg-blue-50 p-2 rounded text-blue-800 font-medium">
+                Total: {formatNumber(estruturaKg)} kg
+              </div>
+            )}
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.material}
+                onChange={(e) => updateCost('estrutura', 'material', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Fabricação (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.fabricacao}
+                onChange={(e) => updateCost('estrutura', 'fabricacao', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Pintura (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.pintura}
+                onChange={(e) => updateCost('estrutura', 'pintura', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Transporte (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.transporte}
+                onChange={(e) => updateCost('estrutura', 'transporte', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.montagem}
+                onChange={(e) => updateCost('estrutura', 'montagem', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Cobertura - Telha */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-orange-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Package className="h-5 w-5 text-orange-600" />
+            Cobertura - Telha
+          </h3>
+          <div className="space-y-3 text-sm">
+            {coberturaM2 > 0 && (
+              <div className="bg-orange-50 p-2 rounded text-orange-800 font-medium">
+                Total: {formatNumber(coberturaM2)} m²
+              </div>
+            )}
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Tipo</label>
+              <select
+                value={unitCosts.cobertura.tipo}
+                onChange={(e) => updateCoverageType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+              >
+                <option value="galvanizada_050">Galvanizada 0.50mm</option>
+                <option value="galvanizada_043">Galvanizada 0.43mm</option>
+                <option value="sanduiche_pir_30">Sanduíche PIR 30mm</option>
+                <option value="steeldeck_mf75">Steel Deck MF75</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.cobertura.material}
+                onChange={(e) => updateCost('cobertura', 'material', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.cobertura.montagem}
+                onChange={(e) => updateCost('cobertura', 'montagem', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Fechamento */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-red-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Shield className="h-5 w-5 text-red-600" />
+            Fechamento
+          </h3>
+          <div className="space-y-3 text-sm">
+            {fechamentoM2 > 0 && (
+              <div className="bg-red-50 p-2 rounded text-red-800 font-medium">
+                Total: {formatNumber(fechamentoM2)} m²
+              </div>
+            )}
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Tipo</label>
+              <select
+                value={unitCosts.fechamento.tipo}
+                onChange={(e) => updateClosureType(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+              >
+                <option value="pir_30mm">PIR 30mm</option>
+                <option value="thermcold_70">Thermcold 70mm</option>
+                <option value="galvanizado">Galvanizado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.fechamento.material}
+                onChange={(e) => updateCost('fechamento', 'material', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.fechamento.montagem}
+                onChange={(e) => updateCost('fechamento', 'montagem', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Steel Deck */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-purple-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Zap className="h-5 w-5 text-purple-600" />
+            Steel Deck
+          </h3>
+          <div className="space-y-3 text-sm">
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.steelDeck.material}
+                onChange={(e) => updateCost('steelDeck', 'material', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.steelDeck.montagem}
+                onChange={(e) => updateCost('steelDeck', 'montagem', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Complementos */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-green-600 lg:col-span-2">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Target className="h-5 w-5 text-green-600" />
+            Complementos
+          </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm">
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Calha (R$/ml)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.complementos.calha}
+                onChange={(e) => updateCost('complementos', 'calha', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Rufos (R$/ml)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.complementos.rufos}
+                onChange={(e) => updateCost('complementos', 'rufos', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Platibanda (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.complementos.platibanda}
+                onChange={(e) => updateCost('complementos', 'platibanda', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// SetorCard component for Step 3
+const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems }) => {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [newTitle, setNewTitle] = useState(setor.nome);
+  const [showItemForm, setShowItemForm] = useState(false);
+  const [newItem, setNewItem] = useState({ descricao: '', quantidade: 0, unidade: 'KG', preco: 0 });
+
+  const handleTitleSave = () => {
+    onUpdate(index, { ...setor, nome: newTitle });
+    setEditingTitle(false);
+  };
+
+  const handleAddItem = () => {
+    if (newItem.descricao && newItem.quantidade > 0) {
+      onAddItem(index, { ...newItem, quantidade: parseFloat(newItem.quantidade), preco: parseFloat(newItem.preco) });
+      setNewItem({ descricao: '', quantidade: 0, unidade: 'KG', preco: 0 });
+      setShowItemForm(false);
+    }
+  };
+
+  const handleRemoveItem = (itemIndex) => {
+    const updatedItens = setor.itens.filter((_, i) => i !== itemIndex);
+    onUpdate(index, { ...setor, itens: updatedItens });
+  };
+
+  const total = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: 20 }}
-      className="fixed inset-0 bg-black/60 backdrop-blur flex items-center justify-center z-50 p-4"
+      exit={{ opacity: 0, y: -20 }}
+      className="bg-white rounded-lg shadow-lg p-6 border-t-4 border-blue-600"
     >
-      <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl max-w-2xl w-full max-h-96 flex flex-col">
-        <div className="flex items-center justify-between p-6 border-b border-slate-700">
-          <h3 className="text-lg font-bold text-white">Selecionar Item do Catálogo</h3>
-          <button
-            onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors"
-          >
-            <X size={24} />
-          </button>
-        </div>
-
-        <div className="p-4 border-b border-slate-700">
-          <input
-            type="text"
-            placeholder="Pesquisar item..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-          />
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {filtered.map((item) => (
-            <motion.button
-              key={item.id}
-              whileHover={{ x: 4 }}
-              onClick={() => {
-                onSelect({
-                  itemId: item.id,
-                  codigo: item.codigo,
-                  descricao: item.descricao,
-                  unidade: item.unidade,
-                  preco: getPriceForLevel(item, priceLevel),
-                  priceLevel,
-                  categoria: category,
-                });
-                onClose();
-              }}
-              className="w-full text-left p-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700 hover:border-blue-500 rounded-lg transition-all"
-            >
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-white">{item.descricao}</p>
-                  <p className="text-xs text-slate-400">{item.codigo}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-bold text-blue-400">{formatCurrency(getPriceForLevel(item, priceLevel))}</p>
-                  <p className="text-xs text-slate-400">{item.unidade}</p>
-                </div>
-              </div>
-            </motion.button>
-          ))}
-        </div>
-
-        <div className="border-t border-slate-700 p-4 flex items-center justify-between bg-slate-800/30">
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-slate-300">Nível de Preço:</span>
-            <select
-              value={priceLevel}
-              onChange={(e) => setPriceLevel(e.target.value)}
-              className="bg-slate-800 border border-slate-700 rounded px-3 py-1 text-white text-sm focus:outline-none focus:border-blue-500"
-            >
-              <option value="baixo">Otimista</option>
-              <option value="medio">Realista</option>
-              <option value="alto">Pessimista</option>
-            </select>
-          </div>
-          <p className="text-xs text-slate-400">{filtered.length} itens</p>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-// Item row component for sectors
-const ItemRow = ({ item, onRemove, onUpdate }) => {
-  const handleQtdChange = (newQtd) => {
-    onUpdate({ ...item, quantidade: parseFloat(newQtd) || 0 });
-  };
-
-  const handlePrecoChange = (newPreco) => {
-    onUpdate({ ...item, preco: parseFloat(newPreco) || 0 });
-  };
-
-  const total = (item.quantidade || 0) * (item.preco || 0);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: 10 }}
-      className="flex items-center gap-3 p-3 bg-slate-800/30 border border-slate-700 rounded-lg hover:border-slate-600 transition-all"
-    >
-      <div className="flex-1">
-        <p className="text-sm font-semibold text-white">{item.descricao}</p>
-        <p className="text-xs text-slate-400">{item.codigo} • {item.unidade}</p>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <input
-          type="number"
-          min="0"
-          step="0.1"
-          value={item.quantidade || ''}
-          onChange={(e) => handleQtdChange(e.target.value)}
-          className="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm text-right focus:outline-none focus:border-blue-500"
-          placeholder="0"
-        />
-        <span className="text-xs text-slate-400">{item.unidade}</span>
-      </div>
-
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-400">R$</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={item.preco || ''}
-          onChange={(e) => handlePrecoChange(e.target.value)}
-          className="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-sm text-right focus:outline-none focus:border-blue-500"
-          placeholder="0.00"
-        />
-      </div>
-
-      <div className="min-w-24 text-right">
-        <p className="text-sm font-bold text-blue-400">{formatCurrency(total)}</p>
-      </div>
-
-      <button
-        onClick={() => onRemove()}
-        className="text-slate-400 hover:text-red-400 transition-colors p-1"
-      >
-        <Trash2 size={16} />
-      </button>
-    </motion.div>
-  );
-};
-
-// Sector card component
-const SetorCard = ({ setor, onAddItem, onRemoveItem, onUpdateItem, onRemoveSetor, onUpdateNome }) => {
-  const [showCatalog, setShowCatalog] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState(CATEGORIAS_SERVICO.ESTRUTURA_METALICA);
-  const [editingNome, setEditingNome] = useState(false);
-  const [nomeTemp, setNomeTemp] = useState(setor.nome);
-
-  const totalSetor = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
-  const pesoTotal = setor.itens.reduce((sum, item) => {
-    if (item.unidade === 'KG') return sum + item.quantidade;
-    if (item.unidade === 'TON') return sum + (item.quantidade * 1000);
-    return sum;
-  }, 0);
-
-  const categoriasDisponiveis = [
-    { id: CATEGORIAS_SERVICO.ESTRUTURA_METALICA, nome: 'Estrutura Metálica' },
-    { id: CATEGORIAS_SERVICO.COBERTURA, nome: 'Cobertura' },
-    { id: CATEGORIAS_SERVICO.FECHAMENTO, nome: 'Fechamento' },
-    { id: CATEGORIAS_SERVICO.COMPLEMENTOS, nome: 'Complementos' },
-    { id: CATEGORIAS_SERVICO.MAO_DE_OBRA, nome: 'Mão de Obra' },
-    { id: CATEGORIAS_SERVICO.TRANSPORTE, nome: 'Transporte' },
-  ];
-
-  return (
-    <>
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-4 overflow-hidden"
-      >
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            {editingNome ? (
-              <input
-                autoFocus
-                type="text"
-                value={nomeTemp}
-                onChange={(e) => setNomeTemp(e.target.value)}
-                onBlur={() => {
-                  if (nomeTemp.trim()) onUpdateNome(nomeTemp.trim());
-                  setEditingNome(false);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    if (nomeTemp.trim()) onUpdateNome(nomeTemp.trim());
-                    setEditingNome(false);
-                  }
-                  if (e.key === 'Escape') {
-                    setNomeTemp(setor.nome);
-                    setEditingNome(false);
-                  }
-                }}
-                className="text-lg font-bold text-white bg-slate-700/50 border border-blue-500 rounded-lg px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-64"
-              />
-            ) : (
-              <h3
-                className="text-lg font-bold text-white cursor-pointer hover:text-blue-400 transition-colors"
-                onClick={() => { setNomeTemp(setor.nome); setEditingNome(true); }}
-                title="Clique para editar o nome do setor"
-              >
-                {setor.nome}
-                <Edit3 size={14} className="inline ml-2 text-slate-500" />
-              </h3>
-            )}
-            <div className="flex gap-4 mt-2 text-sm text-slate-400">
-              <span className="flex items-center gap-1">
-                <Package size={14} />
-                {setor.itens.length} itens
-              </span>
-              <span className="flex items-center gap-1">
-                <Weight size={14} />
-                {formatNumber(pesoTotal)} kg
-              </span>
-              <span className="flex items-center gap-1">
-                <DollarSign size={14} />
-                {formatCurrency(totalSetor)}
-              </span>
-            </div>
-          </div>
-          <button
-            onClick={() => onRemoveSetor()}
-            className="text-slate-400 hover:text-red-400 transition-colors p-2"
-          >
-            <Trash2 size={20} />
-          </button>
-        </div>
-
-        <div className="space-y-2 mb-4">
-          {setor.itens.map((item) => (
-            <ItemRow
-              key={item.id}
-              item={item}
-              onRemove={() => onRemoveItem(item.id)}
-              onUpdate={(updated) => onUpdateItem(item.id, updated)}
+      <div className="flex justify-between items-start mb-4">
+        {editingTitle ? (
+          <div className="flex gap-2 flex-1">
+            <input
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
             />
-          ))}
-        </div>
-
-        <div className="flex gap-2 flex-wrap">
-          {categoriasDisponiveis.map((cat) => (
             <button
-              key={cat.id}
-              onClick={() => {
-                setSelectedCategory(cat.id);
-                setShowCatalog(true);
-              }}
-              className="flex items-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg text-sm text-blue-300 transition-all"
+              onClick={handleTitleSave}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
             >
-              <Plus size={14} />
-              {cat.nome}
+              Salvar
             </button>
-          ))}
-        </div>
-      </motion.div>
-
-      <AnimatePresence>
-        {showCatalog && (
-          <CatalogPicker
-            category={selectedCategory}
-            onClose={() => setShowCatalog(false)}
-            onSelect={(itemData) => {
-              onAddItem({
-                id: `${setor.id}-${Date.now()}`,
-                ...itemData,
-                quantidade: 0,
-              });
-            }}
-          />
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold text-gray-900">{setor.nome}</h3>
+            <button
+              onClick={() => setEditingTitle(true)}
+              className="p-1 text-gray-500 hover:text-blue-600"
+            >
+              <Edit3 className="h-4 w-4" />
+            </button>
+          </div>
         )}
-      </AnimatePresence>
-    </>
-  );
-};
-
-// KPI Card component - FIXED for kg and R$/kg formatting
-const KPICard = ({ icon: Icon, label, value, unit = '', trend = null }) => {
-  let displayValue = value;
-
-  if (typeof value === 'number') {
-    if (unit === 'days') {
-      displayValue = formatNumber(value, 0);
-    } else if (unit === 'kg') {
-      displayValue = formatNumber(value, 1) + ' kg';
-    } else if (unit === 'R$/kg') {
-      displayValue = 'R$ ' + formatNumber(value, 2) + '/kg';
-    } else if (unit === '%') {
-      displayValue = formatNumber(value, 1) + '%';
-    } else {
-      displayValue = formatCurrency(value);
-    }
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
-    >
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm text-slate-400 mb-1">{label}</p>
-          <p className="text-2xl font-bold text-white">
-            {displayValue}
-          </p>
-        </div>
-        <div className="text-slate-600">
-          <Icon size={24} />
-        </div>
+        <button
+          onClick={() => onDelete(index)}
+          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+        >
+          <Trash2 className="h-5 w-5" />
+        </button>
       </div>
-      {trend && (
-        <div className={`flex items-center gap-1 mt-2 text-sm ${trend > 0 ? 'text-green-400' : 'text-red-400'}`}>
-          <TrendingUp size={14} />
-          {formatNumber(Math.abs(trend), 1)}%
+
+      {setor.itens.length > 0 ? (
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100 border-b">
+              <tr>
+                <th className="text-left p-2 font-semibold">Descrição</th>
+                <th className="text-center p-2 font-semibold">Qtd</th>
+                <th className="text-center p-2 font-semibold">Un</th>
+                <th className="text-right p-2 font-semibold">Preço</th>
+                <th className="text-right p-2 font-semibold">Total</th>
+                <th className="text-center p-2 font-semibold">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {setor.itens.map((item, idx) => (
+                <tr key={idx} className="border-b hover:bg-gray-50">
+                  <td className="p-2">{item.descricao}</td>
+                  <td className="text-center p-2">{formatNumber(item.quantidade)}</td>
+                  <td className="text-center p-2 text-gray-600">{item.unidade}</td>
+                  <td className="text-right p-2">{formatCurrency(item.preco)}</td>
+                  <td className="text-right p-2 font-semibold">{formatCurrency(item.quantidade * item.preco)}</td>
+                  <td className="text-center p-2">
+                    <button
+                      onClick={() => handleRemoveItem(idx)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
+      ) : (
+        <div className="text-center text-gray-500 py-4">Nenhum item adicionado</div>
+      )}
+
+      <div className="flex justify-between items-center mb-4 pt-4 border-t">
+        <span className="font-semibold text-gray-900">Total do Setor:</span>
+        <span className="text-lg font-bold text-blue-600">{formatCurrency(total)}</span>
+      </div>
+
+      {showItemForm ? (
+        <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder="Descrição"
+              value={newItem.descricao}
+              onChange={(e) => setNewItem({ ...newItem, descricao: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <select
+              value={newItem.unidade}
+              onChange={(e) => setNewItem({ ...newItem, unidade: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="KG">KG</option>
+              <option value="M2">M²</option>
+              <option value="ML">ML</option>
+              <option value="UN">UN</option>
+              <option value="VB">VB</option>
+            </select>
+            <input
+              type="number"
+              placeholder="Quantidade"
+              step="0.01"
+              value={newItem.quantidade}
+              onChange={(e) => setNewItem({ ...newItem, quantidade: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="number"
+              placeholder="Preço unitário"
+              step="0.01"
+              value={newItem.preco}
+              onChange={(e) => setNewItem({ ...newItem, preco: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddItem}
+              className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            >
+              Adicionar Item
+            </button>
+            <button
+              onClick={() => setShowItemForm(false)}
+              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowItemForm(true)}
+          className="w-full px-4 py-2 border-2 border-dashed border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-medium flex items-center justify-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Adicionar Item
+        </button>
       )}
     </motion.div>
   );
 };
 
-// Detailed Items Table Component
-const DetailedItemsTable = ({ setores, bdi, margem, calculations }) => {
-  const bdiTotalPct = Object.values(bdi).reduce((sum, val) => sum + val, 0);
+// Step 3: Setores e Itens
+const StepSetores = ({ setores, setSetores }) => {
+  const [showNewSetor, setShowNewSetor] = useState(false);
+  const [newSetorName, setNewSetorName] = useState('');
 
-  // Flatten all items with sector info
-  const allItems = [];
-  let globalBdiTotal = 0;
-  let globalLucroTotal = 0;
+  const handleAddSetor = () => {
+    if (newSetorName.trim()) {
+      setSetores([...setores, { nome: newSetorName, itens: [] }]);
+      setNewSetorName('');
+      setShowNewSetor(false);
+    }
+  };
 
-  setores.forEach((setor) => {
-    setor.itens.forEach((item) => {
-      const subtotal = item.quantidade * item.preco;
-      const bdiValue = subtotal * bdiTotalPct;
-      const margemValue = (subtotal + bdiValue) * margem;
-      const precoVenda = subtotal + bdiValue + margemValue;
+  const handleUpdateSetor = (index, updatedSetor) => {
+    const updated = [...setores];
+    updated[index] = updatedSetor;
+    setSetores(updated);
+  };
 
-      globalBdiTotal += bdiValue;
-      globalLucroTotal += margemValue;
+  const handleDeleteSetor = (index) => {
+    setSetores(setores.filter((_, i) => i !== index));
+  };
 
-      allItems.push({
-        setor: setor.nome,
-        codigo: item.codigo,
-        descricao: item.descricao,
-        unidade: item.unidade,
-        quantidade: item.quantidade,
-        precoUnit: item.preco,
-        subtotal,
-        bdiPct: (bdiTotalPct * 100).toFixed(1),
-        bdiValue,
-        lucroMin: (margem * 100).toFixed(1),
-        lucroValue: margemValue,
-        precoVenda,
-      });
-    });
+  const handleAddItem = (setorIndex, item) => {
+    const updated = [...setores];
+    updated[setorIndex].itens.push(item);
+    setSetores(updated);
+  };
+
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">Setores e Itens</h2>
+        {!showNewSetor && (
+          <button
+            onClick={() => setShowNewSetor(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
+          >
+            <Plus className="h-4 w-4" />
+            Novo Setor
+          </button>
+        )}
+      </div>
+
+      {showNewSetor && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Nome do setor (ex: ESTRUTURA, COBERTURA, FECHAMENTO)"
+              value={newSetorName}
+              onChange={(e) => setNewSetorName(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleAddSetor}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            >
+              Criar
+            </button>
+            <button
+              onClick={() => setShowNewSetor(false)}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <AnimatePresence>
+        <div className="space-y-4">
+          {setores.map((setor, idx) => (
+            <SetorCard
+              key={idx}
+              setor={setor}
+              index={idx}
+              onUpdate={handleUpdateSetor}
+              onDelete={handleDeleteSetor}
+              onAddItem={handleAddItem}
+            />
+          ))}
+        </div>
+      </AnimatePresence>
+
+      {setores.length === 0 && (
+        <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded">
+          <p className="text-blue-900">Nenhum setor criado. Crie um para começar a adicionar itens.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Step 4: Serviços (Placeholder)
+const StepServicos = () => {
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4">Serviços Complementares</h3>
+        <p className="text-gray-600">Adicione serviços complementares como pintura especial, tratamento adicional, etc.</p>
+      </div>
+    </div>
+  );
+};
+
+// Step 5: BDI e Margens
+const StepBDI = ({ project, calculations, setCalculations }) => {
+  const [margemPct, setMargemPct] = useState(18);
+  const [impostosPct, setImpostosPct] = useState(12);
+
+  const handleRecalculate = () => {
+    const newCalcs = { ...calculations };
+    newCalcs.margemPct = margemPct;
+    newCalcs.impostosPct = impostosPct;
+    setCalculations(newCalcs);
+  };
+
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-blue-600">
+          <h3 className="text-lg font-semibold mb-4">Margem de Lucro</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Percentual (%)</label>
+              <input
+                type="number"
+                step="0.5"
+                value={margemPct}
+                onChange={(e) => setMargemPct(parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="text-sm text-gray-600">
+              <p>Sugeridos: Mínima 12%, Padrão 18%, Alta 25%</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-orange-600">
+          <h3 className="text-lg font-semibold mb-4">Impostos</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Percentual (%)</label>
+              <input
+                type="number"
+                step="0.5"
+                value={impostosPct}
+                onChange={(e) => setImpostosPct(parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+              />
+            </div>
+            <div className="text-sm text-gray-600">
+              <p>Padrão: ~12% (ISS, PIS, COFINS)</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg shadow p-6 border border-green-200">
+          <h3 className="text-lg font-semibold mb-4 text-green-900">Resumo</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-700">Custo Total:</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoTotal)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-700">Margem (+{margemPct}%):</span>
+              <span className="font-semibold text-green-600">{formatCurrency(calculations.custoTotal * (margemPct / 100))}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between font-bold">
+              <span>Total:</span>
+              <span className="text-green-700">{formatCurrency(calculations.custoTotal * (1 + margemPct / 100))}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// KPI Card
+const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) => {
+  const colorClasses = {
+    blue: 'bg-blue-50 border-blue-200 text-blue-600',
+    green: 'bg-green-50 border-green-200 text-green-600',
+    orange: 'bg-orange-50 border-orange-200 text-orange-600',
+    red: 'bg-red-50 border-red-200 text-red-600',
+    purple: 'bg-purple-50 border-purple-200 text-purple-600',
+  };
+
+  return (
+    <div className={`rounded-lg border-l-4 p-6 ${colorClasses[color]}`}>
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <p className="text-2xl font-bold mt-2">{value}</p>
+          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+        </div>
+        <Icon className="h-8 w-8 opacity-20" />
+      </div>
+    </div>
+  );
+};
+
+// Step 6: Análise
+const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
+  const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
+  const totalWeight = setores.reduce((sum, s) => {
+    return sum + s.itens.reduce((itemSum, item) => {
+      return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
+    }, 0);
+  }, 0);
+
+  const totalArea = setores.reduce((sum, s) => {
+    return sum + s.itens.reduce((itemSum, item) => {
+      return itemSum + (item.quantidade || 0) * (item.unidade === 'M2' ? 1 : 0);
+    }, 0);
+  }, 0);
+
+  const totalValue = setores.reduce((sum, s) => {
+    return sum + s.itens.reduce((itemSum, item) => {
+      return itemSum + (item.quantidade * item.preco);
+    }, 0);
+  }, 0);
+
+  // Análise por setor
+  const setorAnalise = setores.map(s => {
+    const valor = s.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
+    return { nome: s.nome, valor };
   });
 
   return (
-    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-6 overflow-x-auto">
-      <h4 className="font-semibold text-white mb-4">Detalhamento de Itens</h4>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-slate-700 sticky top-0 bg-slate-800/80">
-            <th className="text-left px-3 py-3 text-slate-300 font-semibold">Setor</th>
-            <th className="text-left px-3 py-3 text-slate-300 font-semibold">Código</th>
-            <th className="text-left px-3 py-3 text-slate-300 font-semibold">Descrição</th>
-            <th className="text-center px-3 py-3 text-slate-300 font-semibold">Un.</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Qtd</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Preço Unit.</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Subtotal</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">BDI (%)</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">BDI (R$)</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Lucro (%)</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Lucro (R$)</th>
-            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Preço Venda</th>
-          </tr>
-        </thead>
-        <tbody>
-          {allItems.map((item, idx) => (
-            <tr
-              key={idx}
-              className={`border-b border-slate-700/50 ${idx % 2 === 0 ? 'bg-slate-800/20' : 'bg-slate-800/10'} hover:bg-slate-800/40 transition-colors`}
-            >
-              <td className="px-3 py-2 text-slate-300">{item.setor}</td>
-              <td className="px-3 py-2 text-slate-400 text-xs font-mono">{item.codigo}</td>
-              <td className="px-3 py-2 text-slate-200 text-xs">{item.descricao}</td>
-              <td className="px-3 py-2 text-slate-400 text-center text-xs">{item.unidade}</td>
-              <td className="px-3 py-2 text-right text-slate-300">{formatNumber(item.quantidade, 2)}</td>
-              <td className="px-3 py-2 text-right text-slate-300">{formatCurrency(item.precoUnit)}</td>
-              <td className="px-3 py-2 text-right text-blue-400 font-semibold">{formatCurrency(item.subtotal)}</td>
-              <td className="px-3 py-2 text-right text-slate-400">{item.bdiPct}%</td>
-              <td className="px-3 py-2 text-right text-slate-300">{formatCurrency(item.bdiValue)}</td>
-              <td className="px-3 py-2 text-right text-slate-400">{item.lucroMin}%</td>
-              <td className="px-3 py-2 text-right text-slate-300">{formatCurrency(item.lucroValue)}</td>
-              <td className="px-3 py-2 text-right text-green-400 font-semibold">{formatCurrency(item.precoVenda)}</td>
-            </tr>
-          ))}
-          <tr className="bg-blue-500/10 border-t-2 border-blue-500/50 font-semibold">
-            <td colSpan="6" className="px-3 py-3 text-slate-300">TOTAL</td>
-            <td className="px-3 py-3 text-right text-blue-400">{formatCurrency(calculations.subtotal)}</td>
-            <td className="px-3 py-3 text-center text-slate-400">{(bdiTotalPct * 100).toFixed(1)}%</td>
-            <td className="px-3 py-3 text-right text-blue-400">{formatCurrency(globalBdiTotal)}</td>
-            <td className="px-3 py-3 text-center text-slate-400">{(margem * 100).toFixed(1)}%</td>
-            <td className="px-3 py-3 text-right text-blue-400">{formatCurrency(globalLucroTotal)}</td>
-            <td className="px-3 py-3 text-right text-green-400">{formatCurrency(calculations.precoFinal)}</td>
-          </tr>
-        </tbody>
-      </table>
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      {/* KPIs */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard title="Peso Total" value={formatNumber(totalWeight) + ' kg'} icon={Weight} color="blue" />
+        <KPICard title="Área Total" value={formatNumber(totalArea) + ' m²'} icon={Package} color="orange" />
+        <KPICard title="Valor Total" value={formatCurrency(totalValue)} icon={DollarSign} color="green" />
+        <KPICard title="Itens" value={totalItens} icon={Layers} color="purple" />
+      </div>
+
+      {/* Dados Projeto */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Building2 className="h-5 w-5" />
+          Dados do Projeto
+        </h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div>
+            <p className="text-gray-600">Projeto</p>
+            <p className="font-semibold text-gray-900">{project.nome}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Cliente</p>
+            <p className="font-semibold text-gray-900">{project.cliente}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Tipo</p>
+            <p className="font-semibold text-gray-900">{project.tipo || 'Não definido'}</p>
+          </div>
+          <div>
+            <p className="text-gray-600">Região</p>
+            <p className="font-semibold text-gray-900">{project.regiao}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Gráficos */}
+      {setorAnalise.length > 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Pie Chart */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4">Distribuição por Setor</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <PieChart>
+                <Pie
+                  data={setorAnalise}
+                  dataKey="valor"
+                  nameKey="nome"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={100}
+                  label
+                >
+                  {setorAnalise.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatCurrency(value)} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Bar Chart */}
+          <div className="bg-white rounded-lg shadow p-6">
+            <h3 className="text-lg font-semibold mb-4">Valor por Setor</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={setorAnalise}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="nome" />
+                <YAxis />
+                <Tooltip formatter={(value) => formatCurrency(value)} />
+                <Bar dataKey="valor" fill="#3b82f6" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
+
+      {/* Tabela Detalhada */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4">Detalhamento por Setor</h3>
+        {setores.length > 0 ? (
+          setores.map((setor, idx) => (
+            <div key={idx} className="mb-6">
+              <h4 className="font-semibold text-gray-900 mb-3 text-base">{setor.nome}</h4>
+              {setor.itens.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-100 border-b">
+                      <tr>
+                        <th className="text-left p-2">Descrição</th>
+                        <th className="text-center p-2">Quantidade</th>
+                        <th className="text-center p-2">Unidade</th>
+                        <th className="text-right p-2">Preço Unit.</th>
+                        <th className="text-right p-2">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {setor.itens.map((item, i) => (
+                        <tr key={i} className="border-b hover:bg-gray-50">
+                          <td className="p-2">{item.descricao}</td>
+                          <td className="text-center p-2">{formatNumber(item.quantidade)}</td>
+                          <td className="text-center p-2">{item.unidade}</td>
+                          <td className="text-right p-2">{formatCurrency(item.preco)}</td>
+                          <td className="text-right p-2 font-semibold">{formatCurrency(item.quantidade * item.preco)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">Nenhum item adicionado</p>
+              )}
+            </div>
+          ))
+        ) : (
+          <p className="text-gray-500">Nenhum setor criado</p>
+        )}
+      </div>
     </div>
   );
 };
 
-// Enhanced KPIs Row for Analysis
-const AnalysisKPIsRow = ({ calculations, bdi, margem }) => {
-  const bdiTotalPct = Object.values(bdi).reduce((sum, val) => sum + val, 0);
-  const margem_pct = (margem * 100).toFixed(1);
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
-  return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <KPICard
-        icon={DollarSign}
-        label="Valor Total do Projeto"
-        value={calculations.precoFinal}
-        unit="R$"
-      />
-      <KPICard
-        icon={DollarSign}
-        label="Custo Total (Direto)"
-        value={calculations.subtotal}
-        unit="R$"
-      />
-      <KPICard
-        icon={TrendingUp}
-        label="BDI Total"
-        value={calculations.custoIndireto}
-        unit="R$"
-      />
-      <KPICard
-        icon={TrendingUp}
-        label="Lucro Bruto"
-        value={calculations.margenAbs}
-        unit="R$"
-      />
-      <KPICard
-        icon={Percent}
-        label="Margem (%)"
-        value={calculations.margemPct}
-        unit="%"
-      />
-      <KPICard
-        icon={Weight}
-        label="Preço/kg"
-        value={calculations.precoKgMedio}
-        unit="R$/kg"
-      />
-      <KPICard
-        icon={Weight}
-        label="Peso Total"
-        value={calculations.totalPeso}
-        unit="kg"
-      />
-      <KPICard
-        icon={Calendar}
-        label="Prazo Total"
-        value={calculations.prazo.total}
-        unit="days"
-      />
-    </div>
-  );
-};
-
-// Main component
 export default function SimuladorOrcamento() {
   const { addOrcamento } = useOrcamentos();
-  const [currentStep, setCurrentStep] = useState(0);
 
-  // Project data
+  const [step, setStep] = useState(0);
+  const steps = ['Info', 'Custos', 'Setores', 'Serviços', 'BDI', 'Análise'];
+
   const [project, setProject] = useState({
     nome: '',
     cliente: '',
-    tipo: 'galpao_industrial',
-    regiao: 'sudeste',
-    complexidade: 'media',
-    distanciaKm: 100,
-    area: 0,
+    tipo: '',
+    regiao: 'sudeste'
   });
 
-  // Sectors state
+  const [unitCosts, setUnitCosts] = useState({
+    estrutura: {
+      material: 19.50,
+      fabricacao: 5.50,
+      pintura: 1.40,
+      transporte: 1.00,
+      montagem: 3.50,
+    },
+    cobertura: {
+      tipo: 'galvanizada_050',
+      material: 75.00,
+      montagem: 18.00,
+    },
+    fechamento: {
+      tipo: 'pir_30mm',
+      material: 125.00,
+      montagem: 15.00,
+    },
+    steelDeck: {
+      material: 115.00,
+      montagem: 25.00,
+    },
+    complementos: {
+      calha: 120.00,
+      rufos: 55.00,
+      platibanda: 80.00,
+    },
+  });
+
   const [setores, setSetores] = useState([]);
 
-  // Services state
-  const [servicos, setServicos] = useState({
-    transporteIncluido: true,
-    montagemIncluida: true,
-    distanciaTransporte: 100,
-    tipoTransporte: 'padrao',
+  const [calculations, setCalculations] = useState({
+    custoTotal: 0,
+    precoFinal: 0,
+    precoVendaBDI: 0,
+    totalPeso: 0,
+    precoKgMedio: 0,
+    margemPct: 18,
+    impostosPct: 12,
+    prazo: { total: 0, projeto: 10, fabricacao: 0, montagem: 0 }
   });
 
-  // BDI state
-  const [bdi, setBdi] = useState(PARAMETROS_MERCADO.bdi);
-  const [margem, setMargem] = useState(0.18);
-  const [desconto, setDesconto] = useState(0);
+  // Update calculations when setores change
+  useMemo(() => {
+    const totalValue = setores.reduce((sum, s) => {
+      return sum + s.itens.reduce((itemSum, item) => {
+        return itemSum + (item.quantidade * item.preco);
+      }, 0);
+    }, 0);
 
-  const steps = ['Info', 'Setores', 'Serviços', 'BDI', 'Análise'];
+    const totalWeight = setores.reduce((sum, s) => {
+      return sum + s.itens.reduce((itemSum, item) => {
+        return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
+      }, 0);
+    }, 0);
 
-  // Computed calculations
-  const calculations = useMemo(() => {
-    let totalMaterial = 0;
-    let totalMaoObra = 0;
-    let totalTransporte = 0;
-    let totalPeso = 0;
-    const setoresCalc = [];
+    const precoKgMedio = totalWeight > 0 ? totalValue / totalWeight : 0;
+    const margemValue = totalValue * (calculations.margemPct / 100);
+    const subtotal = totalValue + margemValue;
+    const impostos = subtotal * (calculations.impostosPct / 100);
+    const precoFinal = subtotal + impostos;
 
-    setores.forEach((setor) => {
-      let setorMaterial = 0;
-      let setorMaoObra = 0;
-      let setorPeso = 0;
-
-      setor.itens.forEach((item) => {
-        const valor = (item.quantidade || 0) * (item.preco || 0);
-        if (
-          item.categoria === CATEGORIAS_SERVICO.MAO_DE_OBRA ||
-          item.categoria === CATEGORIAS_SERVICO.MONTAGEM
-        ) {
-          setorMaoObra += valor;
-          totalMaoObra += valor;
-        } else if (item.categoria === CATEGORIAS_SERVICO.TRANSPORTE) {
-          totalTransporte += valor;
-        } else {
-          setorMaterial += valor;
-          totalMaterial += valor;
-        }
-
-        if (item.unidade === 'KG') {
-          setorPeso += item.quantidade || 0;
-          totalPeso += item.quantidade || 0;
-        } else if (item.unidade === 'TON') {
-          setorPeso += (item.quantidade || 0) * 1000;
-          totalPeso += (item.quantidade || 0) * 1000;
-        }
-      });
-
-      setoresCalc.push({
-        nome: setor.nome,
-        material: setorMaterial,
-        maoObra: setorMaoObra,
-        peso: setorPeso,
-        precoKg: setorPeso > 0 ? (setorMaterial + setorMaoObra) / setorPeso : 0,
-      });
-    });
-
-    const subtotal = totalMaterial + totalMaoObra + (servicos.transporteIncluido ? totalTransporte : 0);
-    const bdiTotal = Object.values(bdi).reduce((sum, val) => sum + val, 0);
-    const custoIndireto = subtotal * bdiTotal;
-    const precoVendaBDI = subtotal + custoIndireto;
-    const precoVendaComMargem = precoVendaBDI * (1 + margem);
-    const precoFinal = precoVendaComMargem * (1 - desconto / 100);
-
-    const prazo = calcularPrazoEstimado(totalPeso, servicos.distanciaTransporte);
-    prazo.total = prazo.projeto + prazo.fabricacao + prazo.pintura + prazo.transporte + prazo.montagem;
-
-    return {
-      totalMaterial,
-      totalMaoObra,
-      totalTransporte,
-      totalPeso,
-      subtotal,
-      bdiTotal,
-      custoIndireto,
-      precoVendaBDI,
-      precoVendaComMargem,
+    setCalculations(prev => ({
+      ...prev,
+      custoTotal: totalValue,
       precoFinal,
-      precoKgMedio: totalPeso > 0 ? precoFinal / totalPeso : 0,
-      margenAbs: precoFinal - subtotal,
-      margemPct: subtotal > 0 ? ((precoFinal - subtotal) / subtotal) * 100 : 0,
-      setoresCalc,
-      prazo,
-    };
-  }, [setores, servicos, bdi, margem, desconto]);
-
-  // Handlers
-  const handleAddSetor = useCallback(() => {
-    const novoSetor = {
-      id: `setor-${Date.now()}`,
-      nome: `Setor ${setores.length + 1}`,
-      itens: [],
-    };
-    setSetores([...setores, novoSetor]);
-  }, [setores]);
-
-  const handleRemoveSetor = useCallback((setorId) => {
-    setSetores(setores.filter((s) => s.id !== setorId));
-  }, [setores]);
-
-  const handleAddItem = useCallback((setorId, item) => {
-    setSetores(
-      setores.map((s) =>
-        s.id === setorId
-          ? {
-              ...s,
-              itens: [...s.itens, item],
-            }
-          : s
-      )
-    );
-  }, [setores]);
-
-  const handleRemoveItem = useCallback((setorId, itemId) => {
-    setSetores(
-      setores.map((s) =>
-        s.id === setorId
-          ? {
-              ...s,
-              itens: s.itens.filter((i) => i.id !== itemId),
-            }
-          : s
-      )
-    );
-  }, [setores]);
-
-  const handleUpdateItem = useCallback((setorId, itemId, updated) => {
-    setSetores(
-      setores.map((s) =>
-        s.id === setorId
-          ? {
-              ...s,
-              itens: s.itens.map((i) => (i.id === itemId ? updated : i)),
-            }
-          : s
-      )
-    );
-  }, [setores]);
+      precoVendaBDI: precoFinal,
+      totalPeso: totalWeight,
+      precoKgMedio,
+      prazo: {
+        ...prev.prazo,
+        fabricacao: Math.ceil((totalWeight / 1000) * 1.5),
+        montagem: Math.ceil((totalWeight / 1000) * 2)
+      }
+    }));
+  }, [setores, calculations.margemPct, calculations.impostosPct]);
 
   const handleSaveOrcamento = useCallback(() => {
     if (!project.nome || !project.cliente) {
       toast.error('Preencha nome do projeto e cliente');
       return;
     }
-
     if (setores.length === 0) {
       toast.error('Adicione pelo menos um setor');
       return;
     }
 
+    const orc = {
+      id: `ORC-${Date.now()}`,
+      numero: `ORC-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
+      nome: project.nome,
+      projeto: project.nome,
+      cliente: project.cliente,
+      tipo: project.tipo,
+      regiao: project.regiao,
+      valor: calculations.precoFinal,
+      valor_total: calculations.precoFinal,
+      valorBDI: calculations.precoVendaBDI,
+      peso_estimado: calculations.totalPeso,
+      status: 'rascunho',
+      probabilidade: 50,
+      responsavel: 'Guilherme Maciel',
+      dataCriacao: new Date().toISOString(),
+      data_criacao: new Date().toISOString(),
+      validade: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0],
+      setores: setores.map((s) => ({
+        nome: s.nome,
+        itens: s.itens,
+        total: s.itens.reduce((sum, item) => sum + item.quantidade * item.preco, 0),
+      })),
+      custosUnitarios: unitCosts,
+      resumo: {
+        pesoTotal: calculations.totalPeso,
+        precoKgMedio: calculations.precoKgMedio,
+        margemPct: calculations.margemPct,
+        prazo: calculations.prazo.total,
+      },
+    };
+
+    // Save to localStorage (guaranteed persistence)
     try {
-      const orc = {
-        id: `ORC-${Date.now()}`,
-        nome: project.nome,
-        cliente: project.cliente,
-        tipo: project.tipo,
-        regiao: project.regiao,
-        valor: calculations.precoFinal,
-        valorBDI: calculations.precoVendaBDI,
-        status: 'Rascunho',
-        dataCriacao: new Date().toISOString(),
-        setores: setores.map((s) => ({
-          nome: s.nome,
-          itens: s.itens,
-          total: s.itens.reduce((sum, item) => sum + item.quantidade * item.preco, 0),
-        })),
-        resumo: {
-          pesoTotal: calculations.totalPeso,
-          precoKgMedio: calculations.precoKgMedio,
-          margemPct: calculations.margemPct,
-          prazo: calculations.prazo.total,
-        },
-      };
-
-      // Try to save via context (Supabase)
-      try {
-        addOrcamento(orc);
-      } catch (error) {
-        console.warn('Supabase save failed, falling back to localStorage', error);
-      }
-
-      // Also save to localStorage as backup
-      const savedOrcamentos = JSON.parse(localStorage.getItem('orcamentos') || '[]');
-      savedOrcamentos.push(orc);
-      localStorage.setItem('orcamentos', JSON.stringify(savedOrcamentos));
-
-      toast.success('Orçamento salvo com sucesso!');
-      setTimeout(() => {
-        window.location.href = '/OrcamentosPage';
-      }, 1500);
-    } catch (error) {
-      console.error('Error saving budget:', error);
-      toast.error('Erro ao salvar orçamento');
+      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
+      saved.push(orc);
+      localStorage.setItem('montex_orcamentos', JSON.stringify(saved));
+    } catch (e) {
+      console.error('localStorage save error:', e);
     }
-  }, [project, setores, calculations, addOrcamento]);
 
-  // Render steps
-  const renderStep1 = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">Nome do Projeto *</label>
-          <input
-            type="text"
-            value={project.nome}
-            onChange={(e) => setProject({ ...project, nome: e.target.value })}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-            placeholder="Ex: SUPER LUNA - BELO VALE"
-          />
-        </div>
+    // Also try Supabase via context
+    try {
+      addOrcamento(orc);
+    } catch (e) {
+      console.warn('Supabase save failed:', e);
+    }
 
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">Cliente *</label>
-          <input
-            type="text"
-            value={project.cliente}
-            onChange={(e) => setProject({ ...project, cliente: e.target.value })}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-            placeholder="Ex: Super Luna Supermercados"
-          />
-        </div>
+    toast.success('Orçamento salvo com sucesso!');
+  }, [project, setores, calculations, unitCosts, addOrcamento]);
 
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">Tipo de Estrutura</label>
-          <select
-            value={project.tipo}
-            onChange={(e) => setProject({ ...project, tipo: e.target.value })}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-          >
-            {Object.entries(TIPOS_ESTRUTURA).map(([key, type]) => (
-              <option key={key} value={type.id}>
-                {type.nome}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">Região</label>
-          <select
-            value={project.regiao}
-            onChange={(e) => setProject({ ...project, regiao: e.target.value })}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-          >
-            {Object.entries(PARAMETROS_MERCADO.regioes).map(([key]) => (
-              <option key={key} value={key}>
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">Complexidade</label>
-          <select
-            value={project.complexidade}
-            onChange={(e) => setProject({ ...project, complexidade: e.target.value })}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-blue-500"
-          >
-            {Object.entries(PARAMETROS_MERCADO.complexidade).map(([key]) => (
-              <option key={key} value={key}>
-                {key.charAt(0).toUpperCase() + key.slice(1)}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <label className="block text-sm font-semibold text-white mb-2">Distância de Transporte (km)</label>
-          <input
-            type="number"
-            min="0"
-            value={project.distanciaKm}
-            onChange={(e) => setProject({ ...project, distanciaKm: parseFloat(e.target.value) || 0 })}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-          />
-        </div>
-      </div>
-
-      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <p className="text-sm text-slate-300">
-          <Info className="inline mr-2" size={16} />
-          Informações básicas do projeto que afetarão o cálculo do orçamento
-        </p>
-      </div>
-    </motion.div>
-  );
-
-  const renderStep2 = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h3 className="text-lg font-bold text-white">Setores e Itens</h3>
-        <button
-          onClick={handleAddSetor}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-semibold transition-colors"
-        >
-          <Plus size={18} />
-          Novo Setor
-        </button>
-      </div>
-
-      {setores.length === 0 ? (
-        <div className="bg-slate-800/30 border border-slate-700 rounded-lg p-8 text-center">
-          <Building2 size={40} className="text-slate-500 mx-auto mb-3" />
-          <p className="text-slate-400 mb-4">Nenhum setor adicionado ainda</p>
-          <button
-            onClick={handleAddSetor}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-white"
-          >
-            <Plus size={18} />
-            Criar Primeiro Setor
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {setores.map((setor) => (
-            <SetorCard
-              key={setor.id}
-              setor={setor}
-              onAddItem={(item) => handleAddItem(setor.id, item)}
-              onRemoveItem={(itemId) => handleRemoveItem(setor.id, itemId)}
-              onUpdateItem={(itemId, updated) => handleUpdateItem(setor.id, itemId, updated)}
-              onRemoveSetor={() => handleRemoveSetor(setor.id)}
-              onUpdateNome={(novoNome) => setSetores(prev => prev.map(s => s.id === setor.id ? { ...s, nome: novoNome } : s))}
-            />
-          ))}
-        </div>
-      )}
-    </motion.div>
-  );
-
-  const renderStep3 = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <h3 className="text-lg font-bold text-white">Serviços Adicionais</h3>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={servicos.transporteIncluido}
-              onChange={(e) => setServicos({ ...servicos, transporteIncluido: e.target.checked })}
-              className="w-4 h-4"
-            />
-            <span className="text-white font-semibold">Incluir Transporte</span>
-          </label>
-          {servicos.transporteIncluido && (
-            <div className="mt-3 ml-7">
-              <label className="block text-sm text-slate-300 mb-2">Tipo de Transporte</label>
-              <select
-                value={servicos.tipoTransporte}
-                onChange={(e) => setServicos({ ...servicos, tipoTransporte: e.target.value })}
-                className="w-full bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-              >
-                <option value="padrao">Padrão (Carreta)</option>
-                <option value="especial">Especial (Escolta)</option>
-                <option value="proprio">Próprio</option>
-              </select>
-            </div>
-          )}
-        </div>
-
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={servicos.montagemIncluida}
-              onChange={(e) => setServicos({ ...servicos, montagemIncluida: e.target.checked })}
-              className="w-4 h-4"
-            />
-            <span className="text-white font-semibold">Incluir Montagem</span>
-          </label>
-        </div>
-      </div>
-    </motion.div>
-  );
-
-  const renderStep4 = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      <h3 className="text-lg font-bold text-white">BDI e Margens</h3>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {Object.entries(bdi).map(([key, value]) => (
-          <div key={key} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-            <label className="block text-sm font-semibold text-white mb-2 capitalize">
-              {key.replace('_', ' ')}
-            </label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.1"
-                value={(value * 100).toFixed(1)}
-                onChange={(e) =>
-                  setBdi({ ...bdi, [key]: parseFloat(e.target.value) / 100 || 0 })
-                }
-                className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-              />
-              <span className="text-slate-400">%</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-          <label className="block text-sm font-semibold text-white mb-2">Margem de Lucro</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              value={(margem * 100).toFixed(1)}
-              onChange={(e) => setMargem(parseFloat(e.target.value) / 100 || 0)}
-              className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-            />
-            <span className="text-slate-400">%</span>
-          </div>
-          <p className="text-xs text-slate-400 mt-2">{formatCurrency(calculations.margenAbs)}</p>
-        </div>
-
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-          <label className="block text-sm font-semibold text-white mb-2">Desconto</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              value={desconto.toFixed(1)}
-              onChange={(e) => setDesconto(parseFloat(e.target.value) || 0)}
-              className="flex-1 bg-slate-800 border border-slate-700 rounded px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
-            />
-            <span className="text-slate-400">%</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          <div>
-            <p className="text-xs text-slate-400">Subtotal</p>
-            <p className="text-lg font-bold text-white">{formatCurrency(calculations.subtotal)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-400">Custo Indireto</p>
-            <p className="text-lg font-bold text-white">{formatCurrency(calculations.custoIndireto)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-400">Preço Final</p>
-            <p className="text-lg font-bold text-blue-400">{formatCurrency(calculations.precoFinal)}</p>
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-
-  const renderStep5 = () => {
-    const bdiTotalPct = Object.values(bdi).reduce((sum, val) => sum + val, 0);
-    const costBuildupData = [
-      { name: 'Custo Direto', value: calculations.subtotal },
-      { name: 'BDI', value: calculations.custoIndireto },
-      { name: 'Margem', value: calculations.margenAbs },
-    ];
-
-    const radarData = calculations.setoresCalc.map((setor) => ({
-      setor: setor.nome.substring(0, 10),
-      material: setor.material,
-      maoObra: setor.maoObra,
-      peso: setor.peso,
-    }));
-
-    const treemapData = [];
-    setores.forEach((setor) => {
-      setor.itens.forEach((item) => {
-        const valor = item.quantidade * item.preco;
-        treemapData.push({
-          name: item.descricao.substring(0, 20),
-          value: valor,
-          categoria: setor.nome,
-        });
-      });
-    });
-
-    return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-        {/* Enhanced KPIs */}
-        <AnalysisKPIsRow calculations={calculations} bdi={bdi} margem={margem} />
-
-        {/* Detailed Items Table */}
-        <DetailedItemsTable setores={setores} bdi={bdi} margem={margem} calculations={calculations} />
-
-        {/* Charts Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Composition pie */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-          >
-            <h4 className="font-semibold text-white mb-4">Composição de Custos</h4>
-            <ResponsiveContainer width="100%" height={350}>
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Material', value: calculations.totalMaterial },
-                    { name: 'Mão de Obra', value: calculations.totalMaoObra },
-                    { name: 'Transporte', value: calculations.totalTransporte },
-                  ]}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={80}
-                  fill="#8884d8"
-                  dataKey="value"
-                >
-                  {CHART_COLORS.map((color, index) => (
-                    <Cell key={`cell-${index}`} fill={color} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatCurrency(value)} />
-              </PieChart>
-            </ResponsiveContainer>
-          </motion.div>
-
-          {/* Sectors comparison */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-          >
-            <h4 className="font-semibold text-white mb-4">Valor por Setor</h4>
-            <ResponsiveContainer width="100%" height={350}>
-              <BarChart data={calculations.setoresCalc}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-                <XAxis dataKey="nome" stroke="#cbd5e1" />
-                <YAxis stroke="#cbd5e1" />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
-                  formatter={(value) => formatCurrency(value)}
-                />
-                <Legend />
-                <Bar dataKey="material" stackId="a" fill="#3b82f6" name="Material" />
-                <Bar dataKey="maoObra" stackId="a" fill="#8b5cf6" name="Mão de Obra" />
-              </BarChart>
-            </ResponsiveContainer>
-          </motion.div>
-        </div>
-
-        {/* Radar Chart - Sectors Comparison */}
-        {radarData.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-          >
-            <h4 className="font-semibold text-white mb-4">Comparação de Setores</h4>
-            <ResponsiveContainer width="100%" height={350}>
-              <RadarChart data={radarData}>
-                <PolarGrid stroke="#475569" />
-                <PolarAngleAxis dataKey="setor" stroke="#cbd5e1" />
-                <PolarRadiusAxis stroke="#cbd5e1" />
-                <Radar name="Material" dataKey="material" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.5} />
-                <Radar name="Mão de Obra" dataKey="maoObra" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.5} />
-                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }} />
-                <Legend />
-              </RadarChart>
-            </ResponsiveContainer>
-          </motion.div>
-        )}
-
-        {/* Cost Buildup Area Chart */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-        >
-          <h4 className="font-semibold text-white mb-4">Construção do Preço Final</h4>
-          <ResponsiveContainer width="100%" height={350}>
-            <AreaChart data={costBuildupData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-              <XAxis dataKey="name" stroke="#cbd5e1" />
-              <YAxis stroke="#cbd5e1" />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
-                formatter={(value) => formatCurrency(value)}
-              />
-              <Area
-                type="monotone"
-                dataKey="value"
-                fill="#3b82f6"
-                stroke="#3b82f6"
-                fillOpacity={0.6}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
-        </motion.div>
-
-        {/* Treemap - Cost Distribution */}
-        {treemapData.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-          >
-            <h4 className="font-semibold text-white mb-4">Distribuição de Custos por Item</h4>
-            <ResponsiveContainer width="100%" height={350}>
-              <Treemap
-                data={treemapData}
-                dataKey="value"
-                fill="#3b82f6"
-                stroke="#cbd5e1"
-              >
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
-                  formatter={(value) => formatCurrency(value)}
-                />
-              </Treemap>
-            </ResponsiveContainer>
-          </motion.div>
-        )}
-
-        {/* BDI Composition Breakdown */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-        >
-          <h4 className="font-semibold text-white mb-4">Composição do BDI</h4>
-          <div className="space-y-3">
-            {Object.entries(bdi).map(([key, value]) => {
-              const percentage = (value * 100).toFixed(1);
-              const amount = calculations.subtotal * value;
-              return (
-                <div key={key} className="flex items-center gap-4">
-                  <div className="w-32 text-sm font-medium text-slate-300 capitalize">
-                    {key.replace('_', ' ')}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-end gap-2">
-                      <div className="flex-1 bg-slate-700/50 rounded-full h-6 overflow-hidden">
-                        <div
-                          className="bg-blue-500 h-full"
-                          style={{ width: `${Math.min(percentage, 100)}%` }}
-                        />
-                      </div>
-                      <span className="text-sm text-slate-400 min-w-12 text-right">{percentage}%</span>
-                    </div>
-                  </div>
-                  <div className="text-right min-w-24">
-                    <p className="text-sm font-semibold text-blue-400">{formatCurrency(amount)}</p>
-                  </div>
-                </div>
-              );
-            })}
-            <div className="border-t border-slate-700 pt-3 mt-3 flex items-center gap-4">
-              <div className="w-32 text-sm font-bold text-slate-200">BDI Total</div>
-              <div className="flex-1" />
-              <div className="text-right min-w-24">
-                <p className="text-lg font-bold text-blue-400">{formatCurrency(calculations.custoIndireto)}</p>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Schedule Timeline */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-        >
-          <h4 className="font-semibold text-white mb-4">Cronograma (dias)</h4>
-          <div className="space-y-3">
-            {Object.entries(calculations.prazo).map(([key, value]) => {
-              if (key === 'total') return null;
-              const maxDays = Math.max(...Object.values(calculations.prazo).filter(v => typeof v === 'number'));
-              const percentage = (value / maxDays) * 100;
-              return (
-                <div key={key} className="flex items-center gap-4">
-                  <div className="w-32 text-sm font-medium text-slate-300 capitalize">
-                    {key.charAt(0).toUpperCase() + key.slice(1)}
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-end gap-2">
-                      <div className="flex-1 bg-slate-700/50 rounded-full h-6 overflow-hidden">
-                        <div
-                          className="bg-green-500 h-full"
-                          style={{ width: `${percentage}%` }}
-                        />
-                      </div>
-                      <span className="text-sm text-slate-400 min-w-12 text-right">{formatNumber(value, 0)} d</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-            <div className="border-t border-slate-700 pt-3 mt-3">
-              <div className="flex items-center justify-between">
-                <div className="text-sm font-bold text-slate-200">Total</div>
-                <div className="text-lg font-bold text-green-400">{formatNumber(calculations.prazo.total, 0)} dias</div>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Historical Comparison */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
-        >
-          <h4 className="font-semibold text-white mb-4">Comparação com Histórico</h4>
-          <div className="space-y-2">
-            {HISTORICO_OBRAS.length > 0 && HISTORICO_OBRAS[0]?.setores ? (
-              HISTORICO_OBRAS[0].setores.map((setor) => (
-                <div key={setor.nome} className="flex items-center justify-between text-sm bg-slate-700/30 p-3 rounded-lg">
-                  <span className="text-slate-300 font-medium">{setor.nome}</span>
-                  <span className="text-white font-semibold">{formatCurrency(setor.valor)}</span>
-                  <span className={`text-sm font-semibold ${setor.precoKg < calculations.precoKgMedio ? 'text-green-400' : 'text-red-400'}`}>
-                    R$ {formatNumber(setor.precoKg, 2)}/kg
-                  </span>
-                </div>
-              ))
-            ) : (
-              <p className="text-slate-400 text-center py-4">Nenhum histórico disponível</p>
-            )}
-          </div>
-        </motion.div>
-      </motion.div>
-    );
+  const canProceed = () => {
+    switch (step) {
+      case 0: return project.nome && project.cliente;
+      case 2: return setores.length > 0;
+      default: return true;
+    }
   };
 
-  const stepContent = [renderStep1(), renderStep2(), renderStep3(), renderStep4(), renderStep5()];
+  const renderStep = () => {
+    switch (step) {
+      case 0:
+        return <StepInfo project={project} setProject={setProject} />;
+      case 1:
+        return <StepCustos unitCosts={unitCosts} setUnitCosts={setUnitCosts} setores={setores} />;
+      case 2:
+        return <StepSetores setores={setores} setSetores={setSetores} />;
+      case 3:
+        return <StepServicos />;
+      case 4:
+        return <StepBDI project={project} calculations={calculations} setCalculations={setCalculations} />;
+      case 5:
+        return <StepAnalise project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} />;
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4 lg:p-8">
-      <div className="max-w-full px-4 lg:px-8">
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <h1 className="text-4xl font-bold text-white mb-2">Simulador de Orçamento</h1>
-          <p className="text-slate-400">Sistema profissional para simulação de orçamentos de estruturas metálicas MONTEX</p>
-        </motion.div>
-
-        <StepIndicator currentStep={currentStep} totalSteps={steps.length} steps={steps} />
-
-        <div className="bg-slate-900/50 border border-slate-700 rounded-xl p-8 mb-6">
-          {stepContent[currentStep]}
+    <div className="min-h-screen bg-gray-100">
+      {/* Header */}
+      <div className="bg-white shadow-sm border-b">
+        <div className="max-w-full px-4 lg:px-8 py-6">
+          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+            <BarChart3 className="h-8 w-8 text-blue-600" />
+            Simulador de Orçamento
+          </h1>
+          <p className="text-gray-600 mt-1">Passo {step + 1} de {steps.length}: {steps[step]}</p>
         </div>
+      </div>
 
-        {/* Navigation buttons */}
-        <div className="flex items-center justify-between">
+      {/* Progress Bar */}
+      <div className="bg-white border-b px-4 lg:px-8 py-4">
+        <div className="flex justify-between items-center max-w-full">
+          {steps.map((s, i) => (
+            <div key={i} className="flex items-center flex-1">
+              <div
+                className={`w-10 h-10 rounded-full flex items-center justify-center font-semibold transition-colors ${
+                  i === step
+                    ? 'bg-blue-600 text-white'
+                    : i < step
+                    ? 'bg-green-600 text-white'
+                    : 'bg-gray-300 text-gray-600'
+                }`}
+              >
+                {i < step ? <CheckCircle2 className="h-5 w-5" /> : i + 1}
+              </div>
+              <div className="flex-1 mx-2">
+                <div className={`h-1 rounded-full transition-colors ${i < step ? 'bg-green-600' : 'bg-gray-300'}`} />
+              </div>
+            </div>
+          ))}
+          <div className="w-10 h-10 rounded-full flex items-center justify-center font-semibold bg-gray-300 text-gray-600">
+            {steps.length}
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="py-8">
+        <AnimatePresence mode="wait">
+          <motion.div key={step} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+            {renderStep()}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Footer Navigation */}
+      <div className="bg-white border-t shadow-lg sticky bottom-0">
+        <div className="max-w-full px-4 lg:px-8 py-4 flex justify-between items-center">
           <button
-            onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
-            disabled={currentStep === 0}
-            className="flex items-center gap-2 px-6 py-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-white font-semibold transition-colors"
+            onClick={() => setStep(Math.max(0, step - 1))}
+            disabled={step === 0}
+            className="px-6 py-2 border border-gray-300 rounded-lg hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-2"
           >
-            <ChevronLeft size={18} />
+            <ChevronLeft className="h-4 w-4" />
             Anterior
           </button>
 
           <div className="text-center">
-            <p className="text-sm text-slate-400">
-              Etapa {currentStep + 1} de {steps.length}
+            <p className="text-sm text-gray-600">
+              Passo {step + 1} de {steps.length}
             </p>
           </div>
 
-          <div className="flex gap-3">
-            {currentStep === steps.length - 1 ? (
+          <div className="flex gap-2">
+            {step === steps.length - 1 && (
               <button
                 onClick={handleSaveOrcamento}
-                className="flex items-center gap-2 px-8 py-3 bg-green-600 hover:bg-green-700 rounded-lg text-white font-semibold transition-colors"
+                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2"
               >
-                <Save size={18} />
+                <Save className="h-4 w-4" />
                 Salvar Orçamento
               </button>
-            ) : (
-              <button
-                onClick={() => setCurrentStep(Math.min(steps.length - 1, currentStep + 1))}
-                className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 rounded-lg text-white font-semibold transition-colors"
-              >
-                Próximo
-                <ChevronRight size={18} />
-              </button>
             )}
+            <button
+              onClick={() => setStep(Math.min(steps.length - 1, step + 1))}
+              disabled={!canProceed()}
+              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center gap-2"
+            >
+              Próximo
+              <ChevronRight className="h-4 w-4" />
+            </button>
           </div>
         </div>
       </div>

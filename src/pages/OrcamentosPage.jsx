@@ -314,13 +314,30 @@ export default function OrcamentosPage() {
     status: 'rascunho'
   });
 
-  // Sincronizar com context quando mudar
+  // Sincronizar com context + localStorage quando mudar
   React.useEffect(() => {
-    setOrcamentosLocal(orcamentosContext);
+    // Load from localStorage
+    let localStored = [];
+    try {
+      localStored = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
+    } catch (e) {
+      console.warn('Erro ao ler orçamentos do localStorage:', e);
+    }
+
+    // Merge context + localStorage (deduplicate by id)
+    const merged = [...orcamentosContext];
+    const existingIds = new Set(merged.map(o => o.id));
+    localStored.forEach(o => {
+      if (!existingIds.has(o.id)) {
+        merged.push(o);
+      }
+    });
+
+    setOrcamentosLocal(merged);
   }, [orcamentosContext]);
 
-  // Usar dados locais para exibição
-  const orcamentos = orcamentosLocal.length > 0 ? orcamentosLocal : orcamentosContext;
+  // Usar dados locais para exibição (merged)
+  const orcamentos = orcamentosLocal;
 
   // Filtrar orçamentos
   const orcamentosFiltrados = useMemo(() => {
