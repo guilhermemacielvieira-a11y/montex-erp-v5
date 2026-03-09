@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   Building2,
   Package,
+  Edit3,
 } from 'lucide-react';
 import {
   PieChart,
@@ -288,9 +289,11 @@ const ItemRow = ({ item, onRemove, onUpdate }) => {
 };
 
 // Sector card component
-const SetorCard = ({ setor, onAddItem, onRemoveItem, onUpdateItem, onRemoveSetor }) => {
+const SetorCard = ({ setor, onAddItem, onRemoveItem, onUpdateItem, onRemoveSetor, onUpdateNome }) => {
   const [showCatalog, setShowCatalog] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(CATEGORIAS_SERVICO.ESTRUTURA_METALICA);
+  const [editingNome, setEditingNome] = useState(false);
+  const [nomeTemp, setNomeTemp] = useState(setor.nome);
 
   const totalSetor = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
   const pesoTotal = setor.itens.reduce((sum, item) => {
@@ -318,7 +321,38 @@ const SetorCard = ({ setor, onAddItem, onRemoveItem, onUpdateItem, onRemoveSetor
       >
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h3 className="text-lg font-bold text-white">{setor.nome}</h3>
+            {editingNome ? (
+              <input
+                autoFocus
+                type="text"
+                value={nomeTemp}
+                onChange={(e) => setNomeTemp(e.target.value)}
+                onBlur={() => {
+                  if (nomeTemp.trim()) onUpdateNome(nomeTemp.trim());
+                  setEditingNome(false);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (nomeTemp.trim()) onUpdateNome(nomeTemp.trim());
+                    setEditingNome(false);
+                  }
+                  if (e.key === 'Escape') {
+                    setNomeTemp(setor.nome);
+                    setEditingNome(false);
+                  }
+                }}
+                className="text-lg font-bold text-white bg-slate-700/50 border border-blue-500 rounded-lg px-3 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/50 w-64"
+              />
+            ) : (
+              <h3
+                className="text-lg font-bold text-white cursor-pointer hover:text-blue-400 transition-colors"
+                onClick={() => { setNomeTemp(setor.nome); setEditingNome(true); }}
+                title="Clique para editar o nome do setor"
+              >
+                {setor.nome}
+                <Edit3 size={14} className="inline ml-2 text-slate-500" />
+              </h3>
+            )}
             <div className="flex gap-4 mt-2 text-sm text-slate-400">
               <span className="flex items-center gap-1">
                 <Package size={14} />
@@ -747,6 +781,7 @@ export default function SimuladorOrcamento() {
               onRemoveItem={(itemId) => handleRemoveItem(setor.id, itemId)}
               onUpdateItem={(itemId, updated) => handleUpdateItem(setor.id, itemId, updated)}
               onRemoveSetor={() => handleRemoveSetor(setor.id)}
+              onUpdateNome={(novoNome) => setSetores(prev => prev.map(s => s.id === setor.id ? { ...s, nome: novoNome } : s))}
             />
           ))}
         </div>
