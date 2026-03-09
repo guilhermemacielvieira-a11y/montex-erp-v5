@@ -1200,11 +1200,21 @@ export default function SimuladorOrcamento() {
       {/* Header */}
       <div className="bg-white shadow-sm border-b">
         <div className="max-w-full px-4 lg:px-8 py-6">
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <BarChart3 className="h-8 w-8 text-blue-600" />
-            Simulador de Orçamento
-          </h1>
-          <p className="text-gray-600 mt-1">Passo {step + 1} de {steps.length}: {steps[step]}</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
+                <BarChart3 className="h-8 w-8 text-blue-600" />
+                Simulador de Orçamento
+              </h1>
+              <p className="text-gray-600 mt-1">Passo {step + 1} de {steps.length}: {steps[step]}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1.5">
+                <Plus className="h-4 w-4" />
+                {project.nome ? project.nome : 'Nova Simulação'}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
