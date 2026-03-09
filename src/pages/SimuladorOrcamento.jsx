@@ -1078,9 +1078,15 @@ const PropostaButton = ({ type, project, setores, calculations, unitCosts }) => 
         filename = `Proposta_${(project?.nome || 'Montex').replace(/\s+/g, '_')}.pdf`;
       }
 
-      // Download the file
-      const { saveAs } = await import('file-saver');
-      saveAs(blob, filename);
+      // Download the file using native approach
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       toast.success(`Proposta ${type.toUpperCase()} gerada com sucesso!`);
     } catch (error) {
       console.error('Erro ao gerar proposta:', error);

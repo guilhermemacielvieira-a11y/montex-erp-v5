@@ -40,7 +40,7 @@ function buildItemsFromData(data) {
   let totalGeral = 0;
 
   (data.setores || []).forEach(setor => {
-    (setor.items || []).forEach(item => {
+    (setor.itens || []).forEach(item => {
       const total = (item.quantidade || 0) * (item.preco || 0);
       totalGeral += total;
       allItems.push({
