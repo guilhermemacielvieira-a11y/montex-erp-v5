@@ -36,6 +36,7 @@ import {
   ArrowDownRight,
   FileDown,
   File,
+  Eye,
 } from 'lucide-react';
 import {
   PieChart,
@@ -485,23 +486,73 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
   );
 };
 
+// Pre-defined items derived from Step 2 unit costs
+const getPreDefinedItems = (unitCosts) => [
+  // Estrutura Metálica
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Material', unidade: 'KG', precoMaterial: unitCosts.estrutura.material, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Fabricação', unidade: 'KG', precoMaterial: unitCosts.estrutura.fabricacao, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Pintura', unidade: 'KG', precoMaterial: unitCosts.estrutura.pintura, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Transporte', unidade: 'KG', precoMaterial: unitCosts.estrutura.transporte, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Montagem', unidade: 'KG', precoMaterial: 0, precoInstalacao: unitCosts.estrutura.montagem, color: 'blue' },
+  // Cobertura
+  { categoria: 'Cobertura', descricao: 'Cobertura - Material', unidade: 'M2', precoMaterial: unitCosts.cobertura.material, precoInstalacao: 0, color: 'orange' },
+  { categoria: 'Cobertura', descricao: 'Cobertura - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.cobertura.montagem, color: 'orange' },
+  // Fechamento
+  { categoria: 'Fechamento', descricao: 'Fechamento - Material', unidade: 'M2', precoMaterial: unitCosts.fechamento.material, precoInstalacao: 0, color: 'red' },
+  { categoria: 'Fechamento', descricao: 'Fechamento - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.fechamento.montagem, color: 'red' },
+  // Steel Deck
+  { categoria: 'Steel Deck', descricao: 'Steel Deck - Material', unidade: 'M2', precoMaterial: unitCosts.steelDeck.material, precoInstalacao: 0, color: 'purple' },
+  { categoria: 'Steel Deck', descricao: 'Steel Deck - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.steelDeck.montagem, color: 'purple' },
+  // Complementos
+  { categoria: 'Complementos', descricao: 'Calha', unidade: 'ML', precoMaterial: unitCosts.complementos.calha, precoInstalacao: 0, color: 'green' },
+  { categoria: 'Complementos', descricao: 'Rufos', unidade: 'ML', precoMaterial: unitCosts.complementos.rufos, precoInstalacao: 0, color: 'green' },
+  { categoria: 'Complementos', descricao: 'Platibanda', unidade: 'M2', precoMaterial: unitCosts.complementos.platibanda, precoInstalacao: 0, color: 'green' },
+];
+
+const CATEGORY_COLORS = {
+  blue: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-800' },
+  orange: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', badge: 'bg-orange-100 text-orange-800' },
+  red: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-100 text-red-800' },
+  purple: { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', badge: 'bg-purple-100 text-purple-800' },
+  green: { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-100 text-green-800' },
+};
+
 // SetorCard component for Step 3
-const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems }) => {
+const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, unitCosts }) => {
   const [editingTitle, setEditingTitle] = useState(false);
   const [newTitle, setNewTitle] = useState(setor.nome);
-  const [showItemForm, setShowItemForm] = useState(false);
+  const [showItemSelector, setShowItemSelector] = useState(false);
+  const [showCustomForm, setShowCustomForm] = useState(false);
   const [newItem, setNewItem] = useState({ descricao: '', quantidade: 0, unidade: 'KG', preco: 0 });
+  const [editingItemIdx, setEditingItemIdx] = useState(null);
+
+  const preDefinedItems = getPreDefinedItems(unitCosts);
 
   const handleTitleSave = () => {
     onUpdate(index, { ...setor, nome: newTitle });
     setEditingTitle(false);
   };
 
-  const handleAddItem = () => {
-    if (newItem.descricao && newItem.quantidade > 0) {
-      onAddItem(index, { ...newItem, quantidade: parseFloat(newItem.quantidade), preco: parseFloat(newItem.preco) });
+  const handleAddPreDefined = (predefined) => {
+    const totalPreco = predefined.precoMaterial + predefined.precoInstalacao;
+    const item = {
+      descricao: predefined.descricao,
+      unidade: predefined.unidade,
+      quantidade: 0,
+      preco: totalPreco,
+      precoMaterial: predefined.precoMaterial,
+      precoInstalacao: predefined.precoInstalacao,
+      categoria: predefined.categoria,
+    };
+    onAddItem(index, item);
+    setShowItemSelector(false);
+  };
+
+  const handleAddCustom = () => {
+    if (newItem.descricao && newItem.quantidade >= 0) {
+      onAddItem(index, { ...newItem, quantidade: parseFloat(newItem.quantidade), preco: parseFloat(newItem.preco), precoMaterial: parseFloat(newItem.preco), precoInstalacao: 0 });
       setNewItem({ descricao: '', quantidade: 0, unidade: 'KG', preco: 0 });
-      setShowItemForm(false);
+      setShowCustomForm(false);
     }
   };
 
@@ -510,7 +561,31 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
     onUpdate(index, { ...setor, itens: updatedItens });
   };
 
+  const handleEditItem = (itemIndex, field, value) => {
+    const updatedItens = [...setor.itens];
+    const numVal = parseFloat(value) || 0;
+    if (field === 'quantidade') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], quantidade: numVal };
+    } else if (field === 'precoMaterial') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], precoMaterial: numVal, preco: numVal + (updatedItens[itemIndex].precoInstalacao || 0) };
+    } else if (field === 'precoInstalacao') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], precoInstalacao: numVal, preco: (updatedItens[itemIndex].precoMaterial || 0) + numVal };
+    } else if (field === 'preco') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], preco: numVal };
+    }
+    onUpdate(index, { ...setor, itens: updatedItens });
+  };
+
   const total = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
+  const totalMaterial = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoMaterial || item.preco || 0)), 0);
+  const totalInstalacao = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoInstalacao || 0)), 0);
+
+  // Group pre-defined items by category
+  const categorizedItems = preDefinedItems.reduce((acc, item) => {
+    if (!acc[item.categoria]) acc[item.categoria] = { items: [], color: item.color };
+    acc[item.categoria].items.push(item);
+    return acc;
+  }, {});
 
   return (
     <motion.div
@@ -562,7 +637,8 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
                 <th className="text-left p-2 font-semibold">Descrição</th>
                 <th className="text-center p-2 font-semibold">Qtd</th>
                 <th className="text-center p-2 font-semibold">Un</th>
-                <th className="text-right p-2 font-semibold">Preço</th>
+                <th className="text-right p-2 font-semibold">Material</th>
+                <th className="text-right p-2 font-semibold">Instalação</th>
                 <th className="text-right p-2 font-semibold">Total</th>
                 <th className="text-center p-2 font-semibold">Ação</th>
               </tr>
@@ -570,15 +646,91 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
             <tbody>
               {setor.itens.map((item, idx) => (
                 <tr key={idx} className="border-b hover:bg-gray-50">
-                  <td className="p-2">{item.descricao}</td>
-                  <td className="text-center p-2">{formatNumber(item.quantidade)}</td>
+                  <td className="p-2">
+                    <span className="font-medium">{item.descricao}</span>
+                    {item.categoria && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{item.categoria}</span>
+                    )}
+                  </td>
+                  <td className="text-center p-1">
+                    {editingItemIdx === idx ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.quantidade}
+                        onChange={(e) => handleEditItem(idx, 'quantidade', e.target.value)}
+                        className="w-20 px-1 py-1 text-center border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => setEditingItemIdx(idx)}
+                      >
+                        {formatNumber(item.quantidade)}
+                      </span>
+                    )}
+                  </td>
                   <td className="text-center p-2 text-gray-600">{item.unidade}</td>
-                  <td className="text-right p-2">{formatCurrency(item.preco)}</td>
+                  <td className="text-right p-1">
+                    {editingItemIdx === idx ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.precoMaterial || 0}
+                        onChange={(e) => handleEditItem(idx, 'precoMaterial', e.target.value)}
+                        className="w-24 px-1 py-1 text-right border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => setEditingItemIdx(idx)}
+                      >
+                        {formatCurrency(item.precoMaterial || 0)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-right p-1">
+                    {editingItemIdx === idx ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.precoInstalacao || 0}
+                        onChange={(e) => handleEditItem(idx, 'precoInstalacao', e.target.value)}
+                        className="w-24 px-1 py-1 text-right border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => setEditingItemIdx(idx)}
+                      >
+                        {formatCurrency(item.precoInstalacao || 0)}
+                      </span>
+                    )}
+                  </td>
                   <td className="text-right p-2 font-semibold">{formatCurrency(item.quantidade * item.preco)}</td>
-                  <td className="text-center p-2">
+                  <td className="text-center p-2 flex gap-1 justify-center">
+                    {editingItemIdx === idx ? (
+                      <button
+                        onClick={() => setEditingItemIdx(null)}
+                        className="p-1 text-green-600 hover:bg-green-50 rounded"
+                        title="Confirmar"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setEditingItemIdx(idx)}
+                        className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                        title="Editar"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                    )}
                     <button
                       onClick={() => handleRemoveItem(idx)}
                       className="p-1 text-red-600 hover:bg-red-50 rounded"
+                      title="Remover"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -593,12 +745,58 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
       )}
 
       <div className="flex justify-between items-center mb-4 pt-4 border-t">
-        <span className="font-semibold text-gray-900">Total do Setor:</span>
-        <span className="text-lg font-bold text-blue-600">{formatCurrency(total)}</span>
+        <div className="flex gap-6">
+          <span className="text-sm text-gray-600">Material: <span className="font-semibold text-gray-900">{formatCurrency(totalMaterial)}</span></span>
+          <span className="text-sm text-gray-600">Instalação: <span className="font-semibold text-gray-900">{formatCurrency(totalInstalacao)}</span></span>
+        </div>
+        <div>
+          <span className="font-semibold text-gray-900">Total: </span>
+          <span className="text-lg font-bold text-blue-600">{formatCurrency(total)}</span>
+        </div>
       </div>
 
-      {showItemForm ? (
+      {/* Item Selector - Pre-defined items from Step 2 */}
+      {showItemSelector ? (
         <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="font-semibold text-gray-800 text-sm">Selecione o item (valores do Step 2 - Custos Unitários)</h4>
+            <button onClick={() => setShowItemSelector(false)} className="p-1 text-gray-500 hover:text-gray-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {Object.entries(categorizedItems).map(([cat, { items, color }]) => {
+            const colors = CATEGORY_COLORS[color] || CATEGORY_COLORS.blue;
+            return (
+              <div key={cat} className="mb-2">
+                <div className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${colors.badge} mb-1`}>{cat}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {items.map((item, iIdx) => (
+                    <button
+                      key={iIdx}
+                      onClick={() => handleAddPreDefined(item)}
+                      className={`text-left p-2 rounded border ${colors.border} ${colors.bg} hover:shadow-md transition-shadow text-sm`}
+                    >
+                      <div className="font-medium text-gray-900">{item.descricao}</div>
+                      <div className="flex gap-3 mt-1 text-xs text-gray-600">
+                        {item.precoMaterial > 0 && <span>Material: {formatCurrency(item.precoMaterial)}/{item.unidade.toLowerCase()}</span>}
+                        {item.precoInstalacao > 0 && <span>Instalação: {formatCurrency(item.precoInstalacao)}/{item.unidade.toLowerCase()}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <button
+            onClick={() => { setShowItemSelector(false); setShowCustomForm(true); }}
+            className="w-full mt-2 px-3 py-2 border border-dashed border-gray-400 text-gray-600 rounded-lg hover:bg-gray-100 text-sm font-medium"
+          >
+            + Item Personalizado
+          </button>
+        </div>
+      ) : showCustomForm ? (
+        <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+          <h4 className="font-semibold text-gray-800 text-sm mb-2">Item Personalizado</h4>
           <div className="grid grid-cols-2 gap-3">
             <input
               type="text"
@@ -637,13 +835,13 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
           </div>
           <div className="flex gap-2">
             <button
-              onClick={handleAddItem}
+              onClick={handleAddCustom}
               className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
             >
               Adicionar Item
             </button>
             <button
-              onClick={() => setShowItemForm(false)}
+              onClick={() => setShowCustomForm(false)}
               className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
             >
               Cancelar
@@ -652,7 +850,7 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
         </div>
       ) : (
         <button
-          onClick={() => setShowItemForm(true)}
+          onClick={() => setShowItemSelector(true)}
           className="w-full px-4 py-2 border-2 border-dashed border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-medium flex items-center justify-center gap-2"
         >
           <Plus className="h-4 w-4" />
@@ -664,7 +862,7 @@ const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, availableItems
 };
 
 // Step 3: Setores e Itens
-const StepSetores = ({ setores, setSetores }) => {
+const StepSetores = ({ setores, setSetores, unitCosts }) => {
   const [showNewSetor, setShowNewSetor] = useState(false);
   const [newSetorName, setNewSetorName] = useState('');
 
@@ -743,6 +941,7 @@ const StepSetores = ({ setores, setSetores }) => {
               onUpdate={handleUpdateSetor}
               onDelete={handleDeleteSetor}
               onAddItem={handleAddItem}
+              unitCosts={unitCosts}
             />
           ))}
         </div>
@@ -1026,6 +1225,13 @@ const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
         </p>
         <div className="flex flex-wrap gap-3">
           <PropostaButton
+            type="html"
+            project={project}
+            setores={setores}
+            calculations={calculations}
+            unitCosts={unitCosts}
+          />
+          <PropostaButton
             type="docx"
             project={project}
             setores={setores}
@@ -1065,6 +1271,15 @@ const PropostaButton = ({ type, project, setores, calculations, unitCosts }) => 
         condicoesPagamento: { assinatura: 10, projeto: 5, medicoes: 85 },
       };
 
+      if (type === 'html') {
+        // HTML Preview - opens in new window like Romaneio
+        const { gerarPreviaPropostaHTML } = await import('../utils/propostaHTMLPreview');
+        gerarPreviaPropostaHTML(propostaData);
+        toast.success('Prévia HTML aberta em nova janela!');
+        setLoading(false);
+        return;
+      }
+
       let blob;
       let filename;
 
@@ -1096,24 +1311,34 @@ const PropostaButton = ({ type, project, setores, calculations, unitCosts }) => 
     }
   };
 
+  const buttonStyles = {
+    html: 'bg-teal-600 hover:bg-teal-700 text-white',
+    docx: 'bg-blue-600 hover:bg-blue-700 text-white',
+    pdf: 'bg-red-600 hover:bg-red-700 text-white',
+  };
+
+  const icons = {
+    html: <Eye className="h-4 w-4" />,
+    docx: <File className="h-4 w-4" />,
+    pdf: <FileDown className="h-4 w-4" />,
+  };
+
+  const labels = {
+    html: 'Prévia HTML',
+    docx: 'Proposta DOCX',
+    pdf: 'Proposta PDF',
+  };
+
   return (
     <button
       onClick={handleGenerate}
       disabled={loading}
-      className={`flex items-center gap-2 px-5 py-3 rounded-lg font-medium transition-all ${
-        type === 'docx'
-          ? 'bg-blue-600 hover:bg-blue-700 text-white'
-          : 'bg-red-600 hover:bg-red-700 text-white'
-      } ${loading ? 'opacity-70 cursor-wait' : ''}`}
+      className={`flex items-center gap-2 px-5 py-3 rounded-lg font-medium transition-all ${buttonStyles[type]} ${loading ? 'opacity-70 cursor-wait' : ''}`}
     >
       {loading ? (
         <div className="animate-spin h-4 w-4 border-2 border-white border-t-transparent rounded-full" />
-      ) : type === 'docx' ? (
-        <File className="h-4 w-4" />
-      ) : (
-        <FileDown className="h-4 w-4" />
-      )}
-      {loading ? 'Gerando...' : `Proposta ${type.toUpperCase()}`}
+      ) : icons[type]}
+      {loading ? 'Gerando...' : labels[type]}
     </button>
   );
 };
@@ -1285,7 +1510,7 @@ export default function SimuladorOrcamento() {
       case 1:
         return <StepCustos unitCosts={unitCosts} setUnitCosts={setUnitCosts} setores={setores} />;
       case 2:
-        return <StepSetores setores={setores} setSetores={setSetores} />;
+        return <StepSetores setores={setores} setSetores={setSetores} unitCosts={unitCosts} />;
       case 3:
         return <StepServicos />;
       case 4:
