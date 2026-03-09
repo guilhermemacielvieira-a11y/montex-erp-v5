@@ -370,6 +370,24 @@ export default function DespesasPage() {
     toast.success('Despesas importadas removidas!');
   };
 
+  // Helper: filtrar por período (definido antes dos useMemo que o usam)
+  const filtrarPorPeriodo = (lista) => {
+    if (filtroPeriodo === 'geral') return lista;
+    const hoje = new Date();
+    const inicio = new Date();
+    if (filtroPeriodo === 'semanal') {
+      inicio.setDate(hoje.getDate() - 7);
+    } else if (filtroPeriodo === 'mensal') {
+      inicio.setMonth(hoje.getMonth() - 1);
+    } else if (filtroPeriodo === 'trimestral') {
+      inicio.setMonth(hoje.getMonth() - 3);
+    }
+    return lista.filter(d => {
+      const dataDesp = new Date(d.data || d.vencimento);
+      return dataDesp >= inicio && dataDesp <= hoje;
+    });
+  };
+
   // Despesas filtradas por período (para KPIs e gráficos)
   const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtroPeriodo]);
 
@@ -405,24 +423,6 @@ export default function DespesasPage() {
 
     return { totalPago, totalPendente, totalAtrasado, total };
   }, [despesasPeriodo]);
-
-  // Helper: filtrar por período
-  const filtrarPorPeriodo = (lista) => {
-    if (filtroPeriodo === 'geral') return lista;
-    const hoje = new Date();
-    const inicio = new Date();
-    if (filtroPeriodo === 'semanal') {
-      inicio.setDate(hoje.getDate() - 7);
-    } else if (filtroPeriodo === 'mensal') {
-      inicio.setMonth(hoje.getMonth() - 1);
-    } else if (filtroPeriodo === 'trimestral') {
-      inicio.setMonth(hoje.getMonth() - 3);
-    }
-    return lista.filter(d => {
-      const dataDesp = new Date(d.data || d.vencimento);
-      return dataDesp >= inicio && dataDesp <= hoje;
-    });
-  };
 
   // Filtrar despesas
   const despesasFiltradas = useMemo(() => {
