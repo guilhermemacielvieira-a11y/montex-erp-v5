@@ -1172,11 +1172,8 @@ export default function SimuladorOrcamento() {
   }, [project, setores, calculations, unitCosts, addOrcamento]);
 
   const canProceed = () => {
-    switch (step) {
-      case 0: return project.nome && project.cliente;
-      case 2: return setores.length > 0;
-      default: return true;
-    }
+    // Allow free navigation between steps - validate only on save
+    return true;
   };
 
   const renderStep = () => {
