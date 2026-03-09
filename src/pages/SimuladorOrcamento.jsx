@@ -1352,6 +1352,9 @@ export default function SimuladorOrcamento() {
 
   const [step, setStep] = useState(0);
   const steps = ['Info', 'Custos', 'Setores', 'Serviços', 'BDI', 'Análise'];
+  const [showOrcamentosList, setShowOrcamentosList] = useState(false);
+  const [savedOrcamentos, setSavedOrcamentos] = useState([]);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
   const [project, setProject] = useState({
     nome: '',
@@ -1462,6 +1465,64 @@ export default function SimuladorOrcamento() {
     }
   }, []);
 
+  // Load saved orcamentos list
+  const loadSavedOrcamentos = useCallback(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
+      setSavedOrcamentos(saved);
+    } catch (e) {
+      console.warn('Erro ao carregar orçamentos:', e);
+      setSavedOrcamentos([]);
+    }
+  }, []);
+
+  useEffect(() => { loadSavedOrcamentos(); }, [loadSavedOrcamentos]);
+
+  const handleEditarOrcamento = useCallback((orc) => {
+    // Load the selected orcamento into the simulator
+    setProject({
+      nome: orc.nome || orc.projeto || '',
+      cliente: orc.cliente || '',
+      tipo: orc.tipo || '',
+      regiao: orc.regiao || 'sudeste',
+    });
+    if (orc.custosUnitarios) setUnitCosts(orc.custosUnitarios);
+    if (orc.setores && Array.isArray(orc.setores) && orc.setores.length > 0) {
+      setSetores(orc.setores.map((s, idx) => ({
+        id: `setor_${idx}_${Date.now()}`,
+        nome: s.nome || `Setor ${idx + 1}`,
+        itens: (s.itens || []).map((item, iIdx) => ({
+          id: `item_${idx}_${iIdx}_${Date.now()}`,
+          descricao: item.descricao || '',
+          quantidade: item.quantidade || 0,
+          unidade: item.unidade || 'KG',
+          preco: item.preco || 0,
+          precoMaterial: item.precoMaterial || 0,
+          precoInstalacao: item.precoInstalacao || 0,
+        })),
+      })));
+    }
+    if (orc.resumo) {
+      setCalculations(prev => ({ ...prev, margemPct: orc.resumo.margemPct || prev.margemPct }));
+    }
+    setStep(0);
+    setShowOrcamentosList(false);
+    toast.success(`Orçamento "${orc.nome || orc.projeto}" carregado!`);
+  }, []);
+
+  const handleApagarOrcamento = useCallback((orcId) => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
+      const updated = saved.filter(o => o.id !== orcId);
+      localStorage.setItem('montex_orcamentos', JSON.stringify(updated));
+      setSavedOrcamentos(updated);
+      toast.success('Orçamento apagado!');
+    } catch (e) {
+      console.error('Erro ao apagar:', e);
+    }
+    setDeleteConfirmId(null);
+  }, []);
+
   // Update calculations when setores change
   useMemo(() => {
     const totalValue = setores.reduce((sum, s) => {
@@ -1567,10 +1628,11 @@ export default function SimuladorOrcamento() {
 
     if (savedLocal || savedSupabase) {
       toast.success(`Orçamento ${orc.numero} salvo com sucesso!${savedSupabase ? ' (Supabase + Local)' : ' (Local)'}`);
+      loadSavedOrcamentos(); // Refresh the list
     } else {
       toast.error('Erro ao salvar orçamento. Tente novamente.');
     }
-  }, [project, setores, calculations, unitCosts, addOrcamento]);
+  }, [project, setores, calculations, unitCosts, addOrcamento, loadSavedOrcamentos]);
 
   const canProceed = () => {
     // Allow free navigation between steps - validate only on save
@@ -1610,6 +1672,14 @@ export default function SimuladorOrcamento() {
               <p className="text-gray-600 mt-1">Passo {step + 1} de {steps.length}: {steps[step]}</p>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => { loadSavedOrcamentos(); setShowOrcamentosList(!showOrcamentosList); }}
+                className="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 text-sm font-medium flex items-center gap-2"
+              >
+                <FileText className="h-4 w-4" />
+                Orçamentos Salvos ({savedOrcamentos.length})
+                <ChevronDown className={`h-4 w-4 transition-transform ${showOrcamentosList ? 'rotate-180' : ''}`} />
+              </button>
               <span className="bg-emerald-100 text-emerald-800 px-3 py-1.5 rounded-full text-sm font-semibold flex items-center gap-1.5">
                 <Plus className="h-4 w-4" />
                 {project.nome ? project.nome : 'Nova Simulação'}
@@ -1618,6 +1688,79 @@ export default function SimuladorOrcamento() {
           </div>
         </div>
       </div>
+
+      {/* Lista de Orçamentos Salvos */}
+      <AnimatePresence>
+        {showOrcamentosList && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="overflow-hidden bg-white border-b"
+          >
+            <div className="max-w-full px-4 lg:px-8 py-4">
+              <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+                <Layers className="h-5 w-5 text-blue-600" />
+                Orçamentos Criados
+              </h3>
+              {savedOrcamentos.length === 0 ? (
+                <p className="text-gray-500 text-sm py-4 text-center">Nenhum orçamento salvo ainda.</p>
+              ) : (
+                <div className="space-y-2 max-h-80 overflow-y-auto">
+                  {savedOrcamentos.map((orc) => (
+                    <div key={orc.id} className="flex items-center justify-between bg-gray-50 rounded-lg p-3 border border-gray-200 hover:bg-blue-50 transition-colors">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-xs text-blue-600 font-semibold">{orc.numero}</span>
+                          <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-700">
+                            {orc.status || 'rascunho'}
+                          </span>
+                        </div>
+                        <p className="text-sm font-medium text-gray-900 truncate mt-0.5">{orc.nome || orc.projeto}</p>
+                        <p className="text-xs text-gray-500">{orc.cliente} — {(orc.valor_total || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</p>
+                      </div>
+                      <div className="flex items-center gap-2 ml-4">
+                        <button
+                          onClick={() => handleEditarOrcamento(orc)}
+                          className="px-3 py-1.5 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1"
+                        >
+                          <Edit3 className="h-3.5 w-3.5" />
+                          Editar
+                        </button>
+                        {deleteConfirmId === orc.id ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => handleApagarOrcamento(orc.id)}
+                              className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700"
+                            >
+                              Confirmar
+                            </button>
+                            <button
+                              onClick={() => setDeleteConfirmId(null)}
+                              className="px-2 py-1.5 text-xs text-gray-500 hover:text-gray-700"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setDeleteConfirmId(orc.id)}
+                            className="px-3 py-1.5 text-xs font-medium bg-red-50 text-red-600 rounded-lg hover:bg-red-100 border border-red-200 flex items-center gap-1"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                            Apagar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Progress Bar */}
       <div className="bg-white border-b px-4 lg:px-8 py-4">
