@@ -50,8 +50,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
-import { useLancamentos } from '../contexts/ERPContext';
 import * as XLSX from 'xlsx';
+
+// ========== STORAGE INDEPENDENTE (SEM vínculo com obras) ==========
+const STORAGE_KEY = 'montex_despesas_gerais';
 import {
   BarChart,
   Bar,
@@ -123,14 +125,13 @@ const getCategoriaColor = (categoriaNome) => {
 };
 
 export default function DespesasPage() {
-  // ERPContext - dados reais do Supabase
-  const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
-
+  // === DADOS 100% INDEPENDENTES - SEM vínculo com obras/ERPContext ===
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [filtroCentro, setFiltroCentro] = useState('todos');
-  const [filtroPeriodo, setFiltroPeriodo] = useState('geral'); // geral, semanal, mensal, trimestral
+  const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
+  const [filtroOrigem, setFiltroOrigem] = useState('fabrica'); // fabrica, administrativo, todas
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState([]);
@@ -146,37 +147,26 @@ export default function DespesasPage() {
     formaPagto: ''
   });
 
-  // Sincronizar despesas: Supabase + localStorage (importadas)
-  useEffect(() => {
-    const despesasConvertidas = [];
-    if (lancamentosDespesas && lancamentosDespesas.length > 0) {
-      lancamentosDespesas.filter(l => l.tipo !== 'receita').forEach(l => {
-        despesasConvertidas.push({
-          id: l.id,
-          data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
-          descricao: l.descricao || l.nome || '-',
-          fornecedor: l.fornecedor || '-',
-          categoria: l.categoria || 'Outros',
-          centroCusto: l.centroCusto || l.centrosCusto || 'Produção',
-          valor: l.valor || 0,
-          status: l.status || 'pendente',
-          formaPagto: l.formaPagto || l.formaPagamento || '-',
-          vencimento: l.vencimento || l.dataVencimento || '-'
-        });
-      });
-    }
-    // Merge com despesas importadas do localStorage
+  // Salvar despesas no localStorage sempre que mudar
+  const salvarDespesas = (lista) => {
     try {
-      const importadas = JSON.parse(localStorage.getItem('montex_despesas_importadas') || '[]');
-      const existingIds = new Set(despesasConvertidas.map(d => d.id));
-      importadas.forEach(d => {
-        if (!existingIds.has(d.id)) despesasConvertidas.push(d);
-      });
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
     } catch (e) {
-      console.warn('Erro ao carregar despesas importadas:', e);
+      console.warn('Erro ao salvar despesas:', e);
     }
-    setDespesas(despesasConvertidas);
-  }, [lancamentosDespesas]);
+  };
+
+  // Carregar despesas do localStorage na inicialização
+  useEffect(() => {
+    try {
+      const salvas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      if (salvas.length > 0) {
+        setDespesas(salvas);
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar despesas:', e);
+    }
+  }, []);
 
   // Categorizar despesa automaticamente pela descrição
   const categorizarDespesa = (descricao) => {
@@ -325,33 +315,11 @@ export default function DespesasPage() {
   const confirmarImportacao = async () => {
     setImporting(true);
     try {
-      // Save to localStorage for persistence
-      const existing = JSON.parse(localStorage.getItem('montex_despesas_importadas') || '[]');
-      const existingKeys = new Set(existing.map(d => `${d.data}_${d.descricao}_${d.valor}`));
+      const existingKeys = new Set(despesas.map(d => `${d.data}_${d.descricao}_${d.valor}`));
       const novas = importPreview.filter(d => !existingKeys.has(`${d.data}_${d.descricao}_${d.valor}`));
-      const updated = [...existing, ...novas];
-      localStorage.setItem('montex_despesas_importadas', JSON.stringify(updated));
-
-      // Also try to persist via Supabase
-      for (const desp of novas) {
-        try {
-          await addLancamento({
-            ...desp,
-            tipo: 'despesa',
-            nome: desp.descricao,
-          });
-        } catch (e) {
-          // Continue on Supabase error
-        }
-      }
-
-      // Merge into current state
-      setDespesas(prev => {
-        const existIds = new Set(prev.map(d => d.id));
-        const merge = [...prev];
-        novas.forEach(d => { if (!existIds.has(d.id)) merge.push(d); });
-        return merge;
-      });
+      const novaLista = [...despesas, ...novas];
+      setDespesas(novaLista);
+      salvarDespesas(novaLista);
 
       toast.success(`${novas.length} despesas importadas com sucesso!`);
       setImportDialogOpen(false);
@@ -361,13 +329,6 @@ export default function DespesasPage() {
       toast.error('Erro ao importar despesas.');
     }
     setImporting(false);
-  };
-
-  // Limpar despesas importadas
-  const limparImportadas = () => {
-    localStorage.removeItem('montex_despesas_importadas');
-    setDespesas(prev => prev.filter(d => !d.importado));
-    toast.success('Despesas importadas removidas!');
   };
 
   // Helper: filtrar por período (definido antes dos useMemo que o usam)
@@ -388,8 +349,15 @@ export default function DespesasPage() {
     });
   };
 
-  // Despesas filtradas por período (para KPIs e gráficos)
-  const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtroPeriodo]);
+  // Despesas filtradas por período + origem (para KPIs e gráficos)
+  const despesasPeriodo = useMemo(() => {
+    let lista = despesas;
+    if (filtroOrigem !== 'todas') {
+      const catsPermitidas = origemCategorias[filtroOrigem] || [];
+      lista = lista.filter(d => catsPermitidas.includes(d.categoria));
+    }
+    return filtrarPorPeriodo(lista);
+  }, [despesas, filtroPeriodo, filtroOrigem]);
 
   // Dados para gráficos - dinâmicos (usam período)
   const dadosCategorias = useMemo(() => {
@@ -424,9 +392,22 @@ export default function DespesasPage() {
     return { totalPago, totalPendente, totalAtrasado, total };
   }, [despesasPeriodo]);
 
+  // Mapeamento de origem para categorias
+  const origemCategorias = {
+    fabrica: ['Matéria Prima', 'Manutenção', 'Energia/Utilidades'],
+    administrativo: ['Administrativo'],
+    transporte: ['Transporte'],
+    maodeobra: ['Mão de Obra', 'Impostos'],
+  };
+
   // Filtrar despesas
   const despesasFiltradas = useMemo(() => {
     let resultado = despesas.filter(d => {
+      // Filtro por origem/tipo
+      if (filtroOrigem !== 'todas') {
+        const catsPermitidas = origemCategorias[filtroOrigem] || [];
+        if (!catsPermitidas.includes(d.categoria)) return false;
+      }
       if (searchTerm && !d.descricao.toLowerCase().includes(searchTerm.toLowerCase()) &&
           !d.fornecedor.toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos' && d.status !== filtroStatus) return false;
@@ -435,9 +416,9 @@ export default function DespesasPage() {
       return true;
     });
     return filtrarPorPeriodo(resultado);
-  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo]);
+  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo, filtroOrigem]);
 
-  const handleSaveDespesa = async () => {
+  const handleSaveDespesa = () => {
     if (!formData.descricao || !formData.fornecedor || !formData.categoria || !formData.centroCusto || !formData.valor || !formData.vencimento || !formData.formaPagto) {
       toast.error('Preencher todos os campos');
       return;
@@ -456,9 +437,9 @@ export default function DespesasPage() {
       vencimento: formData.vencimento
     };
 
-    // Persist via ERPContext → Supabase
-    await addLancamento(novaDespesa);
-    setDespesas(prev => [...prev, novaDespesa]);
+    const novaLista = [...despesas, novaDespesa];
+    setDespesas(novaLista);
+    salvarDespesas(novaLista);
     toast.success('Despesa criada com sucesso!');
     setDialogOpen(false);
     setFormData({
@@ -483,7 +464,22 @@ export default function DespesasPage() {
             </div>
             Gestão de Despesas
           </h1>
-          <p className="text-slate-400 mt-1">Controle de despesas com categorias e centros de custo</p>
+          <div className="flex items-center gap-3 mt-2">
+            <Select value={filtroOrigem} onValueChange={setFiltroOrigem}>
+              <SelectTrigger className="w-[220px] bg-slate-800 border-slate-700 text-white">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="todas" className="text-white">Todas as Despesas</SelectItem>
+                <SelectItem value="fabrica" className="text-white">Despesas Fábrica</SelectItem>
+                <SelectItem value="administrativo" className="text-white">Despesas Administrativo</SelectItem>
+                <SelectItem value="transporte" className="text-white">Despesas Transporte</SelectItem>
+                <SelectItem value="maodeobra" className="text-white">Despesas Mão de Obra</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-slate-500 text-sm">|</span>
+            <span className="text-slate-400 text-sm">{despesasFiltradas.length} lançamentos</span>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
