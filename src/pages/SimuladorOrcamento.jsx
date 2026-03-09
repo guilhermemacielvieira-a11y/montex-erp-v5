@@ -25,6 +25,15 @@ import {
   Building2,
   Package,
   Edit3,
+  Target,
+  Zap,
+  Shield,
+  Percent,
+  Clock,
+  Layers,
+  FileText,
+  ArrowUpRight,
+  ArrowDownRight,
 } from 'lucide-react';
 import {
   PieChart,
@@ -40,8 +49,14 @@ import {
   Legend,
   LineChart,
   Line,
-  ScatterChart,
-  Scatter,
+  AreaChart,
+  Area,
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  Treemap,
 } from 'recharts';
 import {
   CATEGORIAS_SERVICO,
@@ -423,33 +438,200 @@ const SetorCard = ({ setor, onAddItem, onRemoveItem, onUpdateItem, onRemoveSetor
   );
 };
 
-// KPI Card component
-const KPICard = ({ icon: Icon, label, value, unit = '', trend = null }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 10 }}
-    animate={{ opacity: 1, y: 0 }}
-    className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
-  >
-    <div className="flex items-start justify-between">
-      <div>
-        <p className="text-sm text-slate-400 mb-1">{label}</p>
-        <p className="text-2xl font-bold text-white">
-          {typeof value === 'number' ? (unit === 'days' ? formatNumber(value, 0) : formatCurrency(value)) : value}
-        </p>
-        {unit && <p className="text-xs text-slate-500 mt-1">{unit}</p>}
+// KPI Card component - FIXED for kg and R$/kg formatting
+const KPICard = ({ icon: Icon, label, value, unit = '', trend = null }) => {
+  let displayValue = value;
+
+  if (typeof value === 'number') {
+    if (unit === 'days') {
+      displayValue = formatNumber(value, 0);
+    } else if (unit === 'kg') {
+      displayValue = formatNumber(value, 1) + ' kg';
+    } else if (unit === 'R$/kg') {
+      displayValue = 'R$ ' + formatNumber(value, 2) + '/kg';
+    } else if (unit === '%') {
+      displayValue = formatNumber(value, 1) + '%';
+    } else {
+      displayValue = formatCurrency(value);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-slate-800/50 border border-slate-700 rounded-lg p-4"
+    >
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-sm text-slate-400 mb-1">{label}</p>
+          <p className="text-2xl font-bold text-white">
+            {displayValue}
+          </p>
+        </div>
+        <div className="text-slate-600">
+          <Icon size={24} />
+        </div>
       </div>
-      <div className="text-slate-600">
-        <Icon size={24} />
-      </div>
+      {trend && (
+        <div className={`flex items-center gap-1 mt-2 text-sm ${trend > 0 ? 'text-green-400' : 'text-red-400'}`}>
+          <TrendingUp size={14} />
+          {formatNumber(Math.abs(trend), 1)}%
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+// Detailed Items Table Component
+const DetailedItemsTable = ({ setores, bdi, margem, calculations }) => {
+  const bdiTotalPct = Object.values(bdi).reduce((sum, val) => sum + val, 0);
+
+  // Flatten all items with sector info
+  const allItems = [];
+  let globalBdiTotal = 0;
+  let globalLucroTotal = 0;
+
+  setores.forEach((setor) => {
+    setor.itens.forEach((item) => {
+      const subtotal = item.quantidade * item.preco;
+      const bdiValue = subtotal * bdiTotalPct;
+      const margemValue = (subtotal + bdiValue) * margem;
+      const precoVenda = subtotal + bdiValue + margemValue;
+
+      globalBdiTotal += bdiValue;
+      globalLucroTotal += margemValue;
+
+      allItems.push({
+        setor: setor.nome,
+        codigo: item.codigo,
+        descricao: item.descricao,
+        unidade: item.unidade,
+        quantidade: item.quantidade,
+        precoUnit: item.preco,
+        subtotal,
+        bdiPct: (bdiTotalPct * 100).toFixed(1),
+        bdiValue,
+        lucroMin: (margem * 100).toFixed(1),
+        lucroValue: margemValue,
+        precoVenda,
+      });
+    });
+  });
+
+  return (
+    <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 mb-6 overflow-x-auto">
+      <h4 className="font-semibold text-white mb-4">Detalhamento de Itens</h4>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-700 sticky top-0 bg-slate-800/80">
+            <th className="text-left px-3 py-3 text-slate-300 font-semibold">Setor</th>
+            <th className="text-left px-3 py-3 text-slate-300 font-semibold">Código</th>
+            <th className="text-left px-3 py-3 text-slate-300 font-semibold">Descrição</th>
+            <th className="text-center px-3 py-3 text-slate-300 font-semibold">Un.</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Qtd</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Preço Unit.</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Subtotal</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">BDI (%)</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">BDI (R$)</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Lucro (%)</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Lucro (R$)</th>
+            <th className="text-right px-3 py-3 text-slate-300 font-semibold">Preço Venda</th>
+          </tr>
+        </thead>
+        <tbody>
+          {allItems.map((item, idx) => (
+            <tr
+              key={idx}
+              className={`border-b border-slate-700/50 ${idx % 2 === 0 ? 'bg-slate-800/20' : 'bg-slate-800/10'} hover:bg-slate-800/40 transition-colors`}
+            >
+              <td className="px-3 py-2 text-slate-300">{item.setor}</td>
+              <td className="px-3 py-2 text-slate-400 text-xs font-mono">{item.codigo}</td>
+              <td className="px-3 py-2 text-slate-200 text-xs">{item.descricao}</td>
+              <td className="px-3 py-2 text-slate-400 text-center text-xs">{item.unidade}</td>
+              <td className="px-3 py-2 text-right text-slate-300">{formatNumber(item.quantidade, 2)}</td>
+              <td className="px-3 py-2 text-right text-slate-300">{formatCurrency(item.precoUnit)}</td>
+              <td className="px-3 py-2 text-right text-blue-400 font-semibold">{formatCurrency(item.subtotal)}</td>
+              <td className="px-3 py-2 text-right text-slate-400">{item.bdiPct}%</td>
+              <td className="px-3 py-2 text-right text-slate-300">{formatCurrency(item.bdiValue)}</td>
+              <td className="px-3 py-2 text-right text-slate-400">{item.lucroMin}%</td>
+              <td className="px-3 py-2 text-right text-slate-300">{formatCurrency(item.lucroValue)}</td>
+              <td className="px-3 py-2 text-right text-green-400 font-semibold">{formatCurrency(item.precoVenda)}</td>
+            </tr>
+          ))}
+          <tr className="bg-blue-500/10 border-t-2 border-blue-500/50 font-semibold">
+            <td colSpan="6" className="px-3 py-3 text-slate-300">TOTAL</td>
+            <td className="px-3 py-3 text-right text-blue-400">{formatCurrency(calculations.subtotal)}</td>
+            <td className="px-3 py-3 text-center text-slate-400">{(bdiTotalPct * 100).toFixed(1)}%</td>
+            <td className="px-3 py-3 text-right text-blue-400">{formatCurrency(globalBdiTotal)}</td>
+            <td className="px-3 py-3 text-center text-slate-400">{(margem * 100).toFixed(1)}%</td>
+            <td className="px-3 py-3 text-right text-blue-400">{formatCurrency(globalLucroTotal)}</td>
+            <td className="px-3 py-3 text-right text-green-400">{formatCurrency(calculations.precoFinal)}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
-    {trend && (
-      <div className={`flex items-center gap-1 mt-2 text-sm ${trend > 0 ? 'text-green-400' : 'text-red-400'}`}>
-        <TrendingUp size={14} />
-        {formatNumber(Math.abs(trend), 1)}%
-      </div>
-    )}
-  </motion.div>
-);
+  );
+};
+
+// Enhanced KPIs Row for Analysis
+const AnalysisKPIsRow = ({ calculations, bdi, margem }) => {
+  const bdiTotalPct = Object.values(bdi).reduce((sum, val) => sum + val, 0);
+  const margem_pct = (margem * 100).toFixed(1);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <KPICard
+        icon={DollarSign}
+        label="Valor Total do Projeto"
+        value={calculations.precoFinal}
+        unit="R$"
+      />
+      <KPICard
+        icon={DollarSign}
+        label="Custo Total (Direto)"
+        value={calculations.subtotal}
+        unit="R$"
+      />
+      <KPICard
+        icon={TrendingUp}
+        label="BDI Total"
+        value={calculations.custoIndireto}
+        unit="R$"
+      />
+      <KPICard
+        icon={TrendingUp}
+        label="Lucro Bruto"
+        value={calculations.margenAbs}
+        unit="R$"
+      />
+      <KPICard
+        icon={Percent}
+        label="Margem (%)"
+        value={calculations.margemPct}
+        unit="%"
+      />
+      <KPICard
+        icon={Weight}
+        label="Preço/kg"
+        value={calculations.precoKgMedio}
+        unit="R$/kg"
+      />
+      <KPICard
+        icon={Weight}
+        label="Peso Total"
+        value={calculations.totalPeso}
+        unit="kg"
+      />
+      <KPICard
+        icon={Calendar}
+        label="Prazo Total"
+        value={calculations.prazo.total}
+        unit="days"
+      />
+    </div>
+  );
+};
 
 // Main component
 export default function SimuladorOrcamento() {
@@ -624,34 +806,50 @@ export default function SimuladorOrcamento() {
       return;
     }
 
-    const orc = {
-      id: `ORC-${Date.now()}`,
-      nome: project.nome,
-      cliente: project.cliente,
-      tipo: project.tipo,
-      regiao: project.regiao,
-      valor: calculations.precoFinal,
-      valorBDI: calculations.precoVendaBDI,
-      status: 'Rascunho',
-      dataCriacao: new Date().toISOString(),
-      setores: setores.map((s) => ({
-        nome: s.nome,
-        itens: s.itens,
-        total: s.itens.reduce((sum, item) => sum + item.quantidade * item.preco, 0),
-      })),
-      resumo: {
-        pesoTotal: calculations.totalPeso,
-        precoKgMedio: calculations.precoKgMedio,
-        margemPct: calculations.margemPct,
-        prazo: calculations.prazo.total,
-      },
-    };
+    try {
+      const orc = {
+        id: `ORC-${Date.now()}`,
+        nome: project.nome,
+        cliente: project.cliente,
+        tipo: project.tipo,
+        regiao: project.regiao,
+        valor: calculations.precoFinal,
+        valorBDI: calculations.precoVendaBDI,
+        status: 'Rascunho',
+        dataCriacao: new Date().toISOString(),
+        setores: setores.map((s) => ({
+          nome: s.nome,
+          itens: s.itens,
+          total: s.itens.reduce((sum, item) => sum + item.quantidade * item.preco, 0),
+        })),
+        resumo: {
+          pesoTotal: calculations.totalPeso,
+          precoKgMedio: calculations.precoKgMedio,
+          margemPct: calculations.margemPct,
+          prazo: calculations.prazo.total,
+        },
+      };
 
-    addOrcamento(orc);
-    toast.success('Orçamento salvo com sucesso!');
-    setTimeout(() => {
-      window.location.href = '/orcamentos';
-    }, 1500);
+      // Try to save via context (Supabase)
+      try {
+        addOrcamento(orc);
+      } catch (error) {
+        console.warn('Supabase save failed, falling back to localStorage', error);
+      }
+
+      // Also save to localStorage as backup
+      const savedOrcamentos = JSON.parse(localStorage.getItem('orcamentos') || '[]');
+      savedOrcamentos.push(orc);
+      localStorage.setItem('orcamentos', JSON.stringify(savedOrcamentos));
+
+      toast.success('Orçamento salvo com sucesso!');
+      setTimeout(() => {
+        window.location.href = '/orcamentos';
+      }, 1500);
+    } catch (error) {
+      console.error('Error saving budget:', error);
+      toast.error('Erro ao salvar orçamento');
+    }
   }, [project, setores, calculations, addOrcamento]);
 
   // Render steps
@@ -917,141 +1115,287 @@ export default function SimuladorOrcamento() {
     </motion.div>
   );
 
-  const renderStep5 = () => (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard
-          icon={DollarSign}
-          label="Valor Final"
-          value={calculations.precoFinal}
-        />
-        <KPICard
-          icon={Weight}
-          label="Peso Total"
-          value={calculations.totalPeso}
-          unit="kg"
-        />
-        <KPICard
-          icon={TrendingUp}
-          label="Preço/kg"
-          value={calculations.precoKgMedio}
-        />
-        <KPICard
-          icon={Calendar}
-          label="Prazo Total"
-          value={calculations.prazo.total}
-          unit="days"
-        />
-      </div>
+  const renderStep5 = () => {
+    const bdiTotalPct = Object.values(bdi).reduce((sum, val) => sum + val, 0);
+    const costBuildupData = [
+      { name: 'Custo Direto', value: calculations.subtotal },
+      { name: 'BDI', value: calculations.custoIndireto },
+      { name: 'Margem', value: calculations.margenAbs },
+    ];
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <KPICard
-          icon={DollarSign}
-          label="Margem Bruta"
-          value={calculations.margenAbs}
-        />
-        <KPICard
-          icon={TrendingUp}
-          label="Margem %"
-          value={`${formatNumber(calculations.margemPct, 1)}%`}
-          trend={calculations.margemPct > 15 ? 5 : -5}
-        />
-      </div>
+    const radarData = calculations.setoresCalc.map((setor) => ({
+      setor: setor.nome.substring(0, 10),
+      material: setor.material,
+      maoObra: setor.maoObra,
+      peso: setor.peso,
+    }));
 
-      {/* Charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Composition pie */}
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-          <h4 className="font-semibold text-white mb-4">Composição de Custos</h4>
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={[
-                  { name: 'Material', value: calculations.totalMaterial },
-                  { name: 'Mão de Obra', value: calculations.totalMaoObra },
-                  { name: 'Transporte', value: calculations.totalTransporte },
-                ]}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {CHART_COLORS.map((color, index) => (
-                  <Cell key={`cell-${index}`} fill={color} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(value) => formatCurrency(value)} />
-            </PieChart>
-          </ResponsiveContainer>
+    const treemapData = [];
+    setores.forEach((setor) => {
+      setor.itens.forEach((item) => {
+        const valor = item.quantidade * item.preco;
+        treemapData.push({
+          name: item.descricao.substring(0, 20),
+          value: valor,
+          categoria: setor.nome,
+        });
+      });
+    });
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+        {/* Enhanced KPIs */}
+        <AnalysisKPIsRow calculations={calculations} bdi={bdi} margem={margem} />
+
+        {/* Detailed Items Table */}
+        <DetailedItemsTable setores={setores} bdi={bdi} margem={margem} calculations={calculations} />
+
+        {/* Charts Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Composition pie */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+          >
+            <h4 className="font-semibold text-white mb-4">Composição de Custos</h4>
+            <ResponsiveContainer width="100%" height={350}>
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'Material', value: calculations.totalMaterial },
+                    { name: 'Mão de Obra', value: calculations.totalMaoObra },
+                    { name: 'Transporte', value: calculations.totalTransporte },
+                  ]}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
+                >
+                  {CHART_COLORS.map((color, index) => (
+                    <Cell key={`cell-${index}`} fill={color} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatCurrency(value)} />
+              </PieChart>
+            </ResponsiveContainer>
+          </motion.div>
+
+          {/* Sectors comparison */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+          >
+            <h4 className="font-semibold text-white mb-4">Valor por Setor</h4>
+            <ResponsiveContainer width="100%" height={350}>
+              <BarChart data={calculations.setoresCalc}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
+                <XAxis dataKey="nome" stroke="#cbd5e1" />
+                <YAxis stroke="#cbd5e1" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                  formatter={(value) => formatCurrency(value)}
+                />
+                <Legend />
+                <Bar dataKey="material" stackId="a" fill="#3b82f6" name="Material" />
+                <Bar dataKey="maoObra" stackId="a" fill="#8b5cf6" name="Mão de Obra" />
+              </BarChart>
+            </ResponsiveContainer>
+          </motion.div>
         </div>
 
-        {/* Sectors comparison */}
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-          <h4 className="font-semibold text-white mb-4">Valor por Setor</h4>
-          <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={calculations.setoresCalc}>
+        {/* Radar Chart - Sectors Comparison */}
+        {radarData.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+          >
+            <h4 className="font-semibold text-white mb-4">Comparação de Setores</h4>
+            <ResponsiveContainer width="100%" height={350}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="#475569" />
+                <PolarAngleAxis dataKey="setor" stroke="#cbd5e1" />
+                <PolarRadiusAxis stroke="#cbd5e1" />
+                <Radar name="Material" dataKey="material" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.5} />
+                <Radar name="Mão de Obra" dataKey="maoObra" stroke="#8b5cf6" fill="#8b5cf6" fillOpacity={0.5} />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }} />
+                <Legend />
+              </RadarChart>
+            </ResponsiveContainer>
+          </motion.div>
+        )}
+
+        {/* Cost Buildup Area Chart */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+        >
+          <h4 className="font-semibold text-white mb-4">Construção do Preço Final</h4>
+          <ResponsiveContainer width="100%" height={350}>
+            <AreaChart data={costBuildupData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#475569" />
-              <XAxis dataKey="nome" stroke="#cbd5e1" />
+              <XAxis dataKey="name" stroke="#cbd5e1" />
               <YAxis stroke="#cbd5e1" />
               <Tooltip
                 contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
                 formatter={(value) => formatCurrency(value)}
               />
-              <Legend />
-              <Bar dataKey="material" stackId="a" fill="#3b82f6" name="Material" />
-              <Bar dataKey="maoObra" stackId="a" fill="#8b5cf6" name="Mão de Obra" />
-            </BarChart>
+              <Area
+                type="monotone"
+                dataKey="value"
+                fill="#3b82f6"
+                stroke="#3b82f6"
+                fillOpacity={0.6}
+              />
+            </AreaChart>
           </ResponsiveContainer>
-        </div>
-      </div>
+        </motion.div>
 
-      {/* Schedule */}
-      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-        <h4 className="font-semibold text-white mb-4">Estimativa de Prazo (dias)</h4>
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          {Object.entries(calculations.prazo).map(([key, value]) => {
-            if (key === 'total') return null;
-            return (
-              <div key={key} className="bg-slate-700/50 rounded-lg p-3 text-center">
-                <p className="text-xs text-slate-400 capitalize">{key}</p>
-                <p className="text-xl font-bold text-blue-400">{formatNumber(value, 0)}</p>
+        {/* Treemap - Cost Distribution */}
+        {treemapData.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+          >
+            <h4 className="font-semibold text-white mb-4">Distribuição de Custos por Item</h4>
+            <ResponsiveContainer width="100%" height={350}>
+              <Treemap
+                data={treemapData}
+                dataKey="value"
+                fill="#3b82f6"
+                stroke="#cbd5e1"
+              >
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569' }}
+                  formatter={(value) => formatCurrency(value)}
+                />
+              </Treemap>
+            </ResponsiveContainer>
+          </motion.div>
+        )}
+
+        {/* BDI Composition Breakdown */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+        >
+          <h4 className="font-semibold text-white mb-4">Composição do BDI</h4>
+          <div className="space-y-3">
+            {Object.entries(bdi).map(([key, value]) => {
+              const percentage = (value * 100).toFixed(1);
+              const amount = calculations.subtotal * value;
+              return (
+                <div key={key} className="flex items-center gap-4">
+                  <div className="w-32 text-sm font-medium text-slate-300 capitalize">
+                    {key.replace('_', ' ')}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1 bg-slate-700/50 rounded-full h-6 overflow-hidden">
+                        <div
+                          className="bg-blue-500 h-full"
+                          style={{ width: `${Math.min(percentage, 100)}%` }}
+                        />
+                      </div>
+                      <span className="text-sm text-slate-400 min-w-12 text-right">{percentage}%</span>
+                    </div>
+                  </div>
+                  <div className="text-right min-w-24">
+                    <p className="text-sm font-semibold text-blue-400">{formatCurrency(amount)}</p>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="border-t border-slate-700 pt-3 mt-3 flex items-center gap-4">
+              <div className="w-32 text-sm font-bold text-slate-200">BDI Total</div>
+              <div className="flex-1" />
+              <div className="text-right min-w-24">
+                <p className="text-lg font-bold text-blue-400">{formatCurrency(calculations.custoIndireto)}</p>
               </div>
-            );
-          })}
-          <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-3 text-center">
-            <p className="text-xs text-blue-300 font-semibold">TOTAL</p>
-            <p className="text-xl font-bold text-blue-400">{formatNumber(calculations.prazo.total, 0)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Comparison with historical */}
-      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-        <h4 className="font-semibold text-white mb-4">Comparação com Histórico</h4>
-        <div className="space-y-2">
-          {HISTORICO_OBRAS[0]?.setores.map((setor) => (
-            <div key={setor.nome} className="flex items-center justify-between text-sm">
-              <span className="text-slate-300">{setor.nome}</span>
-              <span className="text-white font-semibold">{formatCurrency(setor.valor)}</span>
-              <span className={`text-sm ${setor.precoKg < calculations.precoKgMedio ? 'text-green-400' : 'text-red-400'}`}>
-                R$ {formatNumber(setor.precoKg, 2)}/kg
-              </span>
             </div>
-          ))}
-        </div>
-      </div>
-    </motion.div>
-  );
+          </div>
+        </motion.div>
+
+        {/* Schedule Timeline */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+        >
+          <h4 className="font-semibold text-white mb-4">Cronograma (dias)</h4>
+          <div className="space-y-3">
+            {Object.entries(calculations.prazo).map(([key, value]) => {
+              if (key === 'total') return null;
+              const maxDays = Math.max(...Object.values(calculations.prazo).filter(v => typeof v === 'number'));
+              const percentage = (value / maxDays) * 100;
+              return (
+                <div key={key} className="flex items-center gap-4">
+                  <div className="w-32 text-sm font-medium text-slate-300 capitalize">
+                    {key.charAt(0).toUpperCase() + key.slice(1)}
+                  </div>
+                  <div className="flex-1">
+                    <div className="flex items-end gap-2">
+                      <div className="flex-1 bg-slate-700/50 rounded-full h-6 overflow-hidden">
+                        <div
+                          className="bg-green-500 h-full"
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
+                      <span className="text-sm text-slate-400 min-w-12 text-right">{formatNumber(value, 0)} d</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div className="border-t border-slate-700 pt-3 mt-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-bold text-slate-200">Total</div>
+                <div className="text-lg font-bold text-green-400">{formatNumber(calculations.prazo.total, 0)} dias</div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Historical Comparison */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-800/50 border border-slate-700 rounded-xl p-4"
+        >
+          <h4 className="font-semibold text-white mb-4">Comparação com Histórico</h4>
+          <div className="space-y-2">
+            {HISTORICO_OBRAS.length > 0 && HISTORICO_OBRAS[0]?.setores ? (
+              HISTORICO_OBRAS[0].setores.map((setor) => (
+                <div key={setor.nome} className="flex items-center justify-between text-sm bg-slate-700/30 p-3 rounded-lg">
+                  <span className="text-slate-300 font-medium">{setor.nome}</span>
+                  <span className="text-white font-semibold">{formatCurrency(setor.valor)}</span>
+                  <span className={`text-sm font-semibold ${setor.precoKg < calculations.precoKgMedio ? 'text-green-400' : 'text-red-400'}`}>
+                    R$ {formatNumber(setor.precoKg, 2)}/kg
+                  </span>
+                </div>
+              ))
+            ) : (
+              <p className="text-slate-400 text-center py-4">Nenhum histórico disponível</p>
+            )}
+          </div>
+        </motion.div>
+      </motion.div>
+    );
+  };
 
   const stepContent = [renderStep1(), renderStep2(), renderStep3(), renderStep4(), renderStep5()];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-6">
-      <div className="max-w-6xl mx-auto">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 p-4 lg:p-8">
+      <div className="max-w-full px-4 lg:px-8">
         <motion.div
           initial={{ opacity: 0, y: -20 }}
           animate={{ opacity: 1, y: 0 }}
