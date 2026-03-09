@@ -286,40 +286,33 @@ export async function generatePropostaPDF(data) {
   const propostaNumber = data.propostaNumber || '001';
   const projectName = (data.project?.nome || 'PROJETO').toUpperCase();
 
-  const htmlContent = `<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<style>
-  @page {
-    size: A4;
-    margin: 0;
-  }
+  const htmlContent = `<style>
   * {
     margin: 0;
     padding: 0;
     box-sizing: border-box;
   }
-  body {
+  .pdf-root {
     font-family: Arial, sans-serif;
     color: #333;
     background: white;
+    width: 794px;
   }
   .page {
-    width: 210mm;
-    height: 297mm;
-    padding: 20mm;
+    width: 794px;
+    min-height: 1123px;
+    padding: 60px;
     position: relative;
     page-break-after: always;
-    display: flex;
-    flex-direction: column;
+    overflow: hidden;
   }
   .page-no-padding {
-    width: 210mm;
-    height: 297mm;
+    width: 794px;
+    min-height: 1123px;
     padding: 0;
     position: relative;
     page-break-after: always;
+    overflow: hidden;
   }
 
   /* PAGE 1 - COVER */
@@ -336,14 +329,10 @@ export async function generatePropostaPDF(data) {
     overflow: hidden;
   }
   .cover-bg-image {
-    position: absolute;
-    top: 0;
-    left: 0;
     width: 100%;
-    height: 100%;
+    height: 450px;
     object-fit: cover;
-    opacity: 0.2;
-    z-index: 1;
+    margin: 20px 0;
   }
   .cover-content {
     position: relative;
@@ -803,8 +792,7 @@ export async function generatePropostaPDF(data) {
     justify-content: center;
   }
 </style>
-</head>
-<body>
+<div class="pdf-root">
 
 <!-- PAGE 1: COVER -->
 <div class="page-no-padding">
@@ -1382,26 +1370,37 @@ export async function generatePropostaPDF(data) {
   </div>
 </div>
 
-</body>
-</html>`;
+</div>`;
 
   try {
     const html2pdf = (await import('html2pdf.js')).default;
     const container = document.createElement('div');
     container.innerHTML = htmlContent;
-    container.style.position = 'absolute';
-    container.style.left = '-9999px';
+    container.style.position = 'fixed';
+    container.style.left = '-10000px';
     container.style.top = '0';
+    container.style.width = '794px';
+    container.style.background = 'white';
     document.body.appendChild(container);
+
+    // Wait for images to load
+    const imgs = container.querySelectorAll('img');
+    await Promise.all(Array.from(imgs).map(img => {
+      if (img.complete) return Promise.resolve();
+      return new Promise(resolve => {
+        img.onload = resolve;
+        img.onerror = resolve;
+      });
+    }));
 
     const pdfBlob = await html2pdf()
       .set({
         margin: 0,
         filename: `Proposta_${projectName.replace(/\s+/g, '_')}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff' },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'] },
+        image: { type: 'jpeg', quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, backgroundColor: '#ffffff', width: 794, windowWidth: 794 },
+        jsPDF: { unit: 'px', format: [794, 1123], orientation: 'portrait', hotfixes: ['px_scaling'] },
+        pagebreak: { mode: ['css'], avoid: '.no-break' },
       })
       .from(container)
       .outputPdf('blob');
