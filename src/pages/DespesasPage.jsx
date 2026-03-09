@@ -18,6 +18,9 @@ import {
   Layers,
   Calendar,
   Filter,
+  Upload,
+  FileSpreadsheet,
+  Trash2,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -48,6 +51,7 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { useLancamentos } from '../contexts/ERPContext';
+import * as XLSX from 'xlsx';
 import {
   BarChart,
   Bar,
@@ -128,6 +132,9 @@ export default function DespesasPage() {
   const [filtroCentro, setFiltroCentro] = useState('todos');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral'); // geral, semanal, mensal, trimestral
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
+  const [importPreview, setImportPreview] = useState([]);
+  const [importing, setImporting] = useState(false);
   const [despesas, setDespesas] = useState([]);
   const [formData, setFormData] = useState({
     descricao: '',
@@ -139,25 +146,229 @@ export default function DespesasPage() {
     formaPagto: ''
   });
 
-  // Sincronizar despesas com dados do Supabase (TODAS, sem filtro de obra)
+  // Sincronizar despesas: Supabase + localStorage (importadas)
   useEffect(() => {
+    const despesasConvertidas = [];
     if (lancamentosDespesas && lancamentosDespesas.length > 0) {
-      const despesasGerais = lancamentosDespesas.filter(l => l.tipo !== 'receita');
-      const despesasConvertidas = despesasGerais.map(l => ({
-        id: l.id,
-        data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
-        descricao: l.descricao || l.nome || '-',
-        fornecedor: l.fornecedor || '-',
-        categoria: l.categoria || 'Outros',
-        centroCusto: l.centroCusto || l.centrosCusto || 'Produção',
-        valor: l.valor || 0,
-        status: l.status || 'pendente',
-        formaPagto: l.formaPagto || l.formaPagamento || '-',
-        vencimento: l.vencimento || l.dataVencimento || '-'
-      }));
-      setDespesas(despesasConvertidas);
+      lancamentosDespesas.filter(l => l.tipo !== 'receita').forEach(l => {
+        despesasConvertidas.push({
+          id: l.id,
+          data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
+          descricao: l.descricao || l.nome || '-',
+          fornecedor: l.fornecedor || '-',
+          categoria: l.categoria || 'Outros',
+          centroCusto: l.centroCusto || l.centrosCusto || 'Produção',
+          valor: l.valor || 0,
+          status: l.status || 'pendente',
+          formaPagto: l.formaPagto || l.formaPagamento || '-',
+          vencimento: l.vencimento || l.dataVencimento || '-'
+        });
+      });
     }
+    // Merge com despesas importadas do localStorage
+    try {
+      const importadas = JSON.parse(localStorage.getItem('montex_despesas_importadas') || '[]');
+      const existingIds = new Set(despesasConvertidas.map(d => d.id));
+      importadas.forEach(d => {
+        if (!existingIds.has(d.id)) despesasConvertidas.push(d);
+      });
+    } catch (e) {
+      console.warn('Erro ao carregar despesas importadas:', e);
+    }
+    setDespesas(despesasConvertidas);
   }, [lancamentosDespesas]);
+
+  // Categorizar despesa automaticamente pela descrição
+  const categorizarDespesa = (descricao) => {
+    const d = (descricao || '').toUpperCase();
+    if (d.includes('FOLHA') || d.includes('DIARIA') || d.includes('HORA EXTRA') || d.includes('FÉRIAS') || d.includes('FGTS') || d.includes('ACERTO')) return 'Mão de Obra';
+    if (d.includes('CEMIG') || d.includes('COPASA') || d.includes('ENERGIA') || d.includes('LUZ') || d.includes('AGUA')) return 'Energia/Utilidades';
+    if (d.includes('ALUGUEL')) return 'Administrativo';
+    if (d.includes('COMBUSTIVEL') || d.includes('POSTO') || d.includes('ABASTEC') || d.includes('PASSAGEM') || d.includes('TRANSPORTE') || d.includes('CARRO')) return 'Transporte';
+    if (d.includes('MANUTENC') || d.includes('EQUIPAMENTO') || d.includes('EPI') || d.includes('FERRAMENTA')) return 'Manutenção';
+    if (d.includes('SUPERMERCADO') || d.includes('ALIMENTA') || d.includes('ALMOCO') || d.includes('PADARIA') || d.includes('CAFÉ')) return 'Matéria Prima';
+    if (d.includes('IMPOSTO') || d.includes('INSS') || d.includes('FGTS') || d.includes('DAS') || d.includes('SIMPLES')) return 'Impostos';
+    if (d.includes('CONTABILIDADE') || d.includes('INTERNET') || d.includes('TELEFONE') || d.includes('PLANO SAUDE') || d.includes('UNIMED') || d.includes('CLINICA') || d.includes('EMISSOR') || d.includes('EMISOR') || d.includes('PONTO')) return 'Administrativo';
+    return 'Outros';
+  };
+
+  // Importar arquivo Excel
+  const handleImportExcel = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = new Uint8Array(evt.target.result);
+        const wb = XLSX.read(data, { type: 'array', cellDates: true });
+        const importedItems = [];
+
+        // Process each sheet
+        wb.SheetNames.forEach(sheetName => {
+          const ws = wb.Sheets[sheetName];
+          const jsonData = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+
+          // Detect columns with data (pattern: date/type | description | value)
+          // Iterate through rows looking for data patterns
+          for (let rowIdx = 2; rowIdx < jsonData.length; rowIdx++) {
+            const row = jsonData[rowIdx];
+            if (!row) continue;
+
+            // Scan columns in groups of ~4 (date, desc, value, empty)
+            for (let colIdx = 0; colIdx < row.length - 2; colIdx++) {
+              const cell0 = row[colIdx];
+              const cell1 = row[colIdx + 1];
+              const cell2 = row[colIdx + 2];
+
+              // Skip if empty
+              if (!cell0 && !cell1) continue;
+
+              // Pattern 1 (Planilha1): Date | Description | Value
+              let dataStr = null;
+              let descricao = null;
+              let valor = null;
+
+              // Check if cell0 is a date
+              const dateVal = cell0 ? new Date(cell0) : null;
+              const isDate = dateVal && !isNaN(dateVal.getTime()) && dateVal.getFullYear() >= 2020 && dateVal.getFullYear() <= 2030;
+
+              if (isDate && cell1 && typeof cell1 === 'string' && cell1.length > 1) {
+                const numVal = parseFloat(String(cell2).replace(/[^\d.,]/g, '').replace(',', '.'));
+                if (numVal > 0) {
+                  dataStr = dateVal.toISOString().split('T')[0];
+                  descricao = cell1.trim();
+                  valor = numVal;
+                }
+              }
+              // Pattern 2 (CUSTOS): Type | Value (no date - use month from header)
+              else if (cell0 && typeof cell0 === 'string' && cell0.length > 2 && !isDate) {
+                const numVal = parseFloat(String(cell1).replace(/[^\d.,]/g, '').replace(',', '.'));
+                if (numVal > 0 && !String(cell0).includes('DESPESAS') && !String(cell0).includes('TIPO') && !String(cell0).includes('TOTAL')) {
+                  // Try to get month from header (row 1 or 3)
+                  const headerRow = jsonData[1] || jsonData[3] || [];
+                  let monthStr = '';
+                  for (let hc = Math.max(0, colIdx - 1); hc <= Math.min(colIdx + 1, headerRow.length - 1); hc++) {
+                    if (headerRow[hc] && typeof headerRow[hc] === 'string' && headerRow[hc].includes('DESPESAS')) {
+                      monthStr = headerRow[hc];
+                      break;
+                    }
+                  }
+                  // Also check row 3 for "CUSTOS" sheet
+                  const headerRow3 = jsonData[3] || [];
+                  for (let hc = Math.max(0, colIdx - 1); hc <= Math.min(colIdx + 1, headerRow3.length - 1); hc++) {
+                    if (headerRow3[hc] && typeof headerRow3[hc] === 'string' && headerRow3[hc].includes('DESPESAS')) {
+                      monthStr = headerRow3[hc];
+                      break;
+                    }
+                  }
+
+                  const months = { 'JANEIRO': '01', 'FEVEREIRO': '02', 'MARÇO': '03', 'MARCO': '03', 'ABRIL': '04', 'MAIO': '05', 'JUNHO': '06', 'JULHO': '07', 'AGOSTO': '08', 'SETEMBRO': '09', 'OUTUBRO': '10', 'NOVEMBRO': '11', 'DEZEMBRO': '12' };
+                  let year = sheetName === 'CUSTOS' ? '2024' : '2025';
+                  let month = '01';
+                  for (const [name, num] of Object.entries(months)) {
+                    if (monthStr.toUpperCase().includes(name)) {
+                      month = num;
+                      break;
+                    }
+                  }
+                  dataStr = `${year}-${month}-15`;
+                  descricao = cell0.trim();
+                  valor = numVal;
+                }
+              }
+
+              if (dataStr && descricao && valor) {
+                const id = `imp_${sheetName}_${rowIdx}_${colIdx}_${Date.now()}`;
+                importedItems.push({
+                  id,
+                  data: dataStr,
+                  descricao,
+                  fornecedor: '-',
+                  categoria: categorizarDespesa(descricao),
+                  centroCusto: 'Produção',
+                  valor,
+                  status: 'pago',
+                  formaPagto: '-',
+                  vencimento: dataStr,
+                  importado: true,
+                  sheet: sheetName,
+                });
+              }
+            }
+          }
+        });
+
+        // Deduplicate by descricao + data + valor
+        const seen = new Set();
+        const uniqueItems = importedItems.filter(item => {
+          const key = `${item.data}_${item.descricao}_${item.valor}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+
+        setImportPreview(uniqueItems);
+        setImportDialogOpen(true);
+        toast.success(`${uniqueItems.length} despesas encontradas no arquivo!`);
+      } catch (err) {
+        console.error('Erro ao ler Excel:', err);
+        toast.error('Erro ao ler o arquivo Excel. Verifique o formato.');
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    // Reset input
+    e.target.value = '';
+  };
+
+  // Confirmar importação
+  const confirmarImportacao = async () => {
+    setImporting(true);
+    try {
+      // Save to localStorage for persistence
+      const existing = JSON.parse(localStorage.getItem('montex_despesas_importadas') || '[]');
+      const existingKeys = new Set(existing.map(d => `${d.data}_${d.descricao}_${d.valor}`));
+      const novas = importPreview.filter(d => !existingKeys.has(`${d.data}_${d.descricao}_${d.valor}`));
+      const updated = [...existing, ...novas];
+      localStorage.setItem('montex_despesas_importadas', JSON.stringify(updated));
+
+      // Also try to persist via Supabase
+      for (const desp of novas) {
+        try {
+          await addLancamento({
+            ...desp,
+            tipo: 'despesa',
+            nome: desp.descricao,
+          });
+        } catch (e) {
+          // Continue on Supabase error
+        }
+      }
+
+      // Merge into current state
+      setDespesas(prev => {
+        const existIds = new Set(prev.map(d => d.id));
+        const merge = [...prev];
+        novas.forEach(d => { if (!existIds.has(d.id)) merge.push(d); });
+        return merge;
+      });
+
+      toast.success(`${novas.length} despesas importadas com sucesso!`);
+      setImportDialogOpen(false);
+      setImportPreview([]);
+    } catch (e) {
+      console.error('Erro na importação:', e);
+      toast.error('Erro ao importar despesas.');
+    }
+    setImporting(false);
+  };
+
+  // Limpar despesas importadas
+  const limparImportadas = () => {
+    localStorage.removeItem('montex_despesas_importadas');
+    setDespesas(prev => prev.filter(d => !d.importado));
+    toast.success('Despesas importadas removidas!');
+  };
 
   // Despesas filtradas por período (para KPIs e gráficos)
   const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtroPeriodo]);
@@ -275,13 +486,27 @@ export default function DespesasPage() {
           <p className="text-slate-400 mt-1">Controle de despesas com categorias e centros de custo</p>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600">
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Despesa
-            </Button>
-          </DialogTrigger>
+        <div className="flex items-center gap-3">
+          <label className="cursor-pointer">
+            <input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleImportExcel}
+            />
+            <span className="inline-flex items-center px-4 py-2 rounded-md text-sm font-medium bg-emerald-600 text-white hover:bg-emerald-700 transition-colors gap-2">
+              <Upload className="h-4 w-4" />
+              Importar Excel
+            </span>
+          </label>
+
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600">
+                <Plus className="h-4 w-4 mr-2" />
+                Nova Despesa
+              </Button>
+            </DialogTrigger>
           <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
             <DialogHeader>
               <DialogTitle className="text-white">Cadastrar Despesa</DialogTitle>
@@ -388,7 +613,68 @@ export default function DespesasPage() {
             </div>
           </DialogContent>
         </Dialog>
+        </div>
       </div>
+
+      {/* Modal de Preview de Importação */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+              Prévia da Importação — {importPreview.length} despesas encontradas
+            </DialogTitle>
+          </DialogHeader>
+          <div className="overflow-y-auto flex-1 mt-4">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-700">
+                  <TableHead className="text-slate-400">Data</TableHead>
+                  <TableHead className="text-slate-400">Descrição</TableHead>
+                  <TableHead className="text-slate-400">Categoria</TableHead>
+                  <TableHead className="text-slate-400 text-right">Valor</TableHead>
+                  <TableHead className="text-slate-400">Planilha</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {importPreview.slice(0, 100).map((item, idx) => (
+                  <TableRow key={idx} className="border-slate-800">
+                    <TableCell className="text-slate-300 text-xs">{new Date(item.data).toLocaleDateString('pt-BR')}</TableCell>
+                    <TableCell className="text-white text-sm">{item.descricao}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: getCategoriaColor(item.categoria) }}>
+                        {item.categoria}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-rose-400 text-sm">{formatCurrency(item.valor)}</TableCell>
+                    <TableCell className="text-slate-500 text-xs">{item.sheet}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+            {importPreview.length > 100 && (
+              <p className="text-xs text-slate-500 text-center py-2">Mostrando 100 de {importPreview.length} itens...</p>
+            )}
+          </div>
+          <div className="flex justify-between items-center pt-4 border-t border-slate-700">
+            <p className="text-sm text-slate-400">
+              Total: <span className="text-white font-semibold">{formatCurrency(importPreview.reduce((s, d) => s + d.valor, 0))}</span>
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" onClick={() => setImportDialogOpen(false)} className="border-slate-600 text-white">
+                Cancelar
+              </Button>
+              <Button
+                onClick={confirmarImportacao}
+                disabled={importing}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+              >
+                {importing ? 'Importando...' : `Importar ${importPreview.length} Despesas`}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Filtros de Período */}
       <div className="flex items-center gap-2">
