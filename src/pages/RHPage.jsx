@@ -114,6 +114,8 @@ const statusConfig = {
   pendente: { label: 'Pendente', color: 'bg-yellow-100 text-yellow-800' },
   em_curso: { label: 'Em Curso', color: 'bg-blue-100 text-blue-800' },
   agendado: { label: 'Agendado', color: 'bg-purple-100 text-purple-800' },
+  registrado: { label: 'Registrado', color: 'bg-green-100 text-green-800' },
+  concluido: { label: 'Concluído', color: 'bg-green-100 text-green-800' },
 };
 
 function KPICard({ title, value, subtitle, icon: Icon, trend, trendUp }) {
@@ -803,13 +805,13 @@ export default function RHPage() {
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Coffee className="h-4 w-4 text-yellow-600" />
-                          {registro.intervaloSaida}
+                          {registro.intervaloSaida || '11:30'}
                         </div>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Coffee className="h-4 w-4 text-yellow-600" />
-                          {registro.intervaloRetorno}
+                          {registro.intervaloRetorno || '12:30'}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -818,8 +820,8 @@ export default function RHPage() {
                           {registro.saida}
                         </div>
                       </TableCell>
-                      <TableCell className={registro.horasExtras !== '0:00' ? 'text-blue-600 font-medium' : ''}>
-                        {registro.horasExtras}
+                      <TableCell className={registro.horasExtras > 0 ? 'text-blue-600 font-medium' : ''}>
+                        {typeof registro.horasExtras === 'number' ? `${registro.horasExtras}h` : registro.horasExtras}
                       </TableCell>
                       <TableCell><StatusBadge status={registro.status} /></TableCell>
                     </TableRow>
@@ -867,11 +869,11 @@ export default function RHPage() {
                   {mockFolhaPagamento.map((folha) => (
                     <TableRow key={folha.id}>
                       <TableCell className="font-medium">{folha.funcionario}</TableCell>
-                      <TableCell className="text-right">R$ {folha.salarioBruto.toLocaleString('pt-BR')}</TableCell>
-                      <TableCell className="text-right text-red-600">- R$ {folha.descontos.toLocaleString('pt-BR')}</TableCell>
-                      <TableCell className="text-right text-green-600">+ R$ {folha.beneficios.toLocaleString('pt-BR')}</TableCell>
-                      <TableCell className="text-right font-semibold">R$ {folha.liquido.toLocaleString('pt-BR')}</TableCell>
-                      <TableCell><StatusBadge status={folha.status} /></TableCell>
+                      <TableCell className="text-right">R$ {(folha.salarioBruto || 0).toLocaleString('pt-BR')}</TableCell>
+                      <TableCell className="text-right text-red-600">- R$ {((folha.inss || 0) + (folha.irrf || 0) + (folha.valeTransporte || 0)).toLocaleString('pt-BR')}</TableCell>
+                      <TableCell className="text-right text-green-600">+ R$ {(folha.valeAlimentacao || 0).toLocaleString('pt-BR')}</TableCell>
+                      <TableCell className="text-right font-semibold">R$ {(folha.salarioLiquido || 0).toLocaleString('pt-BR')}</TableCell>
+                      <TableCell><StatusBadge status={folha.status || 'processada'} /></TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon">
                           <Eye className="h-4 w-4" />
@@ -892,7 +894,7 @@ export default function RHPage() {
                   </div>
                   <div>
                     <p className="text-xs text-muted-foreground">Total Líquido</p>
-                    <p className="font-semibold">R$ {mockFolhaPagamento.reduce((acc, f) => acc + f.liquido, 0).toLocaleString('pt-BR')}</p>
+                    <p className="font-semibold">R$ {mockFolhaPagamento.reduce((acc, f) => acc + (f.salarioLiquido || 0), 0).toLocaleString('pt-BR')}</p>
                   </div>
                 </div>
               </div>
