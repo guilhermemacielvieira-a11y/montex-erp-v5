@@ -1087,32 +1087,14 @@ export const OBRA_MODELO = {
     prazoPagamento: 30 // dias após aprovação medição
   },
 
-  // SETORES DA OBRA
+  // SETORES DA OBRA - Unificado como SUPERMERCADO
   setores: [
     {
       id: 'setor-001',
-      nome: 'POSTO',
-      peso: 6815,
-      valor: 164650,
-      precoKg: 24.16,
-      percentualFabricado: 0,
-      percentualMontado: 0
-    },
-    {
-      id: 'setor-002',
       nome: 'SUPERMERCADO',
-      peso: 81385,
-      valor: 2272930,
-      precoKg: 27.93,
-      percentualFabricado: 0,
-      percentualMontado: 0
-    },
-    {
-      id: 'setor-003',
-      nome: 'LOJAS',
-      peso: 14800,
-      valor: 428300,
-      precoKg: 28.94,
+      peso: 107000,
+      valor: 2700000,
+      precoKg: 25.23,
       percentualFabricado: 0,
       percentualMontado: 0
     }
@@ -1149,222 +1131,16 @@ export const OBRA_MODELO = {
 
 // LANÇAMENTOS DE DESPESAS REAIS - Gerados a partir das Notas Fiscais de Materiais
 // Estes valores SÃO EXCLUSIVOS do financeiro da OBRA, NÃO interferem no financeiro da empresa
-export const LANCAMENTOS_DESPESAS = [
-  // ============ NF 70467 - Chapas A36 Lote 1 ============
-  {
-    id: 'LANC-001',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Chapas A36 Lote 1 (esp. 2mm a 16mm) - NF 70467',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '70467',
-    valor: 29682.98,
-    dataEmissao: '2026-01-08',
-    dataVencimento: '2026-02-07',
-    dataPagamento: '2026-01-08',
-    status: 'pago',
-    prePedidoRef: 'PP-001',
-    pesoKg: 4656.52,
-    observacao: 'Pgto antecipado - Trademaster 30 dias'
-  },
-  // ============ NF 217946 - Perfis W200 ============
-  {
-    id: 'LANC-002',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Perfis W200 A572-GR.50 - NF 217946',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '217946',
-    valor: 35302.78,
-    dataEmissao: '2026-01-17',
-    dataVencimento: '2026-01-17',
-    dataPagamento: '2026-01-17',
-    status: 'pago',
-    prePedidoRef: 'PP-003',
-    pesoKg: 4565.6,
-    observacao: 'Pgto antecipado depósito - entrega parcial OV'
-  },
-  // ============ NF 228 - Consumíveis TOLUMAX ============
-  {
-    id: 'LANC-003',
-    obraId: 'obra-001',
-    tipo: 'despesa',
-    categoria: 'consumiveis',
-    descricao: 'Consumíveis solda/corte (Eletrodos, Arame, Discos) - NF 228',
-    fornecedor: 'Tolumax Ind. Com. Ltda',
-    notaFiscal: '228',
-    valor: 7202.00,
-    dataEmissao: '2026-01-19',
-    dataVencimento: '2026-02-18',
-    dataPagamento: '2026-01-19',
-    status: 'pago',
-    prePedidoRef: null,
-    pesoKg: 350,
-    observacao: 'Compra avulsa - sem pré-pedido'
-  },
-  // ============ NF 218134 - Perfis W250/W310/W410 ============
-  {
-    id: 'LANC-004',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Perfis W250/W310/W410X38,8 A572-GR.50 - NF 218134',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '218134',
-    valor: 87407.98,
-    dataEmissao: '2026-01-23',
-    dataVencimento: '2026-01-23',
-    dataPagamento: '2026-01-23',
-    status: 'pago',
-    prePedidoRef: 'PP-003',
-    pesoKg: 11286.6,
-    observacao: 'Pgto antecipado depósito - perfis médios'
-  },
-  // ============ NF 70742 - Chapas A36 Lote 2 ============
-  {
-    id: 'LANC-005',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Chapas A36 Lote 2 (esp. 4,75mm a 22,4mm) - NF 70742',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '70742',
-    valor: 60922.01,
-    dataEmissao: '2026-01-23',
-    dataVencimento: '2026-01-23',
-    dataPagamento: '2026-01-23',
-    status: 'pago',
-    prePedidoRef: 'PP-002',
-    pesoKg: 9548.6,
-    observacao: 'Pgto antecipado depósito'
-  },
-  // ============ NF 218191 - Perfis Pesados ============
-  {
-    id: 'LANC-006',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Perfis W410X53/W530X66/HP310X79 A572-GR.50 - NF 218191',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '218191',
-    valor: 212116.32,
-    dataEmissao: '2026-01-23',
-    dataVencimento: '2026-01-23',
-    dataPagamento: '2026-01-23',
-    status: 'pago',
-    prePedidoRef: 'PP-003',
-    pesoKg: 26158.2,
-    observacao: 'Pgto antecipado depósito - maior lote'
-  },
-  // ============ NF 218103 - Perfis Leves ============
-  {
-    id: 'LANC-007',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Perfis W150/W530X66 A572-GR.50 - NF 218103',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '218103',
-    valor: 11329.87,
-    dataEmissao: '2026-01-23',
-    dataVencimento: '2026-01-23',
-    dataPagamento: '2026-01-23',
-    status: 'pago',
-    prePedidoRef: 'PP-003',
-    pesoKg: 1935.0,
-    observacao: 'Pgto antecipado depósito - perfis leves'
-  },
-  // ============ NF 218267 - Barras e Cantoneiras ============
-  {
-    id: 'LANC-008',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Barras Redondas e Cantoneiras A36 - NF 218267',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '218267',
-    valor: 28924.92,
-    dataEmissao: '2026-01-28',
-    dataVencimento: '2026-01-28',
-    dataPagamento: '2026-01-28',
-    status: 'pago',
-    prePedidoRef: 'PP-003',
-    pesoKg: 5146.09,
-    observacao: 'Pgto antecipado depósito - barras e cantoneiras'
-  },
-  // ============ NF 218614 - Perfis W410/W530/W250 Lote Final ============
-  {
-    id: 'LANC-009',
-    obraId: 'obra-001',
-    tipo: 'material_faturado',
-    categoria: 'material_estrutura',
-    descricao: 'Perfis W410X53/W410X38.8/W250X25.3 A572-GR.50 - NF 218614',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    notaFiscal: '218614',
-    valor: 170695.73,
-    dataEmissao: '2026-02-05',
-    dataVencimento: '2026-02-05',
-    dataPagamento: '2026-02-05',
-    status: 'pago',
-    prePedidoRef: 'PP-003',
-    pesoKg: 22126.4,
-    observacao: 'Pgto antecipado depósito - lote final perfis'
-  },
-  // ============ NF 48645 - Tintas FALÇÃO ============
-  {
-    id: 'LANC-010',
-    obraId: 'obra-001',
-    tipo: 'despesa',
-    categoria: 'consumiveis',
-    descricao: 'Tintas e Revestimentos - NF 48645',
-    fornecedor: 'Falção Tintas Ltda',
-    notaFiscal: '48645',
-    valor: 23515.23,
-    dataEmissao: '2026-02-05',
-    dataVencimento: '2026-03-07',
-    dataPagamento: '2026-02-05',
-    status: 'pago',
-    prePedidoRef: null,
-    pesoKg: 0,
-    observacao: 'Primer e esmalte para pintura'
-  }
-];
+// Array esvaziado - dados agora vêm 100% do Supabase
+export const LANCAMENTOS_DESPESAS = [];
 
 // ==================== PEDIDOS PRÉ-APROVADOS (DESPESAS FUTURAS) ====================
 // NÃO IMPACTAM O SALDO REAL - Apenas análise futura independente
 
 // PEDIDOS PRÉ-APROVADOS (FUTUROS) - Saldo pendente de entrega
 // NÃO impactam o saldo real da obra - apenas projeção
-export const PEDIDOS_PRE_APROVADOS = [
-  {
-    id: 'PPA-001',
-    obraId: 'obra-001',
-    prePedidoRef: 'PP-002',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    descricao: 'Saldo pendente Chapas A36 Lote 2 (diferença peso real)',
-    categoria: 'material_estrutura',
-    valorPrevisto: 2180.95,
-    pesoPrevisto: 720.0,
-    status: 'aguardando_entrega',
-    dataPrevista: '2026-02-15',
-    observacao: 'Diferença entre cotação PP-002 e NF 70742 entregue'
-  },
-  {
-    id: 'PPA-002',
-    obraId: 'obra-001',
-    prePedidoRef: 'PP-003',
-    fornecedor: 'Gerdau Aços Longos S.A.',
-    descricao: 'Saldo pendente OV W09264680 - Perfis W250/HP310',
-    categoria: 'material_estrutura',
-    valorPrevisto: 106503.56,
-    pesoPrevisto: 13357.0,
-    status: 'aguardando_entrega',
-    dataPrevista: '2026-02-28',
-    observacao: 'Restante OV: W250 parcial (3.643kg de 7.286kg) + HP310 parcial'
-  }
-];
+// Array esvaziado - pedidos futuros eliminados conforme solicitação
+export const PEDIDOS_PRE_APROVADOS = [];
 
 // ==================== RESUMO PEDIDOS FUTUROS ====================
 
