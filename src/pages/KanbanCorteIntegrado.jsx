@@ -408,7 +408,7 @@ export default function KanbanCorteIntegrado() {
   const maquinasCorte = maquinas.filter(m => m.setor === 'corte');
   const pecasEmCorte = pecasCorte.filter(p => p.statusCorte === STATUS_CORTE.EM_CORTE);
 
-  // Handler de drag and drop
+  // Handler de drag and drop — TODAS as transições exigem funcionário
   const handleDragEnd = (result) => {
     if (!result.destination) return;
 
@@ -421,34 +421,24 @@ export default function KanbanCorteIntegrado() {
 
     if (!peca) return;
 
-    // Se iniciou corte → abrir modal para selecionar funcionário
-    if (novoStatus === STATUS_CORTE.EM_CORTE) {
-      setPecaPendente(peca);
-      setStatusPendente(novoStatus);
-      setModalFuncionario(true);
-      return; // Aguardar seleção do funcionário
-    }
-
-    // Demais transições: executar diretamente
-    updateStatusCorte(draggableId, novoStatus);
-
-    if (novoStatus === STATUS_CORTE.LIBERADO) {
-      moverPecaEtapa(draggableId, ETAPAS_PRODUCAO.FABRICACAO);
-      addNotificacao({ tipo: 'sucesso', mensagem: `MARCA ${peca.marca} liberada para Fabricação!` });
-    }
+    // TODAS as transições passam pelo modal de funcionário
+    setPecaPendente(peca);
+    setStatusPendente(novoStatus);
+    setModalFuncionario(true);
   };
 
-  // Callback quando funcionário é selecionado no modal
+  // Callback quando funcionário é selecionado no modal — cobre TODAS as transições
   const handleFuncionarioSelecionado = (funcionarioId, funcionarioNome) => {
     if (!pecaPendente || !statusPendente) return;
 
     const peca = pecaPendente;
+    const statusAnterior = peca.statusCorte || 'aguardando';
 
     // Atualizar status com funcionário vinculado
     updateStatusCorte(peca.id, statusPendente, null, funcionarioId);
 
-    // Deduzir peso do estoque real
-    if (peca.perfil && peca.peso) {
+    // Deduzir peso do estoque real (apenas quando inicia corte)
+    if (statusPendente === STATUS_CORTE.EM_CORTE && peca.perfil && peca.peso) {
       deduzirEstoque(
         peca.perfil,
         peca.peso,
@@ -458,20 +448,27 @@ export default function KanbanCorteIntegrado() {
       );
     }
 
-    // Registrar no histórico de produção
+    // Se liberado → mover para Fabricação
+    if (statusPendente === STATUS_CORTE.LIBERADO) {
+      moverPecaEtapa(peca.id, ETAPAS_PRODUCAO.FABRICACAO, funcionarioId);
+      addNotificacao({ tipo: 'sucesso', mensagem: `MARCA ${peca.marca} liberada para Fabricação por ${funcionarioNome}!` });
+    }
+
+    // Registrar no histórico de produção — SEMPRE, em qualquer transição
     registrarTransicao(
       peca.id,
-      peca.statusCorte || 'aguardando',
+      statusAnterior,
       statusPendente,
       funcionarioId,
       funcionarioNome,
-      `Corte ${peca.perfil} - ${peca.peso?.toFixed(1)} kg`
+      `Corte ${peca.perfil || ''} - ${peca.peso?.toFixed(1) || 0} kg | ${statusAnterior} → ${statusPendente}`
     );
 
-    toast.success(`${funcionarioNome} iniciou corte da MARCA ${peca.marca} (${peca.peso?.toFixed(1)} kg)`);
+    const colDestino = COLUNAS_CORTE.find(c => c.id === statusPendente);
+    toast.success(`${funcionarioNome}: MARCA ${peca.marca} → ${colDestino?.label || statusPendente}`);
     addNotificacao({
       tipo: 'info',
-      mensagem: `MARCA ${peca.marca} em corte por ${funcionarioNome}`
+      mensagem: `MARCA ${peca.marca} → ${colDestino?.label || statusPendente} por ${funcionarioNome}`
     });
 
     // Limpar estado pendente

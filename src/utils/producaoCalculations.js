@@ -118,6 +118,58 @@ export function agregarPorEtapa(historico, pecas = []) {
 }
 
 /**
+ * Contabilização CUMULATIVA por status atual da peça.
+ * Se uma peça está em "expedido", ela OBRIGATORIAMENTE passou por corte, fabricação, solda e pintura.
+ * Se está em "pintura", passou por corte, fabricação e solda.
+ * Isso fecha a lacuna de peças que foram movidas antes do histórico existir.
+ *
+ * @param {Array} pecas - Registros de pecas_producao (com etapa, peso_total, quantidade)
+ * @returns {Object} Métricas cumulativas por etapa { corte: { unidades, kg }, ... }
+ */
+export function contabilizarCumulativo(pecas = []) {
+  // Ordem das etapas de produção
+  const ORDEM_ETAPAS = ['corte', 'fabricacao', 'solda', 'pintura', 'expedido'];
+  const etapas = {
+    corte: { unidades: 0, kg: 0 },
+    fabricacao: { unidades: 0, kg: 0 },
+    solda: { unidades: 0, kg: 0 },
+    pintura: { unidades: 0, kg: 0 },
+  };
+
+  pecas.forEach(p => {
+    const etapaAtual = p.etapa;
+    if (!etapaAtual) return;
+
+    const idxAtual = ORDEM_ETAPAS.indexOf(etapaAtual);
+    if (idxAtual < 0) return; // etapa desconhecida
+
+    const qtd = p.quantidade || 1;
+    const peso = p.peso_total || p.peso_unitario || 0;
+
+    // Se a peça está na etapa N, ela COMPLETOU todas as etapas 0..N-1
+    // Se está em "expedido" (idx=4), completou corte(0), fabricacao(1), solda(2), pintura(3)
+    // Se está em "pintura" (idx=3), completou corte(0), fabricacao(1), solda(2)
+    // Se está em "solda" (idx=2), completou corte(0), fabricacao(1)
+    // Se está em "fabricacao" (idx=1), completou corte(0)
+    // Se está em "corte" (idx=0), não completou nada ainda (está em andamento)
+    for (let i = 0; i < idxAtual && i < 4; i++) {
+      const etapaConcluida = ORDEM_ETAPAS[i];
+      if (etapas[etapaConcluida]) {
+        etapas[etapaConcluida].unidades += qtd;
+        etapas[etapaConcluida].kg += peso;
+      }
+    }
+  });
+
+  // Arredondar KG
+  Object.keys(etapas).forEach(etapa => {
+    etapas[etapa].kg = Math.round(etapas[etapa].kg * 100) / 100;
+  });
+
+  return etapas;
+}
+
+/**
  * Calcular totais a partir de métricas por etapa
  * @param {Object} porEtapa - Output de agregarPorEtapa
  * @returns {Object} Totais consolidados

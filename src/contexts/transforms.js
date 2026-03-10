@@ -150,7 +150,8 @@ const PECAS_VALID_COLUMNS = new Set([
   'comprimento', 'quantidade', 'material', 'peso_total', 'peso_unitario',
   'etapa', 'status_corte', 'status', 'percentual_conclusao',
   'quantidade_produzida', 'responsavel', 'equipe_id', 'codigo',
-  'data_inicio', 'data_fim_prevista', 'data_fim_real', 'observacoes'
+  'data_inicio', 'data_fim_prevista', 'data_fim_real', 'observacoes',
+  'funcionario_fabricacao', 'funcionario_solda', 'funcionario_pintura', 'funcionario_expedido'
 ]);
 
 export function pecaToSupabase(record) {

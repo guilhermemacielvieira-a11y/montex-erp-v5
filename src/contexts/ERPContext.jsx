@@ -504,6 +504,16 @@ export function ERPProvider({ children }) {
         }
         if (funcionarioId) {
           updateData.responsavel = funcionarioId;
+          // Registrar funcionário responsável por etapa específica
+          if (novaEtapa === 'fabricacao') {
+            updateData.funcionario_fabricacao = funcionarioId;
+          } else if (novaEtapa === 'solda') {
+            updateData.funcionario_solda = funcionarioId;
+          } else if (novaEtapa === 'pintura') {
+            updateData.funcionario_pintura = funcionarioId;
+          } else if (novaEtapa === 'expedido') {
+            updateData.funcionario_expedido = funcionarioId;
+          }
         }
 
         // Filtrar apenas campos validos antes de enviar ao Supabase

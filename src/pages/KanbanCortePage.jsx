@@ -115,7 +115,8 @@ export default function KanbanCortePage() {
   // --- Modal de seleção de funcionário ---
   const [modalFuncionario, setModalFuncionario] = useState(false);
   const [itemPendenteCorte, setItemPendenteCorte] = useState(null);
-  const [acaoPendenteCorte, setAcaoPendenteCorte] = useState(null); // 'iniciar' | 'finalizar_direto'
+  const [acaoPendenteCorte, setAcaoPendenteCorte] = useState(null); // 'iniciar' | 'finalizar_direto' | 'finalizar' | 'resetar' | 'generico'
+  const [statusOrigemCorte, setStatusOrigemCorte] = useState(null);
   const { registrarTransicao } = useProducaoHistorico();
 
   // Abater peso do estoque quando peça entra em corte
@@ -304,62 +305,64 @@ export default function KanbanCortePage() {
     const sourceStatus = source.droppableId;
     const destStatus = destination.droppableId;
 
-    // Se destino é 'cortando' → abrir modal para selecionar funcionário
+    // TODAS as transições exigem identificação de funcionário
+    let acao = 'generico';
     if (destStatus === 'cortando' && sourceStatus === 'aguardando') {
-      setItemPendenteCorte(item);
-      setAcaoPendenteCorte('iniciar');
-      setModalFuncionario(true);
-      return;
+      acao = 'iniciar';
+    } else if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
+      acao = 'finalizar_direto';
+    } else if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
+      acao = 'finalizar';
+    } else if (destStatus === 'aguardando') {
+      acao = 'resetar';
     }
 
-    // Se vai direto de aguardando para finalizado → também pedir funcionário
-    if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
-      setItemPendenteCorte(item);
-      setAcaoPendenteCorte('finalizar_direto');
-      setModalFuncionario(true);
-      return;
-    }
-
-    // Demais transições sem modal
-    if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
-      // Nota: o estoque já foi deduzido ao iniciar o corte (aguardando→cortando)
-      // Não deduzir novamente aqui para evitar dupla dedução
-      finalizarCorte(id);
-    } else if (sourceStatus === 'cortando' && destStatus === 'aguardando') {
-      resetarCorte(id);
-    } else if (sourceStatus === 'finalizado' && destStatus === 'aguardando') {
-      resetarCorte(id);
-    }
+    setItemPendenteCorte(item);
+    setAcaoPendenteCorte(acao);
+    setStatusOrigemCorte(sourceStatus);
+    setModalFuncionario(true);
   };
 
   // Callback quando funcionário é selecionado no modal (KanbanCortePage)
+  // TODAS as transições exigem identificação de funcionário
   const handleFuncionarioCorteConfirm = (funcionarioId, funcionarioNome) => {
     if (!itemPendenteCorte) return;
 
     const item = itemPendenteCorte;
+    let etapaDe = statusOrigemCorte || item.statusCorte || 'aguardando';
+    let etapaPara = 'cortando';
 
     if (acaoPendenteCorte === 'iniciar') {
       abaterEstoquePorCorte(item);
       iniciarCorte(item.id, funcionarioId);
+      etapaPara = 'cortando';
     } else if (acaoPendenteCorte === 'finalizar_direto') {
       abaterEstoquePorCorte(item);
       iniciarCorte(item.id, funcionarioId);
       finalizarCorte(item.id);
+      etapaPara = 'finalizado';
+    } else if (acaoPendenteCorte === 'finalizar') {
+      finalizarCorte(item.id);
+      etapaPara = 'finalizado';
+    } else if (acaoPendenteCorte === 'resetar') {
+      resetarCorte(item.id);
+      etapaPara = 'aguardando';
     }
 
-    // Registrar no histórico
+    // Registrar no histórico — SEMPRE, em qualquer transição
     registrarTransicao(
       item.id,
-      'aguardando',
-      acaoPendenteCorte === 'finalizar_direto' ? 'finalizado' : 'cortando',
+      etapaDe,
+      etapaPara,
       funcionarioId,
       funcionarioNome,
-      `Corte ${item.perfil} Marca ${item.marca} - ${item.peso?.toFixed(1)} kg`
+      `Corte ${item.perfil || ''} Marca ${item.marca || ''} - ${item.peso?.toFixed(1) || 0} kg | ${etapaDe} → ${etapaPara}`
     );
 
     setModalFuncionario(false);
     setItemPendenteCorte(null);
     setAcaoPendenteCorte(null);
+    setStatusOrigemCorte(null);
   };
 
   // Conjuntos derivados
@@ -1311,7 +1314,7 @@ export default function KanbanCortePage() {
       {/* Modal de seleção de funcionário para corte */}
       <FuncionarioSelectorModal
         isOpen={modalFuncionario}
-        onClose={() => { setModalFuncionario(false); setItemPendenteCorte(null); setAcaoPendenteCorte(null); }}
+        onClose={() => { setModalFuncionario(false); setItemPendenteCorte(null); setAcaoPendenteCorte(null); setStatusOrigemCorte(null); }}
         onConfirm={handleFuncionarioCorteConfirm}
         setor="corte"
         etapaLabel="Corte"

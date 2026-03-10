@@ -15,6 +15,7 @@ import {
   agregarPorDia,
   calcularTendencia,
   calcularEficiencia,
+  contabilizarCumulativo,
   VALORES_ETAPA,
 } from '@/utils/producaoCalculations';
 
@@ -161,43 +162,54 @@ export function useProducaoAnalytics(options = {}) {
     return { comDados, semDados };
   }, [ctxFuncionarios, ctxEquipes, historico, pecas, equipeId]);
 
-  // ============ KPIs GLOBAIS ============
+  // ============ KPIs GLOBAIS (CUMULATIVO) ============
+  // Usa contabilização cumulativa baseada no STATUS ATUAL da peça
+  // Isso garante que peças em estágio avançado contam para TODAS as etapas anteriores
   const kpis = useMemo(() => {
     const { comDados } = funcionariosClassificados;
-    if (comDados.length === 0) {
-      return {
-        totalFuncionariosComDados: 0,
-        totalFuncionariosSemDados: funcionariosClassificados.semDados.length,
-        totalUnidades: 0,
-        totalKg: 0,
-        totalValor: 0,
-        eficienciaMedia: 0,
-        porEtapa: { corte: { un: 0, kg: 0 }, fabricacao: { un: 0, kg: 0 }, solda: { un: 0, kg: 0 }, pintura: { un: 0, kg: 0 } },
-      };
-    }
 
-    let totalUnidades = 0;
-    let totalKg = 0;
-    let totalValor = 0;
-    const porEtapa = {
-      corte: { un: 0, kg: 0, valor: 0 },
-      fabricacao: { un: 0, kg: 0, valor: 0 },
-      solda: { un: 0, kg: 0, valor: 0 },
-      pintura: { un: 0, kg: 0, valor: 0 },
+    // KPIs cumulativos: baseado no status atual de TODAS as peças
+    const cumulativo = contabilizarCumulativo(pecas);
+
+    // KPIs por funcionário (historico): usado para "atribuídos"
+    let totalAtribuidoUn = 0;
+    let totalAtribuidoKg = 0;
+    const porEtapaAtribuido = {
+      corte: { un: 0, kg: 0 },
+      fabricacao: { un: 0, kg: 0 },
+      solda: { un: 0, kg: 0 },
+      pintura: { un: 0, kg: 0 },
     };
 
     comDados.forEach(f => {
-      totalUnidades += f.totais.unidades;
-      totalKg += f.totais.kg;
-      totalValor += f.totais.valorTotal;
-
-      Object.keys(porEtapa).forEach(etapa => {
+      totalAtribuidoUn += f.totais.unidades;
+      totalAtribuidoKg += f.totais.kg;
+      Object.keys(porEtapaAtribuido).forEach(etapa => {
         if (f.porEtapa[etapa]) {
-          porEtapa[etapa].un += f.porEtapa[etapa].unidades;
-          porEtapa[etapa].kg += f.porEtapa[etapa].kg;
-          porEtapa[etapa].valor += f.porEtapa[etapa].valor || 0;
+          porEtapaAtribuido[etapa].un += f.porEtapa[etapa].unidades;
+          porEtapaAtribuido[etapa].kg += f.porEtapa[etapa].kg;
         }
       });
+    });
+
+    // Usar o MAIOR valor entre cumulativo e historico por etapa
+    const porEtapa = {};
+    Object.keys(cumulativo).forEach(etapa => {
+      porEtapa[etapa] = {
+        un: Math.max(cumulativo[etapa].unidades, porEtapaAtribuido[etapa]?.un || 0),
+        kg: Math.max(cumulativo[etapa].kg, porEtapaAtribuido[etapa]?.kg || 0),
+        atribuidoUn: porEtapaAtribuido[etapa]?.un || 0,
+        atribuidoKg: porEtapaAtribuido[etapa]?.kg || 0,
+        valor: 0,
+      };
+    });
+
+    // Totais cumulativos
+    let totalUnidades = 0;
+    let totalKg = 0;
+    Object.values(porEtapa).forEach(e => {
+      totalUnidades += e.un;
+      totalKg += e.kg;
     });
 
     return {
@@ -205,11 +217,11 @@ export function useProducaoAnalytics(options = {}) {
       totalFuncionariosSemDados: funcionariosClassificados.semDados.length,
       totalUnidades,
       totalKg: Math.round(totalKg * 100) / 100,
-      totalValor: Math.round(totalValor * 100) / 100,
-      eficienciaMedia: 0, // Calculado se tivermos metas
+      totalValor: 0,
+      eficienciaMedia: 0,
       porEtapa,
     };
-  }, [funcionariosClassificados]);
+  }, [funcionariosClassificados, pecas]);
 
   // ============ TOP PERFORMERS ============
   const topPerformers = useMemo(() => {
