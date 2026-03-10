@@ -381,7 +381,7 @@ export function useFinancialIntelligence(filtros = {}) {
         }
       },
       producao: {
-        meta: pesoTotalPecas > 0 ? pesoTotalPecas / (numMeses || 1) * 1.05 : 10000,
+        meta: pesoTotalPecas > 0 ? pesoTotalPecas / (numMesesProducao || 1) * 1.05 : 10000,
         real: producaoMensal,
         progresso: 0
       },
