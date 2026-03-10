@@ -135,7 +135,7 @@ function KPICard({ title, value, subtitle, icon: Icon, color, trend, isNegativeT
             <TrendingUp className={cn("h-4 w-4", trendColor)} />
           )}
           <span className={cn("text-sm font-medium", trendColor)}>
-            {trend >= 0 ? '+' : ''}{trend}%
+            {trend >= 0 ? '+' : ''}{typeof trend === 'number' ? trend.toFixed(1) : trend}%
           </span>
           <span className="text-xs text-slate-500">vs mês anterior</span>
         </div>
@@ -372,8 +372,8 @@ export default function AnaliseCustosPage() {
         />
         <KPICard
           title="Custo/KG"
-          value={formatCurrency(kpis.custoPerKg)}
-          subtitle={`Por ${pesoTotalPecas || 'kg'}`}
+          value={`R$ ${(kpis.custoPerKg || 0).toFixed(2)}`}
+          subtitle={`Por ${pesoTotalPecas ? (pesoTotalPecas / 1000).toFixed(1) + ' ton' : '0 kg'}`}
           icon={Wrench}
           color="from-emerald-500 to-green-500"
           isNegativeTrendGood={true}

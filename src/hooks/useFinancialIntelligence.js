@@ -152,13 +152,23 @@ export function useFinancialIntelligence(filtros = {}) {
     // 4. PRODUÇÃO (de peças)
     // ========================================
     const pecasArr = pecas || [];
-    const pesoTotalPecas = pecasArr.reduce((sum, p) => sum + (parseFloat(p.peso) || parseFloat(p.pesoUnit) || 0) * (parseInt(p.quantidade) || 1), 0);
+    // IMPORTANTE: peso_total já é peso_unitario × quantidade no Supabase.
+    // NÃO multiplicar por quantidade novamente!
+    const pesoTotalPecas = pecasArr.reduce((sum, p) => {
+      const pesoTotal = parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0;
+      // Se pesoTotal > 0, usar direto (já inclui quantidade)
+      // Se não, usar pesoUnitario × quantidade como fallback
+      if (pesoTotal > 0) return sum + pesoTotal;
+      const pesoUnit = parseFloat(p.pesoUnitario) || parseFloat(p.pesoUnit) || 0;
+      return sum + pesoUnit * (parseInt(p.quantidade) || 1);
+    }, 0);
 
     // Produção por etapa
     const producaoPorEtapa = {};
     pecasArr.forEach(p => {
       const etapa = (p.etapa || 'CORTE').toUpperCase();
-      const peso = (parseFloat(p.peso) || parseFloat(p.pesoUnit) || 0) * (parseInt(p.quantidade) || 1);
+      const pesoTotal = parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0;
+      const peso = pesoTotal > 0 ? pesoTotal : (parseFloat(p.pesoUnitario) || parseFloat(p.pesoUnit) || 0) * (parseInt(p.quantidade) || 1);
       if (!producaoPorEtapa[etapa]) producaoPorEtapa[etapa] = { kg: 0, pecas: 0 };
       producaoPorEtapa[etapa].kg += peso;
       producaoPorEtapa[etapa].pecas += parseInt(p.quantidade) || 1;
@@ -251,8 +261,9 @@ export function useFinancialIntelligence(filtros = {}) {
     });
 
     despesasFiltradas.forEach(d => {
-      const catOrig = d.categoria || d.categoriaNorm;
-      const centros = CATEGORIA_CENTRO[catOrig] || CATEGORIA_CENTRO[d.categoriaNorm] || [{ centro: 'CC-005', nome: 'Administrativo', peso: 1.0 }];
+      // Priorizar a categoria normalizada para lookup no CATEGORIA_CENTRO
+      // As categorias do Supabase (mao_de_obra, fabricacao, etc) são normalizadas em categoriaNorm
+      const centros = CATEGORIA_CENTRO[d.categoriaNorm] || CATEGORIA_CENTRO[d.categoria] || [{ centro: 'CC-005', nome: 'Administrativo', peso: 1.0 }];
       centros.forEach(({ centro, peso }) => {
         if (centroMap[centro]) {
           centroMap[centro].gasto += d.valor * peso;

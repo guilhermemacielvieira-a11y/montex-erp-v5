@@ -164,7 +164,7 @@ function CentroCustoCard({ centro, formatCurrency }) {
 export default function CentrosCustoPage() {
   const [activeTab, setActiveTab] = useState('visao-geral');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [periodo, setPeriodo] = useState('mes');
+  const [periodo, setPeriodo] = useState('geral');
   const [lancamentosPage, setLancamentosPage] = useState(1);
   const [centroCustoFilter, setCentroCustoFilter] = useState('');
   const [formData, setFormData] = useState({
@@ -177,6 +177,7 @@ export default function CentrosCustoPage() {
 
   // Period mapping
   const periodoMap = {
+    'geral': 'geral',
     'mes': 'mensal',
     'trimestre': 'trimestral',
     'ano': 'anual'
@@ -306,6 +307,7 @@ export default function CentrosCustoPage() {
               <SelectValue placeholder="Período" />
             </SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="geral">Geral</SelectItem>
               <SelectItem value="mes">Este Mês</SelectItem>
               <SelectItem value="trimestre">Trimestre</SelectItem>
               <SelectItem value="ano">Ano</SelectItem>

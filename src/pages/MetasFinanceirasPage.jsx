@@ -219,7 +219,7 @@ function KPICard({ title, value, subtitle, icon: Icon, color, trend, trendValue 
             "text-sm font-medium",
             trend >= 0 ? "text-emerald-400" : "text-red-400"
           )}>
-            {trend >= 0 ? '+' : ''}{trendValue || trend}%
+            {trend >= 0 ? '+' : ''}{typeof (trendValue || trend) === 'number' ? (trendValue || trend).toFixed(1) : (trendValue || trend)}%
           </span>
           <span className="text-xs text-slate-500">vs mês anterior</span>
         </div>
@@ -408,7 +408,7 @@ export default function MetasFinanceirasPage() {
         <KPICard
           title="Produção"
           value={`${(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton`}
-          subtitle={`por mês: ${fi.kpisGerais.producaoMensal} kg`}
+          subtitle={`por mês: ${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton`}
           icon={Award}
           color="from-blue-500 to-cyan-500"
         />
