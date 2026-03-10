@@ -164,7 +164,8 @@ export function useProducaoAnalytics(options = {}) {
 
   // ============ KPIs GLOBAIS (CUMULATIVO) ============
   // Usa contabilização cumulativa baseada no STATUS ATUAL da peça
-  // Isso garante que peças em estágio avançado contam para TODAS as etapas anteriores
+  // Por etapa = peças que CONCLUÍRAM aquela etapa (cumulativo)
+  // Totais = peças ÚNICAS em produção (NÃO soma entre etapas)
   const kpis = useMemo(() => {
     const { comDados } = funcionariosClassificados;
 
@@ -172,8 +173,6 @@ export function useProducaoAnalytics(options = {}) {
     const cumulativo = contabilizarCumulativo(pecas);
 
     // KPIs por funcionário (historico): usado para "atribuídos"
-    let totalAtribuidoUn = 0;
-    let totalAtribuidoKg = 0;
     const porEtapaAtribuido = {
       corte: { un: 0, kg: 0 },
       fabricacao: { un: 0, kg: 0 },
@@ -182,8 +181,6 @@ export function useProducaoAnalytics(options = {}) {
     };
 
     comDados.forEach(f => {
-      totalAtribuidoUn += f.totais.unidades;
-      totalAtribuidoKg += f.totais.kg;
       Object.keys(porEtapaAtribuido).forEach(etapa => {
         if (f.porEtapa[etapa]) {
           porEtapaAtribuido[etapa].un += f.porEtapa[etapa].unidades;
@@ -192,7 +189,7 @@ export function useProducaoAnalytics(options = {}) {
       });
     });
 
-    // Usar o MAIOR valor entre cumulativo e historico por etapa
+    // Por etapa: usar o MAIOR entre cumulativo e historico
     const porEtapa = {};
     Object.keys(cumulativo).forEach(etapa => {
       porEtapa[etapa] = {
@@ -204,17 +201,27 @@ export function useProducaoAnalytics(options = {}) {
       };
     });
 
-    // Totais cumulativos
+    // Totais ÚNICOS: contar peças que JÁ PASSARAM pelo corte (estão em produção)
+    // Uma peça em fabricacao, solda, pintura, expedido ou entregue = passou pelo corte
+    const ETAPAS_EM_PRODUCAO = ['fabricacao', 'solda', 'pintura', 'expedido', 'entregue'];
+    let totalConjuntos = 0;
     let totalUnidades = 0;
     let totalKg = 0;
-    Object.values(porEtapa).forEach(e => {
-      totalUnidades += e.un;
-      totalKg += e.kg;
+
+    pecas.forEach(p => {
+      const etapa = p.etapa;
+      if (!etapa) return;
+      if (ETAPAS_EM_PRODUCAO.includes(etapa)) {
+        totalConjuntos += 1;
+        totalUnidades += (p.quantidade || 1);
+        totalKg += (p.peso_total || p.peso_unitario || 0);
+      }
     });
 
     return {
       totalFuncionariosComDados: comDados.length,
       totalFuncionariosSemDados: funcionariosClassificados.semDados.length,
+      totalConjuntos,
       totalUnidades,
       totalKg: Math.round(totalKg * 100) / 100,
       totalValor: 0,

@@ -127,38 +127,40 @@ export function agregarPorEtapa(historico, pecas = []) {
  * @returns {Object} Métricas cumulativas por etapa { corte: { unidades, kg }, ... }
  */
 export function contabilizarCumulativo(pecas = []) {
-  // Ordem das etapas de produção
-  const ORDEM_ETAPAS = ['corte', 'fabricacao', 'solda', 'pintura', 'expedido'];
+  // Ordem COMPLETA das etapas (incluindo entregue que está após expedido)
+  const ORDEM_ETAPAS = ['aguardando', 'corte', 'fabricacao', 'solda', 'pintura', 'expedido', 'entregue'];
   const etapas = {
-    corte: { unidades: 0, kg: 0 },
-    fabricacao: { unidades: 0, kg: 0 },
-    solda: { unidades: 0, kg: 0 },
-    pintura: { unidades: 0, kg: 0 },
+    corte: { unidades: 0, kg: 0, conjuntos: 0 },
+    fabricacao: { unidades: 0, kg: 0, conjuntos: 0 },
+    solda: { unidades: 0, kg: 0, conjuntos: 0 },
+    pintura: { unidades: 0, kg: 0, conjuntos: 0 },
   };
+
+  // Mapeamento: índice mínimo para considerar que PASSOU pela etapa
+  // Passou por corte = está em fabricacao(2) ou adiante
+  // Passou por fabricacao = está em solda(3) ou adiante
+  // Passou por solda = está em pintura(4) ou adiante
+  // Passou por pintura = está em expedido(5) ou adiante
+  const ETAPA_THRESHOLD = { corte: 2, fabricacao: 3, solda: 4, pintura: 5 };
 
   pecas.forEach(p => {
     const etapaAtual = p.etapa;
     if (!etapaAtual) return;
 
     const idxAtual = ORDEM_ETAPAS.indexOf(etapaAtual);
-    if (idxAtual < 0) return; // etapa desconhecida
+    if (idxAtual < 0) return;
 
     const qtd = p.quantidade || 1;
     const peso = p.peso_total || p.peso_unitario || 0;
 
-    // Se a peça está na etapa N, ela COMPLETOU todas as etapas 0..N-1
-    // Se está em "expedido" (idx=4), completou corte(0), fabricacao(1), solda(2), pintura(3)
-    // Se está em "pintura" (idx=3), completou corte(0), fabricacao(1), solda(2)
-    // Se está em "solda" (idx=2), completou corte(0), fabricacao(1)
-    // Se está em "fabricacao" (idx=1), completou corte(0)
-    // Se está em "corte" (idx=0), não completou nada ainda (está em andamento)
-    for (let i = 0; i < idxAtual && i < 4; i++) {
-      const etapaConcluida = ORDEM_ETAPAS[i];
-      if (etapas[etapaConcluida]) {
-        etapas[etapaConcluida].unidades += qtd;
-        etapas[etapaConcluida].kg += peso;
+    // Verificar cada etapa de produção
+    Object.keys(ETAPA_THRESHOLD).forEach(etapaProd => {
+      if (idxAtual >= ETAPA_THRESHOLD[etapaProd]) {
+        etapas[etapaProd].conjuntos += 1;
+        etapas[etapaProd].unidades += qtd;
+        etapas[etapaProd].kg += peso;
       }
-    }
+    });
   });
 
   // Arredondar KG

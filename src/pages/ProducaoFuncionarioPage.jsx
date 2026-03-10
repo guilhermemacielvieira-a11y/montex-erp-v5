@@ -156,10 +156,10 @@ function DashboardKPIs({ kpis, pecas }) {
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
         {[
           { icon: Users, label: 'Funcionários Ativos', value: kpis.totalFuncionariosComDados, sub: `${kpis.totalFuncionariosSemDados} pendentes`, color: 'text-cyan-400', bg: 'from-cyan-500/20 to-blue-500/20', border: 'border-cyan-500/30' },
-          { icon: Package, label: 'Total Peças', value: kpis.totalUnidades.toLocaleString('pt-BR'), sub: 'finalizadas no período', color: 'text-emerald-400', bg: 'from-emerald-500/20 to-green-500/20', border: 'border-emerald-500/30' },
-          { icon: Weight, label: 'Total KG', value: formatKg(kpis.totalKg), sub: 'processado no período', color: 'text-blue-400', bg: 'from-blue-500/20 to-indigo-500/20', border: 'border-blue-500/30' },
+          { icon: Package, label: 'Conjuntos', value: (kpis.totalConjuntos || 0).toLocaleString('pt-BR'), sub: `${(kpis.totalUnidades || 0).toLocaleString('pt-BR')} unidades em produção`, color: 'text-emerald-400', bg: 'from-emerald-500/20 to-green-500/20', border: 'border-emerald-500/30' },
+          { icon: Weight, label: 'Peso Total', value: formatKg(kpis.totalKg), sub: 'peso real das peças', color: 'text-blue-400', bg: 'from-blue-500/20 to-indigo-500/20', border: 'border-blue-500/30' },
           { icon: Target, label: 'Eficiência Média', value: `${eficienciaGeral}%`, sub: 'vs metas do setor', color: eficienciaGeral >= 75 ? 'text-emerald-400' : eficienciaGeral >= 50 ? 'text-amber-400' : 'text-red-400', bg: eficienciaGeral >= 75 ? 'from-emerald-500/20 to-green-500/20' : eficienciaGeral >= 50 ? 'from-amber-500/20 to-orange-500/20' : 'from-red-500/20 to-rose-500/20', border: eficienciaGeral >= 75 ? 'border-emerald-500/30' : eficienciaGeral >= 50 ? 'border-amber-500/30' : 'border-red-500/30' },
-          { icon: Zap, label: 'Peças/Func.', value: kpis.totalFuncionariosComDados > 0 ? Math.round(kpis.totalUnidades / kpis.totalFuncionariosComDados) : 0, sub: 'média por funcionário', color: 'text-purple-400', bg: 'from-purple-500/20 to-indigo-500/20', border: 'border-purple-500/30' },
+          { icon: Zap, label: 'Conj./Func.', value: kpis.totalFuncionariosComDados > 0 ? Math.round((kpis.totalConjuntos || 0) / kpis.totalFuncionariosComDados) : 0, sub: 'média por funcionário', color: 'text-purple-400', bg: 'from-purple-500/20 to-indigo-500/20', border: 'border-purple-500/30' },
         ].map((kpi) => (
           <Card key={kpi.label} className={cn("bg-gradient-to-br border", kpi.bg, kpi.border)}>
             <CardContent className="p-4">
@@ -200,7 +200,7 @@ function DashboardKPIs({ kpis, pecas }) {
                   <div className="flex justify-between items-end">
                     <div>
                       <p className="text-2xl font-black text-white">{(dados.un || 0).toLocaleString('pt-BR')}</p>
-                      <p className="text-[10px] text-slate-500">peças concluídas</p>
+                      <p className="text-[10px] text-slate-500">un. que passaram por {ETAPAS_LABELS[etapa]}</p>
                     </div>
                     <div className="text-right">
                       <p className="text-lg font-bold text-white">{formatKg(dados.kg)}</p>
