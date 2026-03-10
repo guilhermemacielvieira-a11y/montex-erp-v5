@@ -612,7 +612,7 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });
 
     // Atualiza etapa das peças para EXPEDIDO
-    (expedicao.pecas_ids || expedicao.pecas || []).forEach(pecaId => {
+    expedicao.pecas.forEach(pecaId => {
       dispatch({
         type: ACTIONS.UPDATE_PECA,
         payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.EXPEDIDO } }
@@ -643,7 +643,7 @@ export function ERPProvider({ children }) {
         };
         await expedicoesApi.create(record);
         // Atualizar etapa das peças no Supabase
-        for (const pecaId of (expedicao.pecas_ids || expedicao.pecas || [])) {
+        for (const pecaId of (expedicao.pecas || [])) {
           await pecasApi.update(pecaId, { etapa: 'expedido', status: 'concluido' }).catch(() => {});
         }
         console.log(`✅ Expedição ${record.id} criada no Supabase`);
@@ -654,7 +654,7 @@ export function ERPProvider({ children }) {
 
     // Add notification for shipment
     if (window.__notificationDispatch) {
-      const numPecas = (expedicao.pecas_ids || expedicao.pecas)?.length || 0;
+      const numPecas = expedicao.pecas?.length || 0;
       window.__notificationDispatch({
         type: 'shipping',
         title: `Romaneio #${expedicao.id} expedido`,
@@ -666,41 +666,6 @@ export function ERPProvider({ children }) {
 
   const updateExpedicao = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data } });
-
-    // Quando status muda para ENTREGUE, atualizar etapa das peças para 'entregue'
-    const novoStatus = (data.status || '').toUpperCase();
-    if (novoStatus === 'ENTREGUE') {
-      const expedição = state.expedicoes.find(e => e.id === id);
-      if (expedição) {
-        const pecaIds = [];
-        // Coletar IDs das peças da expedição
-        if (Array.isArray(expedição.pecas_ids)) {
-          expedição.pecas_ids.forEach(pid => pecaIds.push(pid));
-        }
-        if (Array.isArray(expedição.pecas)) {
-          expedição.pecas.forEach(p => {
-            const pid = typeof p === 'object' ? (p.id || p.pecaId) : p;
-            if (pid) pecaIds.push(pid);
-          });
-        }
-        // Atualizar etapa local de cada peça
-        pecaIds.forEach(pecaId => {
-          dispatch({
-            type: ACTIONS.UPDATE_PECA,
-            payload: { id: pecaId, data: { etapa: 'entregue' } }
-          });
-        });
-        // Persistir etapa no Supabase
-        if (dataSource === 'supabase') {
-          for (const pecaId of pecaIds) {
-            pecasApi.update(pecaId, { etapa: 'entregue' }).catch(err => {
-              console.error(`❌ Erro ao atualizar etapa da peça ${pecaId}:`, err.message);
-            });
-          }
-        }
-      }
-    }
-
     if (dataSource === 'supabase') {
       try {
         const snakeData = reverseTransformRecord(data);
@@ -711,16 +676,16 @@ export function ERPProvider({ children }) {
         console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
       }
     }
-  }, [dataSource, state.expedicoes]);
+  }, [dataSource]);
 
   const deleteExpedicao = useCallback(async (id) => {
     dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
     if (dataSource === 'supabase') {
       try {
         await expedicoesApi.delete(id);
-        console.log(`✅ Expedição ${id} removida do Supabase`);
+        console.log(`✅ Expedição ${id} deletada do Supabase`);
       } catch (err) {
-        console.error('❌ Erro ao remover expedição do Supabase:', err.message);
+        console.error('❌ Erro ao deletar expedição no Supabase:', err.message);
       }
     }
   }, [dataSource]);
@@ -776,74 +741,11 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.ADD_MEDICAO, payload: medicao });
     if (dataSource === 'supabase') {
       try {
-        // Mapeamento específico: só enviar colunas que existem na tabela medicoes
-        const record = {
-          id: medicao.id,
-          obra_id: medicao.obraId || medicao.obra_id,
-          numero: medicao.numero || null,
-          setor: medicao.setor || null,
-          etapa: medicao.etapa || null,
-          tipo: medicao.tipo || (medicao.isAvulsa ? 'avulsa' : 'peso'),
-          peso_medido: parseFloat(medicao.pesoMedido) || 0,
-          data_medicao: medicao.dataMedicao || null,
-          data_referencia: medicao.dataReferencia || null,
-          valor_bruto: parseFloat(medicao.valorBruto) || 0,
-          valor_liquido: parseFloat(medicao.valorLiquido) || 0,
-          valor_total: parseFloat(medicao.valorBruto) || 0,
-          status: medicao.status || 'aguardando',
-          descricao: medicao.descricao || medicao.tipoLabel || null,
-          observacoes: medicao.observacao || medicao.observacoes || null,
-          responsavel: medicao.responsavel || null,
-          retencoes: medicao.retencoes ? JSON.stringify(medicao.retencoes) : null,
-          detalhamento: medicao.detalhamento ? JSON.stringify(medicao.detalhamento) : null,
-          is_avulsa: medicao.isAvulsa || false,
-        };
+        const record = reverseTransformRecord(medicao);
         await medicoesApi.create(record);
         console.log(`✅ Medição ${medicao.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar medição no Supabase:', err.message);
-      }
-    }
-  }, [dataSource]);
-
-  const updateMedicao = useCallback(async (id, dados) => {
-    dispatch({ type: ACTIONS.UPDATE_MEDICAO, payload: { id, dados } });
-    if (dataSource === 'supabase') {
-      try {
-        const record = {};
-        if (dados.numero !== undefined) record.numero = dados.numero;
-        if (dados.setor !== undefined) record.setor = dados.setor;
-        if (dados.etapa !== undefined) record.etapa = dados.etapa;
-        if (dados.tipo !== undefined) record.tipo = dados.tipo;
-        if (dados.pesoMedido !== undefined) record.peso_medido = parseFloat(dados.pesoMedido) || 0;
-        if (dados.dataMedicao !== undefined) record.data_medicao = dados.dataMedicao;
-        if (dados.dataReferencia !== undefined) record.data_referencia = dados.dataReferencia;
-        if (dados.valorBruto !== undefined) record.valor_bruto = parseFloat(dados.valorBruto) || 0;
-        if (dados.valorLiquido !== undefined) record.valor_liquido = parseFloat(dados.valorLiquido) || 0;
-        if (dados.valorBruto !== undefined) record.valor_total = parseFloat(dados.valorBruto) || 0;
-        if (dados.status !== undefined) record.status = dados.status;
-        if (dados.descricao !== undefined) record.descricao = dados.descricao;
-        if (dados.observacao !== undefined) record.observacoes = dados.observacao;
-        if (dados.responsavel !== undefined) record.responsavel = dados.responsavel;
-        if (dados.retencoes !== undefined) record.retencoes = JSON.stringify(dados.retencoes);
-        if (dados.detalhamento !== undefined) record.detalhamento = JSON.stringify(dados.detalhamento);
-        if (dados.isAvulsa !== undefined) record.is_avulsa = dados.isAvulsa;
-        await medicoesApi.update(id, record);
-        console.log(`✅ Medição ${id} atualizada no Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao atualizar medição no Supabase:', err.message);
-      }
-    }
-  }, [dataSource]);
-
-  const deleteMedicao = useCallback(async (id) => {
-    dispatch({ type: ACTIONS.DELETE_MEDICAO, payload: id });
-    if (dataSource === 'supabase') {
-      try {
-        await medicoesApi.delete(id);
-        console.log(`✅ Medição ${id} deletada do Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao deletar medição no Supabase:', err.message);
       }
     }
   }, [dataSource]);
@@ -1304,14 +1206,11 @@ export function ERPProvider({ children }) {
     expedicoes: state.expedicoes,
     expedicoesObraAtual,
     addExpedicao,
-    updateExpedicao,
-    deleteExpedicao,
+    updateExpedicao, deleteExpedicao,
     medicoes: state.medicoes,
     medicoesObraAtual,
     configMedicao: state.configMedicao,
     addMedicao,
-    updateMedicao,
-    deleteMedicao,
     updateConfigMedicao,
     lancamentosDespesas: state.lancamentosDespesas,
     addLancamento,
@@ -1330,14 +1229,11 @@ export function ERPProvider({ children }) {
     state.expedicoes,
     expedicoesObraAtual,
     addExpedicao,
-    updateExpedicao,
-    deleteExpedicao,
+    updateExpedicao, deleteExpedicao,
     state.medicoes,
     medicoesObraAtual,
     state.configMedicao,
     addMedicao,
-    updateMedicao,
-    deleteMedicao,
     updateConfigMedicao,
     state.lancamentosDespesas,
     addLancamento,
@@ -1397,8 +1293,7 @@ export function ERPProvider({ children }) {
 
     // Ações - Expedição
     addExpedicao,
-    updateExpedicao,
-    deleteExpedicao,
+    updateExpedicao, deleteExpedicao,
 
     // Ações - Compras
     addCompra,
@@ -1406,8 +1301,6 @@ export function ERPProvider({ children }) {
 
     // Ações - Medições
     addMedicao,
-    updateMedicao,
-    deleteMedicao,
     updateConfigMedicao,
 
     // Ações - Lançamentos / Despesas
@@ -1467,13 +1360,10 @@ export function ERPProvider({ children }) {
     updatePeca,
     reloadPecas,
     addExpedicao,
-    updateExpedicao,
-    deleteExpedicao,
+    updateExpedicao, deleteExpedicao,
     addCompra,
     receberCompra,
     addMedicao,
-    updateMedicao,
-    deleteMedicao,
     updateConfigMedicao,
     addLancamento,
     updateLancamento,
@@ -1614,8 +1504,6 @@ export function useMedicoes() {
     medicoesObraAtual: context.medicoesObraAtual,
     configMedicao: context.configMedicao,
     addMedicao: context.addMedicao,
-    updateMedicao: context.updateMedicao,
-    deleteMedicao: context.deleteMedicao,
     updateConfigMedicao: context.updateConfigMedicao
   };
 }
