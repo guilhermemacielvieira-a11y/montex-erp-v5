@@ -66,6 +66,16 @@ export default function BIOperacional() {
     return () => clearInterval(timer);
   }, []);
 
+  // Production status counts - dados reais do contexto (MUST be defined before useEffect that uses it)
+  const statusCounts = useMemo(() => ({
+    aguardando: pecas.filter(i => i.etapa === 'aguardando').length,
+    em_corte: pecas.filter(i => i.etapa === 'corte').length,
+    em_fabricacao: pecas.filter(i => i.etapa === 'fabricacao').length,
+    em_pintura: pecas.filter(i => i.etapa === 'pintura').length,
+    concluido: pecas.filter(i => i.etapa === 'acabamento').length,
+    expedido: pecas.filter(i => i.etapa === 'expedido').length,
+  }), [pecas]);
+
   // Simulated real-time production data
   const [realtimeData, setRealtimeData] = useState([
     { time: '08:00', producao: 12, meta: 15, eficiencia: 80 },
@@ -101,16 +111,6 @@ export default function BIOperacional() {
     }, 5000);
     return () => clearInterval(interval);
   }, [isLive, pecas, statusCounts]);
-
-  // Production status counts - dados reais do contexto
-  const statusCounts = useMemo(() => ({
-    aguardando: pecas.filter(i => i.etapa === 'aguardando').length,
-    em_corte: pecas.filter(i => i.etapa === 'corte').length,
-    em_fabricacao: pecas.filter(i => i.etapa === 'fabricacao').length,
-    em_pintura: pecas.filter(i => i.etapa === 'pintura').length,
-    concluido: pecas.filter(i => i.etapa === 'acabamento').length,
-    expedido: pecas.filter(i => i.etapa === 'expedido').length,
-  }), [pecas]);
 
   const totalItems = useMemo(() => Object.values(statusCounts).reduce((a, b) => a + b, 0), [statusCounts]);
   const completionRate = useMemo(() => totalItems > 0 ? ((statusCounts.concluido + statusCounts.expedido) / totalItems * 100).toFixed(0) : 0, [statusCounts, totalItems]);

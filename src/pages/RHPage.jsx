@@ -590,8 +590,13 @@ export default function RHPage() {
   const funcionariosAtivos = funcionarios.filter(f => f.status === 'ativo').length;
   const totalFolha = mockFolhaPagamento.reduce((acc, f) => acc + f.salarioBruto, 0);
   const horasExtrasTotal = registrosPonto.reduce((acc, r) => {
-    const [h, m] = r.horasExtras.split(':').map(Number);
-    return acc + h + m/60;
+    if (!r.horasExtras) return acc;
+    if (typeof r.horasExtras === 'number') return acc + r.horasExtras;
+    if (typeof r.horasExtras === 'string' && r.horasExtras.includes(':')) {
+      const [h, m] = r.horasExtras.split(':').map(Number);
+      return acc + h + (m || 0) / 60;
+    }
+    return acc + (parseFloat(r.horasExtras) || 0);
   }, 0);
 
   return (

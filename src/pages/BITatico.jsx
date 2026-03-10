@@ -543,9 +543,9 @@ export default function BITatico() {
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold"
                         style={{ background: `${COLORS[i % COLORS.length]}20`, color: COLORS[i % COLORS.length] }}>
-                        {resp.nome.charAt(0)}
+                        {(resp.nome || 'N/A').charAt(0)}
                       </div>
-                      <span className="text-sm text-white">{resp.nome}</span>
+                      <span className="text-sm text-white">{resp.nome || 'Sem responsável'}</span>
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-xs text-slate-400">{resp.projetos} proj.</span>
