@@ -614,13 +614,13 @@ export default function RHPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [departamentoFilter, setDepartamentoFilter] = useState('todos');
   const [activeTab, setActiveTab] = useState('funcionarios');
-  const [empresaSelecionada, setEmpresaSelecionada] = useState('montex');
+  const [empresaSelecionada, setEmpresaSelecionada] = useState('geral');
 
-  // Filter data by empresa
-  const funcionariosEmpresa = funcionarios.filter(f => f.empresa === empresaSelecionada);
-  const folhaEmpresa = mockFolhaPagamento.filter(f => f.empresa === empresaSelecionada);
-  const pontoEmpresa = registrosPonto.filter(r => r.empresa === empresaSelecionada);
-  const eventosEmpresa = eventos.filter(e => e.empresa === empresaSelecionada);
+  // Filter data by empresa ('geral' = all)
+  const funcionariosEmpresa = empresaSelecionada === 'geral' ? funcionarios : funcionarios.filter(f => f.empresa === empresaSelecionada);
+  const folhaEmpresa = empresaSelecionada === 'geral' ? mockFolhaPagamento : mockFolhaPagamento.filter(f => f.empresa === empresaSelecionada);
+  const pontoEmpresa = empresaSelecionada === 'geral' ? registrosPonto : registrosPonto.filter(r => r.empresa === empresaSelecionada);
+  const eventosEmpresa = empresaSelecionada === 'geral' ? eventos : eventos.filter(e => e.empresa === empresaSelecionada);
 
   const filteredFuncionarios = funcionariosEmpresa.filter(func => {
     const matchesSearch = func.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -661,6 +661,9 @@ export default function RHPage() {
       {/* Empresa Selector */}
       <div className="space-y-2">
         <div className="flex gap-2 p-1 bg-muted rounded-lg w-fit">
+          <button onClick={() => setEmpresaSelecionada('geral')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${empresaSelecionada === 'geral' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            GERAL
+          </button>
           <button onClick={() => setEmpresaSelecionada('montex')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${empresaSelecionada === 'montex' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
             MONTEX
           </button>
@@ -672,6 +675,7 @@ export default function RHPage() {
           </button>
         </div>
         <div className="text-sm text-muted-foreground">
+          {empresaSelecionada === 'geral' && `Todas as empresas — ${funcionariosEmpresa.length} colaboradores`}
           {empresaSelecionada === 'montex' && `CNPJ: 10.798.894/0001-60 — ${funcionariosEmpresa.length} colaboradores CLT`}
           {empresaSelecionada === 'mr' && `CNPJ: 57.580.275/0001-69 — ${funcionariosEmpresa.length} colaboradores CLT`}
           {empresaSelecionada === 'diaria' && `Pagamento por diária — ${funcionariosEmpresa.length} colaboradores`}
@@ -896,7 +900,7 @@ export default function RHPage() {
         <TabsContent value="folha" className="space-y-4">
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold">Folha de Pagamento - Fevereiro/2026 - {empresaSelecionada === 'montex' ? 'MONTEX MONTAGEM' : empresaSelecionada === 'mr' ? 'M R MONTAGEM' : 'MONTEX DIÁRIA'}</h3>
+              <h3 className="text-lg font-semibold">Folha de Pagamento - Fevereiro/2026 - {empresaSelecionada === 'geral' ? 'TODAS AS EMPRESAS' : empresaSelecionada === 'montex' ? 'MONTEX MONTAGEM' : empresaSelecionada === 'mr' ? 'M R MONTAGEM' : 'MONTEX DIÁRIA'}</h3>
               <p className="text-sm text-muted-foreground">Processamento mensal de salários</p>
             </div>
             <div className="flex gap-2">
