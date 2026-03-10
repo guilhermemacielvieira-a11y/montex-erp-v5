@@ -11,6 +11,7 @@
  */
 
 import React, { useState, useMemo, useCallback } from 'react';
+import { toast } from 'sonner';
 import { motion } from 'framer-motion';
 import {
   DollarSign,
@@ -2551,12 +2552,17 @@ export default function GestaoFinanceiraObra() {
           <ImportarNFModal
             open={showImportNF}
             onOpenChange={setShowImportNF}
-            moduloDestino="obra"
             obraId={obra.id}
-            onImportar={async (lancamento) => {
-              const lanc = { ...lancamento, id: 'lanc-' + Date.now() };
+            onImportar={async (lancamento, itensImportados) => {
+              const lanc = { ...lancamento, id: 'lanc-' + Date.now(), obraId: obra.id, obra_id: obra.id };
               setLancamentos(prev => [...prev, lanc]);
-              try { await addLancamentoCtx(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
+              try {
+                await addLancamentoCtx(lanc);
+                toast.success(`NFe ${lanc.notaFiscal || ''} importada para obra ${obra.nome}`);
+              } catch (err) {
+                console.error('Erro ao importar NF:', err);
+                toast.error('Erro ao importar NFe');
+              }
             }}
           />
 
