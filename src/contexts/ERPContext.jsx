@@ -776,11 +776,11 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
-  const updateMedicao = useCallback(async (id, data) => {
-    dispatch({ type: ACTIONS.UPDATE_MEDICAO, payload: { id, data } });
+  const updateMedicao = useCallback(async (id, dados) => {
+    dispatch({ type: ACTIONS.UPDATE_MEDICAO, payload: { id, dados } });
     if (dataSource === 'supabase') {
       try {
-        const snakeData = reverseTransformRecord(data);
+        const snakeData = reverseTransformRecord(dados);
         await medicoesApi.update(id, snakeData);
         console.log(`✅ Medição ${id} atualizada no Supabase`);
       } catch (err) {
