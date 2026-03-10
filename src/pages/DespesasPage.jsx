@@ -422,65 +422,6 @@ export default function DespesasPage() {
     setImporting(false);
   };
 
-  // === EXPORTAR EXCEL (modelo Natureza de Aquisição) ===
-  const handleExportExcel = useCallback(() => {
-    const wb = XLSX.utils.book_new();
-
-    // Dados para exportação
-    const rows = despesasFiltradas.map(d => ([
-      d.notaFiscal || '-',
-      formatDate(d.data),
-      d.fornecedor || '-',
-      d.descricao || '-',
-      d.categoria || '-',
-      d.centroCusto || '-',
-      d.valor || 0,
-      d.naturezaAquisicao || '-',
-      getStatusText(d.status),
-      d.formaPagto || '-',
-    ]));
-
-    const header = [
-      ['PLANILHA DE IDENTIFICAÇÃO DE NATUREZA DE AQUISIÇÃO'],
-      [''],
-      ['EMPRESA:', 'MONTEX ESTRUTURAS METÁLICAS'],
-      ['COMPETÊNCIA:', filtroPeriodo === 'geral' ? 'GERAL' : filtroPeriodo.toUpperCase()],
-      [''],
-      ['Nº NFe', 'Data Emissão', 'Nome do Fornecedor', 'Descrição', 'Categoria', 'Centro de Custo', 'Valor (R$)', 'Natureza de Aquisição', 'Status', 'Forma Pgto'],
-    ];
-
-    const wsData = [...header, ...rows];
-
-    // Linha de totais
-    wsData.push([]);
-    wsData.push(['', '', '', '', '', 'TOTAL:', despesasFiltradas.reduce((s, d) => s + (d.valor || 0), 0), '', '', '']);
-
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-    // Ajuste de larguras
-    ws['!cols'] = [
-      { wch: 12 }, // NFe
-      { wch: 14 }, // Data
-      { wch: 30 }, // Fornecedor
-      { wch: 35 }, // Descrição
-      { wch: 18 }, // Categoria
-      { wch: 16 }, // Centro Custo
-      { wch: 15 }, // Valor
-      { wch: 45 }, // Natureza Aquisição
-      { wch: 12 }, // Status
-      { wch: 15 }, // Forma Pgto
-    ];
-
-    // Merge título
-    ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 9 } },
-    ];
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Natureza Aquisição');
-    XLSX.writeFile(wb, `Despesas_Natureza_Aquisicao_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    toast.success('Relatório exportado com sucesso!');
-  }, [despesasFiltradas, filtroPeriodo]);
-
   // === FILTRAR POR PERÍODO ===
   const filtrarPorPeriodo = useCallback((lista) => {
     if (filtroPeriodo === 'geral') return lista;
@@ -542,6 +483,44 @@ export default function DespesasPage() {
     });
     return filtrarPorPeriodo(resultado);
   }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtrarPorPeriodo]);
+
+  // === EXPORTAR EXCEL (modelo Natureza de Aquisição) ===
+  const handleExportExcel = useCallback(() => {
+    const wb = XLSX.utils.book_new();
+    const rows = despesasFiltradas.map(d => ([
+      d.notaFiscal || '-',
+      formatDate(d.data),
+      d.fornecedor || '-',
+      d.descricao || '-',
+      d.categoria || '-',
+      d.centroCusto || '-',
+      d.valor || 0,
+      d.naturezaAquisicao || '-',
+      getStatusText(d.status),
+      d.formaPagto || '-',
+    ]));
+    const header = [
+      ['PLANILHA DE IDENTIFICAÇÃO DE NATUREZA DE AQUISIÇÃO'],
+      [''],
+      ['EMPRESA:', 'MONTEX ESTRUTURAS METÁLICAS'],
+      ['COMPETÊNCIA:', filtroPeriodo === 'geral' ? 'GERAL' : filtroPeriodo.toUpperCase()],
+      [''],
+      ['Nº NFe', 'Data Emissão', 'Nome do Fornecedor', 'Descrição', 'Categoria', 'Centro de Custo', 'Valor (R$)', 'Natureza de Aquisição', 'Status', 'Forma Pgto'],
+    ];
+    const wsData = [...header, ...rows];
+    wsData.push([]);
+    wsData.push(['', '', '', '', '', 'TOTAL:', despesasFiltradas.reduce((s, d) => s + (d.valor || 0), 0), '', '', '']);
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 35 },
+      { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 45 },
+      { wch: 12 }, { wch: 15 },
+    ];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Natureza Aquisição');
+    XLSX.writeFile(wb, `Despesas_Natureza_Aquisicao_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    toast.success('Relatório exportado com sucesso!');
+  }, [despesasFiltradas, filtroPeriodo]);
 
   // === HANDLERS CRUD ===
   const handleNovaDespesa = () => {
