@@ -1,8 +1,7 @@
 // MONTEX ERP Premium - Gestão de Receitas
-// 100% INDEPENDENTE de obras - localStorage próprio
-// Puxa receitas de Gestão Financeira Obra automaticamente
+// Financeiro Fábrica - localStorage próprio + importação de receitas da Gestão Financeira Obra
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import {
   DollarSign,
@@ -18,6 +17,9 @@ import {
   Calendar,
   Trash2,
   RefreshCw,
+  X,
+  Building2,
+  MoreHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +42,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
   Table,
   TableBody,
   TableCell,
@@ -61,7 +69,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { useLancamentos } from '../contexts/ERPContext';
+import { useLancamentos, useObras } from '../contexts/ERPContext';
 
 // ========== STORAGE INDEPENDENTE ==========
 const STORAGE_KEY = 'montex_receitas_gerais';
@@ -73,7 +81,17 @@ const categoriasReceita = [
   { id: 3, nome: 'Medição Final', cor: '#8b5cf6' },
   { id: 4, nome: 'Venda Material', cor: '#f59e0b' },
   { id: 5, nome: 'Serviço Avulso', cor: '#ec4899' },
-  { id: 6, nome: 'Outros', cor: '#64748b' },
+  { id: 6, nome: 'Material Faturado', cor: '#06b6d4' },
+  { id: 7, nome: 'Outros', cor: '#64748b' },
+];
+
+// Tipos de lançamento da Gestão Financeira Obra que são receitas
+const TIPOS_RECEITA_OBRA = [
+  'medicao_fabricacao',
+  'medicao_montagem',
+  'adiantamento',
+  'material_faturado',
+  'receita',
 ];
 
 const formatCurrency = (value) => {
@@ -81,24 +99,32 @@ const formatCurrency = (value) => {
     style: 'currency',
     currency: 'BRL',
     minimumFractionDigits: 0
-  }).format(value);
+  }).format(value || 0);
 };
 
 const getStatusColor = (status) => {
   switch (status) {
-    case 'recebido': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-    case 'pendente': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    case 'atrasado': return 'bg-red-500/20 text-red-400 border-red-500/30';
-    default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    case 'recebido': case 'pago': case 'confirmado': case 'faturado':
+      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+    case 'pendente': case 'pre_aprovado': case 'futuro':
+      return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+    case 'atrasado':
+      return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'aprovado':
+      return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    default:
+      return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
   }
 };
 
 const getStatusText = (status) => {
   switch (status) {
-    case 'recebido': return 'Recebido';
-    case 'confirmado': return 'Recebido';
+    case 'recebido': case 'pago': case 'confirmado': case 'faturado': return 'Recebido';
     case 'pendente': return 'Pendente';
+    case 'aprovado': return 'Aprovado';
+    case 'pre_aprovado': return 'Pré-Aprovado';
     case 'atrasado': return 'Atrasado';
+    case 'futuro': return 'Futuro';
     default: return status || '-';
   }
 };
@@ -108,15 +134,40 @@ const getCategoriaColor = (nome) => {
   return cat?.cor || '#64748b';
 };
 
+// Mapear tipo de lançamento da obra para categoria de receita
+const mapTipoToCategoria = (tipo) => {
+  switch (tipo) {
+    case 'medicao_fabricacao': return 'Medição';
+    case 'medicao_montagem': return 'Medição';
+    case 'adiantamento': return 'Adiantamento';
+    case 'material_faturado': return 'Material Faturado';
+    case 'receita': return 'Outros';
+    default: return 'Outros';
+  }
+};
+
+const mapTipoLabel = (tipo) => {
+  switch (tipo) {
+    case 'medicao_fabricacao': return 'Medição Fabricação';
+    case 'medicao_montagem': return 'Medição Montagem';
+    case 'adiantamento': return 'Adiantamento';
+    case 'material_faturado': return 'Material Faturado';
+    case 'receita': return 'Receita';
+    default: return tipo || '-';
+  }
+};
+
 export default function ReceitasPage() {
-  // ERPContext - APENAS para puxar receitas da Gestão Financeira Obra
+  // ERPContext - para puxar receitas da Gestão Financeira Obra + nome das obras
   const { lancamentosDespesas } = useLancamentos();
+  const { obras } = useObras();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editando, setEditando] = useState(null); // receita sendo editada
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [receitas, setReceitas] = useState([]);
   const [formData, setFormData] = useState({
@@ -125,19 +176,30 @@ export default function ReceitasPage() {
     categoria: '',
     valor: '',
     vencimento: '',
-    formaPagto: ''
+    formaPagto: '',
+    status: 'pendente',
   });
 
-  // Salvar receitas no localStorage
-  const salvarReceitas = (lista) => {
+  // Lookup de nomes de obra por ID
+  const obrasMap = useMemo(() => {
+    const map = {};
+    if (obras && obras.length > 0) {
+      obras.forEach(o => {
+        map[o.id] = o.nome || o.name || o.id;
+      });
+    }
+    return map;
+  }, [obras]);
+
+  // Salvar receitas manuais no localStorage
+  const salvarReceitas = useCallback((lista) => {
     try {
-      // Salvar apenas as manuais (não as importadas da obra)
       const manuais = lista.filter(r => !r.origemObra);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(manuais));
     } catch (e) {
       console.warn('Erro ao salvar receitas:', e);
     }
-  };
+  }, []);
 
   // Carregar receitas: localStorage (manuais) + ERPContext (obras)
   useEffect(() => {
@@ -154,33 +216,44 @@ export default function ReceitasPage() {
     // 2. Receitas automáticas da Gestão Financeira Obra
     if (lancamentosDespesas && lancamentosDespesas.length > 0) {
       const receitasObra = lancamentosDespesas.filter(l =>
-        l.tipo === 'receita' || l.categoria === 'receita' || l.categoria === 'Medição' || l.categoria === 'Adiantamento'
+        TIPOS_RECEITA_OBRA.includes(l.tipo) ||
+        l.tipo === 'receita' ||
+        l.categoria === 'receita' ||
+        l.categoria === 'Medição' ||
+        l.categoria === 'Adiantamento'
       );
       const existingIds = new Set(todasReceitas.map(r => r.id));
       receitasObra.forEach(l => {
         if (!existingIds.has(l.id)) {
+          const obraId = l.obraId || l.obra_id;
+          const obraNome = l.obraNome || l.obra_nome || obrasMap[obraId] || '-';
           todasReceitas.push({
             id: l.id,
-            data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
+            data: l.data || l.dataEmissao || l.createdAt || new Date().toISOString().split('T')[0],
             descricao: l.descricao || l.nome || '-',
             cliente: l.cliente || l.fornecedor || '-',
-            categoria: l.categoria || 'Medição',
+            categoria: mapTipoToCategoria(l.tipo) || l.categoria || 'Outros',
+            tipoOriginal: l.tipo,
             valor: l.valor || 0,
-            status: l.status === 'confirmado' ? 'recebido' : (l.status || 'pendente'),
+            status: l.status || 'pendente',
             formaPagto: l.formaPagto || l.formaPagamento || '-',
-            vencimento: l.vencimento || l.dataVencimento || l.data || '-',
+            vencimento: l.dataVencimento || l.vencimento || l.data || '-',
+            notaFiscal: l.notaFiscal || l.nf || '-',
+            setor: l.setor || '-',
+            observacao: l.observacao || '',
             origemObra: true,
-            obraNome: l.obraNome || l.obra_nome || 'Gestão Financeira',
+            obraId: obraId,
+            obraNome: obraNome,
           });
         }
       });
     }
 
     setReceitas(todasReceitas);
-  }, [lancamentosDespesas]);
+  }, [lancamentosDespesas, obrasMap]);
 
-  // Helper: filtrar por período
-  const filtrarPorPeriodo = (lista) => {
+  // Helper: filtrar por período (definido antes dos useMemo)
+  const filtrarPorPeriodo = useCallback((lista) => {
     if (filtroPeriodo === 'geral') return lista;
     const hoje = new Date();
     const inicio = new Date();
@@ -195,10 +268,10 @@ export default function ReceitasPage() {
       const dataRec = new Date(r.data || r.vencimento);
       return dataRec >= inicio && dataRec <= hoje;
     });
-  };
+  }, [filtroPeriodo]);
 
   // Receitas filtradas por período (para KPIs e gráficos)
-  const receitasPeriodo = useMemo(() => filtrarPorPeriodo(receitas), [receitas, filtroPeriodo]);
+  const receitasPeriodo = useMemo(() => filtrarPorPeriodo(receitas), [receitas, filtrarPorPeriodo]);
 
   // Dados para gráfico por categoria
   const dadosCategorias = useMemo(() => {
@@ -222,7 +295,7 @@ export default function ReceitasPage() {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
       if (!meses[key]) meses[key] = { mes: label, key, recebido: 0, pendente: 0 };
-      if (r.status === 'recebido' || r.status === 'confirmado') {
+      if (['recebido', 'confirmado', 'pago', 'faturado'].includes(r.status)) {
         meses[key].recebido += r.valor || 0;
       } else {
         meses[key].pendente += r.valor || 0;
@@ -233,8 +306,8 @@ export default function ReceitasPage() {
 
   // KPIs
   const kpis = useMemo(() => {
-    const totalRecebido = receitasPeriodo.filter(r => r.status === 'recebido' || r.status === 'confirmado').reduce((sum, r) => sum + (r.valor || 0), 0);
-    const totalPendente = receitasPeriodo.filter(r => r.status === 'pendente').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalRecebido = receitasPeriodo.filter(r => ['recebido', 'confirmado', 'pago', 'faturado'].includes(r.status)).reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalPendente = receitasPeriodo.filter(r => r.status === 'pendente' || r.status === 'aprovado' || r.status === 'pre_aprovado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const totalAtrasado = receitasPeriodo.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const total = receitasPeriodo.reduce((sum, r) => sum + (r.valor || 0), 0);
     return { totalRecebido, totalPendente, totalAtrasado, total };
@@ -244,43 +317,88 @@ export default function ReceitasPage() {
   const receitasFiltradas = useMemo(() => {
     let resultado = receitas.filter(r => {
       if (searchTerm && !(r.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
-          !(r.cliente || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
+          !(r.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
+          !(r.obraNome || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos' && r.status !== filtroStatus) return false;
       if (filtroCategoria !== 'todos' && r.categoria !== filtroCategoria) return false;
       return true;
     });
     return filtrarPorPeriodo(resultado);
-  }, [receitas, searchTerm, filtroStatus, filtroCategoria, filtroPeriodo]);
+  }, [receitas, searchTerm, filtroStatus, filtroCategoria, filtrarPorPeriodo]);
 
-  // Cadastrar receita manual
+  // Abrir form para cadastrar nova receita
+  const handleNovaReceita = () => {
+    setEditando(null);
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente' });
+    setDialogOpen(true);
+  };
+
+  // Abrir form para editar receita existente
+  const handleEditarReceita = (receita) => {
+    setEditando(receita);
+    setFormData({
+      descricao: receita.descricao || '',
+      cliente: receita.cliente || '',
+      categoria: receita.categoria || '',
+      valor: String(receita.valor || ''),
+      vencimento: receita.vencimento && receita.vencimento !== '-' ? receita.vencimento : '',
+      formaPagto: receita.formaPagto || '',
+      status: receita.status || 'pendente',
+    });
+    setDialogOpen(true);
+  };
+
+  // Salvar receita (cadastrar ou editar)
   const handleSaveReceita = () => {
     if (!formData.descricao || !formData.valor) {
       toast.error('Preencha descrição e valor');
       return;
     }
 
-    const novaReceita = {
-      id: `REC-${Date.now()}`,
-      data: formData.vencimento || new Date().toISOString().split('T')[0],
-      descricao: formData.descricao,
-      cliente: formData.cliente || '-',
-      categoria: formData.categoria || 'Outros',
-      valor: parseFloat(formData.valor),
-      status: 'pendente',
-      formaPagto: formData.formaPagto || '-',
-      vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
-      origemObra: false,
-    };
+    if (editando) {
+      // Editando receita existente
+      const novaLista = receitas.map(r => {
+        if (r.id !== editando.id) return r;
+        return {
+          ...r,
+          descricao: formData.descricao,
+          cliente: formData.cliente || '-',
+          categoria: formData.categoria || r.categoria || 'Outros',
+          valor: parseFloat(formData.valor),
+          vencimento: formData.vencimento || r.vencimento,
+          formaPagto: formData.formaPagto || '-',
+          status: formData.status || r.status,
+        };
+      });
+      setReceitas(novaLista);
+      salvarReceitas(novaLista);
+      toast.success('Receita atualizada!');
+    } else {
+      // Nova receita manual
+      const novaReceita = {
+        id: `REC-${Date.now()}`,
+        data: formData.vencimento || new Date().toISOString().split('T')[0],
+        descricao: formData.descricao,
+        cliente: formData.cliente || '-',
+        categoria: formData.categoria || 'Outros',
+        valor: parseFloat(formData.valor),
+        status: formData.status || 'pendente',
+        formaPagto: formData.formaPagto || '-',
+        vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
+        origemObra: false,
+      };
+      const novaLista = [...receitas, novaReceita];
+      setReceitas(novaLista);
+      salvarReceitas(novaLista);
+      toast.success('Receita cadastrada!');
+    }
 
-    const novaLista = [...receitas, novaReceita];
-    setReceitas(novaLista);
-    salvarReceitas(novaLista);
-    toast.success('Receita cadastrada com sucesso!');
     setDialogOpen(false);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '' });
+    setEditando(null);
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente' });
   };
 
-  // Apagar receita manual
+  // Apagar receita
   const handleApagarReceita = (id) => {
     const novaLista = receitas.filter(r => r.id !== id);
     setReceitas(novaLista);
@@ -288,6 +406,10 @@ export default function ReceitasPage() {
     setDeleteConfirmId(null);
     toast.success('Receita removida!');
   };
+
+  // Contadores de origem
+  const countObra = receitas.filter(r => r.origemObra).length;
+  const countManual = receitas.filter(r => !r.origemObra).length;
 
   return (
     <div className="space-y-6">
@@ -300,96 +422,104 @@ export default function ReceitasPage() {
             </div>
             Gestão de Receitas
           </h1>
-          <div className="flex items-center gap-3 mt-2">
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium border border-emerald-500/30">
               <DollarSign className="h-3.5 w-3.5 mr-1" />
               Financeiro Fábrica
             </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{receitasFiltradas.length} lançamentos</span>
-            {receitas.filter(r => r.origemObra).length > 0 && (
+            {countObra > 0 && (
               <>
                 <span className="text-slate-500 text-sm">|</span>
                 <span className="text-blue-400 text-xs flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3" />
-                  {receitas.filter(r => r.origemObra).length} da Gestão Financeira Obra
+                  <Building2 className="h-3 w-3" />
+                  {countObra} da Gestão Financeira Obra
                 </span>
+              </>
+            )}
+            {countManual > 0 && (
+              <>
+                <span className="text-slate-500 text-sm">|</span>
+                <span className="text-slate-400 text-xs">{countManual} manuais</span>
               </>
             )}
           </div>
         </div>
 
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600">
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Receita
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="text-white">Cadastrar Receita</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4 pt-4">
+        <Button className="bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600" onClick={handleNovaReceita}>
+          <Plus className="h-4 w-4 mr-2" />
+          Nova Receita
+        </Button>
+      </div>
+
+      {/* Dialog Cadastrar/Editar */}
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditando(null); }}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-white">{editando ? 'Editar Receita' : 'Cadastrar Receita'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-4">
+            <div>
+              <Label className="text-slate-300">Descrição *</Label>
+              <Input
+                className="mt-1 bg-slate-800 border-slate-700"
+                placeholder="Ex: Medição 3 - Obra Super Luna"
+                value={formData.descricao}
+                onChange={(e) => setFormData({...formData, descricao: e.target.value})}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-slate-300">Descrição *</Label>
+                <Label className="text-slate-300">Cliente</Label>
                 <Input
                   className="mt-1 bg-slate-800 border-slate-700"
-                  placeholder="Ex: Medição 3 - Obra Super Luna"
-                  value={formData.descricao}
-                  onChange={(e) => setFormData({...formData, descricao: e.target.value})}
+                  placeholder="Nome do cliente"
+                  value={formData.cliente}
+                  onChange={(e) => setFormData({...formData, cliente: e.target.value})}
                 />
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-slate-300">Cliente</Label>
-                  <Input
-                    className="mt-1 bg-slate-800 border-slate-700"
-                    placeholder="Nome do cliente"
-                    value={formData.cliente}
-                    onChange={(e) => setFormData({...formData, cliente: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label className="text-slate-300">Categoria</Label>
-                  <Select value={formData.categoria} onValueChange={(value) => setFormData({...formData, categoria: value})}>
-                    <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-slate-700">
-                      {categoriasReceita.map(cat => (
-                        <SelectItem key={cat.id} value={cat.nome}>
-                          <div className="flex items-center gap-2">
-                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.cor }} />
-                            {cat.nome}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+              <div>
+                <Label className="text-slate-300">Categoria</Label>
+                <Select value={formData.categoria} onValueChange={(value) => setFormData({...formData, categoria: value})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    {categoriasReceita.map(cat => (
+                      <SelectItem key={cat.id} value={cat.nome}>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.cor }} />
+                          {cat.nome}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label className="text-slate-300">Valor *</Label>
-                  <Input
-                    className="mt-1 bg-slate-800 border-slate-700"
-                    type="number"
-                    placeholder="0,00"
-                    value={formData.valor}
-                    onChange={(e) => setFormData({...formData, valor: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label className="text-slate-300">Vencimento</Label>
-                  <Input
-                    className="mt-1 bg-slate-800 border-slate-700"
-                    type="date"
-                    value={formData.vencimento}
-                    onChange={(e) => setFormData({...formData, vencimento: e.target.value})}
-                  />
-                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-slate-300">Valor *</Label>
+                <Input
+                  className="mt-1 bg-slate-800 border-slate-700"
+                  type="number"
+                  placeholder="0,00"
+                  value={formData.valor}
+                  onChange={(e) => setFormData({...formData, valor: e.target.value})}
+                />
               </div>
+              <div>
+                <Label className="text-slate-300">Vencimento</Label>
+                <Input
+                  className="mt-1 bg-slate-800 border-slate-700"
+                  type="date"
+                  value={formData.vencimento}
+                  onChange={(e) => setFormData({...formData, vencimento: e.target.value})}
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-slate-300">Forma de Pagamento</Label>
                 <Select value={formData.formaPagto} onValueChange={(value) => setFormData({...formData, formaPagto: value})}>
@@ -404,16 +534,51 @@ export default function ReceitasPage() {
                   </SelectContent>
                 </Select>
               </div>
-              <Button
-                className="w-full bg-gradient-to-r from-emerald-500 to-green-500"
-                onClick={handleSaveReceita}
-              >
-                Cadastrar Receita
-              </Button>
+              <div>
+                <Label className="text-slate-300">Status</Label>
+                <Select value={formData.status} onValueChange={(value) => setFormData({...formData, status: value})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                    <SelectValue placeholder="Selecione" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    <SelectItem value="pendente">Pendente</SelectItem>
+                    <SelectItem value="recebido">Recebido</SelectItem>
+                    <SelectItem value="atrasado">Atrasado</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-          </DialogContent>
-        </Dialog>
-      </div>
+            <Button
+              className="w-full bg-gradient-to-r from-emerald-500 to-green-500"
+              onClick={handleSaveReceita}
+            >
+              {editando ? 'Salvar Alterações' : 'Cadastrar Receita'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+              Confirmar Exclusão
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-slate-400 text-sm">Tem certeza que deseja apagar esta receita? Esta ação não pode ser desfeita.</p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="border-slate-700" onClick={() => setDeleteConfirmId(null)}>
+              Cancelar
+            </Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={() => handleApagarReceita(deleteConfirmId)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Apagar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Filtros de Período */}
       <div className="flex items-center gap-2">
@@ -513,7 +678,7 @@ export default function ReceitasPage() {
             <ResponsiveContainer width="100%" height={250}>
               <AreaChart data={evolucaoMensal}>
                 <defs>
-                  <linearGradient id="colorRecebido" x1="0" y1="0" x2="0" y2="1">
+                  <linearGradient id="colorRecebidoRec" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                     <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                   </linearGradient>
@@ -522,7 +687,7 @@ export default function ReceitasPage() {
                 <XAxis dataKey="mes" stroke="#64748b" />
                 <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
                 <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-                <Area type="monotone" dataKey="recebido" name="Recebido" stroke="#10b981" fill="url(#colorRecebido)" />
+                <Area type="monotone" dataKey="recebido" name="Recebido" stroke="#10b981" fill="url(#colorRecebidoRec)" />
                 <Area type="monotone" dataKey="pendente" name="Pendente" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} />
               </AreaChart>
             </ResponsiveContainer>
@@ -554,7 +719,7 @@ export default function ReceitasPage() {
                   ))}
                 </Pie>
                 <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-                <Legend wrapperStyle={{ color: '#94a3b8' }} formatter={(value) => <span className="text-slate-300 text-sm">{value}</span>} />
+                <Legend wrapperStyle={{ color: '#94a3b8' }} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
@@ -597,93 +762,115 @@ export default function ReceitasPage() {
                 ))}
               </SelectContent>
             </Select>
-            <Button variant="outline" className="border-slate-700 text-slate-300">
-              <Download className="h-4 w-4 mr-2" />
-              Exportar
-            </Button>
           </div>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-slate-700">
-                <TableHead className="text-slate-400">Data</TableHead>
-                <TableHead className="text-slate-400">Descrição</TableHead>
-                <TableHead className="text-slate-400">Cliente</TableHead>
-                <TableHead className="text-slate-400">Categoria</TableHead>
-                <TableHead className="text-slate-400">Vencimento</TableHead>
-                <TableHead className="text-slate-400 text-right">Valor</TableHead>
-                <TableHead className="text-slate-400">Status</TableHead>
-                <TableHead className="text-slate-400">Origem</TableHead>
-                <TableHead className="text-slate-400 w-20">Ações</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {receitasFiltradas.map(receita => (
-                <TableRow key={receita.id} className="border-slate-800 hover:bg-slate-800/50">
-                  <TableCell className="text-slate-300">{receita.data ? new Date(receita.data).toLocaleDateString('pt-BR') : '-'}</TableCell>
-                  <TableCell className="text-white font-medium">{receita.descricao}</TableCell>
-                  <TableCell className="text-slate-300">{receita.cliente || '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant="outline" className="border-slate-600" style={{ color: getCategoriaColor(receita.categoria) }}>
-                      <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(receita.categoria) }} />
-                      {receita.categoria || '-'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-slate-400">
-                    {receita.vencimento && receita.vencimento !== '-' ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : '-'}
-                  </TableCell>
-                  <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(receita.valor)}</TableCell>
-                  <TableCell>
-                    <Badge className={cn("border", getStatusColor(receita.status))}>
-                      {getStatusText(receita.status)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {receita.origemObra ? (
-                      <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 border text-xs">
-                        Obra
-                      </Badge>
-                    ) : (
-                      <Badge className="bg-slate-500/20 text-slate-400 border-slate-500/30 border text-xs">
-                        Manual
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {!receita.origemObra && (
-                        deleteConfirmId === receita.id ? (
-                          <div className="flex items-center gap-1">
-                            <Button size="icon" className="h-7 w-7 bg-red-600 hover:bg-red-700" onClick={() => handleApagarReceita(receita.id)}>
-                              <CheckCircle2 className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400" onClick={() => setDeleteConfirmId(null)}>
-                              ✕
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-400" onClick={() => setDeleteConfirmId(receita.id)}>
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-700">
+                  <TableHead className="text-slate-400">Data</TableHead>
+                  <TableHead className="text-slate-400">Descrição</TableHead>
+                  <TableHead className="text-slate-400">Cliente</TableHead>
+                  <TableHead className="text-slate-400">Categoria</TableHead>
+                  <TableHead className="text-slate-400">Obra</TableHead>
+                  <TableHead className="text-slate-400">Vencimento</TableHead>
+                  <TableHead className="text-slate-400 text-right">Valor</TableHead>
+                  <TableHead className="text-slate-400">Status</TableHead>
+                  <TableHead className="text-slate-400">Origem</TableHead>
+                  <TableHead className="text-slate-400 w-20">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {receitasFiltradas.map(receita => (
+                  <TableRow key={receita.id} className="border-slate-800 hover:bg-slate-800/50">
+                    <TableCell className="text-slate-300 text-sm">
+                      {receita.data && receita.data !== '-' ? new Date(receita.data).toLocaleDateString('pt-BR') : '-'}
+                    </TableCell>
+                    <TableCell className="text-white font-medium max-w-[200px] truncate">
+                      {receita.descricao}
+                      {receita.tipoOriginal && (
+                        <span className="block text-xs text-slate-500">{mapTipoLabel(receita.tipoOriginal)}</span>
                       )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-              {receitasFiltradas.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-center text-slate-500 py-8">
-                    Nenhuma receita encontrada. Cadastre uma nova ou importe da Gestão Financeira Obra.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+                    </TableCell>
+                    <TableCell className="text-slate-300 text-sm">{receita.cliente || '-'}</TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: getCategoriaColor(receita.categoria) }}>
+                        <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(receita.categoria) }} />
+                        {receita.categoria || '-'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {receita.origemObra ? (
+                        <span className="text-blue-400 flex items-center gap-1">
+                          <Building2 className="h-3 w-3" />
+                          {receita.obraNome || '-'}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-slate-400 text-sm">
+                      {receita.vencimento && receita.vencimento !== '-' ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : '-'}
+                    </TableCell>
+                    <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(receita.valor)}</TableCell>
+                    <TableCell>
+                      <Badge className={cn("border text-xs", getStatusColor(receita.status))}>
+                        {getStatusText(receita.status)}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {receita.origemObra ? (
+                        <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 border text-xs">
+                          Obra
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-slate-500/20 text-slate-400 border-slate-500/30 border text-xs">
+                          Manual
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                          {!receita.origemObra && (
+                            <DropdownMenuItem className="text-slate-300 hover:text-white focus:text-white focus:bg-slate-700" onClick={() => handleEditarReceita(receita)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Editar
+                            </DropdownMenuItem>
+                          )}
+                          {receita.origemObra && (
+                            <DropdownMenuItem className="text-slate-300 hover:text-white focus:text-white focus:bg-slate-700" onClick={() => handleEditarReceita(receita)}>
+                              <Edit className="h-4 w-4 mr-2" />
+                              Editar Dados Locais
+                            </DropdownMenuItem>
+                          )}
+                          {!receita.origemObra && (
+                            <DropdownMenuItem className="text-red-400 hover:text-red-300 focus:text-red-300 focus:bg-slate-700" onClick={() => setDeleteConfirmId(receita.id)}>
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Apagar
+                            </DropdownMenuItem>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {receitasFiltradas.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center text-slate-500 py-8">
+                      Nenhuma receita encontrada. Cadastre uma nova ou aguarde importação da Gestão Financeira Obra.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
     </div>
