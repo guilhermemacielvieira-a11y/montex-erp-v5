@@ -65,6 +65,7 @@ import {
   Legend
 } from 'recharts';
 import { useLancamentos } from '../contexts/ERPContext';
+import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
 
 // ========== DADOS VIA SUPABASE (100% INDEPENDENTE de obras) ==========
 
@@ -157,7 +158,7 @@ export default function DespesasPage() {
         data: l.dataEmissao || l.data || l.createdAt || '',
         descricao: l.descricao || l.nome || '-',
         fornecedor: l.fornecedor || '-',
-        categoria: l.categoriaNorm || l.categoria || 'Outros',
+        categoria: normalizarCategoria(l.categoria, l.descricao),
         centroCusto: l.centroCusto || l.centro_custo || 'Produção',
         valor: l.valor || 0,
         status: l.status || 'pago',
