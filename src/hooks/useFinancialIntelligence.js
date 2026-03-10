@@ -191,10 +191,18 @@ export function useFinancialIntelligence(filtros = {}) {
       mesesMap[d.mes].count++;
     });
 
-    // Distribuir produção proporcionalmente por mês
+    // Distribuir produção por meses reais de produção (baseado nas peças, não nas despesas)
     const mesesOrdenados = Object.keys(mesesMap).sort();
-    const numMeses = mesesOrdenados.length || 1;
-    const producaoMensal = pesoTotalPecas / numMeses;
+    const numMesesDespesas = mesesOrdenados.length || 1;
+
+    // Calcular meses de produção real baseado nas datas das peças
+    const pecasDatas = pecasArr.map(p => p.createdAt || p.created_at).filter(Boolean);
+    let numMesesProducao = 2; // default: 2 meses conforme produção real
+    if (pecasDatas.length > 0) {
+      const pecasMeses = new Set(pecasDatas.map(d => formatMesAno(d)));
+      numMesesProducao = Math.max(pecasMeses.size, 1);
+    }
+    const producaoMensal = pesoTotalPecas / numMesesProducao;
 
     const evolucaoMensal = mesesOrdenados.map(mes => {
       const custoMes = mesesMap[mes].custo;
