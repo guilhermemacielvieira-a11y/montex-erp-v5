@@ -217,6 +217,8 @@ export default function DespesasPage() {
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [filtroCentro, setFiltroCentro] = useState('todos');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
+  const [dataInicio, setDataInicio] = useState('');
+  const [dataFim, setDataFim] = useState('');
   const [filtroObra, setFiltroObra] = useState('fabrica'); // 'fabrica' | obraId | 'geral'
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
@@ -434,16 +436,33 @@ export default function DespesasPage() {
   // === FILTRAR POR PERÍODO ===
   const filtrarPorPeriodo = useCallback((lista) => {
     if (filtroPeriodo === 'geral') return lista;
+
+    // Período personalizado com datas editáveis
+    if (filtroPeriodo === 'personalizado') {
+      if (!dataInicio && !dataFim) return lista;
+      return lista.filter(d => {
+        const dataDesp = new Date(d.data || d.vencimento);
+        if (dataInicio && dataDesp < new Date(dataInicio + 'T00:00:00')) return false;
+        if (dataFim && dataDesp > new Date(dataFim + 'T23:59:59')) return false;
+        return true;
+      });
+    }
+
     const hoje = new Date();
+    hoje.setHours(23, 59, 59, 999);
     const inicio = new Date();
-    if (filtroPeriodo === 'semanal') inicio.setDate(hoje.getDate() - 7);
-    else if (filtroPeriodo === 'mensal') inicio.setMonth(hoje.getMonth() - 1);
-    else if (filtroPeriodo === 'trimestral') inicio.setMonth(hoje.getMonth() - 3);
+    inicio.setHours(0, 0, 0, 0);
+
+    if (filtroPeriodo === 'diario') { /* inicio já é hoje 00:00 */ }
+    else if (filtroPeriodo === 'semanal') inicio.setDate(inicio.getDate() - 7);
+    else if (filtroPeriodo === 'mensal') inicio.setMonth(inicio.getMonth() - 1);
+    else if (filtroPeriodo === 'trimestral') inicio.setMonth(inicio.getMonth() - 3);
+
     return lista.filter(d => {
       const dataDesp = new Date(d.data || d.vencimento);
       return dataDesp >= inicio && dataDesp <= hoje;
     });
-  }, [filtroPeriodo]);
+  }, [filtroPeriodo, dataInicio, dataFim]);
 
   // === DADOS FILTRADOS POR PERÍODO (KPIs/gráficos) ===
   const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtrarPorPeriodo]);
@@ -948,14 +967,16 @@ export default function DespesasPage() {
         </div>
 
         {/* Filtro Período */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Calendar className="h-4 w-4 text-slate-400" />
           <span className="text-sm text-slate-400 mr-1">Período:</span>
           {[
             { value: 'geral', label: 'Geral' },
+            { value: 'diario', label: 'Hoje' },
             { value: 'semanal', label: 'Semanal' },
             { value: 'mensal', label: 'Mensal' },
             { value: 'trimestral', label: 'Trimestral' },
+            { value: 'personalizado', label: 'Personalizado' },
           ].map(p => (
             <button
               key={p.value}
@@ -970,6 +991,23 @@ export default function DespesasPage() {
               {p.label}
             </button>
           ))}
+          {filtroPeriodo === 'personalizado' && (
+            <div className="flex items-center gap-2 ml-2">
+              <input
+                type="date"
+                value={dataInicio}
+                onChange={e => setDataInicio(e.target.value)}
+                className="px-3 py-1.5 rounded-lg text-sm bg-slate-800 border border-slate-700 text-white focus:border-rose-500 outline-none"
+              />
+              <span className="text-slate-500 text-sm">até</span>
+              <input
+                type="date"
+                value={dataFim}
+                onChange={e => setDataFim(e.target.value)}
+                className="px-3 py-1.5 rounded-lg text-sm bg-slate-800 border border-slate-700 text-white focus:border-rose-500 outline-none"
+              />
+            </div>
+          )}
         </div>
       </div>
 
