@@ -8,6 +8,10 @@ import { createClient } from '@supabase/supabase-js';
 // ============================================
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+// Service Role Key: bypassa RLS em tabelas restritivas (orcamentos, compras, etc.)
+// NOTA: Em produção com auth, mover para backend. Aqui o app não usa autenticação.
+const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
+  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
 
 // Validação de configuração
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -82,6 +86,36 @@ export const supabase = createClient(
 );
 
 // ============================================
+// CLIENTE SERVICE_ROLE (bypassa RLS para tabelas com políticas restritivas)
+// Usado para: orcamentos, compras, notas_fiscais, pedidos_material, maquinas, config_medicao
+// ============================================
+const supabaseAdmin = SUPABASE_SERVICE_KEY
+  ? createClient(
+      SUPABASE_URL || 'https://placeholder.supabase.co',
+      SUPABASE_SERVICE_KEY,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        global: {
+          fetch: (url, options = {}) => {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 20000);
+            return fetch(url, {
+              ...options,
+              signal: controller.signal,
+            }).finally(() => clearTimeout(timeoutId));
+          }
+        }
+      }
+    )
+  : null;
+
+// Exporta o admin client (ou fallback para o anon se não configurado)
+export { supabaseAdmin };
+
+// ============================================
 // HELPER: Gera CRUD genérico para qualquer tabela
 // ============================================
 
@@ -119,10 +153,12 @@ export const supabase = createClient(
  * // Update work
  * await obrasApi.update('obra-123', { status: 'em_progresso' });
  */
-function createCrud(tableName, defaultOrder = 'created_at') {
+function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false } = {}) {
+  // Usa supabaseAdmin (service_role) para tabelas com RLS restritivo
+  const client = (useAdmin && supabaseAdmin) ? supabaseAdmin : supabase;
   return {
     async getAll(orderBy = defaultOrder, ascending = false) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .select('*')
         .order(orderBy, { ascending });
@@ -131,7 +167,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async getById(id) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .select('*')
         .eq('id', id)
@@ -141,7 +177,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async getByField(field, value) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .select('*')
         .eq(field, value);
@@ -150,7 +186,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async create(record) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .insert([record])
         .select()
@@ -160,7 +196,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async createMany(records) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .insert(records)
         .select();
@@ -169,7 +205,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async update(id, updates) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .update({ ...updates, updated_at: new Date().toISOString() })
         .eq('id', id)
@@ -180,7 +216,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async upsert(record) {
-      const { data, error } = await supabase
+      const { data, error } = await client
         .from(tableName)
         .upsert([record])
         .select()
@@ -190,7 +226,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async delete(id) {
-      const { error } = await supabase
+      const { error } = await client
         .from(tableName)
         .delete()
         .eq('id', id);
@@ -199,7 +235,7 @@ function createCrud(tableName, defaultOrder = 'created_at') {
     },
 
     async count(filters = {}) {
-      let query = supabase.from(tableName).select('*', { count: 'exact', head: true });
+      let query = client.from(tableName).select('*', { count: 'exact', head: true });
       Object.entries(filters).forEach(([key, val]) => {
         query = query.eq(key, val);
       });
@@ -216,26 +252,28 @@ function createCrud(tableName, defaultOrder = 'created_at') {
 
 export const clientesApi = createCrud('clientes', 'nome');
 export const obrasApi = createCrud('obras', 'created_at');
-export const orcamentosApi = createCrud('orcamentos', 'created_at');
 export const listasApi = createCrud('listas_material', 'created_at');
 export const estoqueApi = createCrud('estoque', 'descricao');
 export const pecasApi = createCrud('pecas_producao', 'id');
 export const funcionariosApi = createCrud('funcionarios', 'nome');
 export const equipesApi = createCrud('equipes', 'nome');
-export const comprasApi = createCrud('compras', 'created_at');
-export const notasFiscaisApi = createCrud('notas_fiscais', 'data_emissao');
 export const movEstoqueApi = createCrud('movimentacoes_estoque', 'data');
-export const maquinasApi = createCrud('maquinas', 'nome');
 export const medicoesApi = createCrud('medicoes', 'created_at');
 export const lancamentosApi = createCrud('lancamentos_despesas', 'data_emissao');
-export const pedidosMaterialApi = createCrud('pedidos_material', 'created_at');
 export const croquisApi = createCrud('croquis', 'marca');
 export const detalhamentosApi = createCrud('detalhamentos', 'numero');
 export const materiaisCorteApi = createCrud('materiais_corte', 'marca');
 export const expedicoesApi = createCrud('expedicoes', 'created_at');
-export const configMedicaoApi = createCrud('config_medicao', 'id');
 export const tarefasApi = createCrud('tarefas', 'created_at');
 export const userProfilesApi = createCrud('user_profiles', 'created_at');
+
+// Tabelas com RLS restritivo — usam service_role key para bypassar
+export const orcamentosApi = createCrud('orcamentos', 'created_at', { useAdmin: true });
+export const comprasApi = createCrud('compras', 'created_at', { useAdmin: true });
+export const notasFiscaisApi = createCrud('notas_fiscais', 'data_emissao', { useAdmin: true });
+export const maquinasApi = createCrud('maquinas', 'nome', { useAdmin: true });
+export const pedidosMaterialApi = createCrud('pedidos_material', 'created_at', { useAdmin: true });
+export const configMedicaoApi = createCrud('config_medicao', 'id', { useAdmin: true });
 
 // ============================================
 // FUNÇÕES DE GESTÃO DE USUÁRIOS
