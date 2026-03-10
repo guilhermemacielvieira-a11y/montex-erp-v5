@@ -76,6 +76,7 @@ import {
 } from 'recharts';
 import { useLancamentos, useObras } from '../contexts/ERPContext';
 import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
+import ImportarNFModal from '../components/ImportarNFModal';
 
 // ========== CONSTANTES ==========
 
@@ -223,6 +224,7 @@ export default function DespesasPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState([]);
   const [importing, setImporting] = useState(false);
+  const [showImportNF, setShowImportNF] = useState(false);
   const [formData, setFormData] = useState({
     descricao: '',
     fornecedor: '',
@@ -566,6 +568,36 @@ export default function DespesasPage() {
     setDeleteConfirmId(null);
   };
 
+  // Callback para importação de NFe via modal
+  const handleImportarNF = useCallback(async (lancamento, itensImportados) => {
+    try {
+      // Definir obra_id baseado no filtro atual
+      const obraIdAtual = (filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null;
+      if (obraIdAtual) {
+        lancamento.obraId = obraIdAtual;
+        lancamento.obra_id = obraIdAtual;
+      }
+      lancamento.id = `desp-${Date.now()}`;
+
+      // Salvar mapping para auto-fill futuro
+      if (lancamento.fornecedor && lancamento.notaFiscal) {
+        saveMapping(
+          lancamento.fornecedor,
+          lancamento.notaFiscal,
+          lancamento.categoria || '',
+          lancamento.centroCusto || '',
+          lancamento.naturezaAquisicao || ''
+        );
+      }
+
+      await addLancamento(lancamento);
+      toast.success(`NFe ${lancamento.notaFiscal} importada: ${lancamento.fornecedor} - R$ ${Number(lancamento.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+    } catch (err) {
+      console.error('Erro ao importar NFe:', err);
+      toast.error('Erro ao importar NFe como despesa');
+    }
+  }, [filtroObra, addLancamento, saveMapping]);
+
   const handleSaveDespesa = async () => {
     if (!formData.descricao || !formData.valor) {
       toast.error('Preencher descrição e valor');
@@ -656,6 +688,10 @@ export default function DespesasPage() {
               Importar Excel
             </span>
           </label>
+          <Button variant="outline" className="border-amber-600/50 text-amber-400 hover:bg-amber-600/20" onClick={() => setShowImportNF(true)}>
+            <FileText className="h-4 w-4 mr-2" />
+            Importar NFe
+          </Button>
           <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600" onClick={handleNovaDespesa}>
             <Plus className="h-4 w-4 mr-2" />
             Nova Despesa
@@ -1131,6 +1167,13 @@ export default function DespesasPage() {
           </div>
         </CardContent>
       </Card>
+      {/* Modal Importar NFe */}
+      <ImportarNFModal
+        open={showImportNF}
+        onOpenChange={setShowImportNF}
+        onImportar={handleImportarNF}
+        obraId={(filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null}
+      />
     </div>
   );
 }
