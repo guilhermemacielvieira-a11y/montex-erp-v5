@@ -21,6 +21,7 @@ import {
   Upload,
   FileSpreadsheet,
   Trash2,
+  MoreHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -49,6 +51,12 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import * as XLSX from 'xlsx';
 import {
@@ -135,6 +143,8 @@ export default function DespesasPage() {
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   // Removido seletor de origem — agora é "Financeiro Fábrica" fixo
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState([]);
   const [importing, setImporting] = useState(false);
@@ -410,44 +420,91 @@ export default function DespesasPage() {
     return filtrarPorPeriodo(resultado);
   }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo]);
 
+  // Abrir form para nova despesa
+  const handleNovaDespesa = () => {
+    setEditando(null);
+    setFormData({ descricao: '', fornecedor: '', categoria: '', centroCusto: '', valor: '', vencimento: '', formaPagto: '' });
+    setDialogOpen(true);
+  };
+
+  // Abrir form para editar despesa existente
+  const handleEditarDespesa = (despesa) => {
+    setEditando(despesa);
+    setFormData({
+      descricao: despesa.descricao || '',
+      fornecedor: despesa.fornecedor || '',
+      categoria: despesa.categoria || '',
+      centroCusto: despesa.centroCusto || '',
+      valor: String(despesa.valor || ''),
+      vencimento: despesa.vencimento || '',
+      formaPagto: despesa.formaPagto || '',
+    });
+    setDialogOpen(true);
+  };
+
+  // Apagar despesa
+  const handleApagarDespesa = async (id) => {
+    try {
+      await deleteLancamento(id);
+      toast.success('Despesa removida!');
+    } catch (err) {
+      console.error('Erro ao apagar despesa:', err);
+      toast.error('Erro ao apagar despesa');
+    }
+    setDeleteConfirmId(null);
+  };
+
   const handleSaveDespesa = async () => {
-    if (!formData.descricao || !formData.fornecedor || !formData.categoria || !formData.centroCusto || !formData.valor || !formData.vencimento || !formData.formaPagto) {
-      toast.error('Preencher todos os campos');
+    if (!formData.descricao || !formData.valor) {
+      toast.error('Preencher descrição e valor');
       return;
     }
 
-    const novaDespesa = {
-      id: `desp-${Date.now()}`,
-      data: new Date().toISOString().split('T')[0],
-      descricao: formData.descricao,
-      fornecedor: formData.fornecedor,
-      categoria: formData.categoria,
-      centroCusto: formData.centroCusto,
-      valor: parseFloat(formData.valor),
-      status: 'pendente',
-      formaPagto: formData.formaPagto,
-      vencimento: formData.vencimento,
-      tipo: 'despesa',
-      obraId: null, // SEM vínculo com obra = despesa geral
-    };
-
-    try {
-      await addLancamento(novaDespesa);
-      toast.success('Despesa criada com sucesso!');
-    } catch (err) {
-      console.error('Erro ao salvar despesa:', err);
-      toast.error('Erro ao salvar despesa');
+    if (editando) {
+      // Editar despesa existente
+      try {
+        await updateLancamento(editando.id, {
+          descricao: formData.descricao,
+          fornecedor: formData.fornecedor || '-',
+          categoria: formData.categoria || editando.categoria,
+          centroCusto: formData.centroCusto || editando.centroCusto,
+          valor: parseFloat(formData.valor),
+          formaPagto: formData.formaPagto || '-',
+          vencimento: formData.vencimento || editando.vencimento,
+        });
+        toast.success('Despesa atualizada!');
+      } catch (err) {
+        console.error('Erro ao atualizar despesa:', err);
+        toast.error('Erro ao atualizar despesa');
+      }
+    } else {
+      // Nova despesa
+      const novaDespesa = {
+        id: `desp-${Date.now()}`,
+        data: new Date().toISOString().split('T')[0],
+        descricao: formData.descricao,
+        fornecedor: formData.fornecedor || '-',
+        categoria: formData.categoria,
+        centroCusto: formData.centroCusto,
+        valor: parseFloat(formData.valor),
+        status: 'pendente',
+        formaPagto: formData.formaPagto,
+        vencimento: formData.vencimento,
+        tipo: 'despesa',
+        obraId: null,
+      };
+      try {
+        await addLancamento(novaDespesa);
+        toast.success('Despesa criada com sucesso!');
+      } catch (err) {
+        console.error('Erro ao salvar despesa:', err);
+        toast.error('Erro ao salvar despesa');
+      }
     }
+
     setDialogOpen(false);
-    setFormData({
-      descricao: '',
-      fornecedor: '',
-      categoria: '',
-      centroCusto: '',
-      valor: '',
-      vencimento: '',
-      formaPagto: ''
-    });
+    setEditando(null);
+    setFormData({ descricao: '', fornecedor: '', categoria: '', centroCusto: '', valor: '', vencimento: '', formaPagto: '' });
   };
 
   return (
@@ -485,16 +542,15 @@ export default function DespesasPage() {
             </span>
           </label>
 
-          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-            <DialogTrigger asChild>
-              <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600">
-                <Plus className="h-4 w-4 mr-2" />
-                Nova Despesa
-              </Button>
-            </DialogTrigger>
+          <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600" onClick={handleNovaDespesa}>
+            <Plus className="h-4 w-4 mr-2" />
+            Nova Despesa
+          </Button>
+
+          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditando(null); }}>
           <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
             <DialogHeader>
-              <DialogTitle className="text-white">Cadastrar Despesa</DialogTitle>
+              <DialogTitle className="text-white">{editando ? 'Editar Despesa' : 'Cadastrar Despesa'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>
@@ -593,13 +649,35 @@ export default function DespesasPage() {
                 className="w-full bg-gradient-to-r from-rose-500 to-red-500"
                 onClick={handleSaveDespesa}
               >
-                Cadastrar Despesa
+                {editando ? 'Salvar Alterações' : 'Cadastrar Despesa'}
               </Button>
             </div>
           </DialogContent>
         </Dialog>
         </div>
       </div>
+
+      {/* Dialog de Confirmação de Exclusão */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+              Confirmar Exclusão
+            </DialogTitle>
+          </DialogHeader>
+          <p className="text-slate-400 text-sm">Tem certeza que deseja apagar esta despesa? Esta ação não pode ser desfeita.</p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="border-slate-700" onClick={() => setDeleteConfirmId(null)}>
+              Cancelar
+            </Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={() => handleApagarDespesa(deleteConfirmId)}>
+              <Trash2 className="h-4 w-4 mr-2" />
+              Apagar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal de Preview de Importação */}
       <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
@@ -887,14 +965,23 @@ export default function DespesasPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                        <DropdownMenuItem className="text-slate-300 hover:text-white focus:text-white focus:bg-slate-700" onClick={() => handleEditarDespesa(despesa)}>
+                          <Edit className="h-4 w-4 mr-2" />
+                          Editar
+                        </DropdownMenuItem>
+                        <DropdownMenuItem className="text-red-400 hover:text-red-300 focus:text-red-300 focus:bg-slate-700" onClick={() => setDeleteConfirmId(despesa.id)}>
+                          <Trash2 className="h-4 w-4 mr-2" />
+                          Apagar
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
