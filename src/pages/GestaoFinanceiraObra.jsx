@@ -263,13 +263,18 @@ export default function GestaoFinanceiraObra() {
   const [setorSelecionado, setSetorSelecionado] = useState('todos');
   const [viewMode, setViewMode] = useState('real'); // 'real', 'futuro', 'projecao'
 
-  // Mesclar dados do Supabase quando disponíveis
+  // Carregar SOMENTE lançamentos da obra selecionada (100% INDEPENDENTE de DespesasPage)
   React.useEffect(() => {
     if (lancamentosSupabase && lancamentosSupabase.length > 0) {
+      // FILTRAR APENAS lançamentos que pertencem à obra atual
+      const lancamentosDaObra = lancamentosSupabase.filter(l => {
+        const lObraId = l.obraId || l.obra_id;
+        return lObraId && lObraId === obra.id;
+      });
       // IDs existentes do modelo estático
       const idsEstaticos = new Set(LANCAMENTOS_DESPESAS.map(l => l.id));
-      // Lançamentos do Supabase que não estão no modelo estático
-      const novosDoSupabase = lancamentosSupabase.filter(l => !idsEstaticos.has(l.id)).map(l => ({
+      // Lançamentos do Supabase desta obra que não estão no modelo estático
+      const novosDoSupabase = lancamentosDaObra.filter(l => !idsEstaticos.has(l.id)).map(l => ({
         id: l.id,
         tipo: l.tipo || 'despesa',
         data: l.dataEmissao || l.data || l.createdAt || new Date().toISOString().split('T')[0],
@@ -289,7 +294,7 @@ export default function GestaoFinanceiraObra() {
         formaPagto: l.formaPagto || '',
         pesoKg: l.pesoKg || null,
       }));
-      // Mesclar: modelo estático + novos do Supabase
+      // Mesclar: modelo estático da obra + novos do Supabase DESTA OBRA
       setLancamentos([...LANCAMENTOS_DESPESAS, ...novosDoSupabase]);
     }
   }, [lancamentosSupabase, obra.id]);

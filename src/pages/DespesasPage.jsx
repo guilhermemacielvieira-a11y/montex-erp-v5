@@ -64,9 +64,9 @@ import {
   ResponsiveContainer,
   Legend
 } from 'recharts';
+import { useLancamentos } from '../contexts/ERPContext';
 
-// ========== STORAGE INDEPENDENTE (SEM vínculo com obras) ==========
-const STORAGE_KEY = 'montex_despesas_gerais';
+// ========== DADOS VIA SUPABASE (100% INDEPENDENTE de obras) ==========
 
 // Mock Data - Categorias
 const categorias = [
@@ -125,7 +125,8 @@ const getCategoriaColor = (categoriaNome) => {
 };
 
 export default function DespesasPage() {
-  // === DADOS 100% INDEPENDENTES - SEM vínculo com obras/ERPContext ===
+  // === DADOS VIA SUPABASE - APENAS despesas GERAIS (sem vínculo com obras) ===
+  const { lancamentosDespesas: lancamentosSupabase, addLancamento, updateLancamento, deleteLancamento } = useLancamentos();
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
@@ -136,7 +137,6 @@ export default function DespesasPage() {
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState([]);
   const [importing, setImporting] = useState(false);
-  const [despesas, setDespesas] = useState([]);
   const [formData, setFormData] = useState({
     descricao: '',
     fornecedor: '',
@@ -147,26 +147,25 @@ export default function DespesasPage() {
     formaPagto: ''
   });
 
-  // Salvar despesas no localStorage sempre que mudar
-  const salvarDespesas = (lista) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
-    } catch (e) {
-      console.warn('Erro ao salvar despesas:', e);
-    }
-  };
-
-  // Carregar despesas do localStorage na inicialização
-  useEffect(() => {
-    try {
-      const salvas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      if (salvas.length > 0) {
-        setDespesas(salvas);
-      }
-    } catch (e) {
-      console.warn('Erro ao carregar despesas:', e);
-    }
-  }, []);
+  // Despesas GERAIS do Supabase (filtrar: SEM obraId = despesas gerais da fábrica)
+  const despesas = useMemo(() => {
+    if (!lancamentosSupabase || lancamentosSupabase.length === 0) return [];
+    return lancamentosSupabase
+      .filter(l => !l.obraId && !l.obra_id) // SOMENTE despesas gerais
+      .map(l => ({
+        id: l.id,
+        data: l.dataEmissao || l.data || l.createdAt || '',
+        descricao: l.descricao || l.nome || '-',
+        fornecedor: l.fornecedor || '-',
+        categoria: l.categoriaNorm || l.categoria || 'Outros',
+        centroCusto: l.centroCusto || l.centro_custo || 'Produção',
+        valor: l.valor || 0,
+        status: l.status || 'pago',
+        formaPagto: l.formaPagto || l.forma_pagto || '-',
+        vencimento: l.dataVencimento || l.data_vencimento || l.dataEmissao || '',
+        tipo: l.tipo || 'despesa',
+      }));
+  }, [lancamentosSupabase]);
 
   // Categorizar despesa automaticamente pela descrição
   const categorizarDespesa = (descricao) => {
@@ -311,17 +310,27 @@ export default function DespesasPage() {
     e.target.value = '';
   };
 
-  // Confirmar importação
+  // Confirmar importação - salva no Supabase
   const confirmarImportacao = async () => {
     setImporting(true);
     try {
       const existingKeys = new Set(despesas.map(d => `${d.data}_${d.descricao}_${d.valor}`));
       const novas = importPreview.filter(d => !existingKeys.has(`${d.data}_${d.descricao}_${d.valor}`));
-      const novaLista = [...despesas, ...novas];
-      setDespesas(novaLista);
-      salvarDespesas(novaLista);
+      let importados = 0;
+      for (const nova of novas) {
+        try {
+          await addLancamento({
+            ...nova,
+            tipo: 'despesa',
+            obraId: null, // SEM vínculo com obra = despesa geral
+          });
+          importados++;
+        } catch (errItem) {
+          console.error('Erro ao importar item:', errItem);
+        }
+      }
 
-      toast.success(`${novas.length} despesas importadas com sucesso!`);
+      toast.success(`${importados} despesas importadas com sucesso!`);
       setImportDialogOpen(false);
       setImportPreview([]);
     } catch (e) {
@@ -418,7 +427,7 @@ export default function DespesasPage() {
     return filtrarPorPeriodo(resultado);
   }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo, filtroOrigem]);
 
-  const handleSaveDespesa = () => {
+  const handleSaveDespesa = async () => {
     if (!formData.descricao || !formData.fornecedor || !formData.categoria || !formData.centroCusto || !formData.valor || !formData.vencimento || !formData.formaPagto) {
       toast.error('Preencher todos os campos');
       return;
@@ -434,13 +443,18 @@ export default function DespesasPage() {
       valor: parseFloat(formData.valor),
       status: 'pendente',
       formaPagto: formData.formaPagto,
-      vencimento: formData.vencimento
+      vencimento: formData.vencimento,
+      tipo: 'despesa',
+      obraId: null, // SEM vínculo com obra = despesa geral
     };
 
-    const novaLista = [...despesas, novaDespesa];
-    setDespesas(novaLista);
-    salvarDespesas(novaLista);
-    toast.success('Despesa criada com sucesso!');
+    try {
+      await addLancamento(novaDespesa);
+      toast.success('Despesa criada com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar despesa:', err);
+      toast.error('Erro ao salvar despesa');
+    }
     setDialogOpen(false);
     setFormData({
       descricao: '',
