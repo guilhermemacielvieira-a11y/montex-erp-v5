@@ -1533,6 +1533,17 @@ export default function SimuladorOrcamento() {
       }, 0);
     }, 0);
 
+    // DEBUG: dump setores data to understand weight calculation
+    if (setores.length > 0) {
+      console.log('=== DEBUG SETORES ===');
+      setores.forEach(s => {
+        const pesoKg = s.itens.filter(i => i.unidade === 'KG').reduce((sum, i) => sum + (i.quantidade || 0), 0);
+        console.log(`Setor: ${s.nome} | Itens: ${s.itens.length} | Peso KG: ${pesoKg}`);
+        s.itens.forEach(i => console.log(`  - ${i.descricao} | qty: ${i.quantidade} | unit: ${i.unidade} | preco: ${i.preco}`));
+      });
+      console.log('=== END DEBUG ===');
+    }
+
     // Peso da estrutura contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
     const uniqueItemsW = {};
     setores.forEach(s => {
@@ -1546,6 +1557,7 @@ export default function SimuladorOrcamento() {
       });
     });
     const totalWeight = Object.values(uniqueItemsW).reduce((sum, qty) => sum + qty, 0);
+    console.log('DEBUG totalWeight after dedup:', totalWeight, 'uniqueKeys:', Object.keys(uniqueItemsW));
 
     const precoKgMedio = totalWeight > 0 ? totalValue / totalWeight : 0;
     const margemValue = totalValue * (calculations.margemPct / 100);
