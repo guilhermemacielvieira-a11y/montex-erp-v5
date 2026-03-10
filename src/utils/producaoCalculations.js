@@ -98,8 +98,10 @@ export function agregarPorEtapa(historico, pecas = []) {
     const etapaMapeada = ETAPA_DE_MAP[etapaOrigem];
 
     if (etapaMapeada && etapas[etapaMapeada]) {
-      etapas[etapaMapeada].unidades += 1;
       const pecaInfo = pecaMap.get(h.peca_id);
+      // Usar quantidade REAL da peça (pode ser >1, ex: TC5B = 324 un)
+      const qtd = pecaInfo?.quantidade || 1;
+      etapas[etapaMapeada].unidades += qtd;
       if (pecaInfo) {
         etapas[etapaMapeada].kg += pecaInfo.peso;
       }
@@ -193,12 +195,11 @@ export function getEficienciaBadge(valor) {
 }
 
 /**
- * Formatar peso em KG
+ * Formatar peso em KG (sempre em KG, sem conversão para toneladas)
  */
 export function formatKg(valor) {
   if (!valor) return '0 kg';
-  if (valor >= 1000) return `${(valor / 1000).toFixed(1)}t`;
-  return `${valor.toFixed(1)} kg`;
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} kg`;
 }
 
 /**
