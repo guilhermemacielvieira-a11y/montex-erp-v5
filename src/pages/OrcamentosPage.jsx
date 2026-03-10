@@ -56,7 +56,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-// ERPContext - dados reais
+// ERPContext - dados reais (Supabase)
 import { useOrcamentos, useERP } from '../contexts/ERPContext';
 
 // Funções utilitárias
@@ -300,7 +300,7 @@ OrcamentoCard.displayName = 'OrcamentoCard';
 // Componente Principal
 export default function OrcamentosPage() {
   // ERPContext - dados reais
-  const { orcamentos: orcamentosContext, aprovarOrcamento, addOrcamento } = useOrcamentos();
+  const { orcamentos: orcamentosContext, aprovarOrcamento, addOrcamento, updateOrcamento, deleteOrcamento } = useOrcamentos();
   const { clientes } = useERP();
 
   // Estados locais - usar cópia local para permitir drag and drop
@@ -328,26 +328,9 @@ export default function OrcamentosPage() {
     status: 'rascunho'
   });
 
-  // Sincronizar com context + localStorage quando mudar
+  // Sincronizar com context (Supabase) quando mudar
   React.useEffect(() => {
-    // Load from localStorage
-    let localStored = [];
-    try {
-      localStored = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
-    } catch (e) {
-      console.warn('Erro ao ler orçamentos do localStorage:', e);
-    }
-
-    // Merge context + localStorage (deduplicate by id)
-    const merged = [...orcamentosContext];
-    const existingIds = new Set(merged.map(o => o.id));
-    localStored.forEach(o => {
-      if (!existingIds.has(o.id)) {
-        merged.push(o);
-      }
-    });
-
-    setOrcamentosLocal(merged);
+    setOrcamentosLocal([...orcamentosContext]);
   }, [orcamentosContext]);
 
   // Usar dados locais para exibição (merged)
@@ -477,54 +460,48 @@ export default function OrcamentosPage() {
     setShowDeleteConfirm(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!orcamentoToDelete) return;
-    // Remove from local state
-    setOrcamentosLocal(prev => prev.filter(o => o.id !== orcamentoToDelete.id));
-    // Remove from localStorage
+    // Remove via ERPContext (Supabase)
     try {
-      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
-      const updated = saved.filter(o => o.id !== orcamentoToDelete.id);
-      localStorage.setItem('montex_orcamentos', JSON.stringify(updated));
+      await deleteOrcamento(orcamentoToDelete.id);
+      toast.success(`Orçamento ${orcamentoToDelete.numero} apagado!`);
     } catch (e) {
-      console.warn('Erro ao remover do localStorage:', e);
+      console.error('Erro ao deletar orçamento:', e);
+      toast.error('Erro ao deletar orçamento');
     }
-    toast.success(`Orçamento ${orcamentoToDelete.numero} apagado!`);
     setShowDeleteConfirm(false);
     setOrcamentoToDelete(null);
   };
 
   const handleAbrirNoSimulador = (orcamento) => {
-    // Save orcamento data to localStorage for the simulator to load
-    try {
-      localStorage.setItem('montex_orcamento_editar', JSON.stringify(orcamento));
-      window.location.href = '/SimuladorOrcamento?editar=' + encodeURIComponent(orcamento.id);
-    } catch (e) {
-      console.error('Erro ao abrir no simulador:', e);
-      toast.error('Erro ao abrir orçamento no simulador');
-    }
+    // Navegar para o simulador passando o ID via URL (dados carregados do Supabase)
+    window.location.href = '/SimuladorOrcamento?editar=' + encodeURIComponent(orcamento.id);
   };
 
   const handleExportar = () => {
     toast.success('Exportação iniciada. O arquivo será baixado em breve.');
   };
 
-  const handleSaveOrcamento = () => {
-    if (modalMode === 'create') {
-      const novoOrcamento = {
-        ...formData,
-        id: `orc_${Date.now()}`,
-        obraId: formData.obraId || null
-      };
-      setOrcamentosLocal(prev => [...prev, novoOrcamento]);
-      toast.success('Orçamento criado com sucesso!');
-    } else if (modalMode === 'edit' && selectedOrcamento) {
-      setOrcamentosLocal(prev =>
-        prev.map(o => o.id === selectedOrcamento.id ? { ...o, ...formData } : o)
-      );
-      toast.success('Orçamento atualizado com sucesso!');
+  const handleSaveOrcamento = async () => {
+    try {
+      if (modalMode === 'create') {
+        const novoOrcamento = {
+          ...formData,
+          id: `orc_${Date.now()}`,
+          obraId: formData.obraId || null
+        };
+        await addOrcamento(novoOrcamento);
+        toast.success('Orçamento criado com sucesso!');
+      } else if (modalMode === 'edit' && selectedOrcamento) {
+        await updateOrcamento(selectedOrcamento.id, formData);
+        toast.success('Orçamento atualizado com sucesso!');
+      }
+      setShowModal(false);
+    } catch (e) {
+      console.error('Erro ao salvar orçamento:', e);
+      toast.error('Erro ao salvar orçamento');
     }
-    setShowModal(false);
   };
 
   const closeModal = () => {

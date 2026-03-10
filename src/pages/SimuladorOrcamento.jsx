@@ -1348,7 +1348,7 @@ const PropostaButton = ({ type, project, setores, calculations, unitCosts }) => 
 // ============================================================================
 
 export default function SimuladorOrcamento() {
-  const { addOrcamento } = useOrcamentos();
+  const { orcamentos: orcamentosContext, addOrcamento, deleteOrcamento } = useOrcamentos();
 
   const [step, setStep] = useState(0);
   const steps = ['Info', 'Custos', 'Setores', 'Serviços', 'BDI', 'Análise'];
@@ -1405,16 +1405,15 @@ export default function SimuladorOrcamento() {
     prazo: { total: 0, projeto: 10, fabricacao: 0, montagem: 0 }
   });
 
-  // Load saved orcamento for editing (from OrcamentosPage)
+  // Load saved orcamento for editing (from OrcamentosPage via URL param + Supabase context)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const editarId = params.get('editar');
-    if (!editarId) return;
+    if (!editarId || !orcamentosContext.length) return;
 
     try {
-      const savedData = localStorage.getItem('montex_orcamento_editar');
-      if (!savedData) return;
-      const orc = JSON.parse(savedData);
+      const orc = orcamentosContext.find(o => o.id === editarId);
+      if (!orc) return;
 
       // Restore project info
       setProject({
@@ -1454,8 +1453,6 @@ export default function SimuladorOrcamento() {
         }));
       }
 
-      // Clean up to avoid reloading on refresh
-      localStorage.removeItem('montex_orcamento_editar');
       // Clean URL params
       window.history.replaceState({}, '', window.location.pathname);
 
@@ -1463,20 +1460,12 @@ export default function SimuladorOrcamento() {
     } catch (e) {
       console.error('Erro ao carregar orçamento para edição:', e);
     }
-  }, []);
+  }, [orcamentosContext]);
 
-  // Load saved orcamentos list
-  const loadSavedOrcamentos = useCallback(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
-      setSavedOrcamentos(saved);
-    } catch (e) {
-      console.warn('Erro ao carregar orçamentos:', e);
-      setSavedOrcamentos([]);
-    }
-  }, []);
-
-  useEffect(() => { loadSavedOrcamentos(); }, [loadSavedOrcamentos]);
+  // Sincronizar lista de orçamentos salvos do context (Supabase)
+  useEffect(() => {
+    setSavedOrcamentos(orcamentosContext);
+  }, [orcamentosContext]);
 
   const handleEditarOrcamento = useCallback((orc) => {
     // Load the selected orcamento into the simulator
@@ -1510,18 +1499,16 @@ export default function SimuladorOrcamento() {
     toast.success(`Orçamento "${orc.nome || orc.projeto}" carregado!`);
   }, []);
 
-  const handleApagarOrcamento = useCallback((orcId) => {
+  const handleApagarOrcamento = useCallback(async (orcId) => {
     try {
-      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
-      const updated = saved.filter(o => o.id !== orcId);
-      localStorage.setItem('montex_orcamentos', JSON.stringify(updated));
-      setSavedOrcamentos(updated);
+      await deleteOrcamento(orcId);
       toast.success('Orçamento apagado!');
     } catch (e) {
       console.error('Erro ao apagar:', e);
+      toast.error('Erro ao apagar orçamento');
     }
     setDeleteConfirmId(null);
-  }, []);
+  }, [deleteOrcamento]);
 
   // Update calculations when setores change
   useMemo(() => {
@@ -1603,36 +1590,16 @@ export default function SimuladorOrcamento() {
       },
     };
 
-    let savedLocal = false;
-    let savedSupabase = false;
-
-    // Save to localStorage (guaranteed persistence)
-    try {
-      const saved = JSON.parse(localStorage.getItem('montex_orcamentos') || '[]');
-      saved.push(orc);
-      localStorage.setItem('montex_orcamentos', JSON.stringify(saved));
-      savedLocal = true;
-      console.log('✅ Orçamento salvo no localStorage:', orc.numero);
-    } catch (e) {
-      console.error('❌ localStorage save error:', e);
-    }
-
-    // Also try Supabase via context
+    // Salvar via ERPContext (Supabase)
     try {
       await addOrcamento(orc);
-      savedSupabase = true;
       console.log('✅ Orçamento salvo no Supabase:', orc.numero);
+      toast.success(`Orçamento ${orc.numero} salvo com sucesso!`);
     } catch (e) {
-      console.warn('⚠️ Supabase save failed:', e);
-    }
-
-    if (savedLocal || savedSupabase) {
-      toast.success(`Orçamento ${orc.numero} salvo com sucesso!${savedSupabase ? ' (Supabase + Local)' : ' (Local)'}`);
-      loadSavedOrcamentos(); // Refresh the list
-    } else {
+      console.error('❌ Erro ao salvar orçamento:', e);
       toast.error('Erro ao salvar orçamento. Tente novamente.');
     }
-  }, [project, setores, calculations, unitCosts, addOrcamento, loadSavedOrcamentos]);
+  }, [project, setores, calculations, unitCosts, addOrcamento]);
 
   const canProceed = () => {
     // Allow free navigation between steps - validate only on save
@@ -1673,7 +1640,7 @@ export default function SimuladorOrcamento() {
             </div>
             <div className="flex items-center gap-3">
               <button
-                onClick={() => { loadSavedOrcamentos(); setShowOrcamentosList(!showOrcamentosList); }}
+                onClick={() => { setShowOrcamentosList(!showOrcamentosList); }}
                 className="px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 text-sm font-medium flex items-center gap-2"
               >
                 <FileText className="h-4 w-4" />
