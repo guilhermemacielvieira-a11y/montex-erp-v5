@@ -3,7 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Search, FileText, X, Loader2, CheckCircle2, AlertCircle,
   Receipt, Building2, Calendar, DollarSign, Hash,
-  Download, Upload, Key, FileUp, Tag
+  Download, Upload, Key, FileUp, Tag, CreditCard, Layers
 } from 'lucide-react';
 import { notasFiscaisApi } from '../api/supabaseClient';
 import { toast } from 'sonner';
@@ -18,13 +18,10 @@ function parseNFeXML(xmlText) {
   const parseError = doc.querySelector('parsererror');
   if (parseError) throw new Error('XML invalido: ' + parseError.textContent.substring(0, 100));
 
-  // Buscar o nó principal da NFe (com ou sem namespace)
   const getText = (parent, tagName) => {
     if (!parent) return '';
-    // Tentar sem namespace primeiro
     let el = parent.getElementsByTagName(tagName)[0];
     if (!el) {
-      // Tentar com namespace SEFAZ
       const ns = 'http://www.portalfiscal.inf.br/nfe';
       el = parent.getElementsByTagNameNS(ns, tagName)[0];
     }
@@ -68,6 +65,43 @@ function parseNFeXML(xmlText) {
   // Totais (ICMSTot)
   const valorTotal = parseFloat(getText(doc, 'vNF')) || 0;
 
+  // === PAGAMENTO (pag > detPag > tPag) ===
+  const detPagNodes = getAll(doc, 'detPag');
+  let formaPagamento = '';
+  let codigoPagamento = '';
+  if (detPagNodes.length > 0) {
+    codigoPagamento = getText(detPagNodes[0], 'tPag');
+    formaPagamento = mapearFormaPagamento(codigoPagamento);
+  } else {
+    // Fallback: tentar tPag direto
+    codigoPagamento = getText(doc, 'tPag');
+    formaPagamento = mapearFormaPagamento(codigoPagamento);
+  }
+
+  // === COBRANÇA / VENCIMENTO (cobr > dup > dVenc) ===
+  let dataVencimento = '';
+  const dupNodes = getAll(doc, 'dup');
+  if (dupNodes.length > 0) {
+    // Pegar a primeira duplicata (ou a última para prazo maior)
+    const primeiraVenc = getText(dupNodes[0], 'dVenc');
+    const ultimaVenc = getText(dupNodes[dupNodes.length - 1], 'dVenc');
+    dataVencimento = ultimaVenc || primeiraVenc || '';
+
+    // Se tem múltiplas duplicatas e sem forma de pagamento, é parcelado (boleto)
+    if (!formaPagamento && dupNodes.length >= 1) {
+      formaPagamento = 'Boleto';
+    }
+  }
+
+  // Se ainda não tem vencimento, usar 30 dias após emissão como padrão
+  if (!dataVencimento && dataEmissao) {
+    try {
+      const dtEmissao = new Date(dataEmissao + 'T00:00:00');
+      dtEmissao.setDate(dtEmissao.getDate() + 30);
+      dataVencimento = dtEmissao.toISOString().split('T')[0];
+    } catch (e) { /* ignorar */ }
+  }
+
   // Itens (det)
   const detNodes = getAll(doc, 'det');
   const itens = detNodes.map(det => {
@@ -91,10 +125,37 @@ function parseNFeXML(xmlText) {
 
   return {
     numero, serie, fornecedor, cnpj: cnpjFormatado,
-    dataEmissao, valor: valorTotal, tipo: 'entrada',
+    dataEmissao, dataVencimento, valor: valorTotal, tipo: 'entrada',
     itens, chaveAcesso, naturezaOp: natOp,
+    formaPagamento,
     observacoes: ''
   };
+}
+
+// ============================================
+// MAPEAMENTO FORMA DE PAGAMENTO (códigos SEFAZ)
+// ============================================
+function mapearFormaPagamento(codigo) {
+  const mapa = {
+    '01': 'Dinheiro',
+    '02': 'Cheque',
+    '03': 'Cartão de Crédito',
+    '04': 'Cartão de Débito',
+    '05': 'Crédito Loja',
+    '10': 'Vale Alimentação',
+    '11': 'Vale Refeição',
+    '12': 'Vale Presente',
+    '13': 'Vale Combustível',
+    '14': 'Duplicata Mercantil',
+    '15': 'Boleto',
+    '16': 'Depósito Bancário',
+    '17': 'PIX',
+    '18': 'Transferência',
+    '19': 'Cashback',
+    '90': 'Sem Pagamento',
+    '99': 'Outros',
+  };
+  return mapa[String(codigo || '')] || '';
 }
 
 // ============================================
@@ -102,29 +163,113 @@ function parseNFeXML(xmlText) {
 // ============================================
 function classificarNaturezaPorCFOP(cfop) {
   const c = String(cfop || '');
-  // Matéria-prima
   if (['1101', '2101', '1151', '2151', '1201', '2201'].includes(c)) return 'Compra de matéria-prima';
-  // Revenda
   if (['1102', '2102', '1113', '2113', '1152', '2152'].includes(c)) return 'Compra para revenda';
-  // Prestação de serviços
   if (['1126', '2126', '1128', '2128', '1352', '2352'].includes(c)) return 'Compra para utilização na prestação de serviços';
-  // Material de embalagem
   if (['1120', '2120', '1121', '2121'].includes(c)) return 'Compra de material de embalagem';
-  // Uso e consumo
   if (['1556', '2556', '1407', '2407', '1501', '2501', '1653', '2653'].includes(c)) return 'Compra para uso e consumo';
-  // Fallback por grupo CFOP
   if (c.startsWith('1') || c.startsWith('2')) return 'Compra para uso e consumo';
   return '';
 }
 
-function categorizarItem(descricao, ncm) {
-  const desc = (descricao || '').toLowerCase();
-  const ncmPrefix = (ncm || '').substring(0, 4);
-  if (desc.includes('tinta') || desc.includes('primer') || desc.includes('epoxi') || ncmPrefix === '3208') return 'material_pintura';
-  if (desc.includes('solda') || desc.includes('arame') || desc.includes('eletrodo') || ncmPrefix === '8311' || ncmPrefix === '7217') return 'consumiveis';
-  if (desc.includes('chapa') || desc.includes('perfil') || desc.includes('viga') || ncmPrefix === '7208' || ncmPrefix === '7216') return 'material_estrutura';
-  if (desc.includes('transporte') || desc.includes('frete')) return 'transporte';
-  return 'material_estrutura';
+// ============================================
+// CLASSIFICAÇÃO AUTOMÁTICA DE CATEGORIA
+// Mapeia para as categorias do DespesasPage
+// ============================================
+const CATEGORIAS_DISPONIVEIS = [
+  'Matéria Prima',
+  'Mão de Obra',
+  'Energia/Utilidades',
+  'Manutenção',
+  'Transporte',
+  'Administrativo',
+  'Impostos',
+  'Outros',
+];
+
+function classificarCategoria(itens, naturezaOp) {
+  if (!itens || itens.length === 0) return 'Outros';
+
+  // Analisar todos os itens para uma classificação mais precisa
+  const descricoes = itens.map(i => (i.descricao || '').toLowerCase()).join(' ');
+  const ncms = itens.map(i => (i.ncm || '').substring(0, 4));
+  const cfops = itens.map(i => String(i.cfop || ''));
+  const natOpLower = (naturezaOp || '').toLowerCase();
+
+  // Transporte/Frete
+  if (descricoes.match(/frete|transporte|logistic|carreto|mudança/) ||
+      natOpLower.includes('frete') || natOpLower.includes('transporte') ||
+      cfops.some(c => ['1352', '2352', '1353', '2353'].includes(c))) {
+    return 'Transporte';
+  }
+
+  // Mão de Obra / Serviços
+  if (descricoes.match(/servico|serviço|mao de obra|mão de obra|consultoria|locação|aluguel/) ||
+      natOpLower.includes('serviço') || natOpLower.includes('servico') ||
+      natOpLower.includes('prestação') ||
+      cfops.some(c => ['1126', '2126', '1128', '2128', '1933', '2933'].includes(c))) {
+    return 'Mão de Obra';
+  }
+
+  // Energia / Utilidades
+  if (descricoes.match(/energia|eletric|gas|agua|água|combustivel|combustível|diesel|gasolina|etanol/) ||
+      ncms.some(n => ['2710', '2711', '2716'].includes(n))) {
+    return 'Energia/Utilidades';
+  }
+
+  // Manutenção
+  if (descricoes.match(/manutenção|manutencao|peça|peca|rolamento|correia|filtro|lubrific|oleo|óleo|ferramenta|epi/) ||
+      ncms.some(n => ['8482', '8483', '8484', '4016', '8481'].includes(n))) {
+    return 'Manutenção';
+  }
+
+  // Matéria Prima (chapas, perfis, aço, tinta, solda, eletrodo, etc.)
+  if (descricoes.match(/chapa|perfil|viga|tubo|aço|aco|ferro|metalon|barra|cantoneira|tinta|primer|epoxi|epóxi|solda|eletrodo|arame|abrasivo|disco|lixa/) ||
+      ncms.some(n => ['7208', '7209', '7210', '7214', '7216', '7306', '7307', '3208', '3209', '8311', '7217', '6804', '6805'].includes(n)) ||
+      cfops.some(c => ['1101', '2101', '1151', '2151'].includes(c))) {
+    return 'Matéria Prima';
+  }
+
+  // Administrativo (material de escritório, informática, etc.)
+  if (descricoes.match(/escritorio|escritório|papel|impressora|toner|cartucho|inform|computador|notebook|monitor|telefone/) ||
+      ncms.some(n => ['4802', '8471', '8443', '8528'].includes(n))) {
+    return 'Administrativo';
+  }
+
+  // Fallback baseado no CFOP
+  if (cfops.some(c => c.startsWith('1') || c.startsWith('2'))) {
+    return 'Matéria Prima'; // Compras gerais → assume matéria prima para metalúrgica
+  }
+
+  return 'Outros';
+}
+
+// ============================================
+// CLASSIFICAÇÃO AUTOMÁTICA DE CENTRO DE CUSTO
+// ============================================
+const CENTROS_CUSTO = [
+  { nome: 'Produção', codigo: 'CC-001' },
+  { nome: 'Administrativo', codigo: 'CC-002' },
+  { nome: 'Comercial', codigo: 'CC-003' },
+  { nome: 'Logística', codigo: 'CC-004' },
+  { nome: 'RH', codigo: 'CC-005' },
+];
+
+function classificarCentroCusto(categoria, naturezaOp) {
+  const natLower = (naturezaOp || '').toLowerCase();
+  if (natLower.includes('venda') || natLower.includes('comercial')) return 'Comercial';
+  if (natLower.includes('frete') || natLower.includes('transporte')) return 'Logística';
+
+  switch (categoria) {
+    case 'Matéria Prima': return 'Produção';
+    case 'Mão de Obra': return 'Produção';
+    case 'Manutenção': return 'Produção';
+    case 'Transporte': return 'Logística';
+    case 'Administrativo': return 'Administrativo';
+    case 'Energia/Utilidades': return 'Produção';
+    case 'Impostos': return 'Administrativo';
+    default: return 'Produção';
+  }
 }
 
 function formatCurrency(val) {
@@ -146,17 +291,36 @@ const NATUREZAS = [
   'Compra para uso e consumo'
 ];
 
+const FORMAS_PAGAMENTO = [
+  'Dinheiro',
+  'Boleto',
+  'PIX',
+  'Transferência',
+  'Cartão de Crédito',
+  'Cartão de Débito',
+  'Cheque',
+  'Depósito Bancário',
+  'Duplicata Mercantil',
+  'Outros',
+];
+
 // ============================================
 // COMPONENTE PRINCIPAL
 // ============================================
-export default function ImportarNFModal({ open, onOpenChange, onImportar, moduloDestino, obraId }) {
-  const [step, setStep] = useState('entrada'); // entrada | preview | sucesso
-  const [metodo, setMetodo] = useState('xml'); // xml | chave
+export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId }) {
+  const [step, setStep] = useState('entrada');
+  const [metodo, setMetodo] = useState('xml');
   const [loading, setLoading] = useState(false);
   const [erro, setErro] = useState('');
   const [nfData, setNfData] = useState(null);
   const [itensSelecionados, setItensSelecionados] = useState([]);
   const [naturezaSelecionada, setNaturezaSelecionada] = useState('');
+  const [categoriaSelecionada, setCategoriaSelecionada] = useState('');
+  const [centroCustoSelecionado, setCentroCustoSelecionado] = useState('');
+  const [formaPagamentoSelecionada, setFormaPagamentoSelecionada] = useState('');
+  const [dataVencimento, setDataVencimento] = useState('');
+  const [dataEmissao, setDataEmissao] = useState('');
+  const [statusSelecionado, setStatusSelecionado] = useState('pendente');
   const [importando, setImportando] = useState(false);
   const [chaveAcesso, setChaveAcesso] = useState('');
   const fileInputRef = useRef(null);
@@ -165,7 +329,58 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
     setStep('entrada'); setMetodo('xml');
     setLoading(false); setErro(''); setNfData(null);
     setItensSelecionados([]); setNaturezaSelecionada('');
+    setCategoriaSelecionada(''); setCentroCustoSelecionado('');
+    setFormaPagamentoSelecionada(''); setDataVencimento('');
+    setDataEmissao(''); setStatusSelecionado('pendente');
     setImportando(false); setChaveAcesso('');
+  }, []);
+
+  // Preencher campos automáticos após parsear
+  const preencherCamposAutomaticos = useCallback((parsed) => {
+    setNfData(parsed);
+    setItensSelecionados(parsed.itens.map((_, i) => i));
+
+    // Natureza por CFOP
+    const cfopPrimeiro = parsed.itens[0]?.cfop;
+    const natSugerida = classificarNaturezaPorCFOP(cfopPrimeiro);
+    setNaturezaSelecionada(natSugerida || 'Compra para uso e consumo');
+
+    // Categoria automática
+    const catSugerida = classificarCategoria(parsed.itens, parsed.naturezaOp);
+    setCategoriaSelecionada(catSugerida);
+
+    // Centro de custo automático
+    const ccSugerido = classificarCentroCusto(catSugerida, parsed.naturezaOp);
+    setCentroCustoSelecionado(ccSugerido);
+
+    // Forma de pagamento
+    const formaPgto = parsed.formaPagamento || 'Boleto';
+    setFormaPagamentoSelecionada(formaPgto);
+
+    // Datas
+    setDataEmissao(parsed.dataEmissao || '');
+    setDataVencimento(parsed.dataVencimento || '');
+
+    // Status automático:
+    // "pago" SOMENTE para compras à vista (Dinheiro, PIX, Cartão de Débito)
+    // Demais formas de pagamento = "pendente" (ou "atrasado" se vencido)
+    const formasAVista = ['Dinheiro', 'PIX', 'Cartão de Débito'];
+    if (formasAVista.includes(formaPgto)) {
+      setStatusSelecionado('pago');
+    } else if (parsed.dataVencimento) {
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      const venc = new Date(parsed.dataVencimento + 'T00:00:00');
+      if (venc < hoje) {
+        setStatusSelecionado('atrasado');
+      } else {
+        setStatusSelecionado('pendente');
+      }
+    } else {
+      setStatusSelecionado('pendente');
+    }
+
+    setStep('preview');
   }, []);
 
   // === UPLOAD XML ===
@@ -179,19 +394,13 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
     try {
       const text = await file.text();
       const parsed = parseNFeXML(text);
-      setNfData(parsed);
-      setItensSelecionados(parsed.itens.map((_, i) => i));
-      // Auto-classificar natureza pelo CFOP do primeiro item
-      const cfopPrimeiro = parsed.itens[0]?.cfop;
-      const natSugerida = classificarNaturezaPorCFOP(cfopPrimeiro);
-      setNaturezaSelecionada(natSugerida || 'Compra para uso e consumo');
-      setStep('preview');
+      preencherCamposAutomaticos(parsed);
       toast.success(`XML parseado: ${parsed.itens.length} itens de ${parsed.fornecedor}`);
     } catch (err) {
       setErro(err.message || 'Erro ao processar XML');
     }
     setLoading(false);
-  }, []);
+  }, [preencherCamposAutomaticos]);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
@@ -214,7 +423,6 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
     }
     setLoading(true); setErro('');
     try {
-      // Tentar BrasilAPI (gratuita, sem CAPTCHA)
       const resp = await fetch(`https://brasilapi.com.br/api/nfe/v1/${chave}`, {
         signal: AbortSignal.timeout(15000)
       });
@@ -225,15 +433,16 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
       }
       const data = await resp.json();
 
-      // Transformar resposta da BrasilAPI para formato interno
       const parsed = {
         numero: String(data.nfe_numero || data.numero || ''),
         serie: String(data.serie || '1'),
         fornecedor: data.emitente?.razao_social || data.emitente?.nome_fantasia || '',
         cnpj: data.emitente?.cnpj || '',
         dataEmissao: (data.data_emissao || '').substring(0, 10),
+        dataVencimento: (data.data_vencimento || data.cobranca?.duplicatas?.[0]?.data_vencimento || '').substring(0, 10),
         valor: data.valor_total || data.total?.icms_total?.valor_total_nota || 0,
         tipo: 'entrada',
+        formaPagamento: data.pagamento?.forma_pagamento || '',
         itens: (data.itens || data.produtos || []).map(item => ({
           descricao: item.descricao || item.nome || '',
           qtd: item.quantidade || 0,
@@ -248,11 +457,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
         observacoes: ''
       };
 
-      setNfData(parsed);
-      setItensSelecionados(parsed.itens.map((_, i) => i));
-      const cfopPrimeiro = parsed.itens[0]?.cfop;
-      setNaturezaSelecionada(classificarNaturezaPorCFOP(cfopPrimeiro) || 'Compra para uso e consumo');
-      setStep('preview');
+      preencherCamposAutomaticos(parsed);
       toast.success(`NFe encontrada: ${parsed.fornecedor}`);
     } catch (err) {
       if (err.name === 'AbortError' || err.name === 'TimeoutError') {
@@ -262,7 +467,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
       }
     }
     setLoading(false);
-  }, [chaveAcesso]);
+  }, [chaveAcesso, preencherCamposAutomaticos]);
 
   const toggleItem = useCallback((idx) => {
     setItensSelecionados(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
@@ -278,16 +483,23 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
     const lancamento = {
       descricao: 'NF ' + nfData.numero + ' - ' + nfData.fornecedor,
       valor: valorTotal,
-      dataEmissao: nfData.dataEmissao,
-      data: nfData.dataEmissao,
+      dataEmissao: dataEmissao,
+      data: dataEmissao,
+      dataVencimento: dataVencimento,
+      data_vencimento: dataVencimento,
+      vencimento: dataVencimento,
       tipo: 'despesa',
-      categoria: categorizarItem(itensParaImportar[0]?.descricao, itensParaImportar[0]?.ncm),
+      categoria: categoriaSelecionada,
+      centroCusto: centroCustoSelecionado,
+      centro_custo: centroCustoSelecionado,
       fornecedor: nfData.fornecedor,
       notaFiscal: nfData.numero,
       nf: nfData.numero,
       naturezaAquisicao: naturezaSelecionada,
-      formaPagto: 'boleto',
-      status: 'pago',
+      natureza_aquisicao: naturezaSelecionada,
+      formaPagto: formaPagamentoSelecionada,
+      forma_pagto: formaPagamentoSelecionada,
+      status: statusSelecionado,
       observacao: `[NAT:${naturezaSelecionada}] Chave: ${(nfData.chaveAcesso || '').substring(0, 25)}... | ${itensParaImportar.length} itens`,
     };
 
@@ -304,11 +516,11 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
         fornecedor: nfData.fornecedor,
         tipo: 'entrada',
         valor: valorTotal,
-        data_emissao: nfData.dataEmissao,
+        data_emissao: dataEmissao,
         data_entrada: new Date().toISOString().split('T')[0],
         status: 'importada',
         itens: itensParaImportar,
-        observacoes: `Natureza: ${naturezaSelecionada} | ${nfData.naturezaOp}`,
+        observacoes: `Natureza: ${naturezaSelecionada} | ${nfData.naturezaOp} | Venc: ${dataVencimento} | Pgto: ${formaPagamentoSelecionada}`,
         obra_id: lancamento.obra_id || null
       });
     } catch (err) {
@@ -322,13 +534,13 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
 
     setStep('sucesso');
     setImportando(false);
-  }, [nfData, itensSelecionados, naturezaSelecionada, obraId, onImportar]);
+  }, [nfData, itensSelecionados, naturezaSelecionada, categoriaSelecionada, centroCustoSelecionado, formaPagamentoSelecionada, dataVencimento, dataEmissao, statusSelecionado, obraId, onImportar]);
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) resetModal(); onOpenChange(o); }}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/70 z-50" />
-        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-900 border border-gray-700 rounded-2xl z-50 w-[640px] max-h-[85vh] overflow-hidden flex flex-col">
+        <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-900 border border-gray-700 rounded-2xl z-50 w-[700px] max-h-[90vh] overflow-hidden flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between p-5 border-b border-gray-700">
             <div className="flex items-center gap-3">
@@ -338,7 +550,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
               <div>
                 <Dialog.Title className="text-lg font-semibold text-white">Importar Nota Fiscal</Dialog.Title>
                 <p className="text-xs text-gray-400">
-                  {step === 'entrada' ? 'Upload XML ou consulta por chave de acesso' : step === 'preview' ? 'Confira os dados e selecione os itens' : 'Importacao concluida'}
+                  {step === 'entrada' ? 'Upload XML ou consulta por chave de acesso' : step === 'preview' ? 'Confira e ajuste os dados antes de importar' : 'Importacao concluida'}
                 </p>
               </div>
             </div>
@@ -462,9 +674,8 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
                       <p className="text-xs text-gray-400">{nfData.cnpj}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500">Data Emissao</p>
-                      <p className="text-sm text-white">{formatDate(nfData.dataEmissao)}</p>
-                      {nfData.naturezaOp && <p className="text-xs text-gray-400">{nfData.naturezaOp}</p>}
+                      <p className="text-xs text-gray-500">Nat. Operacao</p>
+                      <p className="text-sm text-white">{nfData.naturezaOp || '-'}</p>
                     </div>
                   </div>
                   {nfData.chaveAcesso && (
@@ -475,20 +686,120 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
                   )}
                 </div>
 
-                {/* Natureza de Aquisição */}
-                <div>
-                  <label className="flex items-center gap-2 text-sm text-gray-400 mb-2">
-                    <Tag className="w-4 h-4" /> Natureza de Aquisicao
-                  </label>
-                  <select
-                    value={naturezaSelecionada}
-                    onChange={e => setNaturezaSelecionada(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                  >
-                    {NATUREZAS.map(n => (
-                      <option key={n} value={n}>{n}</option>
-                    ))}
-                  </select>
+                {/* === CAMPOS EDITÁVEIS === */}
+                <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-3">
+                  <p className="text-sm font-medium text-amber-400 flex items-center gap-2">
+                    <Tag className="w-4 h-4" /> Classificação (editável)
+                  </p>
+
+                  {/* Linha 1: Data Emissão + Data Vencimento */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Calendar className="w-3 h-3 inline mr-1" />Data Emissão
+                      </label>
+                      <input
+                        type="date"
+                        value={dataEmissao}
+                        onChange={e => setDataEmissao(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Calendar className="w-3 h-3 inline mr-1" />Data Vencimento
+                      </label>
+                      <input
+                        type="date"
+                        value={dataVencimento}
+                        onChange={e => setDataVencimento(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Linha 2: Forma de Pagamento + Status */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <CreditCard className="w-3 h-3 inline mr-1" />Forma de Pagamento
+                      </label>
+                      <select
+                        value={formaPagamentoSelecionada}
+                        onChange={e => setFormaPagamentoSelecionada(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                      >
+                        <option value="">Selecionar...</option>
+                        {FORMAS_PAGAMENTO.map(f => (
+                          <option key={f} value={f}>{f}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">Status</label>
+                      <select
+                        value={statusSelecionado}
+                        onChange={e => setStatusSelecionado(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                      >
+                        <option value="pendente">Pendente</option>
+                        <option value="pago">Pago</option>
+                        <option value="atrasado">Atrasado</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Linha 3: Categoria + Centro de Custo */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Layers className="w-3 h-3 inline mr-1" />Categoria
+                      </label>
+                      <select
+                        value={categoriaSelecionada}
+                        onChange={e => setCategoriaSelecionada(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                      >
+                        {CATEGORIAS_DISPONIVEIS.map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Building2 className="w-3 h-3 inline mr-1" />Centro de Custo
+                      </label>
+                      <select
+                        value={centroCustoSelecionado}
+                        onChange={e => setCentroCustoSelecionado(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                      >
+                        {CENTROS_CUSTO.map(cc => (
+                          <option key={cc.nome} value={cc.nome}>{cc.codigo} - {cc.nome}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Linha 4: Natureza de Aquisição */}
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      <Tag className="w-3 h-3 inline mr-1" />Natureza de Aquisição
+                    </label>
+                    <select
+                      value={naturezaSelecionada}
+                      onChange={e => setNaturezaSelecionada(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
+                    >
+                      {NATUREZAS.map(n => (
+                        <option key={n} value={n}>{n}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <p className="text-xs text-gray-500 italic">
+                    Categoria, centro de custo e forma de pagamento foram preenchidos automaticamente com base na NFe. Altere se necessário.
+                  </p>
                 </div>
 
                 {/* Itens */}
@@ -496,7 +807,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
                   <p className="text-sm text-gray-400 mb-2">
                     Itens da NF ({itensSelecionados.length}/{nfData.itens.length} selecionados)
                   </p>
-                  <div className="space-y-2 max-h-[250px] overflow-y-auto pr-1">
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
                     {nfData.itens.map((item, idx) => (
                       <button key={idx} onClick={() => toggleItem(idx)}
                         className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left ${
@@ -553,12 +864,20 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, modulo
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-400">Itens:</span>
-                    <span className="text-sm text-white">{itensSelecionados.length}</span>
+                    <span className="text-sm text-gray-400">Categoria:</span>
+                    <span className="text-sm text-white">{categoriaSelecionada}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-sm text-gray-400">Fornecedor:</span>
-                    <span className="text-sm text-white">{nfData?.fornecedor}</span>
+                    <span className="text-sm text-gray-400">Centro de Custo:</span>
+                    <span className="text-sm text-white">{centroCustoSelecionado}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-400">Vencimento:</span>
+                    <span className="text-sm text-white">{formatDate(dataVencimento)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-400">Forma Pagto:</span>
+                    <span className="text-sm text-white">{formaPagamentoSelecionada}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-400">Natureza:</span>

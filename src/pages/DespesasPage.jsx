@@ -568,6 +568,20 @@ export default function DespesasPage() {
     setDeleteConfirmId(null);
   };
 
+  // === MARCAR COMO PAGO (ação direta na lista) ===
+  const handleMarcarPago = async (despesa) => {
+    try {
+      await updateLancamento(despesa.id, {
+        status: 'pago',
+        dataPagamento: new Date().toISOString().split('T')[0],
+      });
+      toast.success(`Despesa "${despesa.descricao}" marcada como paga!`);
+    } catch (err) {
+      console.error('Erro ao marcar como pago:', err);
+      toast.error('Erro ao atualizar status');
+    }
+  };
+
   // Callback para importação de NFe via modal
   const handleImportarNF = useCallback(async (lancamento, itensImportados) => {
     try {
@@ -1144,6 +1158,11 @@ export default function DespesasPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                          {despesa.status !== 'pago' && (
+                            <DropdownMenuItem className="text-emerald-400 focus:text-emerald-300 focus:bg-slate-700" onClick={() => handleMarcarPago(despesa)}>
+                              <CheckCircle2 className="h-4 w-4 mr-2" />Marcar como Pago
+                            </DropdownMenuItem>
+                          )}
                           <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleEditarDespesa(despesa)}>
                             <Edit className="h-4 w-4 mr-2" />Editar
                           </DropdownMenuItem>
