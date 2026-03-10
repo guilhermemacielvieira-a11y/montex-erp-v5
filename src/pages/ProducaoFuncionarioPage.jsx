@@ -1,8 +1,8 @@
-// MONTEX ERP Premium - Produção por Funcionário
-// Métricas REAIS de produção com análise por etapa, KG e unidades separados
-// Dados do Supabase via useProducaoAnalytics
+// MONTEX ERP Premium - Produção por Funcionário ULTRA
+// Análise completa com gráficos interativos, metas dinâmicas e relatórios exportáveis
+// Dados REAIS do Supabase via useProducaoAnalytics + contabilização cumulativa
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
@@ -10,7 +10,9 @@ import {
   User, Users, TrendingUp, TrendingDown, Award, Package, Target,
   Download, AlertTriangle, CheckCircle2, ArrowRight, Weight,
   Scissors, Flame, Droplets, Paintbrush, ChevronDown, ChevronUp,
-  RefreshCw, Loader2
+  RefreshCw, Loader2, BarChart3, PieChart, Activity, Zap,
+  Calendar, Clock, FileSpreadsheet, Filter, Maximize2,
+  Eye, Star, Medal, Trophy
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,24 +21,66 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, LineChart, Line
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, LineChart, Line, AreaChart, Area,
+  RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+  PieChart as RPieChart, Pie, Cell, ComposedChart,
+  RadialBarChart, RadialBar
 } from 'recharts';
 
 // Hook de analytics real
 import { useProducaoAnalytics } from '@/hooks/useProducaoAnalytics';
 import {
   ETAPAS_LABELS, ETAPAS_CORES,
-  formatKg,
+  formatKg, contabilizarCumulativo,
 } from '@/utils/producaoCalculations';
+
+// ============ CONSTANTES ============
+const ETAPA_ICONS = {
+  corte: Scissors,
+  fabricacao: Flame,
+  solda: Droplets,
+  pintura: Paintbrush,
+};
+
+const CORES_GRAFICO = {
+  corte: '#f59e0b',
+  fabricacao: '#8b5cf6',
+  solda: '#ef4444',
+  pintura: '#06b6d4',
+};
+
+const PIE_COLORS = ['#f59e0b', '#8b5cf6', '#ef4444', '#06b6d4'];
+
+// Metas baseadas em benchmarks reais de metalurgia (por funcionário/mês)
+const METAS_PRODUCAO = {
+  corte: { unidades: 80, kg: 25000, label: 'Meta Corte (80 conj/mês)' },
+  fabricacao: { unidades: 60, kg: 20000, label: 'Meta Fabricação (60 conj/mês)' },
+  solda: { unidades: 50, kg: 18000, label: 'Meta Solda (50 conj/mês)' },
+  pintura: { unidades: 70, kg: 22000, label: 'Meta Pintura (70 conj/mês)' },
+};
 
 // ============ HELPERS ============
 const getTendenciaIcon = (t) => {
   if (t === 'alta') return <TrendingUp className="h-4 w-4 text-emerald-400" />;
   if (t === 'baixa') return <TrendingDown className="h-4 w-4 text-red-400" />;
   return <ArrowRight className="h-4 w-4 text-slate-400" />;
+};
+
+const getTendenciaLabel = (t) => {
+  if (t === 'alta') return 'Em alta';
+  if (t === 'baixa') return 'Em queda';
+  return 'Estável';
+};
+
+const getRankingIcon = (pos) => {
+  if (pos === 1) return <Trophy className="h-4 w-4 text-amber-400" />;
+  if (pos === 2) return <Medal className="h-4 w-4 text-slate-300" />;
+  if (pos === 3) return <Medal className="h-4 w-4 text-amber-700" />;
+  return <Star className="h-3 w-3 text-slate-600" />;
 };
 
 const getRankingColor = (pos) => {
@@ -46,34 +90,341 @@ const getRankingColor = (pos) => {
   return 'from-slate-600 to-slate-700';
 };
 
-const ETAPA_ICONS = {
-  corte: Scissors,
-  fabricacao: Flame,
-  solda: Droplets,
-  pintura: Paintbrush,
+const calcularEficiencia = (real, meta) => meta > 0 ? Math.min(Math.round((real / meta) * 100), 150) : 0;
+
+// Tooltip customizado para gráficos
+const CustomTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-slate-900/95 backdrop-blur-xl border border-slate-700 rounded-xl px-4 py-3 shadow-2xl">
+      <p className="text-slate-400 text-xs font-medium mb-2">{label}</p>
+      {payload.map((p, i) => (
+        <div key={i} className="flex items-center gap-2 text-sm">
+          <div className="w-2.5 h-2.5 rounded-full" style={{ background: p.color }} />
+          <span className="text-slate-300">{p.name}:</span>
+          <span className="font-bold text-white">{typeof p.value === 'number' ? p.value.toLocaleString('pt-BR') : p.value}</span>
+        </div>
+      ))}
+    </div>
+  );
 };
 
-// ============ CARD POR ETAPA ============
-function EtapaMiniCard({ etapa, dados }) {
-  const Icon = ETAPA_ICONS[etapa] || Package;
-  const cores = ETAPAS_CORES[etapa] || {};
+// ============ DASHBOARD GLOBAL DE KPIs ============
+function DashboardKPIs({ kpis, pecas }) {
+  const cumulativo = useMemo(() => contabilizarCumulativo(pecas), [pecas]);
+
+  // Dados para gráfico de pizza por etapa
+  const pieData = useMemo(() => {
+    return Object.entries(kpis.porEtapa || {}).map(([etapa, dados]) => ({
+      name: ETAPAS_LABELS[etapa],
+      value: dados.un || 0,
+      kg: dados.kg || 0,
+    }));
+  }, [kpis]);
+
+  // Dados para gráfico radar de distribuição
+  const radarData = useMemo(() => {
+    return Object.entries(kpis.porEtapa || {}).map(([etapa, dados]) => ({
+      etapa: ETAPAS_LABELS[etapa],
+      producao: dados.un || 0,
+      meta: METAS_PRODUCAO[etapa]?.unidades || 50,
+      eficiencia: calcularEficiencia(dados.un, METAS_PRODUCAO[etapa]?.unidades || 50),
+    }));
+  }, [kpis]);
+
+  // Dados para gráfico radial de eficiência
+  const eficienciaGeral = useMemo(() => {
+    const etapas = Object.keys(kpis.porEtapa || {});
+    if (etapas.length === 0) return 0;
+    const soma = etapas.reduce((s, e) => {
+      return s + calcularEficiencia(kpis.porEtapa[e]?.un || 0, METAS_PRODUCAO[e]?.unidades || 50);
+    }, 0);
+    return Math.round(soma / etapas.length);
+  }, [kpis]);
+
+  const radialData = useMemo(() => {
+    return Object.entries(kpis.porEtapa || {}).map(([etapa, dados]) => ({
+      name: ETAPAS_LABELS[etapa],
+      eficiencia: calcularEficiencia(dados.un, METAS_PRODUCAO[etapa]?.unidades || 50),
+      fill: CORES_GRAFICO[etapa],
+    }));
+  }, [kpis]);
+
   return (
-    <div className={cn("rounded-lg border p-2 bg-gradient-to-r", cores.bg, cores.border)}>
-      <div className="flex items-center gap-1.5 mb-1">
-        <Icon className={cn("h-3.5 w-3.5", cores.text)} />
-        <span className={cn("text-[10px] font-semibold uppercase", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
+    <div className="space-y-4">
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {[
+          { icon: Users, label: 'Funcionários Ativos', value: kpis.totalFuncionariosComDados, sub: `${kpis.totalFuncionariosSemDados} pendentes`, color: 'text-cyan-400', bg: 'from-cyan-500/20 to-blue-500/20', border: 'border-cyan-500/30' },
+          { icon: Package, label: 'Total Peças', value: kpis.totalUnidades.toLocaleString('pt-BR'), sub: 'finalizadas no período', color: 'text-emerald-400', bg: 'from-emerald-500/20 to-green-500/20', border: 'border-emerald-500/30' },
+          { icon: Weight, label: 'Total KG', value: formatKg(kpis.totalKg), sub: 'processado no período', color: 'text-blue-400', bg: 'from-blue-500/20 to-indigo-500/20', border: 'border-blue-500/30' },
+          { icon: Target, label: 'Eficiência Média', value: `${eficienciaGeral}%`, sub: 'vs metas do setor', color: eficienciaGeral >= 75 ? 'text-emerald-400' : eficienciaGeral >= 50 ? 'text-amber-400' : 'text-red-400', bg: eficienciaGeral >= 75 ? 'from-emerald-500/20 to-green-500/20' : eficienciaGeral >= 50 ? 'from-amber-500/20 to-orange-500/20' : 'from-red-500/20 to-rose-500/20', border: eficienciaGeral >= 75 ? 'border-emerald-500/30' : eficienciaGeral >= 50 ? 'border-amber-500/30' : 'border-red-500/30' },
+          { icon: Zap, label: 'Peças/Func.', value: kpis.totalFuncionariosComDados > 0 ? Math.round(kpis.totalUnidades / kpis.totalFuncionariosComDados) : 0, sub: 'média por funcionário', color: 'text-purple-400', bg: 'from-purple-500/20 to-indigo-500/20', border: 'border-purple-500/30' },
+        ].map((kpi) => (
+          <Card key={kpi.label} className={cn("bg-gradient-to-br border", kpi.bg, kpi.border)}>
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">{kpi.label}</p>
+                  <p className="text-2xl font-black text-white mt-1">{kpi.value}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">{kpi.sub}</p>
+                </div>
+                <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center bg-slate-800/50")}>
+                  <kpi.icon className={cn("h-5 w-5", kpi.color)} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
       </div>
-      <div className="grid grid-cols-2 gap-1">
-        <div>
-          <p className="text-xs text-slate-500">Un.</p>
-          <p className="text-sm font-bold text-white">{dados.unidades}</p>
-        </div>
-        <div>
-          <p className="text-xs text-slate-500">KG</p>
-          <p className="text-sm font-bold text-white">{formatKg(dados.kg)}</p>
-        </div>
+
+      {/* Etapas de Produção com barras de progresso */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {Object.entries(kpis.porEtapa || {}).map(([etapa, dados]) => {
+          const Icon = ETAPA_ICONS[etapa] || Package;
+          const cores = ETAPAS_CORES[etapa] || {};
+          const meta = METAS_PRODUCAO[etapa];
+          const efic = calcularEficiencia(dados.un, meta?.unidades || 50);
+          const atribuido = dados.atribuidoUn || 0;
+          const naoAtribuido = (dados.un || 0) - atribuido;
+
+          return (
+            <Card key={etapa} className={cn("border bg-gradient-to-br", cores.bg, cores.border)}>
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Icon className={cn("h-5 w-5", cores.text)} />
+                  <span className={cn("text-sm font-bold uppercase", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex justify-between items-end">
+                    <div>
+                      <p className="text-2xl font-black text-white">{(dados.un || 0).toLocaleString('pt-BR')}</p>
+                      <p className="text-[10px] text-slate-500">peças concluídas</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-white">{formatKg(dados.kg)}</p>
+                    </div>
+                  </div>
+
+                  {/* Barra de progresso meta */}
+                  <div>
+                    <div className="flex justify-between text-[10px] text-slate-500 mb-1">
+                      <span>Eficiência: {efic}%</span>
+                      <span>Meta: {meta?.unidades || 50} un</span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full rounded-full transition-all duration-700", efic >= 90 ? 'bg-emerald-500' : efic >= 60 ? 'bg-amber-500' : 'bg-red-500')}
+                        style={{ width: `${Math.min(efic, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Atribuído vs Não atribuído */}
+                  {naoAtribuido > 0 && (
+                    <div className="flex gap-2 text-[10px]">
+                      <span className="text-cyan-400">{atribuido} atribuídas</span>
+                      <span className="text-slate-600">·</span>
+                      <span className="text-amber-400">{naoAtribuido} sem vínculo</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
+
+      {/* Gráficos lado a lado */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Gráfico de Barras Comparativo */}
+        <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-cyan-400" />
+              Produção vs Meta
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <ComposedChart data={radarData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                <XAxis type="number" stroke="#475569" fontSize={10} />
+                <YAxis type="category" dataKey="etapa" stroke="#475569" fontSize={11} width={80} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="producao" fill="#22d3ee" radius={[0, 4, 4, 0]} name="Produzido" barSize={12} />
+                <Bar dataKey="meta" fill="#334155" radius={[0, 4, 4, 0]} name="Meta" barSize={12} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Gráfico Radar de Habilidades */}
+        <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-purple-400" />
+              Radar de Eficiência
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="#334155" />
+                <PolarAngleAxis dataKey="etapa" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#475569', fontSize: 9 }} />
+                <Radar name="Eficiência %" dataKey="eficiencia" stroke="#a855f7" fill="#a855f7" fillOpacity={0.3} strokeWidth={2} />
+              </RadarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Gráfico Pizza */}
+        <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <PieChart className="h-4 w-4 text-emerald-400" />
+              Distribuição por Etapa
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <RPieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={90}
+                  paddingAngle={4}
+                  dataKey="value"
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  labelLine={{ stroke: '#475569', strokeWidth: 1 }}
+                >
+                  {pieData.map((_, idx) => (
+                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip content={<CustomTooltip />} />
+              </RPieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Eficiência Radial */}
+      <Card className="bg-slate-900/60 border-slate-700/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+            <Target className="h-4 w-4 text-amber-400" />
+            Eficiência por Etapa (%)
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={180}>
+            <RadialBarChart
+              innerRadius="30%"
+              outerRadius="100%"
+              data={radialData}
+              startAngle={180}
+              endAngle={0}
+            >
+              <RadialBar
+                label={{ fill: '#fff', fontSize: 11, position: 'insideStart' }}
+                background={{ fill: '#1e293b' }}
+                dataKey="eficiencia"
+                cornerRadius={6}
+              />
+              <Legend
+                iconSize={10}
+                layout="horizontal"
+                verticalAlign="bottom"
+                formatter={(value) => <span className="text-slate-400 text-xs">{value}</span>}
+              />
+              <Tooltip content={<CustomTooltip />} />
+            </RadialBarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
     </div>
+  );
+}
+
+// ============ TOP PERFORMERS RANKING ============
+function TopPerformersSection({ performers }) {
+  if (!performers || performers.length === 0) return null;
+
+  // Dados para gráfico comparativo dos top 5
+  const chartData = performers.slice(0, 8).map(f => ({
+    nome: f.nome?.split(' ')[0] || '?',
+    unidades: f.totais?.unidades || 0,
+    kg: Math.round(f.totais?.kg || 0),
+  }));
+
+  return (
+    <Card className="bg-slate-900/60 border-slate-700/50">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+          <Trophy className="h-4 w-4 text-amber-400" />
+          Top Performers — Ranking de Produção
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Ranking visual */}
+          <div className="space-y-2">
+            {performers.slice(0, 5).map((f, i) => (
+              <motion.div
+                key={f.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.1 }}
+                className={cn(
+                  "flex items-center gap-3 p-3 rounded-xl border transition-all",
+                  i === 0 ? "bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border-amber-500/30" :
+                  i === 1 ? "bg-gradient-to-r from-slate-400/10 to-slate-500/10 border-slate-400/30" :
+                  i === 2 ? "bg-gradient-to-r from-amber-700/10 to-amber-800/10 border-amber-700/30" :
+                  "bg-slate-800/30 border-slate-700/30"
+                )}
+              >
+                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white bg-gradient-to-br", getRankingColor(i + 1))}>
+                  {i + 1}º
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-white truncate">{f.nome}</p>
+                  <p className="text-[10px] text-slate-500">{f.cargo} · {f.equipeNome || f.setor || '-'}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-lg font-black text-white">{(f.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
+                  <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)}</p>
+                </div>
+                <div className="ml-1">
+                  {getTendenciaIcon(f.tendencia)}
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Gráfico comparativo */}
+          <div>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={chartData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                <XAxis type="number" stroke="#475569" fontSize={10} />
+                <YAxis type="category" dataKey="nome" stroke="#94a3b8" fontSize={11} width={70} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="unidades" fill="#22d3ee" radius={[0, 6, 6, 0]} name="Peças" barSize={14}>
+                  {chartData.map((_, idx) => (
+                    <Cell key={idx} fill={idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#22d3ee'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -88,7 +439,7 @@ function FuncionarioRealCard({ func, onSelect, isSelected }) {
       animate={{ opacity: 1, y: 0 }}
       onClick={() => onSelect(func)}
       className={cn(
-        "bg-slate-900/60 backdrop-blur-xl rounded-xl border p-4 cursor-pointer transition-all",
+        "bg-slate-900/60 backdrop-blur-xl rounded-xl border p-4 cursor-pointer transition-all hover:shadow-lg hover:shadow-cyan-500/5",
         isSelected ? "border-cyan-500/60 ring-1 ring-cyan-500/20" : "border-slate-700/50 hover:border-cyan-500/30"
       )}
     >
@@ -97,7 +448,7 @@ function FuncionarioRealCard({ func, onSelect, isSelected }) {
           <Avatar className="h-14 w-14 border-2 border-slate-600">
             <AvatarFallback className="bg-gradient-to-br from-cyan-500 to-blue-500 text-white font-bold">{iniciais}</AvatarFallback>
           </Avatar>
-          {func.ranking > 0 && (
+          {func.ranking > 0 && func.ranking <= 3 && (
             <div className={cn("absolute -bottom-1 -right-1 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white bg-gradient-to-br", getRankingColor(func.ranking))}>
               #{func.ranking}
             </div>
@@ -108,16 +459,22 @@ function FuncionarioRealCard({ func, onSelect, isSelected }) {
           <div className="flex items-center gap-2">
             <h3 className="font-semibold text-white truncate">{func.nome}</h3>
             {getTendenciaIcon(func.tendencia)}
+            <span className="text-[10px] text-slate-500">{getTendenciaLabel(func.tendencia)}</span>
           </div>
           <p className="text-xs text-slate-400">{func.cargo}</p>
           <div className="flex items-center gap-2 mt-1">
             <Badge variant="outline" className="text-[10px] border-slate-600 text-slate-400">{func.setor || '-'}</Badge>
             <Badge variant="outline" className="text-[10px] border-slate-600 text-slate-400">{func.equipeNome || '-'}</Badge>
+            {func.ranking > 0 && (
+              <Badge className={cn("text-[10px]", func.ranking <= 3 ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-slate-500/20 text-slate-400 border-slate-500/30")}>
+                #{func.ranking}
+              </Badge>
+            )}
           </div>
         </div>
 
         <div className="text-right shrink-0">
-          <p className="text-xl font-bold text-white">{func.totais?.unidades || 0}</p>
+          <p className="text-xl font-bold text-white">{(func.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
           <p className="text-[10px] text-slate-500">unidades</p>
           <p className="text-sm font-semibold text-cyan-400">{formatKg(func.totais?.kg)}</p>
         </div>
@@ -126,9 +483,28 @@ function FuncionarioRealCard({ func, onSelect, isSelected }) {
       {/* Mini cards por etapa */}
       {etapasComDados.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-3 pt-3 border-t border-slate-700/50">
-          {etapasComDados.map(([etapa, dados]) => (
-            <EtapaMiniCard key={etapa} etapa={etapa} dados={dados} />
-          ))}
+          {etapasComDados.map(([etapa, dados]) => {
+            const Icon = ETAPA_ICONS[etapa] || Package;
+            const cores = ETAPAS_CORES[etapa] || {};
+            return (
+              <div key={etapa} className={cn("rounded-lg border p-2 bg-gradient-to-r", cores.bg, cores.border)}>
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Icon className={cn("h-3.5 w-3.5", cores.text)} />
+                  <span className={cn("text-[10px] font-semibold uppercase", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-1">
+                  <div>
+                    <p className="text-xs text-slate-500">Un.</p>
+                    <p className="text-sm font-bold text-white">{dados.unidades}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500">KG</p>
+                    <p className="text-sm font-bold text-white">{formatKg(dados.kg)}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </motion.div>
@@ -154,15 +530,35 @@ function FuncionarioPendenteCard({ func }) {
   );
 }
 
-// ============ PAINEL DE DETALHES ============
+// ============ PAINEL DE DETALHES DO FUNCIONÁRIO ============
 function DetalhesPanel({ func, onClose }) {
   if (!func) return null;
 
   const etapas = Object.entries(func.porEtapa || {}).filter(([, d]) => d.unidades > 0 || d.kg > 0);
   const dadosDiarios = func.dadosDiarios || [];
 
+  // Dados para gráfico de barras por etapa
+  const etapaChartData = Object.entries(func.porEtapa || {}).map(([etapa, dados]) => ({
+    etapa: ETAPAS_LABELS[etapa],
+    unidades: dados.unidades || 0,
+    kg: Math.round(dados.kg || 0),
+    meta: METAS_PRODUCAO[etapa]?.unidades || 50,
+    eficiencia: calcularEficiencia(dados.unidades, METAS_PRODUCAO[etapa]?.unidades || 50),
+  }));
+
+  // Dados para radar individual
+  const radarData = Object.entries(func.porEtapa || {}).map(([etapa, dados]) => ({
+    etapa: ETAPAS_LABELS[etapa],
+    valor: calcularEficiencia(dados.unidades, METAS_PRODUCAO[etapa]?.unidades || 50),
+  }));
+
+  // Eficiência geral do funcionário
+  const eficGeral = etapaChartData.length > 0
+    ? Math.round(etapaChartData.reduce((s, e) => s + e.eficiencia, 0) / etapaChartData.length)
+    : 0;
+
   return (
-    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+    <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="space-y-4 sticky top-4">
       {/* Header */}
       <Card className="bg-slate-900/80 border-slate-700/50">
         <CardContent className="p-4">
@@ -178,57 +574,76 @@ function DetalhesPanel({ func, onClose }) {
                 <p className="text-sm text-slate-400">{func.cargo} · {func.equipeNome}</p>
               </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500">✕</Button>
+            <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 hover:text-white">✕</Button>
           </div>
 
           {/* KPIs do funcionário */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-2">
             <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <Package className="h-5 w-5 text-cyan-400 mx-auto mb-1" />
-              <p className="text-xl font-bold text-white">{func.totais?.unidades || 0}</p>
-              <p className="text-[10px] text-slate-500">Unidades Total</p>
+              <Package className="h-4 w-4 text-cyan-400 mx-auto mb-1" />
+              <p className="text-xl font-bold text-white">{(func.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
+              <p className="text-[10px] text-slate-500">Unidades</p>
             </div>
             <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <Weight className="h-5 w-5 text-emerald-400 mx-auto mb-1" />
+              <Weight className="h-4 w-4 text-emerald-400 mx-auto mb-1" />
               <p className="text-xl font-bold text-white">{formatKg(func.totais?.kg)}</p>
               <p className="text-[10px] text-slate-500">KG Total</p>
+            </div>
+            <div className={cn("rounded-lg p-3 text-center", eficGeral >= 75 ? 'bg-emerald-500/10' : eficGeral >= 50 ? 'bg-amber-500/10' : 'bg-red-500/10')}>
+              <Target className={cn("h-4 w-4 mx-auto mb-1", eficGeral >= 75 ? 'text-emerald-400' : eficGeral >= 50 ? 'text-amber-400' : 'text-red-400')} />
+              <p className={cn("text-xl font-bold", eficGeral >= 75 ? 'text-emerald-400' : eficGeral >= 50 ? 'text-amber-400' : 'text-red-400')}>{eficGeral}%</p>
+              <p className="text-[10px] text-slate-500">Eficiência</p>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Detalhamento por Etapa */}
+      {/* Gráfico de Barras por Etapa */}
       {etapas.length > 0 && (
         <Card className="bg-slate-900/80 border-slate-700/50">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">Produção por Etapa</CardTitle>
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <BarChart3 className="h-4 w-4 text-cyan-400" />
+              Produção por Etapa
+            </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {etapas.map(([etapa, dados]) => {
-              const Icon = ETAPA_ICONS[etapa] || Package;
-              const cores = ETAPAS_CORES[etapa] || {};
-              return (
-                <div key={etapa} className={cn("rounded-lg border p-3 bg-gradient-to-r", cores.bg, cores.border)}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icon className={cn("h-4 w-4", cores.text)} />
-                    <span className={cn("text-sm font-semibold", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
-                    <Badge variant="outline" className="text-[10px] border-slate-600 text-slate-400 ml-auto">
-                      Etapa concluída
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-slate-500">Peças Finalizadas</p>
-                      <p className="text-lg font-bold text-white">{dados.unidades}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-slate-500">Peso Processado</p>
-                      <p className="text-lg font-bold text-white">{formatKg(dados.kg)}</p>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={etapaChartData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="etapa" stroke="#475569" fontSize={10} />
+                <YAxis stroke="#475569" fontSize={10} />
+                <Tooltip content={<CustomTooltip />} />
+                <Bar dataKey="unidades" name="Produzido" radius={[4, 4, 0, 0]} barSize={20}>
+                  {etapaChartData.map((_, idx) => (
+                    <Cell key={idx} fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+                  ))}
+                </Bar>
+                <Bar dataKey="meta" fill="#334155" name="Meta" radius={[4, 4, 0, 0]} barSize={20} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Radar Individual */}
+      {radarData.some(d => d.valor > 0) && (
+        <Card className="bg-slate-900/80 border-slate-700/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-purple-400" />
+              Perfil de Habilidades
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={200}>
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="#334155" />
+                <PolarAngleAxis dataKey="etapa" tick={{ fill: '#94a3b8', fontSize: 10 }} />
+                <PolarRadiusAxis angle={90} domain={[0, 100]} tick={{ fill: '#475569', fontSize: 8 }} />
+                <Radar dataKey="valor" stroke="#22d3ee" fill="#22d3ee" fillOpacity={0.3} strokeWidth={2} name="Eficiência %" />
+              </RadarChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
       )}
@@ -237,29 +652,89 @@ function DetalhesPanel({ func, onClose }) {
       {dadosDiarios.length > 2 && (
         <Card className="bg-slate-900/80 border-slate-700/50">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-slate-300">Produção Diária (Unidades)</CardTitle>
+            <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-emerald-400" />
+              Produção Diária
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={dadosDiarios.slice(-15)}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="data" stroke="#64748b" fontSize={10} tickFormatter={d => d?.substring(5) || ''} />
-                <YAxis stroke="#64748b" fontSize={10} />
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }} />
-                <Line type="monotone" dataKey="unidades" stroke="#22d3ee" strokeWidth={2} dot={{ fill: '#22d3ee', r: 3 }} name="Unidades" />
-              </LineChart>
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={dadosDiarios.slice(-20)}>
+                <defs>
+                  <linearGradient id="colorUn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#22d3ee" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="data" stroke="#475569" fontSize={9} tickFormatter={d => d?.substring(5) || ''} />
+                <YAxis stroke="#475569" fontSize={10} />
+                <Tooltip content={<CustomTooltip />} />
+                <Area type="monotone" dataKey="unidades" stroke="#22d3ee" fill="url(#colorUn)" strokeWidth={2} name="Unidades" />
+              </AreaChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
       )}
 
-      {/* Sem dados suficientes */}
+      {/* Detalhamento Numérico por Etapa */}
+      {etapas.length > 0 && (
+        <Card className="bg-slate-900/80 border-slate-700/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-slate-300">Detalhamento por Etapa</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {etapas.map(([etapa, dados]) => {
+              const Icon = ETAPA_ICONS[etapa] || Package;
+              const cores = ETAPAS_CORES[etapa] || {};
+              const meta = METAS_PRODUCAO[etapa];
+              const efic = calcularEficiencia(dados.unidades, meta?.unidades || 50);
+              return (
+                <div key={etapa} className={cn("rounded-lg border p-3 bg-gradient-to-r", cores.bg, cores.border)}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Icon className={cn("h-4 w-4", cores.text)} />
+                      <span className={cn("text-sm font-semibold", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
+                    </div>
+                    <Badge className={cn("text-[10px]", efic >= 75 ? 'bg-emerald-500/20 text-emerald-400' : efic >= 50 ? 'bg-amber-500/20 text-amber-400' : 'bg-red-500/20 text-red-400')}>
+                      {efic}%
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                    <div>
+                      <p className="text-slate-500">Peças</p>
+                      <p className="font-bold text-white">{dados.unidades}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">KG</p>
+                      <p className="font-bold text-white">{formatKg(dados.kg)}</p>
+                    </div>
+                    <div>
+                      <p className="text-slate-500">Meta</p>
+                      <p className="font-bold text-slate-400">{meta?.unidades || 50}</p>
+                    </div>
+                  </div>
+                  {/* Barra progresso */}
+                  <div className="w-full h-1.5 bg-slate-800 rounded-full mt-2 overflow-hidden">
+                    <div
+                      className={cn("h-full rounded-full", efic >= 75 ? 'bg-emerald-500' : efic >= 50 ? 'bg-amber-500' : 'bg-red-500')}
+                      style={{ width: `${Math.min(efic, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sem dados */}
       {etapas.length === 0 && (
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardContent className="p-8 text-center">
             <AlertTriangle className="h-12 w-12 text-amber-500/50 mx-auto mb-3" />
-            <p className="text-slate-400">Este funcionário ainda não possui registros de produção no período selecionado.</p>
-            <p className="text-xs text-slate-600 mt-2">Os dados serão populados conforme as peças forem movimentadas no Kanban de Produção e Corte.</p>
+            <p className="text-slate-400">Sem registros de produção no período.</p>
+            <p className="text-xs text-slate-600 mt-2">Movimente peças no Kanban para gerar dados.</p>
           </CardContent>
         </Card>
       )}
@@ -274,11 +749,12 @@ export default function ProducaoFuncionarioPage() {
   const [ordenacao, setOrdenacao] = useState('ranking');
   const [funcSelecionado, setFuncSelecionado] = useState(null);
   const [showPendentes, setShowPendentes] = useState(false);
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   const {
     loading, error,
     funcionariosComDados, funcionariosSemDados,
-    kpis, topPerformers,
+    kpis, topPerformers, pecas,
     refetch,
   } = useProducaoAnalytics({ equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined });
 
@@ -301,7 +777,7 @@ export default function ProducaoFuncionarioPage() {
   }, [funcionariosComDados, filtroSetor, ordenacao]);
 
   // Export handler
-  const handleExport = () => {
+  const handleExport = useCallback(() => {
     const data = funcsFiltrados.map(f => ({
       nome: f.nome, cargo: f.cargo, setor: f.setor, equipe: f.equipeNome,
       ranking: f.ranking, tendencia: f.tendencia,
@@ -311,6 +787,10 @@ export default function ProducaoFuncionarioPage() {
       fabUn: f.porEtapa?.fabricacao?.unidades || 0, fabKg: f.porEtapa?.fabricacao?.kg || 0,
       soldaUn: f.porEtapa?.solda?.unidades || 0, soldaKg: f.porEtapa?.solda?.kg || 0,
       pinturaUn: f.porEtapa?.pintura?.unidades || 0, pinturaKg: f.porEtapa?.pintura?.kg || 0,
+      eficienciaCorte: calcularEficiencia(f.porEtapa?.corte?.unidades || 0, METAS_PRODUCAO.corte.unidades),
+      eficienciaFab: calcularEficiencia(f.porEtapa?.fabricacao?.unidades || 0, METAS_PRODUCAO.fabricacao.unidades),
+      eficienciaSolda: calcularEficiencia(f.porEtapa?.solda?.unidades || 0, METAS_PRODUCAO.solda.unidades),
+      eficienciaPintura: calcularEficiencia(f.porEtapa?.pintura?.unidades || 0, METAS_PRODUCAO.pintura.unidades),
     }));
     const cols = [
       { header: 'Nome', key: 'nome' }, { header: 'Cargo', key: 'cargo' },
@@ -321,10 +801,14 @@ export default function ProducaoFuncionarioPage() {
       { header: 'Fab Un.', key: 'fabUn' }, { header: 'Fab KG', key: 'fabKg' },
       { header: 'Solda Un.', key: 'soldaUn' }, { header: 'Solda KG', key: 'soldaKg' },
       { header: 'Pintura Un.', key: 'pinturaUn' }, { header: 'Pintura KG', key: 'pinturaKg' },
+      { header: 'Efic. Corte %', key: 'eficienciaCorte' },
+      { header: 'Efic. Fab %', key: 'eficienciaFab' },
+      { header: 'Efic. Solda %', key: 'eficienciaSolda' },
+      { header: 'Efic. Pintura %', key: 'eficienciaPintura' },
     ];
     exportToExcel(data, cols, `producao-funcionarios-${new Date().toISOString().split('T')[0]}`);
-    toast.success('Dados exportados!');
-  };
+    toast.success('Relatório exportado com sucesso!');
+  }, [funcsFiltrados]);
 
   return (
     <div className="space-y-6">
@@ -332,12 +816,12 @@ export default function ProducaoFuncionarioPage() {
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center">
-              <User className="h-6 w-6 text-white" />
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <BarChart3 className="h-6 w-6 text-white" />
             </div>
-            Produção por Funcionário
+            Análise de Produção
           </h1>
-          <p className="text-slate-400 mt-1">Peças finalizadas por etapa · KG e Unidades · Dados reais do Supabase</p>
+          <p className="text-slate-400 mt-1">Dashboard completo · Gráficos interativos · Metas · Relatórios · Dados reais</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -366,158 +850,137 @@ export default function ProducaoFuncionarioPage() {
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           </Button>
 
-          <Button onClick={handleExport} variant="outline" className="border-slate-700 text-slate-300">
-            <Download className="h-4 w-4 mr-2" /> Exportar
+          <Button onClick={handleExport} className="bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-600 hover:to-blue-600 text-white">
+            <FileSpreadsheet className="h-4 w-4 mr-2" /> Exportar Relatório
           </Button>
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {[
-          { icon: Users, label: 'Com Produção', value: kpis.totalFuncionariosComDados, color: 'text-cyan-400', bg: 'bg-cyan-500/20' },
-          { icon: Package, label: 'Peças Finalizadas', value: kpis.totalUnidades.toLocaleString(), color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
-          { icon: Weight, label: 'Total KG', value: formatKg(kpis.totalKg), color: 'text-blue-400', bg: 'bg-blue-500/20' },
-          { icon: AlertTriangle, label: 'Pendentes', value: kpis.totalFuncionariosSemDados, color: 'text-slate-400', bg: 'bg-slate-500/20' },
-        ].map((kpi) => (
-          <Card key={kpi.label} className="bg-slate-900/60 border-slate-700/50">
-            <CardContent className="p-3 flex items-center gap-3">
-              <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center", kpi.bg)}>
-                <kpi.icon className={cn("h-4 w-4", kpi.color)} />
-              </div>
-              <div>
-                <p className="text-[10px] text-slate-500">{kpi.label}</p>
-                <p className="text-lg font-bold text-white">{kpi.value}</p>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Resumo por Etapa - Peças Finalizadas */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {Object.entries(kpis.porEtapa || {}).map(([etapa, dados]) => {
-          const Icon = ETAPA_ICONS[etapa] || Package;
-          const cores = ETAPAS_CORES[etapa] || {};
-          return (
-            <Card key={etapa} className={cn("border bg-gradient-to-r", cores.bg, cores.border)}>
-              <CardContent className="p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon className={cn("h-4 w-4", cores.text)} />
-                  <span className={cn("text-sm font-semibold", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
-                  <Badge variant="outline" className="text-[9px] border-slate-600 text-slate-500 ml-auto">concluídas</Badge>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-center">
-                  <div><p className="text-sm font-bold text-white">{dados.un}</p><p className="text-[10px] text-slate-500">Peças</p></div>
-                  <div><p className="text-sm font-bold text-white">{formatKg(dados.kg)}</p><p className="text-[10px] text-slate-500">KG</p></div>
-                </div>
-              </CardContent>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Loading state */}
+      {/* Loading */}
       {loading && (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="h-8 w-8 text-cyan-400 animate-spin" />
-          <span className="text-slate-400 ml-3">Carregando dados de produção...</span>
+        <div className="flex items-center justify-center py-16">
+          <div className="text-center">
+            <Loader2 className="h-10 w-10 text-cyan-400 animate-spin mx-auto" />
+            <span className="text-slate-400 mt-3 block">Carregando análise de produção...</span>
+          </div>
         </div>
       )}
 
-      {/* Error state */}
+      {/* Error */}
       {error && (
         <Card className="bg-red-500/10 border-red-500/30">
           <CardContent className="p-4 flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 text-red-400" />
-            <span className="text-red-400">Erro ao carregar dados: {error}</span>
+            <span className="text-red-400">Erro: {error}</span>
             <Button onClick={refetch} size="sm" variant="outline" className="ml-auto border-red-500/30 text-red-400">Tentar novamente</Button>
           </CardContent>
         </Card>
       )}
 
-      {/* Conteúdo Principal */}
+      {/* Tabs */}
       {!loading && (
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-          {/* Lista de Funcionários (3 cols) */}
-          <div className="lg:col-span-3 space-y-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Award className="h-5 w-5 text-amber-400" />
-              Funcionários com Produção ({funcsFiltrados.length})
-            </h2>
+        <Tabs value={activeTab} onValueChange={setActiveTab}>
+          <TabsList className="bg-slate-900/60 border border-slate-700/50">
+            <TabsTrigger value="dashboard" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
+              <BarChart3 className="h-4 w-4 mr-2" /> Dashboard
+            </TabsTrigger>
+            <TabsTrigger value="ranking" className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400">
+              <Trophy className="h-4 w-4 mr-2" /> Ranking
+            </TabsTrigger>
+            <TabsTrigger value="funcionarios" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400">
+              <Users className="h-4 w-4 mr-2" /> Funcionários
+            </TabsTrigger>
+          </TabsList>
 
-            {funcsFiltrados.length === 0 && !loading && (
-              <Card className="bg-slate-900/40 border-slate-800/50">
-                <CardContent className="p-8 text-center">
-                  <Package className="h-12 w-12 text-slate-600 mx-auto mb-3" />
-                  <p className="text-slate-400">Nenhum funcionário com dados de produção no período.</p>
-                  <p className="text-xs text-slate-600 mt-1">Movimente peças no Kanban para registrar produção.</p>
-                </CardContent>
-              </Card>
-            )}
+          {/* Tab Dashboard */}
+          <TabsContent value="dashboard" className="mt-4">
+            <DashboardKPIs kpis={kpis} pecas={pecas} />
+          </TabsContent>
 
-            <AnimatePresence>
-              {funcsFiltrados.map(f => (
-                <FuncionarioRealCard
-                  key={f.id}
-                  func={f}
-                  onSelect={setFuncSelecionado}
-                  isSelected={funcSelecionado?.id === f.id}
-                />
-              ))}
-            </AnimatePresence>
+          {/* Tab Ranking */}
+          <TabsContent value="ranking" className="mt-4">
+            <TopPerformersSection performers={topPerformers} />
+          </TabsContent>
 
-            {/* Seção Pendentes (colapsável) */}
-            {funcionariosSemDados.length > 0 && (
-              <div className="mt-6">
-                <button
-                  onClick={() => setShowPendentes(!showPendentes)}
-                  className="flex items-center gap-2 text-slate-500 hover:text-slate-300 transition-colors w-full text-left"
-                >
-                  {showPendentes ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                  <span className="text-sm font-medium">
-                    Pendente de Verificação ({funcionariosSemDados.length})
-                  </span>
-                  <Badge className="bg-amber-500/10 text-amber-500/60 border-amber-500/20 text-[10px]">
-                    Sem dados de produção
-                  </Badge>
-                </button>
+          {/* Tab Funcionários */}
+          <TabsContent value="funcionarios" className="mt-4">
+            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+              {/* Lista de Funcionários (3 cols) */}
+              <div className="lg:col-span-3 space-y-4">
+                <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <Award className="h-5 w-5 text-amber-400" />
+                  Funcionários com Produção ({funcsFiltrados.length})
+                </h2>
+
+                {funcsFiltrados.length === 0 && (
+                  <Card className="bg-slate-900/40 border-slate-800/50">
+                    <CardContent className="p-8 text-center">
+                      <Package className="h-12 w-12 text-slate-600 mx-auto mb-3" />
+                      <p className="text-slate-400">Nenhum funcionário com dados no período.</p>
+                    </CardContent>
+                  </Card>
+                )}
 
                 <AnimatePresence>
-                  {showPendentes && (
-                    <motion.div
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden"
-                    >
-                      <div className="space-y-2 mt-3">
-                        {funcionariosSemDados.map(f => (
-                          <FuncionarioPendenteCard key={f.id} func={f} />
-                        ))}
-                      </div>
-                    </motion.div>
-                  )}
+                  {funcsFiltrados.map(f => (
+                    <FuncionarioRealCard
+                      key={f.id}
+                      func={f}
+                      onSelect={setFuncSelecionado}
+                      isSelected={funcSelecionado?.id === f.id}
+                    />
+                  ))}
                 </AnimatePresence>
-              </div>
-            )}
-          </div>
 
-          {/* Painel de Detalhes (2 cols) */}
-          <div className="lg:col-span-2">
-            {funcSelecionado ? (
-              <DetalhesPanel func={funcSelecionado} onClose={() => setFuncSelecionado(null)} />
-            ) : (
-              <Card className="bg-slate-900/60 border-slate-700/50 sticky top-4">
-                <CardContent className="p-8 text-center">
-                  <User className="h-14 w-14 text-slate-600 mx-auto mb-3" />
-                  <h3 className="text-base font-semibold text-slate-400">Selecione um funcionário</h3>
-                  <p className="text-xs text-slate-600 mt-1">Clique para ver detalhes por etapa, KG e valor</p>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-        </div>
+                {/* Pendentes */}
+                {funcionariosSemDados.length > 0 && (
+                  <div className="mt-6">
+                    <button
+                      onClick={() => setShowPendentes(!showPendentes)}
+                      className="flex items-center gap-2 text-slate-500 hover:text-slate-300 transition-colors w-full text-left"
+                    >
+                      {showPendentes ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      <span className="text-sm font-medium">Pendente de Verificação ({funcionariosSemDados.length})</span>
+                      <Badge className="bg-amber-500/10 text-amber-500/60 border-amber-500/20 text-[10px]">Sem dados</Badge>
+                    </button>
+
+                    <AnimatePresence>
+                      {showPendentes && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          className="overflow-hidden"
+                        >
+                          <div className="space-y-2 mt-3">
+                            {funcionariosSemDados.map(f => (
+                              <FuncionarioPendenteCard key={f.id} func={f} />
+                            ))}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                )}
+              </div>
+
+              {/* Painel de Detalhes (2 cols) */}
+              <div className="lg:col-span-2">
+                {funcSelecionado ? (
+                  <DetalhesPanel func={funcSelecionado} onClose={() => setFuncSelecionado(null)} />
+                ) : (
+                  <Card className="bg-slate-900/60 border-slate-700/50 sticky top-4">
+                    <CardContent className="p-8 text-center">
+                      <Eye className="h-14 w-14 text-slate-600 mx-auto mb-3" />
+                      <h3 className="text-base font-semibold text-slate-400">Selecione um funcionário</h3>
+                      <p className="text-xs text-slate-600 mt-1">Clique para ver análise detalhada com gráficos, metas e eficiência</p>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );
