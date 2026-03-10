@@ -219,6 +219,7 @@ export default function DespesasPage() {
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
+  const [filtroDataTipo, setFiltroDataTipo] = useState('emissao'); // 'emissao' | 'vencimento'
   const [filtroObra, setFiltroObra] = useState('fabrica'); // 'fabrica' | obraId | 'geral'
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
@@ -275,6 +276,8 @@ export default function DespesasPage() {
 
     return filtrados.map(l => ({
       id: l.id,
+      dataEmissao: l.dataEmissao || l.data || l.createdAt || '',
+      dataVencimento: l.dataVencimento || l.data_vencimento || l.vencimento || '',
       data: l.dataEmissao || l.data || l.createdAt || '',
       descricao: l.descricao || l.nome || '-',
       fornecedor: l.fornecedor || '-',
@@ -437,11 +440,18 @@ export default function DespesasPage() {
   const filtrarPorPeriodo = useCallback((lista) => {
     if (filtroPeriodo === 'geral') return lista;
 
+    // Escolher campo de data baseado no tipo selecionado
+    const getDataRef = (d) => {
+      if (filtroDataTipo === 'vencimento') return d.dataVencimento || d.vencimento || d.data;
+      return d.dataEmissao || d.data;
+    };
+
     // Período personalizado com datas editáveis
     if (filtroPeriodo === 'personalizado') {
       if (!dataInicio && !dataFim) return lista;
       return lista.filter(d => {
-        const dataDesp = new Date(d.data || d.vencimento);
+        const dataDesp = new Date(getDataRef(d));
+        if (isNaN(dataDesp.getTime())) return true;
         if (dataInicio && dataDesp < new Date(dataInicio + 'T00:00:00')) return false;
         if (dataFim && dataDesp > new Date(dataFim + 'T23:59:59')) return false;
         return true;
@@ -459,10 +469,11 @@ export default function DespesasPage() {
     else if (filtroPeriodo === 'trimestral') inicio.setMonth(inicio.getMonth() - 3);
 
     return lista.filter(d => {
-      const dataDesp = new Date(d.data || d.vencimento);
+      const dataDesp = new Date(getDataRef(d));
+      if (isNaN(dataDesp.getTime())) return true;
       return dataDesp >= inicio && dataDesp <= hoje;
     });
-  }, [filtroPeriodo, dataInicio, dataFim]);
+  }, [filtroPeriodo, dataInicio, dataFim, filtroDataTipo]);
 
   // === DADOS FILTRADOS POR PERÍODO (KPIs/gráficos) ===
   const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtrarPorPeriodo]);
@@ -517,7 +528,8 @@ export default function DespesasPage() {
     const wb = XLSX.utils.book_new();
     const rows = despesasFiltradas.map(d => ([
       d.notaFiscal || '-',
-      formatDate(d.data),
+      formatDate(d.dataEmissao),
+      formatDate(d.dataVencimento),
       d.fornecedor || '-',
       d.descricao || '-',
       d.categoria || '-',
@@ -533,18 +545,18 @@ export default function DespesasPage() {
       ['EMPRESA:', 'MONTEX ESTRUTURAS METÁLICAS'],
       ['COMPETÊNCIA:', filtroPeriodo === 'geral' ? 'GERAL' : filtroPeriodo.toUpperCase()],
       [''],
-      ['Nº NFe', 'Data Emissão', 'Nome do Fornecedor', 'Descrição', 'Categoria', 'Centro de Custo', 'Valor (R$)', 'Natureza de Aquisição', 'Status', 'Forma Pgto'],
+      ['Nº NFe', 'Data Emissão', 'Data Vencimento', 'Nome do Fornecedor', 'Descrição', 'Categoria', 'Centro de Custo', 'Valor (R$)', 'Natureza de Aquisição', 'Status', 'Forma Pgto'],
     ];
     const wsData = [...header, ...rows];
     wsData.push([]);
-    wsData.push(['', '', '', '', '', 'TOTAL:', despesasFiltradas.reduce((s, d) => s + (d.valor || 0), 0), '', '', '']);
+    wsData.push(['', '', '', '', '', '', 'TOTAL:', despesasFiltradas.reduce((s, d) => s + (d.valor || 0), 0), '', '', '']);
     const ws = XLSX.utils.aoa_to_sheet(wsData);
     ws['!cols'] = [
-      { wch: 12 }, { wch: 14 }, { wch: 30 }, { wch: 35 },
+      { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 30 }, { wch: 35 },
       { wch: 18 }, { wch: 16 }, { wch: 15 }, { wch: 45 },
       { wch: 12 }, { wch: 15 },
     ];
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 9 } }];
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
     XLSX.utils.book_append_sheet(wb, ws, 'Natureza Aquisição');
     XLSX.writeFile(wb, `Despesas_Natureza_Aquisicao_${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast.success('Relatório exportado com sucesso!');
@@ -991,8 +1003,20 @@ export default function DespesasPage() {
               {p.label}
             </button>
           ))}
+          {/* Seletor: filtrar por Emissão ou Vencimento */}
+          {filtroPeriodo !== 'geral' && (
+            <Select value={filtroDataTipo} onValueChange={setFiltroDataTipo}>
+              <SelectTrigger className="w-[140px] bg-slate-800 border-slate-700 text-sm h-8">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="emissao">Por Emissão</SelectItem>
+                <SelectItem value="vencimento">Por Vencimento</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
           {filtroPeriodo === 'personalizado' && (
-            <div className="flex items-center gap-2 ml-2">
+            <div className="flex items-center gap-2">
               <input
                 type="date"
                 value={dataInicio}
@@ -1150,7 +1174,8 @@ export default function DespesasPage() {
               <TableHeader>
                 <TableRow className="border-slate-700">
                   <TableHead className="text-slate-400">NFe</TableHead>
-                  <TableHead className="text-slate-400">Data</TableHead>
+                  <TableHead className="text-slate-400">Emissão</TableHead>
+                  <TableHead className="text-slate-400">Vencimento</TableHead>
                   <TableHead className="text-slate-400">Descrição</TableHead>
                   <TableHead className="text-slate-400">Fornecedor</TableHead>
                   <TableHead className="text-slate-400">Categoria</TableHead>
@@ -1158,7 +1183,7 @@ export default function DespesasPage() {
                   <TableHead className="text-slate-400 text-right">Valor</TableHead>
                   <TableHead className="text-slate-400">Nat. Aquisição</TableHead>
                   <TableHead className="text-slate-400">Status</TableHead>
-                  <TableHead className="text-slate-400 w-16">Ações</TableHead>
+                  <TableHead className="text-slate-400 w-24">Ações</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1167,8 +1192,21 @@ export default function DespesasPage() {
                     <TableCell className="text-slate-300 font-mono text-xs">
                       {despesa.notaFiscal || '-'}
                     </TableCell>
-                    <TableCell className="text-slate-300 text-sm">{formatDate(despesa.data)}</TableCell>
-                    <TableCell className="text-white font-medium max-w-[200px]">
+                    <TableCell className="text-slate-300 text-xs">{formatDate(despesa.dataEmissao)}</TableCell>
+                    <TableCell className="text-xs">
+                      {despesa.dataVencimento ? (
+                        <span className={cn(
+                          despesa.status !== 'pago' && new Date(despesa.dataVencimento) < new Date()
+                            ? 'text-red-400 font-medium'
+                            : 'text-slate-300'
+                        )}>
+                          {formatDate(despesa.dataVencimento)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-white font-medium max-w-[180px]">
                       <span className="truncate block">{despesa.descricao}</span>
                     </TableCell>
                     <TableCell className="text-slate-300 text-sm">{despesa.fornecedor}</TableCell>
@@ -1180,41 +1218,55 @@ export default function DespesasPage() {
                     </TableCell>
                     <TableCell className="text-slate-400 text-sm">{despesa.centroCusto}</TableCell>
                     <TableCell className="text-right font-semibold text-rose-400">{formatCurrency(despesa.valor)}</TableCell>
-                    <TableCell className="text-slate-400 text-xs max-w-[150px]">
+                    <TableCell className="text-slate-400 text-xs max-w-[130px]">
                       <span className="truncate block">{despesa.naturezaAquisicao || '-'}</span>
                     </TableCell>
                     <TableCell>
-                      <Badge className={cn("border text-xs", getStatusColor(despesa.status))}>
-                        {getStatusText(despesa.status)}
-                      </Badge>
+                      {despesa.status !== 'pago' ? (
+                        <button
+                          onClick={() => handleMarcarPago(despesa)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-emerald-500/20 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
+                          title="Clique para marcar como pago"
+                        >
+                          <Clock className="h-3 w-3" />
+                          {getStatusText(despesa.status)}
+                        </button>
+                      ) : (
+                        <Badge className={cn("border text-xs", getStatusColor(despesa.status))}>
+                          <CheckCircle2 className="h-3 w-3 mr-1" />
+                          Pago
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                          {despesa.status !== 'pago' && (
-                            <DropdownMenuItem className="text-emerald-400 focus:text-emerald-300 focus:bg-slate-700" onClick={() => handleMarcarPago(despesa)}>
-                              <CheckCircle2 className="h-4 w-4 mr-2" />Marcar como Pago
+                      <div className="flex items-center gap-1">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400 hover:text-white">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                            {despesa.status !== 'pago' && (
+                              <DropdownMenuItem className="text-emerald-400 focus:text-emerald-300 focus:bg-slate-700" onClick={() => handleMarcarPago(despesa)}>
+                                <CheckCircle2 className="h-4 w-4 mr-2" />Marcar como Pago
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleEditarDespesa(despesa)}>
+                              <Edit className="h-4 w-4 mr-2" />Editar
                             </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleEditarDespesa(despesa)}>
-                            <Edit className="h-4 w-4 mr-2" />Editar
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-red-400 focus:text-red-300 focus:bg-slate-700" onClick={() => setDeleteConfirmId(despesa.id)}>
-                            <Trash2 className="h-4 w-4 mr-2" />Apagar
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                            <DropdownMenuItem className="text-red-400 focus:text-red-300 focus:bg-slate-700" onClick={() => setDeleteConfirmId(despesa.id)}>
+                              <Trash2 className="h-4 w-4 mr-2" />Apagar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
                 {despesasFiltradas.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={10} className="text-center text-slate-500 py-8">
+                    <TableCell colSpan={11} className="text-center text-slate-500 py-8">
                       Nenhuma despesa encontrada.
                     </TableCell>
                   </TableRow>
