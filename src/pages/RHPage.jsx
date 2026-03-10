@@ -36,68 +36,101 @@ import {
   Calendar as CalendarIcon
 } from 'lucide-react';
 
-// Dados - Será preenchido com dados reais
-const mockFuncionarios = [
-  { id: 1, nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', departamento: 'Produção', admissao: '2023-01-15', salario: 3322, status: 'ativo', email: 'cristiane@montex.com.br', telefone: '(31) 99801-1001', cpf: '123.456.789-01', jornada: '44h', contrato: 'CLT' },
-  { id: 2, nome: 'Diego Alves da Silva', cargo: 'Montador I', departamento: 'Produção', admissao: '2022-06-01', salario: 4628, status: 'ativo', email: 'diego@montex.com.br', telefone: '(31) 99801-1002', cpf: '123.456.789-02', jornada: '44h', contrato: 'CLT' },
-  { id: 3, nome: 'David Barbosa de Souza', cargo: 'Coordenador de Produção', departamento: 'Produção', admissao: '2019-03-10', salario: 4388, status: 'ativo', email: 'david@montex.com.br', telefone: '(31) 99801-1003', cpf: '123.456.789-03', jornada: '44h', contrato: 'CLT' },
-  { id: 4, nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', departamento: 'Produção', admissao: '2022-08-15', salario: 5217, status: 'ativo', email: 'eder@montex.com.br', telefone: '(31) 99801-1004', cpf: '123.456.789-04', jornada: '44h', contrato: 'CLT' },
-  { id: 5, nome: 'Derlei Gobbi', cargo: 'Montador I', departamento: 'Produção', admissao: '2021-11-20', salario: 3500, status: 'ativo', email: 'derlei@montex.com.br', telefone: '(31) 99801-1005', cpf: '123.456.789-05', jornada: '44h', contrato: 'CLT' },
-  { id: 6, nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', departamento: 'Produção', admissao: '2023-02-01', salario: 2800, status: 'ativo', email: 'erick@montex.com.br', telefone: '(31) 99801-1006', cpf: '123.456.789-06', jornada: '44h', contrato: 'CLT' },
-  { id: 7, nome: 'Flavio da Cruz', cargo: 'Instalador Esquadrias Alumínio', departamento: 'Produção', admissao: '2020-05-10', salario: 6623, status: 'ativo', email: 'flavio.cruz@montex.com.br', telefone: '(31) 99801-1007', cpf: '123.456.789-07', jornada: '44h', contrato: 'CLT' },
-  { id: 8, nome: 'Flavio de Jesus Santos', cargo: 'Líder de Produção', departamento: 'Produção', admissao: '2018-09-01', salario: 5559, status: 'ativo', email: 'flavio.santos@montex.com.br', telefone: '(31) 99801-1008', cpf: '123.456.789-08', jornada: '44h', contrato: 'CLT' },
-  { id: 9, nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', departamento: 'Produção', admissao: '2017-06-15', salario: 6411, status: 'ativo', email: 'gilmar@montex.com.br', telefone: '(31) 99801-1009', cpf: '123.456.789-09', jornada: '44h', contrato: 'CLT' },
-  { id: 10, nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', departamento: 'Produção', admissao: '2022-04-20', salario: 4628, status: 'ativo', email: 'gabriel@montex.com.br', telefone: '(31) 99801-1010', cpf: '123.456.789-10', jornada: '44h', contrato: 'CLT' },
-  { id: 11, nome: 'Jeferson Bruno de O. Costa', cargo: 'Montador III', departamento: 'Produção', admissao: '2019-08-10', salario: 6833, status: 'ativo', email: 'jeferson@montex.com.br', telefone: '(31) 99801-1011', cpf: '123.456.789-11', jornada: '44h', contrato: 'CLT' },
-  { id: 12, nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', departamento: 'Produção', admissao: '2018-11-05', salario: 9776, status: 'ativo', email: 'joao.soares@montex.com.br', telefone: '(31) 99801-1012', cpf: '123.456.789-12', jornada: '44h', contrato: 'CLT' },
-  { id: 13, nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', departamento: 'Produção', admissao: '2023-05-15', salario: 2100, status: 'ativo', email: 'joao.batista@montex.com.br', telefone: '(31) 99801-1013', cpf: '123.456.789-13', jornada: '44h', contrato: 'CLT' },
-  { id: 14, nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', departamento: 'Produção', admissao: '2022-10-01', salario: 4628, status: 'ativo', email: 'jose.eduardo@montex.com.br', telefone: '(31) 99801-1014', cpf: '123.456.789-14', jornada: '44h', contrato: 'CLT' },
-  { id: 15, nome: 'Juscelio Rodrigues de Souza', cargo: 'Soldador I', departamento: 'Produção', admissao: '2020-02-20', salario: 5440, status: 'ativo', email: 'juscelio.souza@montex.com.br', telefone: '(31) 99801-1015', cpf: '123.456.789-15', jornada: '44h', contrato: 'CLT' },
-  { id: 16, nome: 'Juscelio Rodrigues', cargo: 'Montador III', departamento: 'Produção', admissao: '2018-04-10', salario: 6245, status: 'ativo', email: 'juscelio@montex.com.br', telefone: '(31) 99801-1016', cpf: '123.456.789-16', jornada: '44h', contrato: 'CLT' },
-  { id: 17, nome: 'Luiz Barbosa Ferrera', cargo: 'Soldador I', departamento: 'Produção', admissao: '2019-07-15', salario: 5440, status: 'ativo', email: 'luiz@montex.com.br', telefone: '(31) 99801-1017', cpf: '123.456.789-17', jornada: '44h', contrato: 'CLT' },
-  { id: 18, nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', departamento: 'Produção', admissao: '2017-09-01', salario: 7881, status: 'ativo', email: 'ricardo@montex.com.br', telefone: '(31) 99801-1018', cpf: '123.456.789-18', jornada: '44h', contrato: 'CLT' },
-  { id: 19, nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', departamento: 'Produção', admissao: '2021-03-10', salario: 3496, status: 'ativo', email: 'tarcisio@montex.com.br', telefone: '(31) 99801-1019', cpf: '123.456.789-19', jornada: '44h', contrato: 'CLT' },
-  { id: 20, nome: 'Waldercy Miranda', cargo: 'Montador II', departamento: 'Produção', admissao: '2019-12-05', salario: 6245, status: 'ativo', email: 'waldercy@montex.com.br', telefone: '(31) 99801-1020', cpf: '123.456.789-20', jornada: '44h', contrato: 'CLT' },
-  { id: 21, nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', departamento: 'Produção', admissao: '2023-03-20', salario: 3496, status: 'ativo', email: 'wendel@montex.com.br', telefone: '(31) 99801-1021', cpf: '123.456.789-21', jornada: '44h', contrato: 'CLT' },
-  { id: 22, nome: 'Whashington de Oliveira', cargo: 'Encarregado de Campo II', departamento: 'Produção', admissao: '2016-11-15', salario: 7096, status: 'ativo', email: 'whashington@montex.com.br', telefone: '(31) 99801-1022', cpf: '123.456.789-22', jornada: '44h', contrato: 'CLT' },
+// ==================== DADOS REAIS - FEVEREIRO/2026 ====================
+// Extraído dos Comprovantes de Pagamento Salarial MONTEX LTDA + M R MONTAGEM
+
+const funcionarios = [
+  // === MONTEX MONTAGEM DE ESTRUTURA METALICA LTDA (CNPJ 10798894000160) ===
+  { id: 100, nome: 'Jeferson Bruno de Oliveira Costa', cargo: 'Montador Estrut Metal III', departamento: 'Produção', admissao: '2016-01-04', salario: 3591.01, status: 'ativo', email: 'jeferson@montex.com.br', telefone: '', cpf: '118.994.056.66', jornada: '220h', contrato: 'CLT', matricula: '000100', empresa: 'montex' },
+  { id: 102, nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', departamento: 'Almoxarifado', admissao: '2016-07-01', salario: 1900.00, status: 'ativo', email: 'tarcisio@montex.com.br', telefone: '', cpf: '624.472.386.49', jornada: '220h', contrato: 'CLT', matricula: '000102', empresa: 'montex' },
+  { id: 109, nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', departamento: 'Produção', admissao: '2018-07-02', salario: 3368.98, status: 'ativo', email: 'gilmar@montex.com.br', telefone: '', cpf: '030.761.066.78', jornada: '220h', contrato: 'CLT', matricula: '000109', empresa: 'montex' },
+  { id: 110, nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', departamento: 'Produção', admissao: '2018-07-02', salario: 5137.71, status: 'ativo', email: 'joao.soares@montex.com.br', telefone: '', cpf: '041.682.726.80', jornada: '220h', contrato: 'CLT', matricula: '000110', empresa: 'montex' },
+  { id: 112, nome: 'Waldercy Miranda', cargo: 'Montador de Estrut Met II', departamento: 'Produção', admissao: '2018-08-01', salario: 3281.80, status: 'ativo', email: 'waldercy@montex.com.br', telefone: '', cpf: '046.466.176.50', jornada: '220h', contrato: 'CLT', matricula: '000112', empresa: 'montex' },
+  { id: 117, nome: 'Washington de Oliveira', cargo: 'Encarregado de Campo II', departamento: 'Produção', admissao: '2018-11-01', salario: 4133.86, status: 'ativo', email: 'washington@montex.com.br', telefone: '', cpf: '055.454.606.08', jornada: '220h', contrato: 'CLT', matricula: '000117', empresa: 'montex' },
+  { id: 124, nome: 'Juscélio Rodrigues de Souza', cargo: 'Soldador', departamento: 'Produção', admissao: '2020-07-14', salario: 2859.14, status: 'ativo', email: 'juscelio.souza@montex.com.br', telefone: '', cpf: '104.642.666.45', jornada: '220h', contrato: 'CLT', matricula: '000124', empresa: 'montex' },
+  { id: 126, nome: 'Flávio de Jesus Santos', cargo: 'Líder de Produção', departamento: 'Produção', admissao: '2020-07-14', salario: 3587.32, status: 'ativo', email: 'flavio.santos@montex.com.br', telefone: '', cpf: '045.668.536.75', jornada: '220h', contrato: 'CLT', matricula: '000126', empresa: 'montex' },
+  { id: 136, nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', departamento: 'Administrativo', admissao: '2021-04-09', salario: 1837.63, status: 'ferias', email: 'cristiane@montex.com.br', telefone: '', cpf: '953.165.236.87', jornada: '220h', contrato: 'CLT', matricula: '000136', empresa: 'montex' },
+  { id: 140, nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', departamento: 'Produção', admissao: '2021-04-15', salario: 4141.86, status: 'ativo', email: 'ricardo@montex.com.br', telefone: '', cpf: '057.565.766.90', jornada: '220h', contrato: 'CLT', matricula: '000140', empresa: 'montex' },
+  { id: 148, nome: 'David Barboza de Sousa', cargo: 'Coordenador de Produção', departamento: 'Produção', admissao: '2022-04-01', salario: 2700.00, status: 'ativo', email: 'david@montex.com.br', telefone: '', cpf: '104.303.134.03', jornada: '220h', contrato: 'CLT', matricula: '000148', empresa: 'montex' },
+  { id: 151, nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', departamento: 'Produção', admissao: '2022-06-01', salario: 2741.86, status: 'ativo', email: 'eder@montex.com.br', telefone: '', cpf: '101.648.886.67', jornada: '220h', contrato: 'CLT', matricula: '000151', empresa: 'montex' },
+  { id: 152, nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', departamento: 'Produção', admissao: '2022-06-01', salario: 2741.86, status: 'ativo', email: 'gabriel@montex.com.br', telefone: '', cpf: '162.854.396.56', jornada: '220h', contrato: 'CLT', matricula: '000152', empresa: 'montex' },
+  { id: 153, nome: 'Flávio da Cruz', cargo: 'Instalador Esquadrias Alumínio', departamento: 'Produção', admissao: '2022-06-03', salario: 3480.70, status: 'ativo', email: 'flavio.cruz@montex.com.br', telefone: '', cpf: '031.839.346.80', jornada: '220h', contrato: 'CLT', matricula: '000153', empresa: 'montex' },
+  { id: 162, nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', departamento: 'Produção', admissao: '2022-10-24', salario: 2432.14, status: 'ativo', email: 'jose.eduardo@montex.com.br', telefone: '', cpf: '148.980.306.88', jornada: '220h', contrato: 'CLT', matricula: '000162', empresa: 'montex' },
+  { id: 166, nome: 'Juscélio Rodrigues', cargo: 'Montador Estrut Metal III', departamento: 'Produção', admissao: '2022-11-23', salario: 3591.01, status: 'ativo', email: 'juscelio@montex.com.br', telefone: '', cpf: '064.560.606.56', jornada: '220h', contrato: 'CLT', matricula: '000166', empresa: 'montex' },
+  { id: 169, nome: 'Diego Alves da Silva', cargo: 'Montador I', departamento: 'Produção', admissao: '2023-02-13', salario: 2741.86, status: 'ativo', email: 'diego@montex.com.br', telefone: '', cpf: '104.926.756.78', jornada: '220h', contrato: 'CLT', matricula: '000169', empresa: 'montex' },
+  { id: 170, nome: 'Luiz Barbosa Ferreira', cargo: 'Soldador', departamento: 'Produção', admissao: '2023-02-13', salario: 2859.14, status: 'ativo', email: 'luiz@montex.com.br', telefone: '', cpf: '753.082.156.34', jornada: '220h', contrato: 'CLT', matricula: '000170', empresa: 'montex' },
+  { id: 175, nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', departamento: 'Produção', admissao: '2023-04-04', salario: 2432.14, status: 'ferias', email: 'wendel@montex.com.br', telefone: '', cpf: '129.738.176.92', jornada: '220h', contrato: 'CLT', matricula: '000175', empresa: 'montex' },
+  { id: 188, nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', departamento: 'Produção', admissao: '2025-02-21', salario: 1837.63, status: 'ativo', email: 'joao.batista@montex.com.br', telefone: '', cpf: '442.410.386.20', jornada: '220h', contrato: 'CLT', matricula: '000188', empresa: 'montex' },
+  { id: 190, nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', departamento: 'Produção', admissao: '2025-03-20', salario: 2432.01, status: 'ativo', email: 'erick@montex.com.br', telefone: '', cpf: '172.028.436.92', jornada: '220h', contrato: 'CLT', matricula: '000190', empresa: 'montex' },
+  { id: 191, nome: 'Derlei Gobbi', cargo: 'Montador Estrut Metal III', departamento: 'Produção', admissao: '2025-10-14', salario: 3591.01, status: 'ativo', email: 'derlei@montex.com.br', telefone: '', cpf: '525.806.600.20', jornada: '220h', contrato: 'CLT', matricula: '000191', empresa: 'montex' },
+  // === M R MONTAGEM ESTRUTURA METALICA LTDA (CNPJ 57580275000169) ===
+  { id: 203, nome: 'Daniel Vinícius de Souza Silva', cargo: 'Soldador I', departamento: 'Produção', admissao: '2025-04-03', salario: 2859.14, status: 'ativo', email: 'daniel@montex.com.br', telefone: '', cpf: '134.868.646.45', jornada: '220h', contrato: 'CLT', matricula: '000003', empresa: 'mr' },
+  { id: 204, nome: 'Arquiris Junior Rodrigues', cargo: 'Ajudante de Montagem', departamento: 'Produção', admissao: '2025-04-03', salario: 1837.63, status: 'ativo', email: 'arquiris@montex.com.br', telefone: '', cpf: '122.656.126.85', jornada: '220h', contrato: 'CLT', matricula: '000004', empresa: 'mr' },
+  { id: 207, nome: 'Letícia Fonseca Soares', cargo: 'Técnico em Segurança do Trabalho', departamento: 'Segurança', admissao: '2025-06-05', salario: 3783.60, status: 'ativo', email: 'leticia@montex.com.br', telefone: '', cpf: '019.202.231.85', jornada: '220h', contrato: 'CLT', matricula: '000007', empresa: 'mr' },
+  { id: 208, nome: 'Matheus André Celestino dos Santos', cargo: 'Ajudante de Montagem', departamento: 'Produção', admissao: '2025-06-10', salario: 1837.63, status: 'ativo', email: 'matheus@montex.com.br', telefone: '', cpf: '702.629.536.50', jornada: '220h', contrato: 'CLT', matricula: '000008', empresa: 'mr' },
+  // === DIÁRIAS MONTEX (PAGAMENTO POR DIÁRIA) ===
+  { id: 301, nome: 'Anderson Marçal Silva', salario: 6000, cargo: 'Diarista', departamento: 'Produção', status: 'ativo', email: '', telefone: '', cpf: '', jornada: '220h', contrato: 'Diária', matricula: '', admissao: '2025-01-01', empresa: 'diaria' },
+  { id: 302, nome: 'Flávio Pereira Miranda', salario: 5600, cargo: 'Diarista', departamento: 'Produção', status: 'ativo', email: '', telefone: '', cpf: '', jornada: '220h', contrato: 'Diária', matricula: '', admissao: '2025-01-01', empresa: 'diaria' },
+  { id: 303, nome: 'José Elvécio Mariano', salario: 5000, cargo: 'Diarista', departamento: 'Produção', status: 'ativo', email: '', telefone: '', cpf: '', jornada: '220h', contrato: 'Diária', matricula: '', admissao: '2025-01-01', empresa: 'diaria' },
 ];
+
+const mockFuncionarios = funcionarios;
+
 const mockRegistrosPonto = [
-  { id: 1, funcionario: 'Gilmar Sousa da Silva', data: '2026-02-09', entrada: '07:00', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9, horasExtras: 1, status: 'registrado' },
-  { id: 2, funcionario: 'Jeferson Bruno de O. Costa', data: '2026-02-09', entrada: '07:00', saida: '16:30', intervalo: '1h', horasTrabalhadas: 8.5, horasExtras: 0.5, status: 'registrado' },
-  { id: 3, funcionario: 'Ricardo Alves Pereira', data: '2026-02-09', entrada: '07:00', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9, horasExtras: 1, status: 'registrado' },
-  { id: 4, funcionario: 'Diego Alves da Silva', data: '2026-02-09', entrada: '07:15', saida: '16:45', intervalo: '1h', horasTrabalhadas: 8.5, horasExtras: 0.5, status: 'registrado' },
-  { id: 5, funcionario: 'Whashington de Oliveira', data: '2026-02-09', entrada: '06:45', saida: '17:15', intervalo: '1h', horasTrabalhadas: 9.5, horasExtras: 1.5, status: 'registrado' },
+  { id: 1, funcionario: 'Jeferson Bruno de Oliveira Costa', data: '2026-02-20', entrada: '07:00', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9, horasExtras: 1, status: 'registrado', empresa: 'montex' },
+  { id: 2, funcionario: 'Gilmar Sousa da Silva', data: '2026-02-20', entrada: '07:00', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9, horasExtras: 1, status: 'registrado', empresa: 'montex' },
+  { id: 3, funcionario: 'Ricardo Alves Pereira', data: '2026-02-20', entrada: '07:00', saida: '17:30', intervalo: '1h', horasTrabalhadas: 9.5, horasExtras: 1.5, status: 'registrado', empresa: 'montex' },
+  { id: 4, funcionario: 'Washington de Oliveira', data: '2026-02-20', entrada: '06:45', saida: '17:15', intervalo: '1h', horasTrabalhadas: 9.5, horasExtras: 1.5, status: 'registrado', empresa: 'montex' },
+  { id: 5, funcionario: 'Diego Alves da Silva', data: '2026-02-20', entrada: '07:00', saida: '16:30', intervalo: '1h', horasTrabalhadas: 8.5, horasExtras: 0.5, status: 'registrado', empresa: 'montex' },
+  { id: 6, funcionario: 'Flávio de Jesus Santos', data: '2026-02-20', entrada: '06:30', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9.5, horasExtras: 1.5, status: 'registrado', empresa: 'montex' },
+  { id: 7, funcionario: 'João Ermelindo Soares', data: '2026-02-20', entrada: '07:00', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9, horasExtras: 1, status: 'registrado', empresa: 'montex' },
+  { id: 8, funcionario: 'Derlei Gobbi', data: '2026-02-20', entrada: '07:00', saida: '17:00', intervalo: '1h', horasTrabalhadas: 9, horasExtras: 1, status: 'registrado', empresa: 'montex' },
 ];
+
+// Folha de pagamento REAL - Fevereiro/2026 (extraído dos contracheques)
 const mockFolhaPagamento = [
-  { id: 1, funcionario: 'Cristiane Vieira', salarioBruto: 3322, inss: 249.15, irrf: 0, valeTransporte: 199.32, valeAlimentacao: 350, salarioLiquido: 2523.53 },
-  { id: 2, funcionario: 'Diego Alves da Silva', salarioBruto: 4628, inss: 416.52, irrf: 72.97, valeTransporte: 277.68, valeAlimentacao: 350, salarioLiquido: 3510.83 },
-  { id: 3, funcionario: 'David Barbosa de Souza', salarioBruto: 4388, inss: 394.92, irrf: 54.96, valeTransporte: 263.28, valeAlimentacao: 350, salarioLiquido: 3324.84 },
-  { id: 4, funcionario: 'Eder Bruno Silva Ferreira', salarioBruto: 5217, inss: 469.53, irrf: 117.17, valeTransporte: 313.02, valeAlimentacao: 350, salarioLiquido: 3967.28 },
-  { id: 5, funcionario: 'Derlei Gobbi', salarioBruto: 3500, inss: 262.50, irrf: 0, valeTransporte: 210.00, valeAlimentacao: 350, salarioLiquido: 2677.50 },
-  { id: 6, funcionario: 'Erick Welison Hosni de Paula', salarioBruto: 2800, inss: 210.00, irrf: 0, valeTransporte: 168.00, valeAlimentacao: 350, salarioLiquido: 2072.00 },
-  { id: 7, funcionario: 'Flavio da Cruz', salarioBruto: 6623, inss: 596.07, irrf: 222.66, valeTransporte: 397.38, valeAlimentacao: 350, salarioLiquido: 5056.89 },
-  { id: 8, funcionario: 'Flavio de Jesus Santos', salarioBruto: 5559, inss: 500.31, irrf: 142.85, valeTransporte: 333.54, valeAlimentacao: 350, salarioLiquido: 4232.30 },
-  { id: 9, funcionario: 'Gilmar Sousa da Silva', salarioBruto: 6411, inss: 576.99, irrf: 206.74, valeTransporte: 384.66, valeAlimentacao: 350, salarioLiquido: 4892.61 },
-  { id: 10, funcionario: 'Gabriel Ferreira Santos', salarioBruto: 4628, inss: 416.52, irrf: 72.97, valeTransporte: 277.68, valeAlimentacao: 350, salarioLiquido: 3510.83 },
-  { id: 11, funcionario: 'Jeferson Bruno de O. Costa', salarioBruto: 6833, inss: 614.97, irrf: 238.43, valeTransporte: 409.98, valeAlimentacao: 350, salarioLiquido: 5219.62 },
-  { id: 12, funcionario: 'João Ermelindo Soares', salarioBruto: 9776, inss: 879.84, irrf: 459.37, valeTransporte: 586.56, valeAlimentacao: 350, salarioLiquido: 7500.23 },
-  { id: 13, funcionario: 'João Batista Alves Rodrigues', salarioBruto: 2100, inss: 157.50, irrf: 0, valeTransporte: 126.00, valeAlimentacao: 350, salarioLiquido: 1466.50 },
-  { id: 14, funcionario: 'José Eduardo Lucas', salarioBruto: 4628, inss: 416.52, irrf: 72.97, valeTransporte: 277.68, valeAlimentacao: 350, salarioLiquido: 3510.83 },
-  { id: 15, funcionario: 'Juscelio Rodrigues de Souza', salarioBruto: 5440, inss: 489.60, irrf: 133.91, valeTransporte: 326.40, valeAlimentacao: 350, salarioLiquido: 4140.09 },
-  { id: 16, funcionario: 'Juscelio Rodrigues', salarioBruto: 6245, inss: 562.05, irrf: 194.27, valeTransporte: 374.70, valeAlimentacao: 350, salarioLiquido: 4763.98 },
-  { id: 17, funcionario: 'Luiz Barbosa Ferrera', salarioBruto: 5440, inss: 489.60, irrf: 133.91, valeTransporte: 326.40, valeAlimentacao: 350, salarioLiquido: 4140.09 },
-  { id: 18, funcionario: 'Ricardo Alves Pereira', salarioBruto: 7881, inss: 709.29, irrf: 317.17, valeTransporte: 472.86, valeAlimentacao: 350, salarioLiquido: 6031.68 },
-  { id: 19, funcionario: 'Tarcísio Vieira de Almeida', salarioBruto: 3496, inss: 262.20, irrf: 0, valeTransporte: 209.76, valeAlimentacao: 350, salarioLiquido: 2674.04 },
-  { id: 20, funcionario: 'Waldercy Miranda', salarioBruto: 6245, inss: 562.05, irrf: 194.27, valeTransporte: 374.70, valeAlimentacao: 350, salarioLiquido: 4763.98 },
-  { id: 21, funcionario: 'Wendel Gabriel Alves dos Reis', salarioBruto: 3496, inss: 262.20, irrf: 0, valeTransporte: 209.76, valeAlimentacao: 350, salarioLiquido: 2674.04 },
-  { id: 22, funcionario: 'Whashington de Oliveira', salarioBruto: 7096, inss: 638.64, irrf: 258.22, valeTransporte: 425.76, valeAlimentacao: 350, salarioLiquido: 5423.38 },
+  { id: 100, funcionario: 'Jeferson Bruno de Oliveira Costa', salarioBruto: 3591.01, inss: 319.51, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4231.01, totalDescontos: 1863.64, salarioLiquido: 2367.37, fgts: 287.28, empresa: 'montex' },
+  { id: 102, funcionario: 'Tarcísio Vieira de Almeida', salarioBruto: 1900.00, inss: 146.68, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 2540.00, totalDescontos: 1014.29, salarioLiquido: 1525.71, fgts: 152.00, empresa: 'montex' },
+  { id: 109, funcionario: 'Gilmar Sousa da Silva', salarioBruto: 3368.98, inss: 292.86, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4008.98, totalDescontos: 1741.52, salarioLiquido: 2267.46, fgts: 269.51, empresa: 'montex' },
+  { id: 110, funcionario: 'João Ermelindo Soares', salarioBruto: 5137.71, inss: 520.78, irrf: 303.81, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 5777.71, totalDescontos: 3117.63, salarioLiquido: 2660.08, fgts: 411.01, empresa: 'montex' },
+  { id: 112, funcionario: 'Waldercy Miranda', salarioBruto: 3281.80, inss: 282.40, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3921.80, totalDescontos: 1693.57, salarioLiquido: 2228.23, fgts: 262.54, empresa: 'montex' },
+  { id: 117, funcionario: 'Washington de Oliveira', salarioBruto: 4133.86, inss: 384.65, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4773.86, totalDescontos: 2210.86, salarioLiquido: 2563.00, fgts: 330.70, empresa: 'montex' },
+  { id: 124, funcionario: 'Juscélio Rodrigues de Souza', salarioBruto: 2859.14, inss: 233.00, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3499.14, totalDescontos: 1462.43, salarioLiquido: 2036.71, fgts: 228.73, empresa: 'montex' },
+  { id: 126, funcionario: 'Flávio de Jesus Santos', salarioBruto: 3587.32, inss: 319.06, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4644.23, totalDescontos: 2903.88, salarioLiquido: 1740.35, fgts: 286.98, empresa: 'montex' },
+  { id: 136, funcionario: 'Cristiane Vieira', salarioBruto: 1837.63, inss: 115.34, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 2896.85, totalDescontos: 1797.11, salarioLiquido: 646.45, fgts: 156.81, empresa: 'montex' },
+  { id: 140, funcionario: 'Ricardo Alves Pereira', salarioBruto: 4141.86, inss: 385.61, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4781.86, totalDescontos: 2223.57, salarioLiquido: 2558.29, fgts: 331.34, empresa: 'montex' },
+  { id: 148, funcionario: 'David Barboza de Sousa', salarioBruto: 2700.00, inss: 218.68, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3340.00, totalDescontos: 1379.68, salarioLiquido: 1960.32, fgts: 216.00, empresa: 'montex' },
+  { id: 151, funcionario: 'Eder Bruno Silva Ferreira', salarioBruto: 2741.86, inss: 222.44, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3500.65, totalDescontos: 1698.42, salarioLiquido: 1802.23, fgts: 219.34, empresa: 'montex' },
+  { id: 152, funcionario: 'Gabriel Ferreira Santos', salarioBruto: 2741.86, inss: 222.44, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3610.21, totalDescontos: 2032.67, salarioLiquido: 1577.54, fgts: 219.34, empresa: 'montex' },
+  { id: 153, funcionario: 'Flávio da Cruz', salarioBruto: 3480.70, inss: 306.27, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4120.70, totalDescontos: 1908.77, salarioLiquido: 2211.93, fgts: 278.45, empresa: 'montex' },
+  { id: 162, funcionario: 'José Eduardo Lucas', salarioBruto: 2432.14, inss: 194.57, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3072.14, totalDescontos: 1240.39, salarioLiquido: 1831.75, fgts: 194.57, empresa: 'montex' },
+  { id: 166, funcionario: 'Juscélio Rodrigues', salarioBruto: 3591.01, inss: 319.51, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4371.97, totalDescontos: 3208.24, salarioLiquido: 1163.73, fgts: 287.28, empresa: 'montex' },
+  { id: 169, funcionario: 'Diego Alves da Silva', salarioBruto: 2741.86, inss: 222.44, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3381.86, totalDescontos: 1401.44, salarioLiquido: 1980.42, fgts: 219.34, empresa: 'montex' },
+  { id: 170, funcionario: 'Luiz Barbosa Ferreira', salarioBruto: 2859.14, inss: 233.00, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 3499.14, totalDescontos: 1462.43, salarioLiquido: 2036.71, fgts: 228.73, empresa: 'montex' },
+  { id: 175, funcionario: 'Wendel Gabriel Alves dos Reis', salarioBruto: 2432.14, inss: 68.57, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4141.72, totalDescontos: 3224.56, salarioLiquido: 917.16, fgts: 259.42, empresa: 'montex' },
+  { id: 188, funcionario: 'João Batista Alves Rodrigues', salarioBruto: 1837.63, inss: 141.06, irrf: 0, valeTransporte: 0, valeAlimentacao: 426.67, totalProventos: 2264.30, totalDescontos: 931.24, salarioLiquido: 1333.06, fgts: 147.01, empresa: 'montex' },
+  { id: 190, funcionario: 'Erick Welison Hosni de Paula', salarioBruto: 2432.01, inss: 194.56, irrf: 0, valeTransporte: 0, valeAlimentacao: 373.33, totalProventos: 2931.78, totalDescontos: 1556.43, salarioLiquido: 1375.35, fgts: 194.56, empresa: 'montex' },
+  { id: 191, funcionario: 'Derlei Gobbi', salarioBruto: 3591.01, inss: 319.51, irrf: 0, valeTransporte: 0, valeAlimentacao: 0, totalProventos: 3591.01, totalDescontos: 1863.64, salarioLiquido: 1727.37, fgts: 287.28, empresa: 'montex' },
+  // M R MONTAGEM
+  { id: 203, funcionario: 'Daniel Vinícius de Souza Silva', salarioBruto: 2859.14, inss: 233.00, irrf: 0, valeTransporte: 0, valeAlimentacao: 320.00, totalProventos: 3179.14, totalDescontos: 1462.43, salarioLiquido: 1716.71, fgts: 228.73, empresa: 'mr' },
+  { id: 204, funcionario: 'Arquiris Junior Rodrigues', salarioBruto: 1837.63, inss: 141.06, irrf: 0, valeTransporte: 0, valeAlimentacao: 320.00, totalProventos: 2157.63, totalDescontos: 931.24, salarioLiquido: 1226.39, fgts: 147.01, empresa: 'mr' },
+  { id: 207, funcionario: 'Letícia Fonseca Soares', salarioBruto: 3783.60, inss: 342.62, irrf: 0, valeTransporte: 0, valeAlimentacao: 640.00, totalProventos: 4423.60, totalDescontos: 2009.32, salarioLiquido: 2414.28, fgts: 302.68, empresa: 'mr' },
+  { id: 208, funcionario: 'Matheus André Celestino dos Santos', salarioBruto: 1837.63, inss: 141.06, irrf: 0, valeTransporte: 0, valeAlimentacao: 213.33, totalProventos: 2118.50, totalDescontos: 931.24, salarioLiquido: 1187.26, fgts: 147.01, empresa: 'mr' },
+  // DIÁRIAS MONTEX
+  { id: 301, funcionario: 'Anderson Marçal Silva', salarioBruto: 6000, inss: 0, irrf: 0, valeTransporte: 0, valeAlimentacao: 0, totalProventos: 6000, totalDescontos: 3000, salarioLiquido: 3000, fgts: 0, empresa: 'diaria' },
+  { id: 302, funcionario: 'Flávio Pereira Miranda', salarioBruto: 5600, inss: 0, irrf: 0, valeTransporte: 0, valeAlimentacao: 0, totalProventos: 5600, totalDescontos: 2800, salarioLiquido: 2800, fgts: 0, empresa: 'diaria' },
+  { id: 303, funcionario: 'José Elvécio Mariano', salarioBruto: 5000, inss: 0, irrf: 0, valeTransporte: 0, valeAlimentacao: 0, totalProventos: 5000, totalDescontos: 2500, salarioLiquido: 2500, fgts: 0, empresa: 'diaria' },
 ];
 
 const mockEventos = [
-  { id: 1, tipo: 'ferias', funcionario: 'Derlei Gobbi', inicio: '2026-03-01', fim: '2026-03-20', dias: 20, status: 'agendado' },
-  { id: 2, tipo: 'treinamento', funcionario: 'Erick Welison Hosni de Paula', inicio: '2026-02-15', fim: '2026-02-15', dias: 1, status: 'agendado' },
-  { id: 3, tipo: 'atestado', funcionario: 'João Batista Alves Rodrigues', inicio: '2026-02-03', fim: '2026-02-05', dias: 3, status: 'concluido' },
-  { id: 4, tipo: 'treinamento', funcionario: 'Wendel Gabriel Alves dos Reis', inicio: '2026-02-20', fim: '2026-02-21', dias: 2, status: 'agendado' },
+  { id: 1, tipo: 'ferias', funcionario: 'Cristiane Vieira', inicio: '2026-02-09', fim: '2026-02-28', dias: 20, status: 'em_curso', empresa: 'montex' },
+  { id: 2, tipo: 'ferias', funcionario: 'Wendel Gabriel Alves dos Reis', inicio: '2026-02-02', fim: '2026-02-25', dias: 24, status: 'em_curso', empresa: 'montex' },
+  { id: 3, tipo: 'atestado', funcionario: 'Juscélio Rodrigues de Souza', inicio: '2026-01-29', fim: '2026-02-01', dias: 4, status: 'concluido', empresa: 'montex' },
+  { id: 4, tipo: 'atestado', funcionario: 'Flávio da Cruz', inicio: '2026-02-18', fim: '2026-02-19', dias: 2, status: 'concluido', empresa: 'montex' },
+  { id: 5, tipo: 'atestado', funcionario: 'José Eduardo Lucas', inicio: '2026-02-10', fim: '2026-02-11', dias: 2, status: 'concluido', empresa: 'montex' },
+  { id: 6, tipo: 'atestado', funcionario: 'Juscélio Rodrigues', inicio: '2026-02-18', fim: '2026-02-19', dias: 2, status: 'concluido', empresa: 'montex' },
+  { id: 7, tipo: 'atestado', funcionario: 'Luiz Barbosa Ferreira', inicio: '2026-02-17', fim: '2026-02-20', dias: 4, status: 'concluido', empresa: 'montex' },
+  { id: 8, tipo: 'atestado', funcionario: 'Matheus André Celestino dos Santos', inicio: '2026-02-17', fim: '2026-02-17', dias: 1, status: 'concluido', empresa: 'mr' },
 ];
 
 const departamentos = ['Produção', 'Administrativo', 'Financeiro', 'Comercial', 'Projetos', 'TI'];
@@ -581,17 +614,24 @@ export default function RHPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [departamentoFilter, setDepartamentoFilter] = useState('todos');
   const [activeTab, setActiveTab] = useState('funcionarios');
+  const [empresaSelecionada, setEmpresaSelecionada] = useState('montex');
 
-  const filteredFuncionarios = funcionarios.filter(func => {
+  // Filter data by empresa
+  const funcionariosEmpresa = funcionarios.filter(f => f.empresa === empresaSelecionada);
+  const folhaEmpresa = mockFolhaPagamento.filter(f => f.empresa === empresaSelecionada);
+  const pontoEmpresa = registrosPonto.filter(r => r.empresa === empresaSelecionada);
+  const eventosEmpresa = eventos.filter(e => e.empresa === empresaSelecionada);
+
+  const filteredFuncionarios = funcionariosEmpresa.filter(func => {
     const matchesSearch = func.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          func.cargo.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesDepartamento = departamentoFilter === 'todos' || func.departamento.toLowerCase() === departamentoFilter;
     return matchesSearch && matchesDepartamento;
   });
 
-  const funcionariosAtivos = funcionarios.filter(f => f.status === 'ativo').length;
-  const totalFolha = mockFolhaPagamento.reduce((acc, f) => acc + f.salarioBruto, 0);
-  const horasExtrasTotal = registrosPonto.reduce((acc, r) => {
+  const funcionariosAtivos = funcionariosEmpresa.filter(f => f.status === 'ativo').length;
+  const totalFolha = folhaEmpresa.reduce((acc, f) => acc + f.salarioBruto, 0);
+  const horasExtrasTotal = pontoEmpresa.reduce((acc, r) => {
     if (!r.horasExtras) return acc;
     if (typeof r.horasExtras === 'number') return acc + r.horasExtras;
     if (typeof r.horasExtras === 'string' && r.horasExtras.includes(':')) {
@@ -615,6 +655,26 @@ export default function RHPage() {
           <SolicitarEventoDialog funcionarios={funcionarios} onSave={(evento) => setEventos([...eventos, evento])} />
           <RegistrarPontoDialog funcionarios={funcionarios} onSave={(registro) => setRegistrosPonto([...registrosPonto, registro])} />
           <NovoFuncionarioDialog onSave={(func) => setFuncionarios([...funcionarios, func])} />
+        </div>
+      </div>
+
+      {/* Empresa Selector */}
+      <div className="space-y-2">
+        <div className="flex gap-2 p-1 bg-muted rounded-lg w-fit">
+          <button onClick={() => setEmpresaSelecionada('montex')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${empresaSelecionada === 'montex' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            MONTEX
+          </button>
+          <button onClick={() => setEmpresaSelecionada('mr')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${empresaSelecionada === 'mr' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            MR
+          </button>
+          <button onClick={() => setEmpresaSelecionada('diaria')} className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${empresaSelecionada === 'diaria' ? 'bg-white shadow text-primary' : 'text-muted-foreground hover:text-foreground'}`}>
+            MONTEX DIÁRIA
+          </button>
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {empresaSelecionada === 'montex' && `CNPJ: 10.798.894/0001-60 — ${funcionariosEmpresa.length} colaboradores CLT`}
+          {empresaSelecionada === 'mr' && `CNPJ: 57.580.275/0001-69 — ${funcionariosEmpresa.length} colaboradores CLT`}
+          {empresaSelecionada === 'diaria' && `Pagamento por diária — ${funcionariosEmpresa.length} colaboradores`}
         </div>
       </div>
 
@@ -644,7 +704,7 @@ export default function RHPage() {
         />
         <KPICard
           title="Ausências Hoje"
-          value={funcionarios.filter(f => f.status !== 'ativo').length}
+          value={funcionariosEmpresa.filter(f => f.status !== 'ativo').length}
           subtitle="Férias e afastamentos"
           icon={CalendarIcon}
         />
@@ -769,7 +829,7 @@ export default function RHPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Todos</SelectItem>
-                      {mockFuncionarios.map(f => (
+                      {funcionariosEmpresa.map(f => (
                         <SelectItem key={f.id} value={f.id.toString()}>{f.nome}</SelectItem>
                       ))}
                     </SelectContent>
@@ -792,7 +852,7 @@ export default function RHPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {registrosPonto.map((registro) => (
+                  {pontoEmpresa.map((registro) => (
                     <TableRow key={registro.id}>
                       <TableCell className="font-medium">{registro.funcionario}</TableCell>
                       <TableCell>{new Date(registro.data).toLocaleDateString('pt-BR')}</TableCell>
@@ -836,7 +896,7 @@ export default function RHPage() {
         <TabsContent value="folha" className="space-y-4">
           <div className="flex justify-between items-center">
             <div>
-              <h3 className="text-lg font-semibold">Folha de Pagamento - Janeiro/2024</h3>
+              <h3 className="text-lg font-semibold">Folha de Pagamento - Fevereiro/2026 - {empresaSelecionada === 'montex' ? 'MONTEX MONTAGEM' : empresaSelecionada === 'mr' ? 'M R MONTAGEM' : 'MONTEX DIÁRIA'}</h3>
               <p className="text-sm text-muted-foreground">Processamento mensal de salários</p>
             </div>
             <div className="flex gap-2">
@@ -866,7 +926,7 @@ export default function RHPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {mockFolhaPagamento.map((folha) => (
+                  {folhaEmpresa.map((folha) => (
                     <TableRow key={folha.id}>
                       <TableCell className="font-medium">{folha.funcionario}</TableCell>
                       <TableCell className="text-right">R$ {(folha.salarioBruto || 0).toLocaleString('pt-BR')}</TableCell>
@@ -924,7 +984,7 @@ export default function RHPage() {
             </CardHeader>
             <CardContent>
               <div className="grid gap-4">
-                {eventos.map((evento) => (
+                {eventosEmpresa.map((evento) => (
                   <Card key={evento.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
                       <div className="flex items-center justify-between">
