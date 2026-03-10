@@ -10,7 +10,7 @@ import {
   User, Users, TrendingUp, TrendingDown, Award, Package, Target,
   Download, AlertTriangle, CheckCircle2, ArrowRight, Weight,
   Scissors, Flame, Droplets, Paintbrush, ChevronDown, ChevronUp,
-  RefreshCw, Loader2, DollarSign
+  RefreshCw, Loader2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -28,8 +28,8 @@ import {
 // Hook de analytics real
 import { useProducaoAnalytics } from '@/hooks/useProducaoAnalytics';
 import {
-  ETAPAS_LABELS, ETAPAS_CORES, VALORES_ETAPA,
-  formatKg, formatReais, getEficienciaCor, getEficienciaBadge,
+  ETAPAS_LABELS, ETAPAS_CORES,
+  formatKg,
 } from '@/utils/producaoCalculations';
 
 // ============ HELPERS ============
@@ -73,9 +73,6 @@ function EtapaMiniCard({ etapa, dados }) {
           <p className="text-sm font-bold text-white">{formatKg(dados.kg)}</p>
         </div>
       </div>
-      {dados.valor > 0 && (
-        <p className="text-[10px] text-slate-400 mt-1">{formatReais(dados.valor)}</p>
-      )}
     </div>
   );
 }
@@ -123,7 +120,6 @@ function FuncionarioRealCard({ func, onSelect, isSelected }) {
           <p className="text-xl font-bold text-white">{func.totais?.unidades || 0}</p>
           <p className="text-[10px] text-slate-500">unidades</p>
           <p className="text-sm font-semibold text-cyan-400">{formatKg(func.totais?.kg)}</p>
-          <p className="text-xs text-emerald-400 font-medium">{formatReais(func.totais?.valorTotal)}</p>
         </div>
       </div>
 
@@ -186,7 +182,7 @@ function DetalhesPanel({ func, onClose }) {
           </div>
 
           {/* KPIs do funcionário */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="bg-slate-800/50 rounded-lg p-3 text-center">
               <Package className="h-5 w-5 text-cyan-400 mx-auto mb-1" />
               <p className="text-xl font-bold text-white">{func.totais?.unidades || 0}</p>
@@ -196,11 +192,6 @@ function DetalhesPanel({ func, onClose }) {
               <Weight className="h-5 w-5 text-emerald-400 mx-auto mb-1" />
               <p className="text-xl font-bold text-white">{formatKg(func.totais?.kg)}</p>
               <p className="text-[10px] text-slate-500">KG Total</p>
-            </div>
-            <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-              <DollarSign className="h-5 w-5 text-amber-400 mx-auto mb-1" />
-              <p className="text-xl font-bold text-white">{formatReais(func.totais?.valorTotal)}</p>
-              <p className="text-[10px] text-slate-500">Valor Gerado</p>
             </div>
           </div>
         </CardContent>
@@ -216,20 +207,18 @@ function DetalhesPanel({ func, onClose }) {
             {etapas.map(([etapa, dados]) => {
               const Icon = ETAPA_ICONS[etapa] || Package;
               const cores = ETAPAS_CORES[etapa] || {};
-              const valorKg = VALORES_ETAPA[etapa] || 0;
               return (
                 <div key={etapa} className={cn("rounded-lg border p-3 bg-gradient-to-r", cores.bg, cores.border)}>
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <Icon className={cn("h-4 w-4", cores.text)} />
-                      <span className={cn("text-sm font-semibold", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
-                      <span className="text-[10px] text-slate-500">R$ {valorKg.toFixed(2)}/kg</span>
-                    </div>
-                    <span className="text-sm font-bold text-emerald-400">{formatReais(dados.valor)}</span>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon className={cn("h-4 w-4", cores.text)} />
+                    <span className={cn("text-sm font-semibold", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
+                    <Badge variant="outline" className="text-[10px] border-slate-600 text-slate-400 ml-auto">
+                      Etapa concluída
+                    </Badge>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <p className="text-xs text-slate-500">Unidades</p>
+                      <p className="text-xs text-slate-500">Peças Finalizadas</p>
                       <p className="text-lg font-bold text-white">{dados.unidades}</p>
                     </div>
                     <div>
@@ -307,7 +296,6 @@ export default function ProducaoFuncionarioPage() {
       case 'ranking': lista.sort((a, b) => a.ranking - b.ranking); break;
       case 'unidades': lista.sort((a, b) => (b.totais?.unidades || 0) - (a.totais?.unidades || 0)); break;
       case 'kg': lista.sort((a, b) => (b.totais?.kg || 0) - (a.totais?.kg || 0)); break;
-      case 'valor': lista.sort((a, b) => (b.totais?.valorTotal || 0) - (a.totais?.valorTotal || 0)); break;
     }
     return lista;
   }, [funcionariosComDados, filtroSetor, ordenacao]);
@@ -319,7 +307,6 @@ export default function ProducaoFuncionarioPage() {
       ranking: f.ranking, tendencia: f.tendencia,
       totalUnidades: f.totais?.unidades || 0,
       totalKg: f.totais?.kg || 0,
-      totalValor: f.totais?.valorTotal || 0,
       corteUn: f.porEtapa?.corte?.unidades || 0, corteKg: f.porEtapa?.corte?.kg || 0,
       fabUn: f.porEtapa?.fabricacao?.unidades || 0, fabKg: f.porEtapa?.fabricacao?.kg || 0,
       soldaUn: f.porEtapa?.solda?.unidades || 0, soldaKg: f.porEtapa?.solda?.kg || 0,
@@ -330,7 +317,6 @@ export default function ProducaoFuncionarioPage() {
       { header: 'Setor', key: 'setor' }, { header: 'Equipe', key: 'equipe' },
       { header: 'Ranking', key: 'ranking' }, { header: 'Tendência', key: 'tendencia' },
       { header: 'Total Un.', key: 'totalUnidades' }, { header: 'Total KG', key: 'totalKg' },
-      { header: 'Valor R$', key: 'totalValor' },
       { header: 'Corte Un.', key: 'corteUn' }, { header: 'Corte KG', key: 'corteKg' },
       { header: 'Fab Un.', key: 'fabUn' }, { header: 'Fab KG', key: 'fabKg' },
       { header: 'Solda Un.', key: 'soldaUn' }, { header: 'Solda KG', key: 'soldaKg' },
@@ -351,7 +337,7 @@ export default function ProducaoFuncionarioPage() {
             </div>
             Produção por Funcionário
           </h1>
-          <p className="text-slate-400 mt-1">Métricas reais · KG e Unidades separados · Dados do Supabase</p>
+          <p className="text-slate-400 mt-1">Peças finalizadas por etapa · KG e Unidades · Dados reais do Supabase</p>
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
@@ -373,7 +359,6 @@ export default function ProducaoFuncionarioPage() {
               <SelectItem value="ranking">Ranking</SelectItem>
               <SelectItem value="unidades">Unidades</SelectItem>
               <SelectItem value="kg">KG</SelectItem>
-              <SelectItem value="valor">Valor R$</SelectItem>
             </SelectContent>
           </Select>
 
@@ -388,12 +373,11 @@ export default function ProducaoFuncionarioPage() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           { icon: Users, label: 'Com Produção', value: kpis.totalFuncionariosComDados, color: 'text-cyan-400', bg: 'bg-cyan-500/20' },
-          { icon: Package, label: 'Total Unidades', value: kpis.totalUnidades.toLocaleString(), color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
+          { icon: Package, label: 'Peças Finalizadas', value: kpis.totalUnidades.toLocaleString(), color: 'text-emerald-400', bg: 'bg-emerald-500/20' },
           { icon: Weight, label: 'Total KG', value: formatKg(kpis.totalKg), color: 'text-blue-400', bg: 'bg-blue-500/20' },
-          { icon: DollarSign, label: 'Valor Gerado', value: formatReais(kpis.totalValor), color: 'text-amber-400', bg: 'bg-amber-500/20' },
           { icon: AlertTriangle, label: 'Pendentes', value: kpis.totalFuncionariosSemDados, color: 'text-slate-400', bg: 'bg-slate-500/20' },
         ].map((kpi) => (
           <Card key={kpi.label} className="bg-slate-900/60 border-slate-700/50">
@@ -410,7 +394,7 @@ export default function ProducaoFuncionarioPage() {
         ))}
       </div>
 
-      {/* Resumo por Etapa */}
+      {/* Resumo por Etapa - Peças Finalizadas */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {Object.entries(kpis.porEtapa || {}).map(([etapa, dados]) => {
           const Icon = ETAPA_ICONS[etapa] || Package;
@@ -421,12 +405,11 @@ export default function ProducaoFuncionarioPage() {
                 <div className="flex items-center gap-2 mb-2">
                   <Icon className={cn("h-4 w-4", cores.text)} />
                   <span className={cn("text-sm font-semibold", cores.text)}>{ETAPAS_LABELS[etapa]}</span>
-                  <span className="text-[10px] text-slate-500 ml-auto">R${(VALORES_ETAPA[etapa] || 0).toFixed(2)}/kg</span>
+                  <Badge variant="outline" className="text-[9px] border-slate-600 text-slate-500 ml-auto">concluídas</Badge>
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div><p className="text-sm font-bold text-white">{dados.un}</p><p className="text-[10px] text-slate-500">Un.</p></div>
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  <div><p className="text-sm font-bold text-white">{dados.un}</p><p className="text-[10px] text-slate-500">Peças</p></div>
                   <div><p className="text-sm font-bold text-white">{formatKg(dados.kg)}</p><p className="text-[10px] text-slate-500">KG</p></div>
-                  <div><p className="text-sm font-bold text-emerald-400">{formatReais(dados.valor)}</p><p className="text-[10px] text-slate-500">Valor</p></div>
                 </div>
               </CardContent>
             </Card>

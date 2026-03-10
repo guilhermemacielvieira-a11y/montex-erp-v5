@@ -63,8 +63,14 @@ export function useProducaoAnalytics(options = {}) {
         .lte('data_inicio', periodoEfetivo.fim)
         .order('data_inicio', { ascending: false });
 
+      // Filtro por etapa: usa etapa_de pois produção é contabilizada pela etapa CONCLUÍDA
+      // Mapeamento: aguardando = corte (Kanban Corte usa "aguardando → finalizado")
       if (etapaFiltro) {
-        histQuery = histQuery.eq('etapa_para', etapaFiltro);
+        if (etapaFiltro === 'corte') {
+          histQuery = histQuery.in('etapa_de', ['corte', 'aguardando']);
+        } else {
+          histQuery = histQuery.eq('etapa_de', etapaFiltro);
+        }
       }
 
       const { data: histData, error: histErr } = await histQuery;

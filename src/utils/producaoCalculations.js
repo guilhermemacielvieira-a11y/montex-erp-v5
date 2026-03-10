@@ -54,7 +54,28 @@ export function calcularEficiencia(realizado, meta) {
 }
 
 /**
- * Agregar histórico de produção por etapa para um funcionário
+ * Mapear etapa_de para a etapa de produção correta.
+ * A produção de uma etapa é contabilizada quando a peça FINALIZA aquela etapa
+ * (ou seja, sai dela — campo etapa_de no histórico).
+ *
+ * Exemplo: Peça sai de "fabricacao" → "solda" = Fabricação CONCLUÍDA
+ * Kanban Corte usa "aguardando" → "finalizado" = Corte CONCLUÍDO
+ */
+const ETAPA_DE_MAP = {
+  aguardando: 'corte',     // Kanban Corte: aguardando → finalizado = corte concluído
+  corte: 'corte',          // Fallback se algum registro usar "corte" como etapa_de
+  fabricacao: 'fabricacao', // Peça sai de fabricação → solda = fabricação concluída
+  solda: 'solda',          // Peça sai de solda → pintura = solda concluída
+  pintura: 'pintura',      // Peça sai de pintura → expedido = pintura concluída
+};
+
+/**
+ * Agregar histórico de produção por etapa para um funcionário.
+ *
+ * LÓGICA: Produção é contabilizada pela etapa DE ONDE a peça SAIU (etapa_de).
+ * Quando uma peça finaliza o Corte e vai pra Fabricação, o CORTE é creditado.
+ * Quando finaliza Fabricação e vai pra Solda, a FABRICAÇÃO é creditada.
+ *
  * @param {Array} historico - Registros de producao_historico
  * @param {Array} pecas - Registros de pecas_producao (com peso_total)
  * @returns {Object} Métricas por etapa
@@ -72,12 +93,15 @@ export function agregarPorEtapa(historico, pecas = []) {
   });
 
   historico.forEach(h => {
-    const etapa = h.etapa_para;
-    if (etapas[etapa]) {
-      etapas[etapa].unidades += 1;
+    // Usar etapa_de (de onde a peça saiu) = etapa que foi CONCLUÍDA
+    const etapaOrigem = h.etapa_de;
+    const etapaMapeada = ETAPA_DE_MAP[etapaOrigem];
+
+    if (etapaMapeada && etapas[etapaMapeada]) {
+      etapas[etapaMapeada].unidades += 1;
       const pecaInfo = pecaMap.get(h.peca_id);
       if (pecaInfo) {
-        etapas[etapa].kg += pecaInfo.peso;
+        etapas[etapaMapeada].kg += pecaInfo.peso;
       }
     }
   });
