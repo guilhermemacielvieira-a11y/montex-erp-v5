@@ -37,6 +37,7 @@ import {
 } from './transforms';
 import { erpReducer } from './reducers';
 import { retryWithBackoff } from '../utils/retryWithBackoff';
+import { toast } from 'sonner';
 
 // Mock data importado APENAS em desenvolvimento via lazy import
 let mockDataModule = null;
@@ -388,6 +389,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Orçamento ${orcamento.id} criado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar orçamento no Supabase:', err.message);
+        toast.error(`Erro ao salvar orçamento: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -401,6 +404,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Orçamento ${orcamentoId} atualizado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar orçamento no Supabase:', err.message);
+        toast.error(`Erro ao atualizar orçamento: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -413,6 +418,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Orçamento ${orcamentoId} deletado do Supabase`);
       } catch (err) {
         console.error('❌ Erro ao deletar orçamento no Supabase:', err.message);
+        toast.error(`Erro ao deletar orçamento: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -726,6 +733,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Compra ${compra.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar compra no Supabase:', err.message);
+        toast.error(`Erro ao salvar compra: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -836,6 +845,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Config medição ${tipo}/${etapa} salva no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar config medição:', err.message);
+        toast.error(`Erro ao salvar configuração de medição: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -984,6 +995,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Máquina ${id} atualizada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar máquina no Supabase:', err.message);
+        toast.error(`Erro ao atualizar máquina: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -1039,6 +1052,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ ${materiais.length} materiais salvos no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar materiais no Supabase:', err.message);
+        toast.error(`Erro ao salvar materiais: ${err.message}`);
       }
     }
 
@@ -1095,6 +1109,8 @@ export function ERPProvider({ children }) {
         console.log(`✅ Material ${id} atualizado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar material no Supabase:', err.message);
+        toast.error(`Erro ao atualizar material: ${err.message}`);
+        throw err;
       }
     }
   }, [dataSource]);
