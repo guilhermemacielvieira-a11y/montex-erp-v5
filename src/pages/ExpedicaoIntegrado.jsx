@@ -469,7 +469,7 @@ export default function ExpedicaoIntegrado() {
                   </motion.div>
                 ) : (
                   expedicoesFiltradas.map((expedicao, index) => {
-                    const config = STATUS_CONFIG[expedicao.status];
+                    const config = STATUS_CONFIG[expedicao.status] || STATUS_CONFIG[Object.keys(STATUS_CONFIG)[0]];
                     const Icon = config.icon;
                     const isExpanded = expandedRomaneios[expedicao.id];
                     const obra = obras.find(o => o.id === expedicao.obraId);
