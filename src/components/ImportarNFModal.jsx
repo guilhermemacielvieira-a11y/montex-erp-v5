@@ -423,14 +423,39 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
     }
     setLoading(true); setErro('');
     try {
-      const resp = await fetch(`https://brasilapi.com.br/api/nfe/v1/${chave}`, {
-        signal: AbortSignal.timeout(15000)
-      });
-      if (!resp.ok) {
-        if (resp.status === 404) throw new Error('NFe nao encontrada. Verifique a chave de acesso.');
-        if (resp.status === 500) throw new Error('Servico indisponivel. Tente importar via XML.');
-        throw new Error(`Erro ${resp.status} na consulta.`);
+      // Tentar múltiplas URLs (direta + proxies CORS) para contornar bloqueio de navegador
+      const urls = [
+        `https://brasilapi.com.br/api/nfe/v1/${chave}`,
+        `https://corsproxy.io/?${encodeURIComponent(`https://brasilapi.com.br/api/nfe/v1/${chave}`)}`,
+        `https://api.allorigins.win/raw?url=${encodeURIComponent(`https://brasilapi.com.br/api/nfe/v1/${chave}`)}`,
+      ];
+
+      let resp = null;
+      let lastError = null;
+
+      for (const url of urls) {
+        try {
+          resp = await fetch(url, {
+            signal: AbortSignal.timeout(12000),
+            headers: { 'Accept': 'application/json' }
+          });
+          if (resp.ok) break;
+          // Se deu 404 ou 500 na API real, não tentar proxy
+          if (resp.status === 404) throw new Error('NFe nao encontrada. Verifique a chave de acesso.');
+          if (resp.status === 500) throw new Error('Servico SEFAZ indisponivel. Tente importar via XML.');
+          resp = null;
+        } catch (fetchErr) {
+          lastError = fetchErr;
+          if (fetchErr.message.includes('NFe nao encontrada') || fetchErr.message.includes('SEFAZ')) throw fetchErr;
+          resp = null;
+          continue; // Tentar próximo proxy
+        }
       }
+
+      if (!resp || !resp.ok) {
+        throw lastError || new Error('Nao foi possivel consultar a NFe. Verifique sua conexao ou tente importar via XML.');
+      }
+
       const data = await resp.json();
 
       const parsed = {
