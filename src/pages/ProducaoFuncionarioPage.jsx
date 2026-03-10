@@ -351,80 +351,200 @@ function DashboardKPIs({ kpis, pecas }) {
   );
 }
 
-// ============ TOP PERFORMERS RANKING ============
-function TopPerformersSection({ performers }) {
+// ============ RANKING POR SETOR ============
+function RankingSetorCard({ titulo, icon: Icon, color, performers, bgGradient, borderColor }) {
   if (!performers || performers.length === 0) return null;
 
-  // Dados para gráfico comparativo dos top 5
-  const chartData = performers.slice(0, 8).map(f => ({
+  const chartData = performers.slice(0, 5).map(f => ({
     nome: f.nome?.split(' ')[0] || '?',
     unidades: f.totais?.unidades || 0,
     kg: Math.round(f.totais?.kg || 0),
   }));
 
   return (
-    <Card className="bg-slate-900/60 border-slate-700/50">
+    <Card className={cn("border", bgGradient, borderColor)}>
       <CardHeader className="pb-2">
-        <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
-          <Trophy className="h-4 w-4 text-amber-400" />
-          Top Performers — Ranking de Produção
+        <CardTitle className="text-sm text-white flex items-center gap-2">
+          <Icon className={cn("h-5 w-5", color)} />
+          {titulo}
+          <Badge variant="outline" className="text-[10px] border-slate-600 text-slate-400 ml-auto">{performers.length} funcionários</Badge>
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Ranking visual */}
-          <div className="space-y-2">
-            {performers.slice(0, 5).map((f, i) => (
-              <motion.div
-                key={f.id}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.1 }}
-                className={cn(
-                  "flex items-center gap-3 p-3 rounded-xl border transition-all",
-                  i === 0 ? "bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border-amber-500/30" :
-                  i === 1 ? "bg-gradient-to-r from-slate-400/10 to-slate-500/10 border-slate-400/30" :
-                  i === 2 ? "bg-gradient-to-r from-amber-700/10 to-amber-800/10 border-amber-700/30" :
-                  "bg-slate-800/30 border-slate-700/30"
-                )}
-              >
-                <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white bg-gradient-to-br", getRankingColor(i + 1))}>
-                  {i + 1}º
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-white truncate">{f.nome}</p>
-                  <p className="text-[10px] text-slate-500">{f.cargo} · {f.equipeNome || f.setor || '-'}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-lg font-black text-white">{(f.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
-                  <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)}</p>
-                </div>
-                <div className="ml-1">
-                  {getTendenciaIcon(f.tendencia)}
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          {/* Gráfico comparativo */}
-          <div>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={chartData} layout="vertical">
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                <XAxis type="number" stroke="#475569" fontSize={10} />
-                <YAxis type="category" dataKey="nome" stroke="#94a3b8" fontSize={11} width={70} />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="unidades" fill="#22d3ee" radius={[0, 6, 6, 0]} name="Peças" barSize={14}>
-                  {chartData.map((_, idx) => (
-                    <Cell key={idx} fill={idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#22d3ee'} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
+        <div className="space-y-2 mb-4">
+          {performers.slice(0, 5).map((f, i) => (
+            <motion.div
+              key={f.id}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: i * 0.05 }}
+              className={cn(
+                "flex items-center gap-3 p-2.5 rounded-lg border transition-all",
+                i === 0 ? "bg-amber-500/10 border-amber-500/20" :
+                i === 1 ? "bg-slate-400/10 border-slate-400/20" :
+                i === 2 ? "bg-amber-700/10 border-amber-700/20" :
+                "bg-slate-800/20 border-slate-700/20"
+              )}
+            >
+              <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-black text-white bg-gradient-to-br", getRankingColor(i + 1))}>
+                {i + 1}º
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{f.nome}</p>
+                <p className="text-[10px] text-slate-500">{f.cargo}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-base font-black text-white">{(f.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
+                <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)}</p>
+              </div>
+              {getTendenciaIcon(f.tendencia)}
+            </motion.div>
+          ))}
         </div>
+
+        {chartData.length > 1 && (
+          <ResponsiveContainer width="100%" height={160}>
+            <BarChart data={chartData} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+              <XAxis type="number" stroke="#475569" fontSize={9} />
+              <YAxis type="category" dataKey="nome" stroke="#94a3b8" fontSize={10} width={60} />
+              <Tooltip content={<CustomTooltip />} />
+              <Bar dataKey="unidades" radius={[0, 4, 4, 0]} name="Peças" barSize={12}>
+                {chartData.map((_, idx) => (
+                  <Cell key={idx} fill={idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#22d3ee'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </CardContent>
     </Card>
+  );
+}
+
+function TopPerformersSection({ performers }) {
+  if (!performers || performers.length === 0) return null;
+
+  // Separar por setor/etapa principal de trabalho
+  // Produção/Corte: etapas corte + fabricacao
+  // Solda: etapa solda
+  // Pintura: etapa pintura
+  const rankCorteProducao = performers.filter(f => {
+    const etapas = f.porEtapa || {};
+    const corteUn = etapas.corte?.unidades || 0;
+    const fabUn = etapas.fabricacao?.unidades || 0;
+    return corteUn > 0 || fabUn > 0;
+  }).sort((a, b) => {
+    const aUn = (a.porEtapa?.corte?.unidades || 0) + (a.porEtapa?.fabricacao?.unidades || 0);
+    const bUn = (b.porEtapa?.corte?.unidades || 0) + (b.porEtapa?.fabricacao?.unidades || 0);
+    return bUn - aUn;
+  });
+
+  const rankSolda = performers.filter(f => (f.porEtapa?.solda?.unidades || 0) > 0)
+    .sort((a, b) => (b.porEtapa?.solda?.unidades || 0) - (a.porEtapa?.solda?.unidades || 0));
+
+  const rankPintura = performers.filter(f => (f.porEtapa?.pintura?.unidades || 0) > 0)
+    .sort((a, b) => (b.porEtapa?.pintura?.unidades || 0) - (a.porEtapa?.pintura?.unidades || 0));
+
+  // Ranking geral
+  const chartDataGeral = performers.slice(0, 8).map(f => ({
+    nome: f.nome?.split(' ')[0] || '?',
+    unidades: f.totais?.unidades || 0,
+    kg: Math.round(f.totais?.kg || 0),
+  }));
+
+  return (
+    <div className="space-y-4">
+      {/* Ranking Geral */}
+      <Card className="bg-slate-900/60 border-slate-700/50">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-slate-300 flex items-center gap-2">
+            <Trophy className="h-4 w-4 text-amber-400" />
+            Ranking Geral — Top Performers
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="space-y-2">
+              {performers.slice(0, 5).map((f, i) => (
+                <motion.div
+                  key={f.id}
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.1 }}
+                  className={cn(
+                    "flex items-center gap-3 p-3 rounded-xl border",
+                    i === 0 ? "bg-gradient-to-r from-amber-500/10 to-yellow-500/10 border-amber-500/30" :
+                    i === 1 ? "bg-gradient-to-r from-slate-400/10 to-slate-500/10 border-slate-400/30" :
+                    i === 2 ? "bg-gradient-to-r from-amber-700/10 to-amber-800/10 border-amber-700/30" :
+                    "bg-slate-800/30 border-slate-700/30"
+                  )}
+                >
+                  <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-xs font-black text-white bg-gradient-to-br", getRankingColor(i + 1))}>
+                    {i + 1}º
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-white truncate">{f.nome}</p>
+                    <p className="text-[10px] text-slate-500">{f.cargo} · {f.equipeNome || f.setor || '-'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-black text-white">{(f.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
+                    <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)}</p>
+                  </div>
+                  {getTendenciaIcon(f.tendencia)}
+                </motion.div>
+              ))}
+            </div>
+            <div>
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={chartDataGeral} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                  <XAxis type="number" stroke="#475569" fontSize={10} />
+                  <YAxis type="category" dataKey="nome" stroke="#94a3b8" fontSize={11} width={70} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Bar dataKey="unidades" fill="#22d3ee" radius={[0, 6, 6, 0]} name="Peças" barSize={14}>
+                    {chartDataGeral.map((_, idx) => (
+                      <Cell key={idx} fill={idx === 0 ? '#f59e0b' : idx === 1 ? '#94a3b8' : idx === 2 ? '#b45309' : '#22d3ee'} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Rankings por Setor */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RankingSetorCard
+          titulo="Produção / Corte"
+          icon={Scissors}
+          color="text-amber-400"
+          performers={rankCorteProducao}
+          bgGradient="bg-gradient-to-br from-amber-500/5 to-orange-500/5"
+          borderColor="border-amber-500/20"
+        />
+        <RankingSetorCard
+          titulo="Solda"
+          icon={Droplets}
+          color="text-red-400"
+          performers={rankSolda}
+          bgGradient="bg-gradient-to-br from-red-500/5 to-rose-500/5"
+          borderColor="border-red-500/20"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RankingSetorCard
+          titulo="Pintura"
+          icon={Paintbrush}
+          color="text-cyan-400"
+          performers={rankPintura}
+          bgGradient="bg-gradient-to-br from-cyan-500/5 to-blue-500/5"
+          borderColor="border-cyan-500/20"
+        />
+      </div>
+    </div>
   );
 }
 
