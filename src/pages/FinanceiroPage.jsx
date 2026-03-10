@@ -1,15 +1,13 @@
-// MONTEX ERP Premium - Página Financeira
-// Gestão financeira completa com receitas, despesas e análises
-// Integrado com ERPContext - Dados reais da obra SUPER LUNA
+// MONTEX ERP Premium - Painel Financeiro Geral
+// Consolida: Despesas Gerais (lancamentos sem obra) + Receitas (medições de obras)
+// Financeiro Fábrica - Visão unificada da saúde financeira da empresa
 
-import React, { useState, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   DollarSign,
   TrendingUp,
   TrendingDown,
   Plus,
-  CreditCard,
   Wallet,
   Receipt,
   ArrowUpRight,
@@ -21,28 +19,32 @@ import {
   FileText,
   CheckCircle2,
   Clock,
-  X,
-  Save,
   Trash2,
-  Upload,
-  FileUp
+  Calendar,
+  Building2,
+  AlertTriangle,
 } from 'lucide-react';
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  PieChart as RePieChart,
+  PieChart,
   Pie,
   Cell,
+  Legend,
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -56,1151 +58,746 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 
-// ERPContext - dados reais
-import { useLancamentos } from '../contexts/ERPContext';
-import ImportarNFModal from '../components/ImportarNFModal';
+// ERPContext
+import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 
-// PAINEL FINANCEIRO GERAL DA EMPRESA
-// Independente do módulo Gestão Financeira da Obra
-// Os lançamentos da obra ficam em: GestaoFinanceiraObra.jsx
-// Este painel é para gestão financeira GERAL (todas as obras, empresa)
-
-// Funções utilitárias
+// ========== HELPERS ==========
 const formatCurrency = (value) => {
-  if (!value && value !== 0) return 'R$ 0,00';
   return new Intl.NumberFormat('pt-BR', {
     style: 'currency',
-    currency: 'BRL'
-  }).format(value);
+    currency: 'BRL',
+    minimumFractionDigits: 0
+  }).format(value || 0);
 };
 
 const formatDate = (date) => {
-  if (!date) return '-';
-  return new Date(date).toLocaleDateString('pt-BR');
-};
-
-// Cores para categorias
-const categoriasCores = {
-  'material': { cor: '#3B82F6', label: 'Material', icon: Receipt },
-  'mao_de_obra': { cor: '#F97316', label: 'Mão de Obra', icon: Wallet },
-  'transporte': { cor: '#A855F7', label: 'Transporte', icon: CreditCard },
-  'equipamento': { cor: '#10B981', label: 'Equipamento', icon: Receipt },
-  'administrativo': { cor: '#64748B', label: 'Administrativo', icon: DollarSign },
-  'outros': { cor: '#EF4444', label: 'Outros', icon: DollarSign },
-  'venda': { cor: '#22C55E', label: 'Venda', icon: DollarSign },
-};
-
-// Card de KPI Financeiro
-function FinanceCard({ title, value, subtitle, icon: Icon, color, trend, trendLabel }) {
-  const isPositive = trend >= 0;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div className={cn(
-          "w-12 h-12 rounded-xl flex items-center justify-center",
-          `bg-gradient-to-br ${color}`
-        )}>
-          <Icon className="h-6 w-6 text-white" />
-        </div>
-        {trend !== undefined && (
-          <div className={cn(
-            "flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium",
-            isPositive ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"
-          )}>
-            {isPositive ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
-            {isPositive ? '+' : ''}{trend}%
-          </div>
-        )}
-      </div>
-      <p className="text-sm text-slate-400 mb-1">{title}</p>
-      <p className="text-2xl font-bold text-white">{value}</p>
-      {subtitle && (
-        <p className="text-xs text-slate-500 mt-1">{subtitle}</p>
-      )}
-      {trendLabel && (
-        <p className="text-xs text-slate-500 mt-2">{trendLabel}</p>
-      )}
-    </motion.div>
-  );
-}
-
-// Tooltip customizado para gráficos
-const CustomTooltip = ({ active, payload, label }) => {
-  if (active && payload && payload.length) {
-    return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-xl">
-        <p className="text-white font-medium mb-2">{label}</p>
-        {payload.map((entry, index) => (
-          <p key={index} className="text-sm" style={{ color: entry.color }}>
-            {entry.name}: {formatCurrency(entry.value)}
-          </p>
-        ))}
-      </div>
-    );
+  if (!date || date === '-') return '-';
+  try {
+    return new Date(date).toLocaleDateString('pt-BR');
+  } catch {
+    return '-';
   }
-  return null;
 };
 
-// Componente Principal
+const ETAPA_LABELS = {
+  fabricacao: 'Fabricação',
+  montagem: 'Montagem',
+};
+
+// Cores das categorias de despesa
+const CORES_CATEGORIAS = {
+  'Matéria Prima': '#10b981',
+  'Mão de Obra': '#3b82f6',
+  'Energia/Utilidades': '#f59e0b',
+  'Manutenção': '#8b5cf6',
+  'Transporte': '#ec4899',
+  'Administrativo': '#06b6d4',
+  'Impostos': '#ef4444',
+  'Medição': '#10b981',
+  'Adiantamento': '#3b82f6',
+  'Serviço Avulso': '#ec4899',
+  'Material Faturado': '#06b6d4',
+  'Outros': '#64748b',
+};
+
 export default function FinanceiroPage() {
-  // ERPContext - dados financeiros gerais (independente de obra)
-  const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
+  // ===== DADOS DO SUPABASE =====
+  const { lancamentosDespesas, addLancamento, updateLancamento, deleteLancamento } = useLancamentos();
+  const { medicoes: todasMedicoes } = useMedicoes();
+  const { obras } = useObras();
 
-  // Estados de filtros
-  const [periodo, setPeriodo] = useState('mes');
+  // ===== ESTADOS =====
+  const [activeTab, setActiveTab] = useState('geral');
+  const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  // Nota: Sem filtro por obra - Painel Financeiro é independente da Gestão de Obra
-  const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState('visao-geral');
-
-  // Modal de nova movimentação / edição
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editandoId, setEditandoId] = useState(null);
+  const [filtroObra, setFiltroObra] = useState('geral'); // 'geral' | 'fabrica' | obraId
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [formData, setFormData] = useState({
-    tipo: 'despesa', descricao: '', valor: '', categoria: 'material',
-    data: new Date().toISOString().split('T')[0], status: 'pendente',
-    fornecedor: '', nf: '', observacao: '', formaPagto: 'boleto'
+    tipo: 'despesa', descricao: '', valor: '', categoria: '',
+    fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente'
   });
 
-  // Importação
-  const [importModalOpen, setImportModalOpen] = useState(false);
-  const [showImportNF, setShowImportNF] = useState(false);
-  const [importData, setImportData] = useState([]);
-  const [importFile, setImportFile] = useState(null);
+  // ===== MAPA DE OBRAS =====
+  const obrasMap = useMemo(() => {
+    const map = {};
+    (obras || []).forEach(o => { map[o.id] = o.nome || o.name || o.id; });
+    return map;
+  }, [obras]);
 
-  // Movimentações do Painel Financeiro: APENAS lançamentos SEM obra_id
-  // Completamente independente da Gestão Financeira de Obra
-  const movimentacoes = useMemo(() => {
-    return [...(lancamentosDespesas || [])]
-      .filter(l => (!l.obraId || l.obraId === 'financeiro-geral') && (!l.obra_id || l.obra_id === 'financeiro-geral'))
-      .sort((a, b) => new Date(b.data) - new Date(a.data));
+  // ===== DESPESAS GERAIS (sem obraId = Financeiro Fábrica) =====
+  const despesasGerais = useMemo(() => {
+    if (!lancamentosDespesas || lancamentosDespesas.length === 0) return [];
+    return lancamentosDespesas
+      .filter(l => !l.obraId && !l.obra_id)
+      .map(l => ({
+        id: l.id,
+        tipo: 'despesa',
+        data: l.dataEmissao || l.data || l.createdAt || '',
+        descricao: l.descricao || l.nome || '-',
+        fornecedor: l.fornecedor || '-',
+        categoria: l.categoria || 'Outros',
+        valor: l.valor || 0,
+        status: l.status || 'pendente',
+        formaPagto: l.formaPagto || '-',
+        vencimento: l.dataVencimento || l.vencimento || '-',
+        origem: 'Despesa Fábrica',
+        origemObra: false,
+      }));
   }, [lancamentosDespesas]);
 
-  // Funções do modal
-  const abrirNovaMovimentacao = (tipo = 'despesa') => {
-    setEditandoId(null);
-    setFormData({
-      tipo, descricao: '', valor: '', categoria: 'material',
-      data: new Date().toISOString().split('T')[0], status: 'pendente',
-      obraId: '', fornecedor: '', nf: '', observacao: '', formaPagto: 'boleto'
+  // ===== RECEITAS DAS MEDIÇÕES (todas as obras) =====
+  const receitasMedicoes = useMemo(() => {
+    if (!todasMedicoes || todasMedicoes.length === 0) return [];
+    return todasMedicoes.map(m => {
+      const obraId = m.obraId || m.obra_id;
+      const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
+      const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
+      return {
+        id: m.id,
+        tipo: 'receita',
+        data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
+        descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
+        fornecedor: obraNome,
+        categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
+        valor: m.valorBruto || m.valor_bruto || 0,
+        valorLiquido: m.valorLiquido || m.valor_liquido || 0,
+        status: ['pago', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
+        formaPagto: '-',
+        vencimento: m.dataMedicao || m.data_medicao || '-',
+        numero: m.numero,
+        etapa: m.etapa,
+        etapaLabel,
+        origem: `Obra: ${obraNome}`,
+        origemObra: true,
+        obraId,
+        obraNome,
+      };
     });
-    setModalOpen(true);
+  }, [todasMedicoes, obrasMap]);
+
+  // ===== OPÇÕES DE OBRAS PARA O SELETOR =====
+  const opcoesObra = useMemo(() => {
+    const opcoes = [
+      { value: 'geral', label: 'Visão Geral (Todas)' },
+      { value: 'fabrica', label: 'Financeiro Fábrica (Despesas)' },
+    ];
+    (obras || []).forEach(o => {
+      opcoes.push({ value: o.id, label: o.nome || o.name || o.id });
+    });
+    return opcoes;
+  }, [obras]);
+
+  // ===== TODAS AS MOVIMENTAÇÕES CONSOLIDADAS (com filtro de obra) =====
+  const todasMovimentacoes = useMemo(() => {
+    let despesas = despesasGerais;
+    let receitas = receitasMedicoes;
+
+    if (filtroObra === 'fabrica') {
+      // Somente despesas da fábrica (sem obraId)
+      receitas = [];
+    } else if (filtroObra !== 'geral') {
+      // Filtra por obra específica
+      despesas = []; // Despesas gerais não pertencem a nenhuma obra
+      receitas = receitasMedicoes.filter(r => r.obraId === filtroObra);
+    }
+    // 'geral' mostra tudo
+
+    return [...despesas, ...receitas]
+      .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
+  }, [despesasGerais, receitasMedicoes, filtroObra]);
+
+  // ===== FILTRO DE PERÍODO =====
+  const filtrarPorPeriodo = useCallback((lista) => {
+    if (filtroPeriodo === 'geral') return lista;
+    const hoje = new Date();
+    const inicio = new Date();
+    if (filtroPeriodo === 'semanal') inicio.setDate(hoje.getDate() - 7);
+    else if (filtroPeriodo === 'mensal') inicio.setMonth(hoje.getMonth() - 1);
+    else if (filtroPeriodo === 'trimestral') inicio.setMonth(hoje.getMonth() - 3);
+    return lista.filter(m => {
+      const d = new Date(m.data || m.vencimento);
+      return d >= inicio && d <= hoje;
+    });
+  }, [filtroPeriodo]);
+
+  // ===== DADOS DO PERÍODO =====
+  const movimentacoesPeriodo = useMemo(() => filtrarPorPeriodo(todasMovimentacoes), [todasMovimentacoes, filtrarPorPeriodo]);
+
+  // ===== KPIs =====
+  const kpis = useMemo(() => {
+    const receitas = movimentacoesPeriodo.filter(m => m.tipo === 'receita');
+    const despesas = movimentacoesPeriodo.filter(m => m.tipo === 'despesa');
+    const totalReceitas = receitas.reduce((s, m) => s + (m.valor || 0), 0);
+    const totalDespesas = despesas.reduce((s, m) => s + (m.valor || 0), 0);
+    const receitasRecebidas = receitas.filter(m => ['recebido', 'pago', 'faturado', 'confirmado'].includes(m.status)).reduce((s, m) => s + (m.valor || 0), 0);
+    const receitasPendentes = receitas.filter(m => m.status === 'pendente' || m.status === 'aprovado').reduce((s, m) => s + (m.valor || 0), 0);
+    const despesasPagas = despesas.filter(m => m.status === 'pago').reduce((s, m) => s + (m.valor || 0), 0);
+    const despesasPendentes = despesas.filter(m => m.status === 'pendente').reduce((s, m) => s + (m.valor || 0), 0);
+    const lucro = totalReceitas - totalDespesas;
+    const margem = totalReceitas > 0 ? (lucro / totalReceitas * 100) : 0;
+    return {
+      totalReceitas, totalDespesas, lucro, margem,
+      receitasRecebidas, receitasPendentes,
+      despesasPagas, despesasPendentes,
+      qtdReceitas: receitas.length, qtdDespesas: despesas.length,
+      qtdTotal: movimentacoesPeriodo.length,
+    };
+  }, [movimentacoesPeriodo]);
+
+  // ===== DADOS PARA GRÁFICOS =====
+  // Pizza: despesas por categoria
+  const dadosPizzaDespesas = useMemo(() => {
+    const map = {};
+    movimentacoesPeriodo.filter(m => m.tipo === 'despesa').forEach(m => {
+      const cat = m.categoria || 'Outros';
+      map[cat] = (map[cat] || 0) + (m.valor || 0);
+    });
+    return Object.entries(map).map(([nome, valor]) => ({
+      nome, valor, cor: CORES_CATEGORIAS[nome] || '#64748b'
+    }));
+  }, [movimentacoesPeriodo]);
+
+  // Evolução mensal
+  const evolucaoMensal = useMemo(() => {
+    const meses = {};
+    movimentacoesPeriodo.forEach(m => {
+      const d = new Date(m.data || m.vencimento);
+      if (isNaN(d.getTime())) return;
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      if (!meses[key]) meses[key] = { mes: label, key, receitas: 0, despesas: 0 };
+      if (m.tipo === 'receita') meses[key].receitas += m.valor || 0;
+      else meses[key].despesas += m.valor || 0;
+    });
+    return Object.values(meses).sort((a, b) => a.key.localeCompare(b.key));
+  }, [movimentacoesPeriodo]);
+
+  // ===== FILTRAR PARA TABELA =====
+  const movimentacoesFiltradas = useMemo(() => {
+    let lista = todasMovimentacoes;
+    if (filtroTipo !== 'todos') lista = lista.filter(m => m.tipo === filtroTipo);
+    if (searchTerm) {
+      const s = searchTerm.toLowerCase();
+      lista = lista.filter(m =>
+        (m.descricao || '').toLowerCase().includes(s) ||
+        (m.fornecedor || '').toLowerCase().includes(s) ||
+        (m.origem || '').toLowerCase().includes(s)
+      );
+    }
+    return filtrarPorPeriodo(lista);
+  }, [todasMovimentacoes, filtroTipo, searchTerm, filtrarPorPeriodo]);
+
+  // ===== HANDLERS =====
+  const handleNova = () => {
+    setEditando(null);
+    setFormData({ tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente' });
+    setDialogOpen(true);
   };
 
-  const abrirEdicao = (mov) => {
-    setEditandoId(mov.id);
+  const handleEditar = (mov) => {
+    if (mov.origemObra) {
+      // Receitas de obra não podem ser editadas aqui
+      return;
+    }
+    setEditando(mov);
     setFormData({
       tipo: mov.tipo || 'despesa',
       descricao: mov.descricao || '',
-      valor: mov.valor?.toString() || '',
-      categoria: mov.categoria || 'material',
-      data: mov.data ? new Date(mov.data).toISOString().split('T')[0] : '',
-      status: mov.status || 'pendente',
+      valor: String(mov.valor || ''),
+      categoria: mov.categoria || '',
       fornecedor: mov.fornecedor || '',
-      nf: mov.nf || '',
-      observacao: mov.observacao || '',
-      formaPagto: mov.formaPagto || 'boleto'
+      vencimento: mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : '',
+      formaPagto: mov.formaPagto || '',
+      status: mov.status || 'pendente',
     });
-    setModalOpen(true);
+    setDialogOpen(true);
   };
 
-  const salvarMovimentacao = async () => {
-    if (!formData.descricao || !formData.valor) return;
-
-    const dados = {
-      ...formData,
-      valor: parseFloat(formData.valor) || 0,
-      obra_id: 'financeiro-geral', // Painel Financeiro é independente - sem vínculo com obra
-      obraId: 'financeiro-geral',
-    };
-
-    if (editandoId) {
-      await updateLancamento(editandoId, dados);
+  const handleSalvar = async () => {
+    if (!formData.descricao || !formData.valor) {
+      return;
+    }
+    if (editando) {
+      try {
+        await updateLancamento(editando.id, {
+          descricao: formData.descricao,
+          fornecedor: formData.fornecedor || '-',
+          categoria: formData.categoria || 'Outros',
+          valor: parseFloat(formData.valor),
+          formaPagto: formData.formaPagto || '-',
+          vencimento: formData.vencimento || '',
+          status: formData.status || 'pendente',
+        });
+      } catch (err) {
+        console.error('Erro ao atualizar:', err);
+      }
     } else {
-      dados.id = `FIN-${Date.now()}`;
-      await addLancamento(dados);
+      try {
+        await addLancamento({
+          id: `FIN-${Date.now()}`,
+          tipo: formData.tipo || 'despesa',
+          descricao: formData.descricao,
+          fornecedor: formData.fornecedor || '-',
+          categoria: formData.categoria || 'Outros',
+          valor: parseFloat(formData.valor),
+          formaPagto: formData.formaPagto || '-',
+          data: formData.vencimento || new Date().toISOString().split('T')[0],
+          dataEmissao: new Date().toISOString().split('T')[0],
+          vencimento: formData.vencimento || '',
+          status: formData.status || 'pendente',
+          obraId: null,
+        });
+      } catch (err) {
+        console.error('Erro ao criar:', err);
+      }
     }
-    setModalOpen(false);
-    setEditandoId(null);
+    setDialogOpen(false);
+    setEditando(null);
   };
 
-  const handleImportCSV = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    setImportFile(file);
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const text = evt.target.result;
-      const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) return;
-      const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
-      const rows = lines.slice(1).map((line, idx) => {
-        const cols = line.split(';').map(c => c.trim());
-        const obj = {};
-        headers.forEach((h, i) => { obj[h] = cols[i] || ''; });
-        return {
-          id: `IMP-${idx}`,
-          descricao: obj['descricao'] || obj['descrição'] || obj['historico'] || obj['histórico'] || '',
-          valor: parseFloat((obj['valor'] || obj['debito'] || obj['débito'] || '0').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0,
-          data: obj['data'] || obj['dt_lancamento'] || new Date().toISOString().split('T')[0],
-          tipo: (obj['tipo'] || 'despesa').toLowerCase().includes('receita') ? 'receita' : 'despesa',
-          categoria: obj['categoria'] || 'outros',
-          fornecedor: obj['fornecedor'] || '',
-          status: 'pendente',
-        };
-      }).filter(r => r.descricao && r.valor > 0);
-      setImportData(rows);
-    };
-    reader.readAsText(file, 'UTF-8');
+  const handleApagar = async (id) => {
+    try {
+      await deleteLancamento(id);
+    } catch (err) {
+      console.error('Erro ao apagar:', err);
+    }
+    setDeleteConfirmId(null);
   };
 
-  const confirmarImportacao = async () => {
-    for (const item of importData) {
-      await addLancamento({
-        ...item,
-        id: `FIN-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-      });
-    }
-    setImportModalOpen(false);
-    setImportData([]);
-    setImportFile(null);
-  };
-
-  // Filtrar movimentações
-  const movimentacoesFiltradas = useMemo(() => {
-    let movs = [...movimentacoes];
-
-    if (filtroTipo !== 'todos') {
-      movs = movs.filter(m => m.tipo === filtroTipo);
-    }
-
-    if (filtroCategoria !== 'todas') {
-      movs = movs.filter(m => m.categoria === filtroCategoria);
-    }
-
-    if (search) {
-      const searchLower = search.toLowerCase();
-      movs = movs.filter(m =>
-        m.descricao?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    return movs;
-  }, [movimentacoes, filtroTipo, filtroCategoria, search]);
-
-  // Calcular resumos a partir das movimentações próprias
-  const resumo = useMemo(() => {
-    const totalReceitas = movimentacoes.filter(m => m.tipo === 'receita').reduce((s, m) => s + (m.valor || 0), 0);
-    const totalDespesas = movimentacoes.filter(m => m.tipo === 'despesa').reduce((s, m) => s + (m.valor || 0), 0);
-    const lucro = totalReceitas - totalDespesas;
-    const margemLucro = totalReceitas > 0 ? (lucro / totalReceitas) * 100 : 0;
-
-    return {
-      totalReceitas,
-      totalDespesas,
-      lucro,
-      margemLucro,
-      receitasPendentes: 0,
-      despesasPendentes: 0,
-      valorContrato: 0,
-      faturado: 0,
-      qtdReceitas: movimentacoes.filter(m => m.tipo === 'receita').length,
-      qtdDespesas: movimentacoes.filter(m => m.tipo === 'despesa').length,
-    };
-  }, [movimentacoes]);
-
-  // Dados por categoria para gráfico de pizza
-  const dadosPorCategoria = useMemo(() => {
-    const despesas = movimentacoes.filter(m => m.tipo === 'despesa');
-    const porCategoria = despesas.reduce((acc, d) => {
-      const cat = d.categoria || 'outros';
-      acc[cat] = (acc[cat] || 0) + (d.valor || 0);
-      return acc;
-    }, {});
-
-    return Object.entries(porCategoria).map(([categoria, valor]) => ({
-      name: categoriasCores[categoria]?.label || categoria,
-      value: valor,
-      color: categoriasCores[categoria]?.cor || '#64748B',
-    }));
-  }, [movimentacoes]);
-
-  // Dados para gráfico de evolução mensal - será preenchido com dados reais do Supabase
-  const dadosEvolucaoMensal = useMemo(() => {
-    return []; // Sem dados mock - dados virão do banco
-  }, []);
+  // ===== CATEGORIAS DISPONÍVEIS =====
+  const categoriasDisponiveis = [
+    'Matéria Prima', 'Mão de Obra', 'Energia/Utilidades', 'Manutenção',
+    'Transporte', 'Administrativo', 'Impostos', 'Outros'
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6">
-      <div className="max-w-[1600px] mx-auto space-y-6">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col lg:flex-row lg:items-center justify-between gap-4"
-        >
-          <div>
-            <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center">
-                <DollarSign className="h-6 w-6 text-white" />
-              </div>
-              Financeiro
-            </h1>
-            <p className="text-slate-400 mt-1">
-              Gestão financeira e controle de custos
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex bg-slate-800 rounded-lg p-1">
-              {['semana', 'mes', 'trimestre', 'ano'].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => setPeriodo(p)}
-                  className={cn(
-                    "px-3 py-1.5 text-sm font-medium rounded-md transition-all capitalize",
-                    periodo === p
-                      ? "bg-emerald-500 text-white"
-                      : "text-slate-400 hover:text-white"
-                  )}
-                >
-                  {p}
-                </button>
-              ))}
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
+              <DollarSign className="h-6 w-6 text-white" />
             </div>
-            <Button variant="outline" className="border-slate-700 text-white" onClick={() => setImportModalOpen(true)}>
-              <Upload className="h-4 w-4 mr-2" />
-              Importar
-            </Button>
-            <Button
-              onClick={() => setShowImportNF(true)}
-              className="bg-amber-600 hover:bg-amber-500 text-white gap-2"
-            >
-              <Receipt className="w-4 h-4" />
-              Importar NF
-            </Button>
-            <Button className="bg-emerald-500 hover:bg-emerald-600 text-white" onClick={() => abrirNovaMovimentacao('despesa')}>
-              <Plus className="h-4 w-4 mr-2" />
-              Nova Movimentação
-            </Button>
+            Painel Financeiro
+          </h1>
+          <div className="flex items-center gap-3 mt-2 flex-wrap">
+            <span className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium border border-emerald-500/30">
+              <Wallet className="h-3.5 w-3.5 mr-1" />
+              {filtroObra === 'geral' ? 'Visão Geral' : filtroObra === 'fabrica' ? 'Financeiro Fábrica' : (obrasMap[filtroObra] || 'Obra')}
+            </span>
+            <span className="text-slate-500 text-sm">|</span>
+            <span className="text-slate-400 text-sm">{kpis.qtdTotal} lançamentos</span>
+            <span className="text-slate-500 text-sm">|</span>
+            <span className="text-emerald-400 text-xs">{kpis.qtdReceitas} receitas (medições)</span>
+            <span className="text-slate-500 text-sm">|</span>
+            <span className="text-rose-400 text-xs">{kpis.qtdDespesas} despesas</span>
           </div>
-        </motion.div>
-
-        {/* KPIs */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <FinanceCard
-            title="Receitas"
-            value={formatCurrency(resumo.totalReceitas)}
-            subtitle={`${resumo.qtdReceitas} lançamentos`}
-            icon={ArrowUpRight}
-            color="from-emerald-500 to-green-500"
-            trend={0}
-            trendLabel="vs mês anterior"
-          />
-          <FinanceCard
-            title="Despesas"
-            value={formatCurrency(resumo.totalDespesas)}
-            subtitle={`${resumo.qtdDespesas} lançamentos`}
-            icon={ArrowDownRight}
-            color="from-red-500 to-rose-500"
-            trend={0}
-            trendLabel="vs mês anterior"
-          />
-          <FinanceCard
-            title="Lucro Líquido"
-            value={formatCurrency(resumo.lucro)}
-            subtitle={`Margem: ${resumo.margemLucro.toFixed(1)}%`}
-            icon={TrendingUp}
-            color="from-blue-500 to-cyan-500"
-            trend={0}
-          />
-          <FinanceCard
-            title="A Receber"
-            value={formatCurrency(resumo.receitasPendentes)}
-            subtitle={`A pagar: ${formatCurrency(resumo.despesasPendentes)}`}
-            icon={Clock}
-            color="from-orange-500 to-amber-500"
-          />
         </div>
 
-        {/* Tabs de Conteúdo */}
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="bg-slate-800/60 border border-slate-700">
-            <TabsTrigger value="visao-geral" className="data-[state=active]:bg-emerald-500">
-              <BarChart3 className="h-4 w-4 mr-2" />
-              Visão Geral
-            </TabsTrigger>
-            <TabsTrigger value="movimentacoes" className="data-[state=active]:bg-emerald-500">
-              <FileText className="h-4 w-4 mr-2" />
-              Movimentações
-            </TabsTrigger>
-            <TabsTrigger value="importacao" className="data-[state=active]:bg-emerald-500">
-              <Upload className="h-4 w-4 mr-2" />
-              Importação
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Tab: Visão Geral */}
-          <TabsContent value="visao-geral" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Gráfico de Evolução */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="lg:col-span-2 bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Evolução Financeira</h3>
-                  <div className="flex items-center gap-4 text-sm">
-                    <span className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-emerald-500" />
-                      Receitas
-                    </span>
-                    <span className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-red-500" />
-                      Despesas
-                    </span>
-                  </div>
-                </div>
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={dadosEvolucaoMensal}>
-                      <defs>
-                        <linearGradient id="receitas" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#10B981" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#10B981" stopOpacity={0} />
-                        </linearGradient>
-                        <linearGradient id="despesas" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#EF4444" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="mes" stroke="#64748B" />
-                      <YAxis stroke="#64748B" tickFormatter={(v) => `${(v / 1000000).toFixed(1)}M`} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Area
-                        type="monotone"
-                        dataKey="receitas"
-                        stroke="#10B981"
-                        strokeWidth={2}
-                        fill="url(#receitas)"
-                        name="Receitas"
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="despesas"
-                        stroke="#EF4444"
-                        strokeWidth={2}
-                        fill="url(#despesas)"
-                        name="Despesas"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </motion.div>
-
-              {/* Gráfico por Categoria */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
-              >
-                <h3 className="text-lg font-semibold text-white mb-4">Despesas por Categoria</h3>
-                <div className="h-[250px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RePieChart>
-                      <Pie
-                        data={dadosPorCategoria}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        dataKey="value"
-                        label={false}
-                      >
-                        {dadosPorCategoria.map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value) => formatCurrency(value)}
-                        contentStyle={{
-                          backgroundColor: '#1E293B',
-                          border: '1px solid #334155',
-                          borderRadius: '8px',
-                        }}
-                      />
-                    </RePieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="space-y-2 mt-4">
-                  {dadosPorCategoria.slice(0, 4).map((item, index) => (
-                    <div key={index} className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: item.color }}
-                        />
-                        <span className="text-sm text-slate-400">{item.name}</span>
-                      </div>
-                      <span className="text-sm text-white font-medium">
-                        {formatCurrency(item.value)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </motion.div>
-            </div>
-
-            {/* Últimas Movimentações */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 overflow-hidden"
-            >
-              <div className="p-5 border-b border-slate-700/50">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-white">Últimas Movimentações</h3>
-                  <Button variant="ghost" className="text-emerald-400 hover:text-emerald-300" onClick={() => setActiveTab('movimentacoes')}>
-                    Ver todas
-                    <ArrowUpRight className="h-4 w-4 ml-1" />
-                  </Button>
-                </div>
-              </div>
-              <div className="divide-y divide-slate-700/30">
-                {movimentacoes.slice(0, 8).map((mov, index) => {
-                  const catInfo = categoriasCores[mov.categoria] || categoriasCores.outros;
-                  const Icon = catInfo.icon;
-
-                  return (
-                    <motion.div
-                      key={mov.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                      className="flex items-center justify-between p-4 hover:bg-slate-800/50 transition-colors"
-                    >
-                      <div className="flex items-center gap-4">
-                        <div
-                          className="w-10 h-10 rounded-lg flex items-center justify-center"
-                          style={{ backgroundColor: `${catInfo.cor}20` }}
-                        >
-                          <Icon className="h-5 w-5" style={{ color: catInfo.cor }} />
-                        </div>
-                        <div>
-                          <p className="text-white font-medium">{mov.descricao}</p>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-xs text-slate-500">
-                              {formatDate(mov.data)}
-                            </span>
-                            {mov.fornecedor && (
-                              <>
-                                <span className="text-xs text-slate-600">•</span>
-                                <span className="text-xs text-slate-500">{mov.fornecedor}</span>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <Badge
-                          className={cn(
-                            "text-xs",
-                            mov.status === 'confirmado'
-                              ? "bg-emerald-500/20 text-emerald-400 border-0"
-                              : "bg-amber-500/20 text-amber-400 border-0"
-                          )}
-                        >
-                          {mov.status === 'confirmado' ? 'Confirmado' : 'Pendente'}
-                        </Badge>
-                        <span className={cn(
-                          "font-semibold",
-                          mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400"
-                        )}>
-                          {mov.tipo === 'receita' ? '+' : '-'}{formatCurrency(mov.valor)}
-                        </span>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            </motion.div>
-          </TabsContent>
-
-          {/* Tab: Movimentações */}
-          <TabsContent value="movimentacoes" className="space-y-4">
-            {/* Filtros */}
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-                <Input
-                  placeholder="Buscar movimentações..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 bg-slate-800/60 border-slate-700 text-white"
-                />
-              </div>
-              <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-                <SelectTrigger className="w-[150px] bg-slate-800/60 border-slate-700 text-white">
-                  <SelectValue placeholder="Tipo" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="todos" className="text-white">Todos</SelectItem>
-                  <SelectItem value="receita" className="text-white">Receitas</SelectItem>
-                  <SelectItem value="despesa" className="text-white">Despesas</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
-                <SelectTrigger className="w-[180px] bg-slate-800/60 border-slate-700 text-white">
-                  <SelectValue placeholder="Categoria" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="todas" className="text-white">Todas</SelectItem>
-                  {Object.entries(categoriasCores).map(([key, val]) => (
-                    <SelectItem key={key} value={key} className="text-white">
-                      {val.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Tabela */}
-            <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-slate-700/50">
-                      <th className="text-left p-4 text-sm font-medium text-slate-400">Data</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-400">Descrição</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-400">Categoria</th>
-                      <th className="text-left p-4 text-sm font-medium text-slate-400">Fornecedor</th>
-                      <th className="text-center p-4 text-sm font-medium text-slate-400">Status</th>
-                      <th className="text-right p-4 text-sm font-medium text-slate-400">Valor</th>
-                      <th className="text-center p-4 text-sm font-medium text-slate-400">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {movimentacoesFiltradas.map((mov, index) => {
-                      const catInfo = categoriasCores[mov.categoria] || categoriasCores.outros;
-
-                      return (
-                        <motion.tr
-                          key={mov.id}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: index * 0.02 }}
-                          className="border-b border-slate-700/30 hover:bg-slate-800/50"
-                        >
-                          <td className="p-4 text-slate-300">
-                            {formatDate(mov.data)}
-                          </td>
-                          <td className="p-4 text-white">
-                            {mov.descricao}
-                          </td>
-                          <td className="p-4">
-                            <Badge
-                              className="text-xs border-0"
-                              style={{
-                                backgroundColor: `${catInfo.cor}20`,
-                                color: catInfo.cor
-                              }}
-                            >
-                              {catInfo.label}
-                            </Badge>
-                          </td>
-                          <td className="p-4 text-slate-400 text-sm">
-                            {mov.fornecedor || '-'}
-                          </td>
-                          <td className="p-4 text-center">
-                            <Badge
-                              className={cn(
-                                "text-xs",
-                                mov.status === 'confirmado'
-                                  ? "bg-emerald-500/20 text-emerald-400 border-0"
-                                  : "bg-amber-500/20 text-amber-400 border-0"
-                              )}
-                            >
-                              {mov.status === 'confirmado' ? (
-                                <><CheckCircle2 className="h-3 w-3 mr-1" /> Confirmado</>
-                              ) : (
-                                <><Clock className="h-3 w-3 mr-1" /> Pendente</>
-                              )}
-                            </Badge>
-                          </td>
-                          <td className="p-4 text-right">
-                            <span className={cn(
-                              "font-semibold",
-                              mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400"
-                            )}>
-                              {mov.tipo === 'receita' ? '+' : '-'}{formatCurrency(mov.valor)}
-                            </span>
-                          </td>
-                          <td className="p-4 text-center">
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                                <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => abrirEdicao(mov)}>
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Editar
-                                </DropdownMenuItem>
-                                <DropdownMenuItem className="text-white hover:bg-slate-700" onClick={() => {
-                                  const novoStatus = mov.status === 'confirmado' ? 'pendente' : 'confirmado';
-                                  updateLancamento(mov.id, { status: novoStatus });
-                                }}>
-                                  <CheckCircle2 className="h-4 w-4 mr-2" />
-                                  {mov.status === 'confirmado' ? 'Marcar Pendente' : 'Confirmar'}
-                                </DropdownMenuItem>
-                                <DropdownMenuItem className="text-red-400 hover:bg-slate-700" onClick={() => {
-                                  updateLancamento(mov.id, { status: 'cancelado' });
-                                }}>
-                                  <Trash2 className="h-4 w-4 mr-2" />
-                                  Cancelar
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </TabsContent>
-
-          {/* Tab: Importação */}
-          <TabsContent value="importacao" className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {/* Card de importação CSV */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border-2 border-dashed border-emerald-500/30 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-emerald-500/60 transition-colors"
-                onClick={() => document.getElementById('import-csv-inline')?.click()}
-              >
-                <div className="w-16 h-16 rounded-2xl bg-emerald-500/20 flex items-center justify-center mb-4">
-                  <FileUp className="w-8 h-8 text-emerald-400" />
-                </div>
-                <h3 className="text-white font-semibold mb-1">Importar CSV / Excel</h3>
-                <p className="text-slate-400 text-sm mb-3">
-                  Arraste ou clique para importar planilhas com lançamentos
-                </p>
-                <p className="text-xs text-slate-500">Formato: Data;Descrição;Valor;Tipo;Categoria</p>
-                <input
-                  id="import-csv-inline"
-                  type="file"
-                  accept=".csv,.xlsx,.xls,.tsv"
-                  className="hidden"
-                  onChange={(e) => {
-                    handleImportCSV(e);
-                    setImportModalOpen(true);
-                  }}
-                />
-              </motion.div>
-
-              {/* Card Extrato Bancário */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 }}
-                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border-2 border-dashed border-blue-500/30 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-blue-500/60 transition-colors"
-                onClick={() => {
-                  document.getElementById('import-extrato')?.click();
-                }}
-              >
-                <div className="w-16 h-16 rounded-2xl bg-blue-500/20 flex items-center justify-center mb-4">
-                  <CreditCard className="w-8 h-8 text-blue-400" />
-                </div>
-                <h3 className="text-white font-semibold mb-1">Extrato Bancário</h3>
-                <p className="text-slate-400 text-sm mb-3">
-                  Importe extratos de Itaú, BB, Caixa ou genérico
-                </p>
-                <p className="text-xs text-slate-500">Formatos: CSV, XLSX</p>
-                <input
-                  id="import-extrato"
-                  type="file"
-                  accept=".csv,.xlsx,.xls"
-                  className="hidden"
-                  onChange={(e) => {
-                    handleImportCSV(e);
-                    setImportModalOpen(true);
-                  }}
-                />
-              </motion.div>
-
-              {/* Card Nota Fiscal */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 }}
-                className="bg-slate-900/60 backdrop-blur-xl rounded-xl border-2 border-dashed border-orange-500/30 p-6 flex flex-col items-center justify-center text-center cursor-pointer hover:border-orange-500/60 transition-colors"
-                onClick={() => abrirNovaMovimentacao('despesa')}
-              >
-                <div className="w-16 h-16 rounded-2xl bg-orange-500/20 flex items-center justify-center mb-4">
-                  <Receipt className="w-8 h-8 text-orange-400" />
-                </div>
-                <h3 className="text-white font-semibold mb-1">Lançamento Manual</h3>
-                <p className="text-slate-400 text-sm mb-3">
-                  Crie um lançamento de receita ou despesa manualmente
-                </p>
-                <p className="text-xs text-slate-500">Preencha o formulário completo</p>
-              
-
-</motion.div>
-            </div>
-
-            {/* Últimas importações */}
-            {movimentacoes.length > 0 && (
-              <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5">
-                <h3 className="text-lg font-semibold text-white mb-3">Últimos Lançamentos</h3>
-                <div className="space-y-2">
-                  {movimentacoes.slice(0, 5).map((mov, idx) => (
-                    <div key={mov.id || idx} className="flex items-center justify-between py-2 border-b border-slate-700/30 last:border-0">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-2 h-2 rounded-full ${mov.tipo === 'receita' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                        <span className="text-white text-sm">{mov.descricao}</span>
-                        <span className="text-xs text-slate-500">{formatDate(mov.data)}</span>
-                      </div>
-                      <span className={cn("font-medium text-sm", mov.tipo === 'receita' ? 'text-emerald-400' : 'text-red-400')}>
-                        {mov.tipo === 'receita' ? '+' : '-'}{formatCurrency(mov.valor)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </TabsContent>
-
-        </Tabs>
+        <Button className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600" onClick={handleNova}>
+          <Plus className="h-4 w-4 mr-2" />
+          Nova Movimentação
+        </Button>
       </div>
 
-      {/* Modal Nova Movimentação / Editar */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto">
+      {/* Dialog Cadastrar/Editar */}
+      <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditando(null); }}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
-              <DollarSign className="w-5 h-5 text-emerald-400" />
-              {editandoId ? 'Editar Movimentação' : 'Nova Movimentação'}
-            </DialogTitle>
+            <DialogTitle className="text-white">{editando ? 'Editar Movimentação' : 'Nova Movimentação'}</DialogTitle>
           </DialogHeader>
-
-          <div className="space-y-4 pt-2">
-            {/* Tipo */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setFormData(p => ({ ...p, tipo: 'despesa' }))}
-                className={cn(
-                  "px-4 py-2.5 rounded-lg text-sm font-medium transition-all",
-                  formData.tipo === 'despesa'
-                    ? "bg-red-500/20 border border-red-500/50 text-red-300"
-                    : "bg-slate-800 border border-slate-600 text-slate-400 hover:bg-slate-700"
-                )}
-              >
-                <ArrowDownRight className="w-4 h-4 inline mr-2" />
-                Despesa
-              </button>
-              <button
-                onClick={() => setFormData(p => ({ ...p, tipo: 'receita' }))}
-                className={cn(
-                  "px-4 py-2.5 rounded-lg text-sm font-medium transition-all",
-                  formData.tipo === 'receita'
-                    ? "bg-emerald-500/20 border border-emerald-500/50 text-emerald-300"
-                    : "bg-slate-800 border border-slate-600 text-slate-400 hover:bg-slate-700"
-                )}
-              >
-                <ArrowUpRight className="w-4 h-4 inline mr-2" />
-                Receita
-              </button>
-            </div>
-
-            {/* Descrição */}
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Descrição *</label>
-              <Input
-                placeholder="Ex: Compra de aço para estrutura"
-                value={formData.descricao}
-                onChange={e => setFormData(p => ({ ...p, descricao: e.target.value }))}
-                className="bg-slate-800 border-slate-600 text-white"
-              />
-            </div>
-
-            {/* Valor + Data */}
-            <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-4 pt-4">
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Valor (R$) *</label>
-                <Input
-                  type="number"
-                  step="0.01"
-                  placeholder="0,00"
-                  value={formData.valor}
-                  onChange={e => setFormData(p => ({ ...p, valor: e.target.value }))}
-                  className="bg-slate-800 border-slate-600 text-white"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Data</label>
-                <Input
-                  type="date"
-                  value={formData.data}
-                  onChange={e => setFormData(p => ({ ...p, data: e.target.value }))}
-                  className="bg-slate-800 border-slate-600 text-white"
-                />
-              </div>
-            </div>
-
-            {/* Categoria + Status */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 mb-1 block">Categoria</label>
-                <Select value={formData.categoria} onValueChange={v => setFormData(p => ({ ...p, categoria: v }))}>
-                  <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Label className="text-slate-300">Tipo</Label>
+                <Select value={formData.tipo} onValueChange={(v) => setFormData({...formData, tipo: v})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
-                    {Object.entries(categoriasCores).map(([key, val]) => (
-                      <SelectItem key={key} value={key} className="text-white">{val.label}</SelectItem>
-                    ))}
+                    <SelectItem value="despesa">Despesa</SelectItem>
+                    <SelectItem value="receita">Receita</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Status</label>
-                <Select value={formData.status} onValueChange={v => setFormData(p => ({ ...p, status: v }))}>
-                  <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
-                    <SelectValue />
-                  </SelectTrigger>
+                <Label className="text-slate-300">Status</Label>
+                <Select value={formData.status} onValueChange={(v) => setFormData({...formData, status: v})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="pendente" className="text-white">Pendente</SelectItem>
-                    <SelectItem value="confirmado" className="text-white">Confirmado</SelectItem>
-                    <SelectItem value="cancelado" className="text-white">Cancelado</SelectItem>
+                    <SelectItem value="pendente">Pendente</SelectItem>
+                    <SelectItem value="pago">Pago/Recebido</SelectItem>
+                    <SelectItem value="atrasado">Atrasado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
-            {/* Fornecedor + NF */}
-            <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label className="text-slate-300">Descrição *</Label>
+              <Input className="mt-1 bg-slate-800 border-slate-700" placeholder="Descrição" value={formData.descricao} onChange={(e) => setFormData({...formData, descricao: e.target.value})} />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Fornecedor</label>
-                <Input
-                  placeholder="Nome do fornecedor"
-                  value={formData.fornecedor}
-                  onChange={e => setFormData(p => ({ ...p, fornecedor: e.target.value }))}
-                  className="bg-slate-800 border-slate-600 text-white"
-                />
+                <Label className="text-slate-300">Fornecedor/Cliente</Label>
+                <Input className="mt-1 bg-slate-800 border-slate-700" placeholder="Nome" value={formData.fornecedor} onChange={(e) => setFormData({...formData, fornecedor: e.target.value})} />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Nota Fiscal</label>
-                <Input
-                  placeholder="Nº NF"
-                  value={formData.nf}
-                  onChange={e => setFormData(p => ({ ...p, nf: e.target.value }))}
-                  className="bg-slate-800 border-slate-600 text-white"
-                />
+                <Label className="text-slate-300">Categoria</Label>
+                <Select value={formData.categoria} onValueChange={(v) => setFormData({...formData, categoria: v})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    {categoriasDisponiveis.map(c => (<SelectItem key={c} value={c}>{c}</SelectItem>))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-
-            {/* Forma de Pagamento */}
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Forma de Pagamento</label>
-              <Select value={formData.formaPagto} onValueChange={v => setFormData(p => ({ ...p, formaPagto: v }))}>
-                <SelectTrigger className="bg-slate-800 border-slate-600 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="boleto" className="text-white">Boleto</SelectItem>
-                  <SelectItem value="pix" className="text-white">PIX</SelectItem>
-                  <SelectItem value="cartao" className="text-white">Cartão</SelectItem>
-                  <SelectItem value="transferencia" className="text-white">Transferência</SelectItem>
-                  <SelectItem value="dinheiro" className="text-white">Dinheiro</SelectItem>
-                  <SelectItem value="cheque" className="text-white">Cheque</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-slate-300">Valor *</Label>
+                <Input className="mt-1 bg-slate-800 border-slate-700" type="number" placeholder="0,00" value={formData.valor} onChange={(e) => setFormData({...formData, valor: e.target.value})} />
+              </div>
+              <div>
+                <Label className="text-slate-300">Vencimento</Label>
+                <Input className="mt-1 bg-slate-800 border-slate-700" type="date" value={formData.vencimento} onChange={(e) => setFormData({...formData, vencimento: e.target.value})} />
+              </div>
+              <div>
+                <Label className="text-slate-300">Forma Pagto</Label>
+                <Select value={formData.formaPagto} onValueChange={(v) => setFormData({...formData, formaPagto: v})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Selecione" /></SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    <SelectItem value="PIX">PIX</SelectItem>
+                    <SelectItem value="Boleto">Boleto</SelectItem>
+                    <SelectItem value="Transferência">Transferência</SelectItem>
+                    <SelectItem value="Cartão">Cartão</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-
-            {/* Observação */}
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Observação</label>
-              <Textarea
-                placeholder="Observações adicionais..."
-                value={formData.observacao}
-                onChange={e => setFormData(p => ({ ...p, observacao: e.target.value }))}
-                className="bg-slate-800 border-slate-600 text-white min-h-[60px]"
-              />
-            </div>
-
-            {/* Botões */}
-            <div className="flex gap-3 pt-2">
-              <Button
-                variant="outline"
-                onClick={() => setModalOpen(false)}
-                className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800"
-              >
-                <X className="w-4 h-4 mr-2" />
-                Cancelar
-              </Button>
-              <Button
-                onClick={salvarMovimentacao}
-                disabled={!formData.descricao || !formData.valor}
-                className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40"
-              >
-                <Save className="w-4 h-4 mr-2" />
-                {editandoId ? 'Salvar Alterações' : 'Criar Lançamento'}
-              </Button>
-            </div>
+            <Button className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500" onClick={handleSalvar}>
+              {editando ? 'Salvar Alterações' : 'Cadastrar'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* Modal de Importação - Preview e Confirmação */}
-      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
-        <DialogContent className="max-w-2xl bg-slate-900 border-slate-700 text-white max-h-[90vh] overflow-y-auto">
+      {/* Dialog Confirmar Exclusão */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
-              <Upload className="w-5 h-5 text-emerald-400" />
-              Importar Lançamentos
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-400" />
+              Confirmar Exclusão
             </DialogTitle>
           </DialogHeader>
-
-          {importData.length === 0 ? (
-            <div className="space-y-4 pt-2">
-              <div
-                className="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center cursor-pointer hover:border-emerald-500/50 transition-colors"
-                onClick={() => document.getElementById('import-csv-modal')?.click()}
-              >
-                <FileUp className="w-12 h-12 text-slate-500 mx-auto mb-3" />
-                <p className="text-white font-medium">Clique para selecionar arquivo</p>
-                <p className="text-sm text-slate-400 mt-1">CSV ou Excel com separador ; (ponto e vírgula)</p>
-                <p className="text-xs text-slate-500 mt-2">Colunas: Data; Descrição; Valor; Tipo; Categoria; Fornecedor</p>
-              </div>
-              <input
-                id="import-csv-modal"
-                type="file"
-                accept=".csv,.xlsx,.xls,.tsv"
-                className="hidden"
-                onChange={handleImportCSV}
-              />
-            </div>
-          ) : (
-            <div className="space-y-4 pt-2">
-              <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0" />
-                <div>
-                  <p className="text-emerald-300 font-medium text-sm">
-                    {importData.length} lançamento{importData.length > 1 ? 's' : ''} encontrado{importData.length > 1 ? 's' : ''}
-                  </p>
-                  {importFile && (
-                    <p className="text-xs text-slate-400">Arquivo: {importFile.name}</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Preview table */}
-              <div className="overflow-x-auto rounded-lg border border-slate-700">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-slate-800">
-                      <th className="text-left p-2.5 text-slate-400 font-medium">Data</th>
-                      <th className="text-left p-2.5 text-slate-400 font-medium">Descrição</th>
-                      <th className="text-left p-2.5 text-slate-400 font-medium">Tipo</th>
-                      <th className="text-right p-2.5 text-slate-400 font-medium">Valor</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {importData.slice(0, 10).map((item, idx) => (
-                      <tr key={idx} className="border-t border-slate-700/50">
-                        <td className="p-2.5 text-slate-300">{item.data}</td>
-                        <td className="p-2.5 text-white truncate max-w-[200px]">{item.descricao}</td>
-                        <td className="p-2.5">
-                          <span className={cn(
-                            "text-xs px-2 py-0.5 rounded",
-                            item.tipo === 'receita' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'
-                          )}>
-                            {item.tipo}
-                          </span>
-                        </td>
-                        <td className="p-2.5 text-right font-medium text-white">{formatCurrency(item.valor)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {importData.length > 10 && (
-                  <div className="p-2 text-center text-xs text-slate-500 bg-slate-800/50">
-                    ... e mais {importData.length - 10} lançamentos
-                  </div>
-                )}
-              </div>
-
-              {/* Resumo */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-emerald-500/10 rounded-lg p-3">
-                  <p className="text-xs text-slate-400">Total Receitas</p>
-                  <p className="text-lg font-bold text-emerald-400">
-                    {formatCurrency(importData.filter(i => i.tipo === 'receita').reduce((s, i) => s + i.valor, 0))}
-                  </p>
-                </div>
-                <div className="bg-red-500/10 rounded-lg p-3">
-                  <p className="text-xs text-slate-400">Total Despesas</p>
-                  <p className="text-lg font-bold text-red-400">
-                    {formatCurrency(importData.filter(i => i.tipo === 'despesa').reduce((s, i) => s + i.valor, 0))}
-                  </p>
-                </div>
-              </div>
-
-              {/* Botões */}
-              <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => { setImportData([]); setImportFile(null); }}
-                  className="flex-1 border-slate-600 text-slate-300 hover:bg-slate-800"
-                >
-                  <X className="w-4 h-4 mr-2" />
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={confirmarImportacao}
-                  className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-2" />
-                  Importar {importData.length} Lançamento{importData.length > 1 ? 's' : ''}
-                </Button>
-              </div>
-            </div>
-          )}
+          <p className="text-slate-400 text-sm">Tem certeza que deseja apagar esta movimentação?</p>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" className="border-slate-700" onClick={() => setDeleteConfirmId(null)}>Cancelar</Button>
+            <Button className="bg-red-600 hover:bg-red-700" onClick={() => handleApagar(deleteConfirmId)}>
+              <Trash2 className="h-4 w-4 mr-2" />Apagar
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-    
 
-      {/* Modal Importar NF */}
-      <ImportarNFModal
-        open={showImportNF}
-        onOpenChange={setShowImportNF}
-        moduloDestino="financeiro"
-        obraId={null}
-        onImportar={async (lancamento) => {
-          const lanc = { ...lancamento, id: 'FIN-' + Date.now(), obraId: 'financeiro-geral', obra_id: 'financeiro-geral' };
-          try { await addLancamento(lanc); } catch (err) { console.error('Erro ao importar NF:', err); }
-        }}
-      />
+      {/* Filtros: Visualização + Período */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+        {/* Seletor de Obra / Visão */}
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-slate-400" />
+          <span className="text-sm text-slate-400 mr-1">Visualizar:</span>
+          <Select value={filtroObra} onValueChange={setFiltroObra}>
+            <SelectTrigger className="w-[240px] bg-slate-800 border-slate-700 text-sm">
+              <SelectValue placeholder="Selecione a visão" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              {opcoesObra.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
 
+        {/* Filtro Período */}
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-slate-400" />
+          <span className="text-sm text-slate-400 mr-1">Período:</span>
+          {[
+            { value: 'geral', label: 'Geral' },
+            { value: 'semanal', label: 'Semanal' },
+            { value: 'mensal', label: 'Mensal' },
+            { value: 'trimestral', label: 'Trimestral' },
+          ].map(p => (
+            <button
+              key={p.value}
+              onClick={() => setFiltroPeriodo(p.value)}
+              className={cn(
+                "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+                filtroPeriodo === p.value
+                  ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25"
+                  : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700"
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                <ArrowUpRight className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-400">Receitas</p>
+                <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpis.totalReceitas)}</p>
+                <p className="text-xs text-slate-500">{kpis.qtdReceitas} medições</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
+                <ArrowDownRight className="h-5 w-5 text-red-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-400">Despesas</p>
+                <p className="text-xl font-bold text-red-400">{formatCurrency(kpis.totalDespesas)}</p>
+                <p className="text-xs text-slate-500">{kpis.qtdDespesas} lançamentos</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                <TrendingUp className="h-5 w-5 text-blue-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-400">Lucro</p>
+                <p className={cn("text-xl font-bold", kpis.lucro >= 0 ? "text-blue-400" : "text-red-400")}>
+                  {formatCurrency(kpis.lucro)}
+                </p>
+                <p className="text-xs text-slate-500">Margem: {kpis.margem.toFixed(1)}%</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
+                <Clock className="h-5 w-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-sm text-slate-400">A Receber</p>
+                <p className="text-xl font-bold text-amber-400">{formatCurrency(kpis.receitasPendentes)}</p>
+                <p className="text-xs text-slate-500">A pagar: {formatCurrency(kpis.despesasPendentes)}</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Evolução Mensal */}
+        <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-emerald-400" />
+              Evolução Receitas vs Despesas
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={evolucaoMensal} barGap={4}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="mes" stroke="#64748b" />
+                <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
+                <Bar dataKey="receitas" name="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="despesas" name="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Pizza Despesas */}
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <Receipt className="h-5 w-5 text-rose-400" />
+              Despesas por Categoria
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dadosPizzaDespesas.length > 0 ? (
+              <ResponsiveContainer width="100%" height={280}>
+                <PieChart>
+                  <Pie data={dadosPizzaDespesas} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2} dataKey="valor">
+                    {dadosPizzaDespesas.map((entry, i) => (
+                      <Cell key={`cell-${i}`} fill={entry.cor} />
+                    ))}
+                  </Pie>
+                  <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
+                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                </PieChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-[280px] flex items-center justify-center text-slate-500">
+                Sem despesas no período
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabela de Movimentações */}
+      <Card className="bg-slate-900/60 border-slate-700/50">
+        <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
+          <CardTitle className="text-white">Movimentações</CardTitle>
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+              <Input placeholder="Buscar..." className="pl-10 w-[180px] bg-slate-800 border-slate-700" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            </div>
+            <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+              <SelectTrigger className="w-[140px] bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="todos">Todos</SelectItem>
+                <SelectItem value="receita">Receitas</SelectItem>
+                <SelectItem value="despesa">Despesas</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-700">
+                  <TableHead className="text-slate-400">Tipo</TableHead>
+                  <TableHead className="text-slate-400">Data</TableHead>
+                  <TableHead className="text-slate-400">Descrição</TableHead>
+                  <TableHead className="text-slate-400">Fornecedor/Obra</TableHead>
+                  <TableHead className="text-slate-400">Categoria</TableHead>
+                  <TableHead className="text-slate-400 text-right">Valor</TableHead>
+                  <TableHead className="text-slate-400">Status</TableHead>
+                  <TableHead className="text-slate-400 w-16">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {movimentacoesFiltradas.map(mov => (
+                  <TableRow key={mov.id} className="border-slate-800 hover:bg-slate-800/50">
+                    <TableCell>
+                      {mov.tipo === 'receita' ? (
+                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 border text-xs">
+                          <ArrowUpRight className="h-3 w-3 mr-1" />Receita
+                        </Badge>
+                      ) : (
+                        <Badge className="bg-red-500/20 text-red-400 border-red-500/30 border text-xs">
+                          <ArrowDownRight className="h-3 w-3 mr-1" />Despesa
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-slate-300 text-sm">{formatDate(mov.data)}</TableCell>
+                    <TableCell className="text-white font-medium max-w-[220px]">
+                      <span className="truncate block">{mov.descricao}</span>
+                      {mov.origemObra && mov.numero && (
+                        <span className="text-xs text-emerald-500">Medição #{mov.numero} • {mov.etapaLabel}</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {mov.origemObra ? (
+                        <span className="text-blue-400 flex items-center gap-1">
+                          <Building2 className="h-3 w-3" />{mov.obraNome}
+                        </span>
+                      ) : (
+                        <span className="text-slate-300">{mov.fornecedor || '-'}</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: CORES_CATEGORIAS[mov.categoria] || '#64748b' }}>
+                        <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: CORES_CATEGORIAS[mov.categoria] || '#64748b' }} />
+                        {mov.categoria || '-'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className={cn("text-right font-semibold", mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400")}>
+                      {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge className={cn("border text-xs",
+                        ['recebido', 'pago', 'faturado', 'confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                        mov.status === 'atrasado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                        'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                      )}>
+                        {['recebido', 'pago', 'faturado', 'confirmado'].includes(mov.status) ? 'Recebido' :
+                         mov.status === 'atrasado' ? 'Atrasado' : 'Pendente'}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      {!mov.origemObra ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                            <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleEditar(mov)}>
+                              <Edit className="h-4 w-4 mr-2" />Editar
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-400 focus:text-red-300 focus:bg-slate-700" onClick={() => setDeleteConfirmId(mov.id)}>
+                              <Trash2 className="h-4 w-4 mr-2" />Apagar
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : (
+                        <span className="text-slate-600 text-xs">Auto</span>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+                {movimentacoesFiltradas.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-slate-500 py-8">
+                      Nenhuma movimentação encontrada.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
