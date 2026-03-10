@@ -4,6 +4,8 @@ import JSZip from 'jszip';
  * Gerador de Proposta Comercial DOCX - Grupo Montex
  * Usa o template MODELO PROPOSTA 2026.docx armazenado no Supabase Storage
  * e injeta dados dinâmicos do simulador de orçamento.
+ *
+ * v3 - Tabelas separadas por setor com análise R$/m² e R$/kg por setor
  */
 
 const TEMPLATE_URL = 'https://trxbohjcwsogthabairh.supabase.co/storage/v1/object/public/templates/proposta-modelo-2026.docx';
@@ -27,102 +29,200 @@ function escXml(str) {
     .replace(/"/g, '&quot;');
 }
 
-// Build a table cell XML
+// Build a table cell XML with enhanced styling
 function cellXml(text, opts = {}) {
-  const { bold = false, color = '333333', fill = '', sz = 18, align = 'left' } = opts;
+  const { bold = false, color = '333333', fill = '', sz = 18, align = 'left', italic = false, vAlign = 'center' } = opts;
   const jc = align === 'right' ? '<w:jc w:val="right"/>' : align === 'center' ? '<w:jc w:val="center"/>' : '';
   const shadingXml = fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>` : '';
   const boldXml = bold ? '<w:b/><w:bCs/>' : '';
+  const italicXml = italic ? '<w:i/><w:iCs/>' : '';
   return `<w:tc>
   <w:tcPr>
+    <w:vAlign w:val="${vAlign}"/>
     <w:tcBorders>
-      <w:top w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
-      <w:left w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
-      <w:bottom w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
-      <w:right w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
+      <w:top w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+      <w:left w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+      <w:bottom w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+      <w:right w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
     </w:tcBorders>
     ${shadingXml}
     <w:tcMar>
-      <w:top w:w="60" w:type="dxa"/>
+      <w:top w:w="50" w:type="dxa"/>
       <w:left w:w="80" w:type="dxa"/>
-      <w:bottom w:w="60" w:type="dxa"/>
+      <w:bottom w:w="50" w:type="dxa"/>
       <w:right w:w="80" w:type="dxa"/>
     </w:tcMar>
   </w:tcPr>
-  <w:p><w:pPr>${jc}</w:pPr><w:r><w:rPr>${boldXml}<w:color w:val="${color}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t>${escXml(text)}</w:t></w:r></w:p>
+  <w:p><w:pPr>${jc}<w:spacing w:before="20" w:after="20"/></w:pPr><w:r><w:rPr>${boldXml}${italicXml}<w:color w:val="${color}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${escXml(text)}</w:t></w:r></w:p>
 </w:tc>`;
 }
 
 // Build a table cell with colspan
 function cellXmlSpan(text, colspan, opts = {}) {
-  const { bold = false, color = '333333', fill = '', sz = 18, align = 'center' } = opts;
+  const { bold = false, color = '333333', fill = '', sz = 18, align = 'center', italic = false } = opts;
   const jc = align === 'right' ? '<w:jc w:val="right"/>' : align === 'center' ? '<w:jc w:val="center"/>' : '';
   const boldXml = bold ? '<w:b/><w:bCs/>' : '';
+  const italicXml = italic ? '<w:i/><w:iCs/>' : '';
   return `<w:tc>
   <w:tcPr>
     <w:gridSpan w:val="${colspan}"/>
+    <w:vAlign w:val="center"/>
     <w:tcBorders>
-      <w:top w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
-      <w:left w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
-      <w:bottom w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
-      <w:right w:val="single" w:sz="1" w:space="0" w:color="CCCCCC"/>
+      <w:top w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+      <w:left w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+      <w:bottom w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+      <w:right w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
     </w:tcBorders>
     ${fill ? `<w:shd w:val="clear" w:color="auto" w:fill="${fill}"/>` : ''}
     <w:tcMar>
-      <w:top w:w="60" w:type="dxa"/>
+      <w:top w:w="50" w:type="dxa"/>
       <w:left w:w="80" w:type="dxa"/>
-      <w:bottom w:w="60" w:type="dxa"/>
+      <w:bottom w:w="50" w:type="dxa"/>
       <w:right w:w="80" w:type="dxa"/>
     </w:tcMar>
   </w:tcPr>
-  <w:p><w:pPr>${jc}</w:pPr><w:r><w:rPr>${boldXml}<w:color w:val="${color}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t>${escXml(text)}</w:t></w:r></w:p>
+  <w:p><w:pPr>${jc}<w:spacing w:before="20" w:after="20"/></w:pPr><w:r><w:rPr>${boldXml}${italicXml}<w:color w:val="${color}"/><w:sz w:val="${sz}"/><w:szCs w:val="${sz}"/></w:rPr><w:t xml:space="preserve">${escXml(text)}</w:t></w:r></w:p>
 </w:tc>`;
 }
 
-// Build the dynamic budget table XML
-function buildBudgetTableXml(setores, precoFinal) {
-  const headerFill = '006666';
-  const headerColor = 'FFFFFF';
+// Calculate setor-level metrics
+function calcSetorMetrics(setor) {
+  let setorTotal = 0;
+  let setorWeight = 0;
+  let setorArea = 0;
+  const gruposPorBase = {};
 
-  // Header row
-  let rows = `<w:tr>
-    ${cellXml('ITEM', { bold: true, color: headerColor, fill: headerFill, align: 'center' })}
-    ${cellXml('QTDE', { bold: true, color: headerColor, fill: headerFill, align: 'center' })}
-    ${cellXml('UN', { bold: true, color: headerColor, fill: headerFill, align: 'center' })}
-    ${cellXml('UNIT.', { bold: true, color: headerColor, fill: headerFill, align: 'center' })}
-    ${cellXml('TOTAL', { bold: true, color: headerColor, fill: headerFill, align: 'center' })}
-  </w:tr>`;
-
-  // Data rows per setor
-  setores.forEach(setor => {
-    setor.itens.forEach(item => {
-      const total = (item.quantidade || 0) * (item.preco || 0);
-      rows += `<w:tr>
-        ${cellXml(item.descricao)}
-        ${cellXml(formatNumberBR(item.quantidade), { align: 'center' })}
-        ${cellXml(item.unidade, { align: 'center' })}
-        ${cellXml(formatCurrencyBR(item.preco), { align: 'right' })}
-        ${cellXml(formatCurrencyBR(total), { align: 'right' })}
-      </w:tr>`;
-    });
+  (setor.itens || []).forEach(item => {
+    const total = (item.quantidade || 0) * (item.preco || 0);
+    setorTotal += total;
+    if (item.unidade === 'KG') {
+      const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+      if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+        gruposPorBase[base] = item.quantidade || 0;
+      }
+    }
+    if (item.unidade === 'M2') {
+      setorArea += item.quantidade || 0;
+    }
   });
 
-  // Total row
-  rows += `<w:tr>
-    ${cellXmlSpan('TOTAL DA OBRA', 4, { bold: true })}
-    ${cellXml(formatCurrencyBR(precoFinal), { bold: true, color: 'FF0000', align: 'right', sz: 20 })}
+  setorWeight = Object.values(gruposPorBase).reduce((s, qty) => s + qty, 0);
+
+  return {
+    total: setorTotal,
+    peso: setorWeight,
+    area: setorArea,
+    valorKg: setorWeight > 0 ? setorTotal / setorWeight : 0,
+    valorM2: setorArea > 0 ? setorTotal / setorArea : 0,
+  };
+}
+
+// Build the dynamic budget table XML - separated by setor with analysis
+function buildBudgetTableXml(setores, precoFinal, totalWeight, totalArea) {
+  const headerFill = '006666';
+  const headerColor = 'FFFFFF';
+  const setorFill = '0F4C5C';
+  const setorColor = 'FFFFFF';
+  const subtotalFill = 'E8F5F3';
+  const analysisFill = 'F0F9FF';
+  const grandTotalFill = '006666';
+  const altRowFill = 'F8FAFB';
+
+  // Main header row
+  let rows = `<w:tr>
+    ${cellXml('ITEM / DESCRIÇÃO', { bold: true, color: headerColor, fill: headerFill, align: 'center', sz: 17 })}
+    ${cellXml('QTDE', { bold: true, color: headerColor, fill: headerFill, align: 'center', sz: 17 })}
+    ${cellXml('UN', { bold: true, color: headerColor, fill: headerFill, align: 'center', sz: 17 })}
+    ${cellXml('UNIT. (R$)', { bold: true, color: headerColor, fill: headerFill, align: 'center', sz: 17 })}
+    ${cellXml('TOTAL (R$)', { bold: true, color: headerColor, fill: headerFill, align: 'center', sz: 17 })}
   </w:tr>`;
+
+  let itemCounter = 0;
+
+  // Data rows per setor
+  setores.forEach((setor, sIdx) => {
+    const metrics = calcSetorMetrics(setor);
+
+    // Setor header row (dark background, full width)
+    rows += `<w:tr>
+      ${cellXmlSpan(`${sIdx + 1}. ${setor.nome.toUpperCase()}`, 4, { bold: true, color: setorColor, fill: setorFill, align: 'left', sz: 19 })}
+      ${cellXml(formatCurrencyBR(metrics.total), { bold: true, color: setorColor, fill: setorFill, align: 'right', sz: 19 })}
+    </w:tr>`;
+
+    // Item rows
+    setor.itens.forEach((item, iIdx) => {
+      itemCounter++;
+      const total = (item.quantidade || 0) * (item.preco || 0);
+      const rowFill = iIdx % 2 === 0 ? '' : altRowFill;
+      rows += `<w:tr>
+        ${cellXml(`   ${item.descricao}`, { fill: rowFill, sz: 17 })}
+        ${cellXml(formatNumberBR(item.quantidade), { align: 'center', fill: rowFill, sz: 17 })}
+        ${cellXml(item.unidade, { align: 'center', fill: rowFill, sz: 17 })}
+        ${cellXml(formatCurrencyBR(item.preco), { align: 'right', fill: rowFill, sz: 17 })}
+        ${cellXml(formatCurrencyBR(total), { bold: true, align: 'right', fill: rowFill, sz: 17 })}
+      </w:tr>`;
+    });
+
+    // Setor subtotal row
+    rows += `<w:tr>
+      ${cellXmlSpan(`Subtotal - ${setor.nome}`, 4, { bold: true, fill: subtotalFill, align: 'right', color: '006666', sz: 17 })}
+      ${cellXml(formatCurrencyBR(metrics.total), { bold: true, color: '006666', fill: subtotalFill, align: 'right', sz: 18 })}
+    </w:tr>`;
+
+    // Setor analysis row (metrics per setor)
+    const analysisTexts = [];
+    if (metrics.peso > 0) {
+      analysisTexts.push(`Peso: ${formatNumberBR(metrics.peso)} kg`);
+      analysisTexts.push(`R$/kg: ${formatCurrencyBR(metrics.valorKg)}`);
+    }
+    if (metrics.area > 0) {
+      analysisTexts.push(`Área: ${formatNumberBR(metrics.area)} m²`);
+      analysisTexts.push(`R$/m²: ${formatCurrencyBR(metrics.valorM2)}`);
+    }
+
+    if (analysisTexts.length > 0) {
+      rows += `<w:tr>
+        ${cellXmlSpan(`Análise: ${analysisTexts.join('  |  ')}`, 5, { italic: true, color: '475569', fill: analysisFill, align: 'center', sz: 16 })}
+      </w:tr>`;
+    }
+
+    // Spacer row between setores (empty thin row)
+    if (sIdx < setores.length - 1) {
+      rows += `<w:tr>
+        ${cellXmlSpan(' ', 5, { sz: 6 })}
+      </w:tr>`;
+    }
+  });
+
+  // Grand total row
+  rows += `<w:tr>
+    ${cellXmlSpan('INVESTIMENTO TOTAL DA OBRA', 4, { bold: true, color: headerColor, fill: grandTotalFill, align: 'right', sz: 20 })}
+    ${cellXml(formatCurrencyBR(precoFinal), { bold: true, color: 'FFFFFF', fill: grandTotalFill, align: 'right', sz: 22 })}
+  </w:tr>`;
+
+  // Summary analysis row
+  const precoKg = totalWeight > 0 ? precoFinal / totalWeight : 0;
+  const precoM2 = totalArea > 0 ? precoFinal / totalArea : 0;
+  const summaryParts = [];
+  if (totalWeight > 0) summaryParts.push(`Peso Total: ${formatNumberBR(totalWeight)} kg  |  Preço Médio: ${formatCurrencyBR(precoKg)}/kg`);
+  if (totalArea > 0) summaryParts.push(`Área Total: ${formatNumberBR(totalArea)} m²  |  Preço Médio: ${formatCurrencyBR(precoM2)}/m²`);
+
+  if (summaryParts.length > 0) {
+    rows += `<w:tr>
+      ${cellXmlSpan(summaryParts.join('   ·   '), 5, { bold: true, italic: true, color: '006666', fill: 'E8F5F3', align: 'center', sz: 17 })}
+    </w:tr>`;
+  }
 
   return `<w:tbl>
     <w:tblPr>
       <w:tblW w:w="9026" w:type="dxa"/>
       <w:tblBorders>
-        <w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/>
-        <w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/>
-        <w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/>
-        <w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/>
-        <w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/>
-        <w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>
+        <w:top w:val="single" w:sz="6" w:space="0" w:color="006666"/>
+        <w:left w:val="single" w:sz="6" w:space="0" w:color="006666"/>
+        <w:bottom w:val="single" w:sz="6" w:space="0" w:color="006666"/>
+        <w:right w:val="single" w:sz="6" w:space="0" w:color="006666"/>
+        <w:insideH w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
+        <w:insideV w:val="single" w:sz="2" w:space="0" w:color="D1D5DB"/>
       </w:tblBorders>
       <w:tblCellMar>
         <w:left w:w="10" w:type="dxa"/>
@@ -270,7 +370,7 @@ export async function generatePropostaDOCX(data) {
     const tblStart = docXml.indexOf('<w:tbl>', tableStartIdx);
     const tblEnd = docXml.indexOf('</w:tbl>', tblStart) + '</w:tbl>'.length;
     if (tblStart > -1 && tblEnd > -1) {
-      const newTable = buildBudgetTableXml(setores, precoFinal);
+      const newTable = buildBudgetTableXml(setores, precoFinal, totalWeight, totalArea);
       docXml = docXml.substring(0, tblStart) + newTable + docXml.substring(tblEnd);
     }
   }
@@ -286,11 +386,9 @@ export async function generatePropostaDOCX(data) {
   docXml = docXml.replace(econPremMatch, escXml(econPrem));
 
   // 5. Replace cronograma tables
-  // Find the cronograma phases table (after "DETALHAMENTO DAS FASES:")
   const cronFasesMarker = 'DETALHAMENTO DAS FASES:';
   const cronIdx = docXml.indexOf(cronFasesMarker);
   if (cronIdx > -1) {
-    // Find the two tables after this marker: phases table and summary table
     let tbl1Start = docXml.indexOf('<w:tbl>', cronIdx);
     let tbl1End = docXml.indexOf('</w:tbl>', tbl1Start) + '</w:tbl>'.length;
     let tbl2Start = docXml.indexOf('<w:tbl>', tbl1End);
@@ -298,14 +396,12 @@ export async function generatePropostaDOCX(data) {
 
     if (tbl1Start > -1 && tbl2End > -1) {
       const { phasesTable, summaryTable } = buildCronogramaTableXml(totalWeight, totalArea, prazo);
-      // Replace both tables: first one is phases, second is summary
-      // We need to replace from tbl1Start to tbl2End, but keep content between
       const between = docXml.substring(tbl1End, tbl2Start);
       docXml = docXml.substring(0, tbl1Start) + phasesTable + between + summaryTable + docXml.substring(tbl2End);
     }
   }
 
-  // 6. Replace summary values in "262.240 kg" and "3.130 m²" in the cronograma summary
+  // 6. Replace summary values
   docXml = docXml.replace(/262\.240 kg/g, `${formatNumberBR(totalWeight)} kg`);
   docXml = docXml.replace(/262\.240/g, formatNumberBR(totalWeight));
   docXml = docXml.replace(/3\.130 m²/g, `${formatNumberBR(totalArea)} m²`);
@@ -326,20 +422,11 @@ export async function generatePropostaDOCX(data) {
 
   // 9. Replace "Por que escolher" section values
   const precoKgStr = formatCurrencyBR(precoKg);
-  docXml = docXml.replace(
-    /R\$24\/kg/g,
-    `${precoKgStr}/kg`
-  );
-  docXml = docXml.replace(
-    /R\$28\/kg/g,
-    `${formatCurrencyBR(mercadoKg)}/kg`
-  );
-  docXml = docXml.replace(
-    /R\$35\/kg/g,
-    `${formatCurrencyBR(premiumKg)}/kg`
-  );
+  docXml = docXml.replace(/R\$24\/kg/g, `${precoKgStr}/kg`);
+  docXml = docXml.replace(/R\$28\/kg/g, `${formatCurrencyBR(mercadoKg)}/kg`);
+  docXml = docXml.replace(/R\$35\/kg/g, `${formatCurrencyBR(premiumKg)}/kg`);
 
-  // Replace economy savings in "Por que escolher"
+  // Replace economy savings
   docXml = docXml.replace(
     /R\$1\.049\.600,00/g,
     formatCurrencyBR((mercadoKg - precoKg) * totalWeight)

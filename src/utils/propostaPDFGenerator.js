@@ -1,6 +1,7 @@
 /**
  * Gerador de Proposta Comercial em PDF - Grupo Montex
- * Usa jsPDF diretamente (sem html2pdf/html2canvas) para máxima confiabilidade
+ * v3 - Tabelas separadas por setor com análise R$/m² e R$/kg por setor
+ * Usa jsPDF diretamente (sem html2pdf/html2canvas)
  */
 
 const formatCurrencyBR = (value) => {
@@ -15,13 +16,49 @@ const formatNumberBR = (value) => {
 
 // Colors
 const TEAL = [26, 122, 109];
+const TEAL_DARK = [0, 102, 102];
 const DARK = [30, 41, 59];
+const DARK_HEADER = [15, 32, 39];
 const WHITE = [255, 255, 255];
 const LIGHT_GRAY = [241, 245, 249];
 const MEDIUM_GRAY = [100, 116, 139];
 const GREEN_BG = [240, 253, 244];
 const GREEN_BORDER = [16, 185, 129];
 const RED_TEXT = [153, 27, 27];
+const ANALYSIS_BG = [240, 249, 255];
+const SUBTOTAL_BG = [232, 245, 243];
+
+// Calculate setor-level metrics
+function calcSetorMetrics(setor) {
+  let setorTotal = 0;
+  let setorWeight = 0;
+  let setorArea = 0;
+  const gruposPorBase = {};
+
+  (setor.itens || []).forEach(item => {
+    const total = (item.quantidade || 0) * (item.preco || 0);
+    setorTotal += total;
+    if (item.unidade === 'KG') {
+      const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+      if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+        gruposPorBase[base] = item.quantidade || 0;
+      }
+    }
+    if (item.unidade === 'M2') {
+      setorArea += item.quantidade || 0;
+    }
+  });
+
+  setorWeight = Object.values(gruposPorBase).reduce((s, qty) => s + qty, 0);
+
+  return {
+    total: setorTotal,
+    peso: setorWeight,
+    area: setorArea,
+    valorKg: setorWeight > 0 ? setorTotal / setorWeight : 0,
+    valorM2: setorArea > 0 ? setorTotal / setorArea : 0,
+  };
+}
 
 export async function generatePropostaPDF(data) {
   const { jsPDF } = await import('jspdf');
@@ -43,7 +80,7 @@ export async function generatePropostaPDF(data) {
   // Totals
   const totalGeral = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + (item.quantidade * item.preco), 0), 0);
 
-  // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+  // Peso real: agrupa itens KG por nome base
   let totalWeight = 0;
   setores.forEach(s => {
     const gruposPorBase = {};
@@ -62,7 +99,7 @@ export async function generatePropostaPDF(data) {
   const margemPct = calculations?.margemPct || 18;
   const impostosPct = calculations?.impostosPct || 12;
 
-  // Separar Material (sem margem/impostos) vs Instalação (com margem/impostos)
+  // Separar Material vs Instalação
   let custoMaterial = 0;
   let custoInstalacao = 0;
   setores.forEach(s => {
@@ -128,8 +165,19 @@ export async function generatePropostaPDF(data) {
     doc.text(String(value || '-'), x + doc.getTextWidth(label + ': '), y);
   }
 
+  function drawPageHeader(title) {
+    doc.setFillColor(...TEAL);
+    doc.rect(0, 0, pageW, 14, 'F');
+    doc.setFontSize(9);
+    doc.setTextColor(...WHITE);
+    doc.setFont('helvetica', 'bold');
+    doc.text('GRUPO MONTEX', margin, 9);
+    doc.text(title, pageW - margin, 9, { align: 'right' });
+    doc.setTextColor(...DARK);
+    currentY = 22;
+  }
+
   // ========== PAGE 1: COVER ==========
-  // Background gradient simulation
   doc.setFillColor(15, 32, 39);
   doc.rect(0, 0, pageW, 80, 'F');
   doc.setFillColor(32, 58, 67);
@@ -137,7 +185,6 @@ export async function generatePropostaPDF(data) {
   doc.setFillColor(44, 83, 100);
   doc.rect(0, 120, pageW, 20, 'F');
 
-  // Logo M text
   doc.setFontSize(48);
   doc.setTextColor(...WHITE);
   doc.setFont('helvetica', 'bold');
@@ -150,12 +197,10 @@ export async function generatePropostaPDF(data) {
   doc.setTextColor(148, 210, 189);
   doc.text('SOLUÇÕES EM AÇO', pageW / 2, 80, { align: 'center' });
 
-  // Separator
-  doc.setDrawColor(200, 169, 81); // gold
+  doc.setDrawColor(200, 169, 81);
   doc.setLineWidth(1);
   doc.line(60, 100, pageW - 60, 100);
 
-  // Proposal info
   doc.setFontSize(14);
   doc.setTextColor(148, 210, 189);
   doc.text('PROPOSTA COMERCIAL', pageW / 2, 115, { align: 'center' });
@@ -165,7 +210,6 @@ export async function generatePropostaPDF(data) {
   doc.setFont('helvetica', 'bold');
   doc.text(`Nº ${propNum}`, pageW / 2, 128, { align: 'center' });
 
-  // Project details on white area
   currentY = 160;
   doc.setFillColor(...WHITE);
   doc.roundedRect(margin + 10, currentY, contentW - 20, 50, 3, 3, 'F');
@@ -184,32 +228,15 @@ export async function generatePropostaPDF(data) {
   doc.setTextColor(...MEDIUM_GRAY);
   doc.text(`${project?.tipo || 'Galpão Industrial'} | ${(project?.regiao || 'Sudeste').toUpperCase()}`, pageW / 2, currentY + 40, { align: 'center' });
 
-  // Date at bottom
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   doc.setFontSize(10);
   doc.setTextColor(...MEDIUM_GRAY);
-  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   doc.text(`${months[new Date().getMonth()]} / ${new Date().getFullYear()}`, pageW / 2, 260, { align: 'center' });
-
   doc.setFontSize(8);
   doc.text(`Emissão: ${dataEmissao} | Validade: ${dataValidade}`, pageW / 2, 270, { align: 'center' });
 
   // ========== PAGE 2: PROJECT DATA + COSTS ==========
   doc.addPage();
-  currentY = 20;
-
-  // Header bar on each page
-  function drawPageHeader(title) {
-    doc.setFillColor(...TEAL);
-    doc.rect(0, 0, pageW, 14, 'F');
-    doc.setFontSize(9);
-    doc.setTextColor(...WHITE);
-    doc.setFont('helvetica', 'bold');
-    doc.text('GRUPO MONTEX', margin, 9);
-    doc.text(title, pageW - margin, 9, { align: 'right' });
-    doc.setTextColor(...DARK);
-    currentY = 22;
-  }
-
   drawPageHeader('DADOS DO PROJETO');
 
   drawSectionTitle('Dados do Projeto');
@@ -258,29 +285,32 @@ export async function generatePropostaPDF(data) {
   });
   currentY += Math.ceil(custosList.length / 2) * 6 + 5;
 
-  // ========== ORÇAMENTO DETALHADO ==========
+  // ========== ORÇAMENTO DETALHADO POR SETOR ==========
   drawSectionTitle(`Orçamento Detalhado - ${setores.length} setores`);
 
-  setores.forEach((setor) => {
-    checkPage(20);
+  const cols = [margin + 2, margin + 78, margin + 96, margin + 122, margin + 148];
 
-    // Setor header
-    const setorTotal = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
-    doc.setFillColor(...DARK);
-    doc.rect(margin, currentY, contentW, 7, 'F');
+  setores.forEach((setor, sIdx) => {
+    const metrics = calcSetorMetrics(setor);
+    checkPage(25);
+
+    // Setor header with number circle
+    doc.setFillColor(...DARK_HEADER);
+    doc.roundedRect(margin, currentY, contentW, 8, 1, 1, 'F');
     doc.setFontSize(9);
     doc.setTextColor(...WHITE);
     doc.setFont('helvetica', 'bold');
-    doc.text(setor.nome, margin + 3, currentY + 5);
-    doc.text(formatCurrencyBR(setorTotal), pageW - margin - 3, currentY + 5, { align: 'right' });
-    currentY += 8;
+    doc.text(`${sIdx + 1}. ${setor.nome}`, margin + 3, currentY + 5.5);
+    doc.setTextColor(148, 210, 189);
+    doc.text(formatCurrencyBR(metrics.total), pageW - margin - 3, currentY + 5.5, { align: 'right' });
+    currentY += 9;
 
     // Table header
     doc.setFillColor(71, 85, 105);
     doc.rect(margin, currentY, contentW, 6, 'F');
     doc.setFontSize(7);
     doc.setTextColor(...WHITE);
-    const cols = [margin + 2, margin + 75, margin + 95, margin + 120, margin + 145];
+    doc.setFont('helvetica', 'bold');
     doc.text('DESCRIÇÃO', cols[0], currentY + 4);
     doc.text('UN', cols[1], currentY + 4);
     doc.text('QTD', cols[2], currentY + 4);
@@ -299,7 +329,7 @@ export async function generatePropostaPDF(data) {
       doc.setTextColor(...DARK);
       doc.setFont('helvetica', 'normal');
 
-      const desc = item.descricao.length > 40 ? item.descricao.substring(0, 40) + '...' : item.descricao;
+      const desc = item.descricao.length > 42 ? item.descricao.substring(0, 42) + '...' : item.descricao;
       doc.text(desc, cols[0], currentY + 3);
       doc.text(item.unidade || '-', cols[1], currentY + 3);
       doc.text(formatNumberBR(item.quantidade), cols[2], currentY + 3);
@@ -309,32 +339,73 @@ export async function generatePropostaPDF(data) {
       currentY += 6;
     });
 
-    currentY += 3;
+    // Subtotal row
+    checkPage(8);
+    doc.setFillColor(...SUBTOTAL_BG);
+    doc.rect(margin, currentY, contentW, 6, 'F');
+    doc.setDrawColor(...TEAL);
+    doc.setLineWidth(0.3);
+    doc.line(margin, currentY, margin + contentW, currentY);
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...TEAL_DARK);
+    doc.text(`Subtotal - ${setor.nome}`, cols[3] - 2, currentY + 4, { align: 'right' });
+    doc.text(formatCurrencyBR(metrics.total), cols[4], currentY + 4);
+    currentY += 7;
+
+    // Analysis row (metrics per setor)
+    const analysisParts = [];
+    if (metrics.peso > 0) {
+      analysisParts.push(`Peso: ${formatNumberBR(metrics.peso)} kg`);
+      analysisParts.push(`R$/kg: ${formatCurrencyBR(metrics.valorKg)}`);
+    }
+    if (metrics.area > 0) {
+      analysisParts.push(`Área: ${formatNumberBR(metrics.area)} m²`);
+      analysisParts.push(`R$/m²: ${formatCurrencyBR(metrics.valorM2)}`);
+    }
+
+    if (analysisParts.length > 0) {
+      checkPage(7);
+      doc.setFillColor(...ANALYSIS_BG);
+      doc.rect(margin, currentY, contentW, 5.5, 'F');
+      doc.setFontSize(7);
+      doc.setFont('helvetica', 'italic');
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Análise: ${analysisParts.join('  |  ')}`, margin + contentW / 2, currentY + 3.8, { align: 'center' });
+      currentY += 6.5;
+    }
+
+    currentY += 4;
   });
 
-  // Grand total
-  checkPage(12);
-  doc.setFillColor(...TEAL);
-  doc.roundedRect(margin, currentY, contentW, 10, 1, 1, 'F');
+  // Grand total bar
+  checkPage(14);
+  doc.setFillColor(...TEAL_DARK);
+  doc.roundedRect(margin, currentY, contentW, 12, 2, 2, 'F');
   doc.setFontSize(11);
   doc.setTextColor(...WHITE);
   doc.setFont('helvetica', 'bold');
-  doc.text('TOTAL GERAL', margin + 4, currentY + 7);
-  doc.text(formatCurrencyBR(totalGeral), pageW - margin - 4, currentY + 7, { align: 'right' });
+  doc.text('INVESTIMENTO TOTAL DA OBRA', margin + 5, currentY + 8);
+  doc.setFontSize(13);
+  doc.text(formatCurrencyBR(precoFinal), pageW - margin - 5, currentY + 8, { align: 'right' });
   currentY += 15;
 
-  // ========== RESUMO QUANTITATIVO ==========
-  checkPage(30);
-  drawSectionTitle('Resumo Quantitativo');
-
-  drawField('Peso Total Estimado', `${formatNumberBR(totalWeight)} kg`, margin + 4, currentY + 5);
-  drawField('Área Total', `${formatNumberBR(totalArea)} m²`, pageW / 2, currentY + 5);
-  drawField('Preço Médio/kg', totalWeight > 0 ? formatCurrencyBR(precoFinal / totalWeight) : '-', margin + 4, currentY + 11);
-  drawField('Prazo de Execução', `${prazo} dias corridos`, pageW / 2, currentY + 11);
-
-  doc.setDrawColor(...LIGHT_GRAY);
-  doc.roundedRect(margin, currentY, contentW, 15, 1, 1, 'S');
-  currentY += 20;
+  // Summary metrics row
+  checkPage(12);
+  const precoKgTotal = totalWeight > 0 ? precoFinal / totalWeight : 0;
+  const precoM2Total = totalArea > 0 ? precoFinal / totalArea : 0;
+  doc.setFillColor(...SUBTOTAL_BG);
+  doc.roundedRect(margin, currentY, contentW, 8, 1, 1, 'F');
+  doc.setFontSize(8);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(...TEAL_DARK);
+  const summaryParts = [];
+  if (totalWeight > 0) summaryParts.push(`Peso Total: ${formatNumberBR(totalWeight)} kg  |  Preço Médio: ${formatCurrencyBR(precoKgTotal)}/kg`);
+  if (totalArea > 0) summaryParts.push(`Área Total: ${formatNumberBR(totalArea)} m²  |  Preço Médio: ${formatCurrencyBR(precoM2Total)}/m²`);
+  if (summaryParts.length > 0) {
+    doc.text(summaryParts.join('   ·   '), margin + contentW / 2, currentY + 5.5, { align: 'center' });
+  }
+  currentY += 14;
 
   // ========== COMPOSIÇÃO DO INVESTIMENTO ==========
   checkPage(50);
@@ -362,7 +433,6 @@ export async function generatePropostaPDF(data) {
     doc.text(row[1], margin + contentW / 2 - 5, y, { align: 'right' });
   });
 
-  // Grand total box
   doc.setFontSize(8);
   doc.setTextColor(...MEDIUM_GRAY);
   doc.text('VALOR TOTAL DA PROPOSTA', margin + contentW / 2 + 15, currentY + 12);
@@ -389,8 +459,6 @@ export async function generatePropostaPDF(data) {
     doc.setDrawColor(...LIGHT_GRAY);
     doc.setFillColor(...WHITE);
     doc.roundedRect(x, currentY, cardW, 28, 2, 2, 'FD');
-
-    // Top border
     doc.setFillColor(...TEAL);
     doc.rect(x, currentY, cardW, 2, 'F');
 
@@ -425,21 +493,18 @@ export async function generatePropostaPDF(data) {
   const fabW = (fabDias / totalDias) * timelineW;
   const montW = (montDias / totalDias) * timelineW;
 
-  // Projeto bar
-  doc.setFillColor(59, 130, 246); // blue
+  doc.setFillColor(59, 130, 246);
   doc.roundedRect(margin, currentY, projW, 10, 1, 1, 'F');
   doc.setFontSize(7);
   doc.setTextColor(...WHITE);
   doc.setFont('helvetica', 'bold');
   doc.text(`Projeto (${projDias}d)`, margin + projW / 2, currentY + 7, { align: 'center' });
 
-  // Fabricação bar
-  doc.setFillColor(245, 158, 11); // amber
+  doc.setFillColor(245, 158, 11);
   doc.roundedRect(margin + projW, currentY, fabW, 10, 1, 1, 'F');
   doc.text(`Fabricação (${fabDias}d)`, margin + projW + fabW / 2, currentY + 7, { align: 'center' });
 
-  // Montagem bar
-  doc.setFillColor(16, 185, 129); // green
+  doc.setFillColor(16, 185, 129);
   doc.roundedRect(margin + projW + fabW, currentY, montW, 10, 1, 1, 'F');
   doc.text(`Montagem (${montDias}d)`, margin + projW + fabW + montW / 2, currentY + 7, { align: 'center' });
 
@@ -487,7 +552,6 @@ export async function generatePropostaPDF(data) {
   currentY += 25;
   const sigW = (contentW - 20) / 2;
 
-  // Left signature
   doc.setDrawColor(...MEDIUM_GRAY);
   doc.line(margin, currentY, margin + sigW, currentY);
   doc.setFontSize(8);
@@ -499,7 +563,6 @@ export async function generatePropostaPDF(data) {
   doc.setTextColor(...MEDIUM_GRAY);
   doc.text('Guilherme Maciel Vieira - Diretor Comercial', margin + sigW / 2, currentY + 10, { align: 'center' });
 
-  // Right signature
   doc.line(margin + sigW + 20, currentY, pageW - margin, currentY);
   doc.setFontSize(8);
   doc.setFont('helvetica', 'bold');
@@ -514,7 +577,7 @@ export async function generatePropostaPDF(data) {
   const totalPages = doc.internal.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
-    if (i > 1) { // skip cover page
+    if (i > 1) {
       addFooter();
     }
   }

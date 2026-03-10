@@ -1,6 +1,6 @@
 /**
  * Gerador de Prévia HTML da Proposta Comercial - Grupo Montex
- * Segue o mesmo padrão do Romaneio de Expedição (nova janela + window.print)
+ * v3 - Tabelas separadas por setor com análise R$/m² e R$/kg independente
  */
 
 const MONTEX_SVG = `<svg width="60" height="38" viewBox="0 0 1900 1200" style="flex-shrink:0">
@@ -13,6 +13,38 @@ function formatCurrency(value) {
 
 function formatNumber(value) {
   return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value || 0);
+}
+
+// Calculate setor-level metrics
+function calcSetorMetrics(setor) {
+  let setorTotal = 0;
+  let setorWeight = 0;
+  let setorArea = 0;
+  const gruposPorBase = {};
+
+  (setor.itens || []).forEach(item => {
+    const total = (item.quantidade || 0) * (item.preco || 0);
+    setorTotal += total;
+    if (item.unidade === 'KG') {
+      const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+      if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+        gruposPorBase[base] = item.quantidade || 0;
+      }
+    }
+    if (item.unidade === 'M2') {
+      setorArea += item.quantidade || 0;
+    }
+  });
+
+  setorWeight = Object.values(gruposPorBase).reduce((s, qty) => s + qty, 0);
+
+  return {
+    total: setorTotal,
+    peso: setorWeight,
+    area: setorArea,
+    valorKg: setorWeight > 0 ? setorTotal / setorWeight : 0,
+    valorM2: setorArea > 0 ? setorTotal / setorArea : 0,
+  };
 }
 
 export function gerarPreviaPropostaHTML(data) {
@@ -29,7 +61,7 @@ export function gerarPreviaPropostaHTML(data) {
     return sum + s.itens.reduce((itemSum, item) => itemSum + (item.quantidade * item.preco), 0);
   }, 0);
 
-  // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+  // Peso real: agrupa itens KG por nome base
   let totalWeight = 0;
   setores.forEach(s => {
     const gruposPorBase = {};
@@ -53,7 +85,7 @@ export function gerarPreviaPropostaHTML(data) {
   const margemPct = calculations?.margemPct || 18;
   const impostosPct = calculations?.impostosPct || 12;
 
-  // Separar Material (sem margem/impostos) vs Instalação (com margem/impostos)
+  // Separar Material vs Instalação
   let custoMaterial = 0;
   let custoInstalacao = 0;
   setores.forEach(s => {
@@ -74,30 +106,63 @@ export function gerarPreviaPropostaHTML(data) {
   const impostosInstalacao = subtotalInstalacao * (impostosPct / 100);
   const precoFinal = calculations?.precoFinal || (custoMaterial + subtotalInstalacao + impostosInstalacao);
 
-  // Build setores table rows
-  const setoresRows = setores.map((setor, sIdx) => {
-    const setorTotal = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
+  // Build setor tables with analysis per setor
+  const setoresHTML = setores.map((setor, sIdx) => {
+    const metrics = calcSetorMetrics(setor);
+
     const itemRows = setor.itens.map((item, iIdx) => {
       const total = item.quantidade * item.preco;
-      return `<tr style="${iIdx % 2 === 0 ? 'background:#f8fafc' : ''}">
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0">${item.descricao}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:center">${item.unidade}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:center">${formatNumber(item.quantidade)}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right">${formatCurrency(item.preco)}</td>
-        <td style="padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold">${formatCurrency(total)}</td>
+      return `<tr class="${iIdx % 2 === 0 ? 'row-even' : 'row-odd'}">
+        <td class="td-desc">${item.descricao}</td>
+        <td class="td-center">${item.unidade}</td>
+        <td class="td-center">${formatNumber(item.quantidade)}</td>
+        <td class="td-right">${formatCurrency(item.preco)}</td>
+        <td class="td-right td-bold">${formatCurrency(total)}</td>
       </tr>`;
     }).join('');
 
+    // Analysis badges for the setor
+    const badges = [];
+    if (metrics.peso > 0) {
+      badges.push(`<span class="badge"><b>${formatNumber(metrics.peso)}</b> kg</span>`);
+      badges.push(`<span class="badge badge-teal"><b>${formatCurrency(metrics.valorKg)}</b>/kg</span>`);
+    }
+    if (metrics.area > 0) {
+      badges.push(`<span class="badge"><b>${formatNumber(metrics.area)}</b> m²</span>`);
+      badges.push(`<span class="badge badge-teal"><b>${formatCurrency(metrics.valorM2)}</b>/m²</span>`);
+    }
+
     return `
-      <tr style="background:#1e293b;color:#fff">
-        <td colspan="4" style="padding:8px 10px;font-weight:bold;font-size:12px">${setor.nome}</td>
-        <td style="padding:8px 10px;text-align:right;font-weight:bold;font-size:12px">${formatCurrency(setorTotal)}</td>
-      </tr>
-      ${itemRows}
+      <div class="setor-block">
+        <div class="setor-header">
+          <div class="setor-header-left">
+            <span class="setor-number">${sIdx + 1}</span>
+            <span class="setor-name">${setor.nome}</span>
+          </div>
+          <span class="setor-total">${formatCurrency(metrics.total)}</span>
+        </div>
+        <table class="setor-table">
+          <thead><tr>
+            <th style="width:40%">Descrição</th>
+            <th style="width:8%;text-align:center">Un</th>
+            <th style="width:14%;text-align:center">Quantidade</th>
+            <th style="width:18%;text-align:right">Preço Unit.</th>
+            <th style="width:20%;text-align:right">Total</th>
+          </tr></thead>
+          <tbody>
+            ${itemRows}
+            <tr class="subtotal-row">
+              <td colspan="4" style="text-align:right">Subtotal - ${setor.nome}</td>
+              <td style="text-align:right">${formatCurrency(metrics.total)}</td>
+            </tr>
+          </tbody>
+        </table>
+        ${badges.length > 0 ? `<div class="setor-analysis">${badges.join('')}</div>` : ''}
+      </div>
     `;
   }).join('');
 
-  // Custos unitários summary
+  // Custos unitários
   const custosInfo = `
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
       <div>
@@ -117,13 +182,11 @@ export function gerarPreviaPropostaHTML(data) {
     </div>
   `;
 
-  // Composição do investimento (margem e impostos somente sobre instalação)
-
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <title>Proposta Comercial - ${project?.nome || 'Montex'} - ${propNum}</title>
 <style>
   *{margin:0;padding:0;box-sizing:border-box}
-  body{font-family:Arial,Helvetica,sans-serif;color:#1e293b;background:#fff}
+  body{font-family:'Segoe UI',Arial,Helvetica,sans-serif;color:#1e293b;background:#fff}
 
   /* HEADER */
   .header{background:linear-gradient(135deg,#0f2027,#203a43,#2c5364);padding:24px 32px;display:flex;justify-content:space-between;align-items:center;color:#fff}
@@ -143,14 +206,42 @@ export function gerarPreviaPropostaHTML(data) {
   .field{font-size:12px;line-height:1.8}
   .field b{color:#475569}
 
-  /* TABLE */
-  .table-header{background:linear-gradient(90deg,#1a7a6d,#2c9e8f);color:#fff;padding:10px 14px;font-size:11px;font-weight:bold;display:flex;justify-content:space-between;margin:16px 32px 0;border-radius:8px 8px 0 0;letter-spacing:1px;text-transform:uppercase}
-  table{width:calc(100% - 64px);margin:0 32px;border-collapse:collapse;font-size:11px}
-  th{background:#475569;color:#fff;padding:7px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px}
-  .total-row{background:#e2e8f0;font-weight:bold;font-size:12px}
-  .total-row td{padding:8px 10px}
-  .grand-total{background:linear-gradient(90deg,#1a7a6d,#2c9e8f);color:#fff;font-weight:bold;font-size:13px}
-  .grand-total td{padding:10px}
+  /* SETOR BLOCKS */
+  .budget-container{margin:16px 32px}
+  .budget-header{background:linear-gradient(90deg,#1a7a6d,#2c9e8f);color:#fff;padding:10px 14px;font-size:11px;font-weight:bold;display:flex;justify-content:space-between;border-radius:8px 8px 0 0;letter-spacing:1px;text-transform:uppercase}
+
+  .setor-block{margin-bottom:16px;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+  .setor-header{background:linear-gradient(135deg,#0f2027,#1e3a4a);color:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center}
+  .setor-header-left{display:flex;align-items:center;gap:10px}
+  .setor-number{background:#1a7a6d;color:#fff;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:bold;flex-shrink:0}
+  .setor-name{font-size:13px;font-weight:bold;letter-spacing:0.5px}
+  .setor-total{font-size:14px;font-weight:bold;color:#94d2bd}
+
+  .setor-table{width:100%;border-collapse:collapse;font-size:11px}
+  .setor-table th{background:#475569;color:#fff;padding:6px 10px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;text-align:left}
+  .setor-table .td-desc{padding:6px 10px;border-bottom:1px solid #e2e8f0}
+  .setor-table .td-center{padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:center}
+  .setor-table .td-right{padding:6px 10px;border-bottom:1px solid #e2e8f0;text-align:right}
+  .setor-table .td-bold{font-weight:600}
+  .row-even{background:#f8fafc}
+  .row-odd{background:#fff}
+  .subtotal-row{background:#e8f5f3;font-weight:bold;color:#006666;font-size:12px}
+  .subtotal-row td{padding:8px 10px;border-top:2px solid #1a7a6d}
+
+  .setor-analysis{background:#f0f9ff;padding:8px 14px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;border-top:1px dashed #bae6fd}
+  .badge{background:#e2e8f0;padding:4px 10px;border-radius:20px;font-size:10px;color:#475569}
+  .badge-teal{background:#ccfbf1;color:#006666}
+
+  /* GRAND TOTAL */
+  .grand-total-bar{background:linear-gradient(90deg,#006666,#1a7a6d);color:#fff;margin:0 32px 16px;padding:14px 20px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;box-shadow:0 2px 8px rgba(0,102,102,0.3)}
+  .grand-total-bar .gt-label{font-size:13px;font-weight:bold;letter-spacing:1px}
+  .grand-total-bar .gt-value{font-size:18px;font-weight:bold}
+
+  /* SUMMARY METRICS */
+  .metrics-grid{margin:16px 32px;display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .metric-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:12px;text-align:center;border-top:3px solid #1a7a6d}
+  .metric-card .metric-value{font-size:18px;font-weight:bold;color:#006666;margin:4px 0}
+  .metric-card .metric-label{font-size:9px;color:#64748b;text-transform:uppercase;letter-spacing:0.5px}
 
   /* INVESTMENT BOX */
   .invest-box{margin:16px 32px;background:linear-gradient(135deg,#f0fdf4,#ecfdf5);border:2px solid #10b981;border-radius:8px;padding:20px;page-break-inside:avoid}
@@ -181,9 +272,6 @@ export function gerarPreviaPropostaHTML(data) {
   /* FOOTER */
   .footer{border-top:2px solid #1a7a6d;margin:24px 32px 16px;padding-top:12px;font-size:9px;color:#94a3b8;display:flex;justify-content:space-between;align-items:center}
   .footer .brand{color:#1a7a6d;font-weight:bold;font-size:10px}
-
-  /* SEPARATOR */
-  .page-break{page-break-before:always;border-top:3px solid #1a7a6d;margin:24px 32px}
 
   /* PRINT */
   @media print{button,.no-print{display:none !important}body{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
@@ -228,46 +316,47 @@ export function gerarPreviaPropostaHTML(data) {
   </div>
 </div>
 
-<!-- ====== ORÇAMENTO DETALHADO ====== -->
-<div class="table-header">
-  <span>Orçamento Detalhado por Setor</span>
-  <span>${setores.length} setores | ${setores.reduce((s,sec) => s + sec.itens.length, 0)} itens</span>
+<!-- ====== ORÇAMENTO DETALHADO POR SETOR ====== -->
+<div class="budget-container">
+  <div class="budget-header">
+    <span>Orçamento Detalhado por Setor</span>
+    <span>${setores.length} setores | ${setores.reduce((s,sec) => s + sec.itens.length, 0)} itens</span>
+  </div>
 </div>
-<table>
-  <thead><tr>
-    <th>Descrição</th>
-    <th style="text-align:center">Unidade</th>
-    <th style="text-align:center">Quantidade</th>
-    <th style="text-align:right">Preço Unit.</th>
-    <th style="text-align:right">Total</th>
-  </tr></thead>
-  <tbody>
-    ${setoresRows}
-    <tr class="grand-total">
-      <td colspan="4">TOTAL GERAL</td>
-      <td style="text-align:right;font-size:14px">${formatCurrency(totalGeral)}</td>
-    </tr>
-  </tbody>
-</table>
 
-<!-- ====== RESUMO QUANTITATIVO ====== -->
-<div class="section" style="margin-top:16px">
-  <div class="section-title">Resumo Quantitativo</div>
-  <div class="section-body">
-    <div>
-      <div class="field"><b>Peso Total Estimado:</b> ${formatNumber(totalWeight)} kg</div>
-      <div class="field"><b>Área Total:</b> ${formatNumber(totalArea)} m²</div>
-    </div>
-    <div>
-      <div class="field"><b>Preço Médio/kg:</b> ${totalWeight > 0 ? formatCurrency(precoFinal / totalWeight) : '-'}</div>
-      <div class="field"><b>Prazo de Execução:</b> ${prazo} dias corridos</div>
-    </div>
+<div style="margin:0 32px">
+  ${setoresHTML}
+</div>
+
+<!-- ====== GRAND TOTAL BAR ====== -->
+<div class="grand-total-bar">
+  <span class="gt-label">TOTAL GERAL DO ORÇAMENTO</span>
+  <span class="gt-value">${formatCurrency(totalGeral)}</span>
+</div>
+
+<!-- ====== RESUMO MÉTRICAS ====== -->
+<div class="metrics-grid">
+  <div class="metric-card">
+    <div class="metric-label">Peso Total</div>
+    <div class="metric-value">${formatNumber(totalWeight)} kg</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Área Total</div>
+    <div class="metric-value">${formatNumber(totalArea)} m²</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Preço Médio / kg</div>
+    <div class="metric-value">${totalWeight > 0 ? formatCurrency(precoFinal / totalWeight) : '-'}</div>
+  </div>
+  <div class="metric-card">
+    <div class="metric-label">Preço Médio / m²</div>
+    <div class="metric-value">${totalArea > 0 ? formatCurrency(precoFinal / totalArea) : '-'}</div>
   </div>
 </div>
 
 <!-- ====== COMPOSIÇÃO DO INVESTIMENTO ====== -->
 <div class="invest-box">
-  <h3>💰 Composição do Investimento</h3>
+  <h3>Composição do Investimento</h3>
   <div class="invest-grid">
     <div>
       <div class="invest-item"><span>Material (s/ margem/impostos)</span><span>${formatCurrency(custoMaterial)}</span></div>
@@ -380,10 +469,10 @@ export function gerarPreviaPropostaHTML(data) {
 <!-- ====== BOTÕES (não imprime) ====== -->
 <div class="no-print" style="text-align:center;margin:24px;display:flex;gap:12px;justify-content:center">
   <button onclick="window.print()" style="padding:14px 36px;background:#1a7a6d;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer;display:flex;align-items:center;gap:8px">
-    🖨️ Imprimir / Salvar PDF
+    Imprimir / Salvar PDF
   </button>
   <button onclick="window.close()" style="padding:14px 36px;background:#64748b;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:bold;cursor:pointer">
-    ✕ Fechar
+    Fechar
   </button>
 </div>
 
