@@ -96,10 +96,47 @@ export async function generatePropostaDOCX(data) {
 
   // Calculate totals
   const totalGeral = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + (item.quantidade * item.preco), 0), 0);
-  const totalWeight = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + ((item.unidade === 'KG') ? item.quantidade : 0), 0), 0);
+
+  // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+  let totalWeight = 0;
+  setores.forEach(s => {
+    const gruposPorBase = {};
+    (s.itens || []).forEach(item => {
+      if (item.unidade === 'KG') {
+        const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+        if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+          gruposPorBase[base] = item.quantidade || 0;
+        }
+      }
+    });
+    totalWeight += Object.values(gruposPorBase).reduce((s2, qty) => s2 + qty, 0);
+  });
+
   const totalArea = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + ((item.unidade === 'M2') ? item.quantidade : 0), 0), 0);
-  const precoFinal = calculations?.precoFinal || totalGeral;
-  const precoKg = totalWeight > 0 ? totalGeral / totalWeight : 0;
+
+  // Separar Material (sem margem/impostos) vs Instalação (com margem/impostos)
+  const margemPct = calculations?.margemPct || 18;
+  const impostosPct = calculations?.impostosPct || 12;
+  let custoMaterial = 0;
+  let custoInstalacao = 0;
+  setores.forEach(s => {
+    (s.itens || []).forEach(item => {
+      const total = (item.quantidade || 0) * (item.preco || 0);
+      const parts = (item.descricao || '').split(' - ');
+      const sufixo = parts.length >= 2 ? parts[parts.length - 1].trim().toLowerCase() : '';
+      if (sufixo === 'material') {
+        custoMaterial += total;
+      } else {
+        custoInstalacao += total;
+      }
+    });
+  });
+
+  const margemInstalacao = custoInstalacao * (margemPct / 100);
+  const subtotalInstalacao = custoInstalacao + margemInstalacao;
+  const impostosInstalacao = subtotalInstalacao * (impostosPct / 100);
+  const precoFinal = calculations?.precoFinal || (custoMaterial + subtotalInstalacao + impostosInstalacao);
+  const precoKg = totalWeight > 0 ? precoFinal / totalWeight : 0;
 
   const allChildren = [];
 

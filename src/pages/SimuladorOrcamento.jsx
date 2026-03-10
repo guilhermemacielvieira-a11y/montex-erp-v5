@@ -1038,16 +1038,24 @@ const StepBDI = ({ project, calculations, setCalculations }) => {
           <h3 className="text-lg font-semibold mb-4 text-green-900">Resumo</h3>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-700">Custo Total:</span>
-              <span className="font-semibold">{formatCurrency(calculations.custoTotal)}</span>
+              <span className="text-gray-700">Material (s/ margem):</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoMaterial || 0)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-gray-700">Margem (+{margemPct}%):</span>
-              <span className="font-semibold text-green-600">{formatCurrency(calculations.custoTotal * (margemPct / 100))}</span>
+              <span className="text-gray-700">Instalação:</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoInstalacao || 0)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-700">Margem (+{margemPct}%) s/ instalação:</span>
+              <span className="font-semibold text-green-600">{formatCurrency((calculations.custoInstalacao || 0) * (margemPct / 100))}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-700">Impostos ({impostosPct}%) s/ instalação:</span>
+              <span className="font-semibold text-orange-600">{formatCurrency(((calculations.custoInstalacao || 0) * (1 + margemPct / 100)) * (impostosPct / 100))}</span>
             </div>
             <div className="border-t pt-2 flex justify-between font-bold">
               <span>Total:</span>
-              <span className="text-green-700">{formatCurrency(calculations.custoTotal * (1 + margemPct / 100))}</span>
+              <span className="text-green-700">{formatCurrency(calculations.precoFinal || 0)}</span>
             </div>
           </div>
         </div>
@@ -1110,16 +1118,10 @@ const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
     }, 0);
   }, 0);
 
-  // Valor total dos itens em KG (estruturas)
-  const valorEstruturas = setores.reduce((sum, s) => {
-    return sum + s.itens.reduce((itemSum, item) => {
-      return itemSum + ((item.unidade === 'KG') ? (item.quantidade || 0) * (item.preco || 0) : 0);
-    }, 0);
-  }, 0);
-
-  // KPIs derivados
-  const valorPorKg = totalWeight > 0 ? valorEstruturas / totalWeight : 0;
-  const valorPorM2 = totalArea > 0 ? totalValue / totalArea : 0;
+  // Valor/KG e Valor/M2 calculados APÓS margem e impostos (precoFinal)
+  const precoFinal = calculations?.precoFinal || totalValue;
+  const valorPorKg = totalWeight > 0 ? precoFinal / totalWeight : 0;
+  const valorPorM2 = totalArea > 0 ? precoFinal / totalArea : 0;
 
   // Análise por setor
   const setorAnalise = setores.map(s => {
@@ -1572,14 +1574,36 @@ export default function SimuladorOrcamento() {
     });
 
     const precoKgMedio = totalWeight > 0 ? totalValue / totalWeight : 0;
-    const margemValue = totalValue * (calculations.margemPct / 100);
-    const subtotal = totalValue + margemValue;
-    const impostos = subtotal * (calculations.impostosPct / 100);
-    const precoFinal = subtotal + impostos;
+
+    // Separar custo Material vs Instalação
+    // Material (sem margem/impostos): itens cujo sufixo após " - " é "Material"
+    // Instalação (com margem/impostos): Fabricação, Pintura, Transporte, Montagem, etc.
+    let custoMaterial = 0;
+    let custoInstalacao = 0;
+    setores.forEach(s => {
+      (s.itens || []).forEach(item => {
+        const total = (item.quantidade || 0) * (item.preco || 0);
+        const parts = (item.descricao || '').split(' - ');
+        const sufixo = parts.length >= 2 ? parts[parts.length - 1].trim().toLowerCase() : '';
+        if (sufixo === 'material') {
+          custoMaterial += total;
+        } else {
+          custoInstalacao += total;
+        }
+      });
+    });
+
+    // Margem e impostos SOMENTE sobre instalação
+    const margemValue = custoInstalacao * (calculations.margemPct / 100);
+    const subtotalInstalacao = custoInstalacao + margemValue;
+    const impostos = subtotalInstalacao * (calculations.impostosPct / 100);
+    const precoFinal = custoMaterial + subtotalInstalacao + impostos;
 
     setCalculations(prev => ({
       ...prev,
       custoTotal: totalValue,
+      custoMaterial,
+      custoInstalacao,
       precoFinal,
       precoVendaBDI: precoFinal,
       totalPeso: totalWeight,

@@ -42,15 +42,46 @@ export async function generatePropostaPDF(data) {
 
   // Totals
   const totalGeral = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + (item.quantidade * item.preco), 0), 0);
-  const totalWeight = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + ((item.unidade === 'KG') ? item.quantidade : 0), 0), 0);
+
+  // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+  let totalWeight = 0;
+  setores.forEach(s => {
+    const gruposPorBase = {};
+    (s.itens || []).forEach(item => {
+      if (item.unidade === 'KG') {
+        const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+        if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+          gruposPorBase[base] = item.quantidade || 0;
+        }
+      }
+    });
+    totalWeight += Object.values(gruposPorBase).reduce((s2, qty) => s2 + qty, 0);
+  });
+
   const totalArea = setores.reduce((sum, s) => sum + s.itens.reduce((is, item) => is + ((item.unidade === 'M2') ? item.quantidade : 0), 0), 0);
-  const precoFinal = calculations?.precoFinal || totalGeral;
   const margemPct = calculations?.margemPct || 18;
   const impostosPct = calculations?.impostosPct || 12;
-  const custoBase = totalGeral;
-  const margem = custoBase * (margemPct / 100);
-  const subtotal = custoBase + margem;
-  const impostos = subtotal * (impostosPct / 100);
+
+  // Separar Material (sem margem/impostos) vs Instalação (com margem/impostos)
+  let custoMaterial = 0;
+  let custoInstalacao = 0;
+  setores.forEach(s => {
+    (s.itens || []).forEach(item => {
+      const total = (item.quantidade || 0) * (item.preco || 0);
+      const parts = (item.descricao || '').split(' - ');
+      const sufixo = parts.length >= 2 ? parts[parts.length - 1].trim().toLowerCase() : '';
+      if (sufixo === 'material') {
+        custoMaterial += total;
+      } else {
+        custoInstalacao += total;
+      }
+    });
+  });
+
+  const margemInstalacao = custoInstalacao * (margemPct / 100);
+  const subtotalInstalacao = custoInstalacao + margemInstalacao;
+  const impostosInstalacao = subtotalInstalacao * (impostosPct / 100);
+  const precoFinal = calculations?.precoFinal || (custoMaterial + subtotalInstalacao + impostosInstalacao);
 
   // Helper functions
   let currentY = 0;
@@ -298,7 +329,7 @@ export async function generatePropostaPDF(data) {
 
   drawField('Peso Total Estimado', `${formatNumberBR(totalWeight)} kg`, margin + 4, currentY + 5);
   drawField('Área Total', `${formatNumberBR(totalArea)} m²`, pageW / 2, currentY + 5);
-  drawField('Preço Médio/kg', totalWeight > 0 ? formatCurrencyBR(totalGeral / totalWeight) : '-', margin + 4, currentY + 11);
+  drawField('Preço Médio/kg', totalWeight > 0 ? formatCurrencyBR(precoFinal / totalWeight) : '-', margin + 4, currentY + 11);
   drawField('Prazo de Execução', `${prazo} dias corridos`, pageW / 2, currentY + 11);
 
   doc.setDrawColor(...LIGHT_GRAY);
@@ -315,10 +346,10 @@ export async function generatePropostaPDF(data) {
   doc.roundedRect(margin, currentY, contentW, 45, 2, 2, 'FD');
 
   const investRows = [
-    ['Custo Base (Materiais + Serviços)', formatCurrencyBR(custoBase)],
-    [`Margem (${margemPct}%)`, formatCurrencyBR(margem)],
-    ['Subtotal', formatCurrencyBR(subtotal)],
-    [`Impostos (${impostosPct}%)`, formatCurrencyBR(impostos)],
+    ['Material (s/ margem/impostos)', formatCurrencyBR(custoMaterial)],
+    ['Instalação (Fab/Pint/Transp/Mont)', formatCurrencyBR(custoInstalacao)],
+    [`Margem (${margemPct}%) s/ instalação`, formatCurrencyBR(margemInstalacao)],
+    [`Impostos (${impostosPct}%) s/ instalação`, formatCurrencyBR(impostosInstalacao)],
   ];
 
   investRows.forEach((row, i) => {

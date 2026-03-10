@@ -29,11 +29,20 @@ export function gerarPreviaPropostaHTML(data) {
     return sum + s.itens.reduce((itemSum, item) => itemSum + (item.quantidade * item.preco), 0);
   }, 0);
 
-  const totalWeight = setores.reduce((sum, s) => {
-    return sum + s.itens.reduce((itemSum, item) => {
-      return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
-    }, 0);
-  }, 0);
+  // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+  let totalWeight = 0;
+  setores.forEach(s => {
+    const gruposPorBase = {};
+    (s.itens || []).forEach(item => {
+      if (item.unidade === 'KG') {
+        const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+        if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+          gruposPorBase[base] = item.quantidade || 0;
+        }
+      }
+    });
+    totalWeight += Object.values(gruposPorBase).reduce((s2, qty) => s2 + qty, 0);
+  });
 
   const totalArea = setores.reduce((sum, s) => {
     return sum + s.itens.reduce((itemSum, item) => {
@@ -41,9 +50,29 @@ export function gerarPreviaPropostaHTML(data) {
     }, 0);
   }, 0);
 
-  const precoFinal = calculations?.precoFinal || totalGeral;
   const margemPct = calculations?.margemPct || 18;
   const impostosPct = calculations?.impostosPct || 12;
+
+  // Separar Material (sem margem/impostos) vs Instalação (com margem/impostos)
+  let custoMaterial = 0;
+  let custoInstalacao = 0;
+  setores.forEach(s => {
+    (s.itens || []).forEach(item => {
+      const total = (item.quantidade || 0) * (item.preco || 0);
+      const parts = (item.descricao || '').split(' - ');
+      const sufixo = parts.length >= 2 ? parts[parts.length - 1].trim().toLowerCase() : '';
+      if (sufixo === 'material') {
+        custoMaterial += total;
+      } else {
+        custoInstalacao += total;
+      }
+    });
+  });
+
+  const margemInstalacao = custoInstalacao * (margemPct / 100);
+  const subtotalInstalacao = custoInstalacao + margemInstalacao;
+  const impostosInstalacao = subtotalInstalacao * (impostosPct / 100);
+  const precoFinal = calculations?.precoFinal || (custoMaterial + subtotalInstalacao + impostosInstalacao);
 
   // Build setores table rows
   const setoresRows = setores.map((setor, sIdx) => {
@@ -88,11 +117,7 @@ export function gerarPreviaPropostaHTML(data) {
     </div>
   `;
 
-  // Composição do investimento
-  const custoBase = totalGeral;
-  const margem = custoBase * (margemPct / 100);
-  const subtotal = custoBase + margem;
-  const impostos = subtotal * (impostosPct / 100);
+  // Composição do investimento (margem e impostos somente sobre instalação)
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
 <title>Proposta Comercial - ${project?.nome || 'Montex'} - ${propNum}</title>
@@ -234,7 +259,7 @@ export function gerarPreviaPropostaHTML(data) {
       <div class="field"><b>Área Total:</b> ${formatNumber(totalArea)} m²</div>
     </div>
     <div>
-      <div class="field"><b>Preço Médio/kg:</b> ${totalWeight > 0 ? formatCurrency(totalGeral / totalWeight) : '-'}</div>
+      <div class="field"><b>Preço Médio/kg:</b> ${totalWeight > 0 ? formatCurrency(precoFinal / totalWeight) : '-'}</div>
       <div class="field"><b>Prazo de Execução:</b> ${prazo} dias corridos</div>
     </div>
   </div>
@@ -245,10 +270,10 @@ export function gerarPreviaPropostaHTML(data) {
   <h3>💰 Composição do Investimento</h3>
   <div class="invest-grid">
     <div>
-      <div class="invest-item"><span>Custo Base (Materiais + Serviços)</span><span>${formatCurrency(custoBase)}</span></div>
-      <div class="invest-item"><span>Margem (${margemPct}%)</span><span>${formatCurrency(margem)}</span></div>
-      <div class="invest-item"><span>Subtotal</span><span>${formatCurrency(subtotal)}</span></div>
-      <div class="invest-item"><span>Impostos (${impostosPct}%)</span><span>${formatCurrency(impostos)}</span></div>
+      <div class="invest-item"><span>Material (s/ margem/impostos)</span><span>${formatCurrency(custoMaterial)}</span></div>
+      <div class="invest-item"><span>Instalação (Fab/Pint/Transp/Mont)</span><span>${formatCurrency(custoInstalacao)}</span></div>
+      <div class="invest-item"><span>Margem (${margemPct}%) s/ instalação</span><span>${formatCurrency(margemInstalacao)}</span></div>
+      <div class="invest-item"><span>Impostos (${impostosPct}%) s/ instalação</span><span>${formatCurrency(impostosInstalacao)}</span></div>
     </div>
     <div style="display:flex;align-items:center;justify-content:center">
       <div class="invest-item highlight" style="width:100%;text-align:center;justify-content:center;flex-direction:column;align-items:center">
