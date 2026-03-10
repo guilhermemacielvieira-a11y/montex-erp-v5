@@ -218,6 +218,88 @@ export function lancamentoToSupabase(record) {
 }
 
 // ============================================
+// ORCAMENTO: frontend -> Supabase com validação de colunas
+// ============================================
+const ORCAMENTOS_VALID_COLUMNS = new Set([
+  'id', 'numero', 'cliente_id', 'obra_id', 'cliente_nome', 'status',
+  'data_criacao', 'data_aprovacao', 'validade_ate', 'versao',
+  'itens', 'valor_total', 'condicoes_pagamento', 'prazo_entrega',
+  'observacoes', 'created_at', 'updated_at'
+]);
+
+export function orcamentoToSupabase(record) {
+  if (!record || typeof record !== 'object') return record;
+  const result = {};
+
+  // Campos diretos
+  if (record.id) result.id = record.id;
+  if (record.numero) result.numero = record.numero;
+  result.cliente_nome = record.cliente || record.clienteNome || record.cliente_nome || null;
+  result.cliente_id = record.clienteId || record.cliente_id || null;
+  result.obra_id = record.obraId || record.obra_id || null;
+  result.status = record.status || 'rascunho';
+  result.valor_total = record.valor_total || record.valorTotal || record.valor || 0;
+  result.data_criacao = record.data_criacao || record.dataCriacao
+    ? (record.data_criacao || record.dataCriacao).split('T')[0]
+    : new Date().toISOString().split('T')[0];
+  result.validade_ate = record.validade_ate || record.validade || null;
+  result.versao = record.versao || 1;
+  result.prazo_entrega = record.prazo_entrega || record.prazoEntrega || null;
+  result.condicoes_pagamento = record.condicoes_pagamento || record.condicoesPagamento || null;
+
+  // Dados complexos serializados como JSON no campo 'itens'
+  const dadosCompletos = {};
+  if (record.setores) dadosCompletos.setores = record.setores;
+  if (record.custosUnitarios) dadosCompletos.custosUnitarios = record.custosUnitarios;
+  if (record.resumo) dadosCompletos.resumo = record.resumo;
+  if (record.nome) dadosCompletos.nome = record.nome;
+  if (record.projeto) dadosCompletos.projeto = record.projeto;
+  if (record.tipo) dadosCompletos.tipo = record.tipo;
+  if (record.regiao) dadosCompletos.regiao = record.regiao;
+  if (record.responsavel) dadosCompletos.responsavel = record.responsavel;
+  if (record.peso_estimado || record.pesoEstimado) {
+    dadosCompletos.pesoEstimado = record.peso_estimado || record.pesoEstimado;
+  }
+  if (record.valorBDI) dadosCompletos.valorBDI = record.valorBDI;
+  // Campo itens é jsonb no Supabase — enviar como objeto, não string
+  result.itens = dadosCompletos;
+
+  // Observações
+  result.observacoes = record.observacoes || record.observacao || null;
+
+  return result;
+}
+
+// Transformar orçamento do Supabase para formato do frontend
+export function transformOrcamentoFromSupabase(record) {
+  if (!record || typeof record !== 'object') return record;
+  const base = transformRecord(record);
+  // Extrair dados complexos do campo 'itens' (jsonb)
+  if (base.itens && typeof base.itens === 'object' && !Array.isArray(base.itens)) {
+    const itens = base.itens;
+    if (itens.nome) base.nome = itens.nome;
+    if (itens.projeto) base.projeto = itens.projeto;
+    if (itens.tipo) base.tipo = itens.tipo;
+    if (itens.regiao) base.regiao = itens.regiao;
+    if (itens.responsavel) base.responsavel = itens.responsavel;
+    if (itens.setores) base.setores = itens.setores;
+    if (itens.custosUnitarios) base.custosUnitarios = itens.custosUnitarios;
+    if (itens.resumo) base.resumo = itens.resumo;
+    if (itens.pesoEstimado) base.pesoEstimado = itens.pesoEstimado;
+    if (itens.valorBDI) base.valorBDI = itens.valorBDI;
+  }
+  // Aliases
+  base.cliente = base.clienteNome || base.cliente || '';
+  base.valor = base.valorTotal || base.valor || 0;
+  return base;
+}
+
+export function transformOrcamentoArray(records) {
+  if (!records || !Array.isArray(records)) return [];
+  return records.map(transformOrcamentoFromSupabase);
+}
+
+// ============================================
 // OBRA TRANSFORMS (Supabase -> React)
 // ============================================
 

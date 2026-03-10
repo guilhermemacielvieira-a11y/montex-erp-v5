@@ -31,6 +31,8 @@ import {
   pecaToSupabase,
   reverseTransformRecord,
   lancamentoToSupabase,
+  orcamentoToSupabase,
+  transformOrcamentoArray,
   transformObraArray,
   calcularProgressoObra,
   STATUS_MAP_SUPABASE
@@ -239,7 +241,7 @@ export function ERPProvider({ children }) {
           const payload = {
             clientes: transformArray(clientesData),
             obras: obrasComProgresso,
-            orcamentos: transformArray(orcamentosData),
+            orcamentos: transformOrcamentoArray(orcamentosData),
             listas: transformArray(listasData),
             estoque: transformArray(estoqueData),
             pecas: pecasTransformadas,
@@ -384,7 +386,7 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.ADD_ORCAMENTO, payload: orcamento });
     if (dataSource === 'supabase') {
       try {
-        const record = reverseTransformRecord(orcamento);
+        const record = orcamentoToSupabase(orcamento);
         await orcamentosApi.create(record);
         console.log(`✅ Orçamento ${orcamento.id} criado no Supabase`);
       } catch (err) {
@@ -399,7 +401,8 @@ export function ERPProvider({ children }) {
     dispatch({ type: ACTIONS.UPDATE_ORCAMENTO, payload: { id: orcamentoId, data: updates } });
     if (dataSource === 'supabase') {
       try {
-        const record = reverseTransformRecord(updates);
+        const record = orcamentoToSupabase(updates);
+        delete record.id; // Não enviar ID no update
         await orcamentosApi.update(orcamentoId, record);
         console.log(`✅ Orçamento ${orcamentoId} atualizado no Supabase`);
       } catch (err) {
