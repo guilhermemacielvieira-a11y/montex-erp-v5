@@ -228,21 +228,27 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
     setUnitCosts(prev => ({ ...prev, fechamento: newCosts }));
   };
 
-  const calcTotalStructure = () => {
-    // Peso da estrutura é contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
-    const uniqueItems = {};
-    setores.forEach(s => {
-      s.itens.forEach(item => {
+  // Calcula peso real da estrutura: dentro de cada setor, itens KG com mesmo nome base
+  // (ex: "Estrutura Metálica - Material", "Estrutura Metálica - Fabricação") representam
+  // custos diferentes sobre o MESMO peso. Conta-se apenas 1 vez por grupo base por setor.
+  const calcPesoReal = (listaSetores) => {
+    let pesoTotal = 0;
+    (listaSetores || []).forEach(s => {
+      const gruposPorBase = {};
+      (s.itens || []).forEach(item => {
         if (item.unidade === 'KG') {
-          const key = item.descricao || item.id || Math.random();
-          if (!uniqueItems[key] || (item.quantidade || 0) > uniqueItems[key]) {
-            uniqueItems[key] = item.quantidade || 0;
+          const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+          if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+            gruposPorBase[base] = item.quantidade || 0;
           }
         }
       });
+      pesoTotal += Object.values(gruposPorBase).reduce((sum, qty) => sum + qty, 0);
     });
-    return Object.values(uniqueItems).reduce((sum, qty) => sum + qty, 0);
+    return pesoTotal;
   };
+
+  const calcTotalStructure = () => calcPesoReal(setores);
 
   const calcTotalArea = (unit) => {
     return setores.reduce((sum, s) => {
@@ -1077,19 +1083,20 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
 // Step 6: Análise
 const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
   const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
-  // Peso da estrutura contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
-  const uniqueItemsWeight = {};
+  // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+  let totalWeight = 0;
   setores.forEach(s => {
-    s.itens.forEach(item => {
+    const gruposPorBase = {};
+    (s.itens || []).forEach(item => {
       if (item.unidade === 'KG') {
-        const key = item.descricao || item.id || Math.random();
-        if (!uniqueItemsWeight[key] || (item.quantidade || 0) > uniqueItemsWeight[key]) {
-          uniqueItemsWeight[key] = item.quantidade || 0;
+        const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+        if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+          gruposPorBase[base] = item.quantidade || 0;
         }
       }
     });
+    totalWeight += Object.values(gruposPorBase).reduce((sum, qty) => sum + qty, 0);
   });
-  const totalWeight = Object.values(uniqueItemsWeight).reduce((sum, qty) => sum + qty, 0);
 
   const totalArea = setores.reduce((sum, s) => {
     return sum + s.itens.reduce((itemSum, item) => {
@@ -1103,6 +1110,17 @@ const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
     }, 0);
   }, 0);
 
+  // Valor total dos itens em KG (estruturas)
+  const valorEstruturas = setores.reduce((sum, s) => {
+    return sum + s.itens.reduce((itemSum, item) => {
+      return itemSum + ((item.unidade === 'KG') ? (item.quantidade || 0) * (item.preco || 0) : 0);
+    }, 0);
+  }, 0);
+
+  // KPIs derivados
+  const valorPorKg = totalWeight > 0 ? valorEstruturas / totalWeight : 0;
+  const valorPorM2 = totalArea > 0 ? totalValue / totalArea : 0;
+
   // Análise por setor
   const setorAnalise = setores.map(s => {
     const valor = s.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
@@ -1112,10 +1130,14 @@ const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <KPICard title="Peso Total" value={formatNumber(totalWeight) + ' kg'} icon={Weight} color="blue" />
         <KPICard title="Área Total" value={formatNumber(totalArea) + ' m²'} icon={Package} color="orange" />
         <KPICard title="Valor Total" value={formatCurrency(totalValue)} icon={DollarSign} color="green" />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <KPICard title="Valor / KG" value={formatCurrency(valorPorKg) + ' /kg'} icon={DollarSign} color="blue" />
+        <KPICard title="Valor / M²" value={formatCurrency(valorPorM2) + ' /m²'} icon={DollarSign} color="orange" />
         <KPICard title="Itens" value={totalItens} icon={Layers} color="purple" />
       </div>
 
@@ -1533,31 +1555,21 @@ export default function SimuladorOrcamento() {
       }, 0);
     }, 0);
 
-    // DEBUG: dump setores data to understand weight calculation
-    if (setores.length > 0) {
-      console.log('=== DEBUG SETORES ===');
-      setores.forEach(s => {
-        const pesoKg = s.itens.filter(i => i.unidade === 'KG').reduce((sum, i) => sum + (i.quantidade || 0), 0);
-        console.log(`Setor: ${s.nome} | Itens: ${s.itens.length} | Peso KG: ${pesoKg}`);
-        s.itens.forEach(i => console.log(`  - ${i.descricao} | qty: ${i.quantidade} | unit: ${i.unidade} | preco: ${i.preco}`));
-      });
-      console.log('=== END DEBUG ===');
-    }
-
-    // Peso da estrutura contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
-    const uniqueItemsW = {};
+    // Peso real: agrupa itens KG por nome base (antes de " - ") em cada setor e conta 1 vez
+    // Ex: "Estrutura Metálica - Material" e "Estrutura Metálica - Fabricação" = mesmo peso
+    let totalWeight = 0;
     setores.forEach(s => {
-      s.itens.forEach(item => {
+      const gruposPorBase = {};
+      (s.itens || []).forEach(item => {
         if (item.unidade === 'KG') {
-          const key = item.descricao || item.id || Math.random();
-          if (!uniqueItemsW[key] || (item.quantidade || 0) > uniqueItemsW[key]) {
-            uniqueItemsW[key] = item.quantidade || 0;
+          const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+          if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+            gruposPorBase[base] = item.quantidade || 0;
           }
         }
       });
+      totalWeight += Object.values(gruposPorBase).reduce((sum, qty) => sum + qty, 0);
     });
-    const totalWeight = Object.values(uniqueItemsW).reduce((sum, qty) => sum + qty, 0);
-    console.log('DEBUG totalWeight after dedup:', totalWeight, 'uniqueKeys:', Object.keys(uniqueItemsW));
 
     const precoKgMedio = totalWeight > 0 ? totalValue / totalWeight : 0;
     const margemValue = totalValue * (calculations.margemPct / 100);
