@@ -763,12 +763,37 @@ export function ERPProvider({ children }) {
   }, [dataSource]);
 
   // ===== AÇÕES - MEDIÇÕES =====
+  // Helper: sanitizar dados de medição para colunas válidas do Supabase
+  const sanitizeMedicaoForSupabase = (record) => {
+    // Colunas válidas da tabela medicoes
+    const VALID_COLS = new Set([
+      'id', 'obra_id', 'tipo', 'data_medicao', 'responsavel', 'peso_medido',
+      'area_medida', 'percentual', 'observacoes', 'numero', 'setor', 'etapa',
+      'valor_bruto', 'valor_liquido', 'valor_total', 'retencoes', 'detalhamento',
+      'data_referencia', 'status', 'descricao', 'is_avulsa'
+    ]);
+    const clean = {};
+    for (const [key, value] of Object.entries(record)) {
+      // Corrigir 'observacao' → 'observacoes'
+      const fixedKey = key === 'observacao' ? 'observacoes' : key;
+      if (!VALID_COLS.has(fixedKey)) continue;
+      // Serializar objetos para JSON string (retencoes, detalhamento)
+      if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+        clean[fixedKey] = JSON.stringify(value);
+      } else {
+        clean[fixedKey] = value;
+      }
+    }
+    return clean;
+  };
+
   const addMedicao = useCallback(async (medicao) => {
     dispatch({ type: ACTIONS.ADD_MEDICAO, payload: medicao });
     if (dataSource === 'supabase') {
       try {
         const record = reverseTransformRecord(medicao);
-        await medicoesApi.create(record);
+        const cleanRecord = sanitizeMedicaoForSupabase(record);
+        await medicoesApi.create(cleanRecord);
         console.log(`✅ Medição ${medicao.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar medição no Supabase:', err.message);
@@ -781,7 +806,8 @@ export function ERPProvider({ children }) {
     if (dataSource === 'supabase') {
       try {
         const snakeData = reverseTransformRecord(dados);
-        await medicoesApi.update(id, snakeData);
+        const cleanData = sanitizeMedicaoForSupabase(snakeData);
+        await medicoesApi.update(id, cleanData);
         console.log(`✅ Medição ${id} atualizada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar medição no Supabase:', err.message);

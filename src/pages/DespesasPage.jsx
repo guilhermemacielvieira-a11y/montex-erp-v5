@@ -146,6 +146,13 @@ const getCategoriaColor = (categoriaNome) => {
   return cat?.cor || '#64748b';
 };
 
+// ========== EXTRAIR NATUREZA DO CAMPO OBSERVACAO ==========
+const extrairNatureza = (obs) => {
+  if (!obs) return '';
+  const match = obs.match(/\[NAT:([^\]]+)\]/);
+  return match ? match[1] : '';
+};
+
 // ========== MAPEAMENTO AUTOMÁTICO NF+Fornecedor → Categoria/Centro ==========
 // Salva no localStorage para aprender com lançamentos anteriores
 
@@ -275,7 +282,7 @@ export default function DespesasPage() {
       vencimento: l.dataVencimento || l.data_vencimento || l.dataEmissao || '',
       tipo: l.tipo || 'despesa',
       notaFiscal: l.notaFiscal || l.nota_fiscal || '',
-      naturezaAquisicao: l.naturezaAquisicao || l.natureza_aquisicao || '',
+      naturezaAquisicao: l.naturezaAquisicao || l.natureza_aquisicao || extrairNatureza(l.observacao) || '',
       obraId: l.obraId || l.obra_id || null,
     }));
   }, [lancamentosSupabase, filtroObra]);
@@ -586,6 +593,7 @@ export default function DespesasPage() {
       vencimento: formData.vencimento || '',
       notaFiscal: formData.notaFiscal || '',
       naturezaAquisicao: formData.naturezaAquisicao || '',
+      observacao: formData.naturezaAquisicao ? `[NAT:${formData.naturezaAquisicao}]` : '',
     };
 
     if (editando) {
