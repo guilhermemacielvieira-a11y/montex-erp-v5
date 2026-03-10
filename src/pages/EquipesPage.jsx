@@ -8,7 +8,7 @@ import toast from 'react-hot-toast';
 import {
   Users, UserPlus, User, Briefcase, Award, TrendingUp, BarChart3,
   Search, Pencil, Trash2, Save,
-  Plus, Shield, UserCheck
+  Plus, Shield, UserCheck, GripVertical, ArrowLeftRight
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -29,6 +29,9 @@ import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis,
   PolarRadiusAxis, Radar
 } from 'recharts';
+import { DndContext, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // ERPContext - dados reais com CRUD
 import { useEquipes } from '@/contexts/ERPContext';
@@ -43,6 +46,9 @@ const TIPOS_EQUIPE = [
   { value: 'adm_producao', label: 'Administrativo Produção' },
   { value: 'adm_geral', label: 'Administrativo Geral' },
 ];
+
+// Equipe virtual para funcionários sem equipe
+const SEM_EQUIPE = { id: 'SEM_EQUIPE', nome: 'Sem Equipe', tipo: 'none', liderNome: '', turno: '', setor: '' };
 
 // Dados mock fallback caso ERPContext não tenha dados
 const mockFuncionarios = [
@@ -105,6 +111,62 @@ const getStatusColor = (status) => {
 const getEfColor = (v) => v >= 90 ? 'text-emerald-400' : v >= 75 ? 'text-blue-400' : v >= 60 ? 'text-amber-400' : 'text-red-400';
 
 // ======================================================
+// COMPONENTS KANBAN
+// ======================================================
+function SortableEmployeeCard({ func, getStatusColor }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: func.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.4 : 1,
+  };
+  const iniciais = func.nome.split(' ').map(n => n[0]).join('').substring(0, 2);
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}
+      className={`bg-slate-800/80 rounded-lg border border-slate-700/50 p-3 flex items-center gap-3 cursor-grab active:cursor-grabbing hover:border-cyan-500/30 transition-all ${isDragging ? 'shadow-lg shadow-cyan-500/20 z-50' : ''}`}>
+      <div {...listeners} className="text-slate-600 hover:text-slate-400">
+        <GripVertical className="h-4 w-4" />
+      </div>
+      <Avatar className="h-8 w-8 border border-slate-600">
+        <AvatarFallback className="bg-gradient-to-br from-cyan-500 to-blue-500 text-white text-xs font-bold">{iniciais}</AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-white truncate">{func.nome}</p>
+        <p className="text-xs text-slate-400 truncate">{func.cargo}</p>
+      </div>
+      <Badge className={cn("border text-[9px] shrink-0", getStatusColor(func.status))}>{func.status}</Badge>
+    </div>
+  );
+}
+
+function KanbanColumn({ equipe, membros, getStatusColor, colorClass }) {
+  const memberIds = membros.map(m => m.id);
+  return (
+    <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 flex flex-col min-w-[280px] max-w-[320px]">
+      <div className={`p-3 border-b border-slate-700/50 rounded-t-xl bg-gradient-to-r ${colorClass} bg-opacity-10`}>
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-white text-sm">{equipe.nome}</h3>
+          <Badge variant="outline" className="border-slate-500 text-slate-300 text-xs">{membros.length}</Badge>
+        </div>
+        {equipe.liderNome && <p className="text-xs text-slate-400 mt-1">Líder: {equipe.liderNome}</p>}
+      </div>
+      <div className="p-2 flex-1 space-y-2 min-h-[100px] overflow-y-auto max-h-[60vh]">
+        <SortableContext items={memberIds} strategy={verticalListSortingStrategy}>
+          {membros.map(func => (
+            <SortableEmployeeCard key={func.id} func={func} getStatusColor={getStatusColor} />
+          ))}
+        </SortableContext>
+        {membros.length === 0 && (
+          <div className="flex items-center justify-center h-20 text-slate-600 text-xs border-2 border-dashed border-slate-700 rounded-lg">
+            Arraste funcionários aqui
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ======================================================
 // COMPONENTE PRINCIPAL
 // ======================================================
 export default function EquipesPage() {
@@ -138,6 +200,12 @@ export default function EquipesPage() {
   // Form equipe
   const emptyEquipe = { nome: '', tipo: '', liderNome: '', turno: 'Diurno', setor: '', metaMes: 0, producaoMes: 0, eficiencia: 0 };
   const [equipeForm, setEquipeForm] = useState(emptyEquipe);
+
+  // Kanban state
+  const [activeId, setActiveId] = useState(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+  );
 
   // ========== KPIs ==========
   const kpis = useMemo(() => {
@@ -271,6 +339,61 @@ export default function EquipesPage() {
     setConfirmDialog(null);
   }, [confirmDialog, deleteEquipe]);
 
+  // ========== KANBAN HANDLERS ==========
+  const equipeColors = {
+    'EQP001': 'from-orange-500/20 to-amber-500/20',
+    'EQP002': 'from-red-500/20 to-rose-500/20',
+    'EQP003': 'from-blue-500/20 to-cyan-500/20',
+    'EQP004': 'from-purple-500/20 to-indigo-500/20',
+    'EQP005': 'from-emerald-500/20 to-green-500/20',
+    'EQP006': 'from-slate-500/20 to-gray-500/20',
+    'SEM_EQUIPE': 'from-slate-700/20 to-slate-600/20',
+  };
+
+  const handleDragStart = useCallback((event) => {
+    setActiveId(event.active.id);
+  }, []);
+
+  const handleDragEnd = useCallback((event) => {
+    const { active, over } = event;
+    setActiveId(null);
+    if (!over) return;
+
+    const activeFunc = funcionarios.find(f => f.id === active.id);
+    if (!activeFunc) return;
+
+    // Find which equipe the item was dropped over
+    let targetEquipeId = null;
+
+    // Check if dropped over another funcionario
+    const overFunc = funcionarios.find(f => f.id === over.id);
+    if (overFunc) {
+      targetEquipeId = overFunc.equipeId || 'SEM_EQUIPE';
+    }
+
+    // If dropped on same equipe, do nothing
+    const currentEquipeId = activeFunc.equipeId || 'SEM_EQUIPE';
+    if (targetEquipeId && targetEquipeId !== currentEquipeId) {
+      const newEquipeId = targetEquipeId === 'SEM_EQUIPE' ? null : targetEquipeId;
+      const targetEquipe = equipes.find(e => e.id === targetEquipeId);
+      const newEquipeNome = targetEquipe?.nome || '-';
+      const newSetor = targetEquipe?.setor || activeFunc.setor;
+
+      updateFuncionario(activeFunc.id, {
+        ...activeFunc,
+        equipeId: newEquipeId || '',
+        equipeNome: newEquipeNome,
+        setor: newSetor,
+      });
+      toast.success(`${activeFunc.nome.split(' ')[0]} movido para ${newEquipeNome}`);
+    }
+  }, [funcionarios, equipes, updateFuncionario]);
+
+  const handleDragOver = useCallback((event) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+  }, []);
+
   // Membros de uma equipe
   const getMembros = useCallback((equipeId) => {
     return funcionarios.filter(f => f.equipeId === equipeId);
@@ -371,6 +494,9 @@ export default function EquipesPage() {
             </TabsTrigger>
             <TabsTrigger value="desempenho" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
               <BarChart3 className="h-4 w-4 mr-2" /> Desempenho
+            </TabsTrigger>
+            <TabsTrigger value="kanban" className="data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
+              <ArrowLeftRight className="h-4 w-4 mr-2" /> Organizar
             </TabsTrigger>
           </TabsList>
 
@@ -565,6 +691,54 @@ export default function EquipesPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* ============ TAB KANBAN ============ */}
+        <TabsContent value="kanban" className="mt-4">
+          <div className="mb-4 flex items-center gap-3">
+            <div className="flex items-center gap-2 text-slate-400">
+              <ArrowLeftRight className="h-5 w-5 text-cyan-400" />
+              <span className="text-sm">Arraste os funcionários entre as equipes para reorganizar</span>
+            </div>
+          </div>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragOver={handleDragOver}>
+            <div className="flex gap-4 overflow-x-auto pb-4">
+              {[...equipes, SEM_EQUIPE].map((eq) => {
+                const membros = funcionarios.filter(f => {
+                  if (eq.id === 'SEM_EQUIPE') return !f.equipeId;
+                  return f.equipeId === eq.id;
+                });
+                return (
+                  <KanbanColumn
+                    key={eq.id}
+                    equipe={eq}
+                    membros={membros}
+                    getStatusColor={getStatusColor}
+                    colorClass={equipeColors[eq.id] || 'from-slate-500/20 to-gray-500/20'}
+                  />
+                );
+              })}
+            </div>
+            <DragOverlay>
+              {activeId ? (() => {
+                const func = funcionarios.find(f => f.id === activeId);
+                if (!func) return null;
+                const iniciais = func.nome.split(' ').map(n => n[0]).join('').substring(0, 2);
+                return (
+                  <div className="bg-slate-800 rounded-lg border-2 border-cyan-500 p-3 flex items-center gap-3 shadow-2xl shadow-cyan-500/30 w-[280px]">
+                    <GripVertical className="h-4 w-4 text-cyan-400" />
+                    <Avatar className="h-8 w-8 border border-cyan-500">
+                      <AvatarFallback className="bg-gradient-to-br from-cyan-500 to-blue-500 text-white text-xs font-bold">{iniciais}</AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{func.nome}</p>
+                      <p className="text-xs text-cyan-400 truncate">{func.cargo}</p>
+                    </div>
+                  </div>
+                );
+              })() : null}
+            </DragOverlay>
+          </DndContext>
         </TabsContent>
       </Tabs>
 
