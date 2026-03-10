@@ -229,12 +229,19 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
   };
 
   const calcTotalStructure = () => {
-    const totalWeight = setores.reduce((sum, s) => {
-      return sum + s.itens.reduce((itemSum, item) => {
-        return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
-      }, 0);
-    }, 0);
-    return totalWeight;
+    // Peso da estrutura é contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
+    const uniqueItems = {};
+    setores.forEach(s => {
+      s.itens.forEach(item => {
+        if (item.unidade === 'KG') {
+          const key = item.descricao || item.id || Math.random();
+          if (!uniqueItems[key] || (item.quantidade || 0) > uniqueItems[key]) {
+            uniqueItems[key] = item.quantidade || 0;
+          }
+        }
+      });
+    });
+    return Object.values(uniqueItems).reduce((sum, qty) => sum + qty, 0);
   };
 
   const calcTotalArea = (unit) => {
@@ -1070,11 +1077,19 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
 // Step 6: Análise
 const StepAnalise = ({ project, setores, calculations, unitCosts }) => {
   const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
-  const totalWeight = setores.reduce((sum, s) => {
-    return sum + s.itens.reduce((itemSum, item) => {
-      return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
-    }, 0);
-  }, 0);
+  // Peso da estrutura contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
+  const uniqueItemsWeight = {};
+  setores.forEach(s => {
+    s.itens.forEach(item => {
+      if (item.unidade === 'KG') {
+        const key = item.descricao || item.id || Math.random();
+        if (!uniqueItemsWeight[key] || (item.quantidade || 0) > uniqueItemsWeight[key]) {
+          uniqueItemsWeight[key] = item.quantidade || 0;
+        }
+      }
+    });
+  });
+  const totalWeight = Object.values(uniqueItemsWeight).reduce((sum, qty) => sum + qty, 0);
 
   const totalArea = setores.reduce((sum, s) => {
     return sum + s.itens.reduce((itemSum, item) => {
@@ -1518,11 +1533,19 @@ export default function SimuladorOrcamento() {
       }, 0);
     }, 0);
 
-    const totalWeight = setores.reduce((sum, s) => {
-      return sum + s.itens.reduce((itemSum, item) => {
-        return itemSum + (item.quantidade || 0) * (item.unidade === 'KG' ? 1 : 0);
-      }, 0);
-    }, 0);
+    // Peso da estrutura contado apenas 1 vez por item único (setores são etapas sobre a mesma peça)
+    const uniqueItemsW = {};
+    setores.forEach(s => {
+      s.itens.forEach(item => {
+        if (item.unidade === 'KG') {
+          const key = item.descricao || item.id || Math.random();
+          if (!uniqueItemsW[key] || (item.quantidade || 0) > uniqueItemsW[key]) {
+            uniqueItemsW[key] = item.quantidade || 0;
+          }
+        }
+      });
+    });
+    const totalWeight = Object.values(uniqueItemsW).reduce((sum, qty) => sum + qty, 0);
 
     const precoKgMedio = totalWeight > 0 ? totalValue / totalWeight : 0;
     const margemValue = totalValue * (calculations.margemPct / 100);
