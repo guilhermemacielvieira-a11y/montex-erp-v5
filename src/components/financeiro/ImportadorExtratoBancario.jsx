@@ -22,6 +22,12 @@ import { Label } from '@/components/ui/label';
 import { FileUp, Check, AlertCircle, Loader2, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import {
+  validarLancamento,
+  detectarDuplicatas,
+  validarData,
+  validarValorNumerico
+} from '@/utils/importValidation';
 
 const MAPEAMENTOS_COMUNS = {
   itau: {
@@ -144,15 +150,75 @@ export default function ImportadorExtratoBancario() {
     }
 
     // Processar dados com mapeamento
-    const processados = dadosOriginais.map(linha => ({
-      data: linha[mapeamento.data],
-      descricao: linha[mapeamento.descricao],
-      valor: linha[mapeamento.valor],
-    })).filter(item => item.data && item.descricao && item.valor);
+    const processados = dadosOriginais
+      .map(linha => ({
+        data: linha[mapeamento.data],
+        descricao: linha[mapeamento.descricao],
+        valor: linha[mapeamento.valor],
+      }))
+      .filter(item => item.data && item.descricao && item.valor);
 
-    setDadosPreview(processados);
-    setErros([]);
+    if (processados.length === 0) {
+      setErros(['Nenhum registro válido encontrado']);
+      return;
+    }
+
+    // VALIDAÇÃO E DETECÇÃO DE DUPLICATAS
+    // 1. Validar integridade de cada lançamento
+    const itemsValidos = [];
+    const itemsComErro = [];
+    const errosDetalhados = [];
+
+    processados.forEach((item, idx) => {
+      // Validar data
+      const { data: dataValidada, erros: errosData } = validarData(item.data, 'data');
+      // Validar valor
+      const { valor: valorValidado, erros: errosValor } = validarValorNumerico(
+        item.valor,
+        'valor',
+        { permitirZero: false, max: 100000000, min: 0.01 }
+      );
+
+      const todosErros = [...errosData, ...errosValor];
+
+      if (todosErros.length === 0 && dataValidada && valorValidado) {
+        itemsValidos.push({
+          data: dataValidada,
+          descricao: String(item.descricao).trim(),
+          valor: valorValidado
+        });
+      } else {
+        itemsComErro.push(idx);
+        if (todosErros.length > 0) {
+          errosDetalhados.push(`Linha ${idx + 1}: ${todosErros[0]}`);
+        }
+      }
+    });
+
+    // 2. Detectar duplicatas dentro da importação
+    const { duplicatas } = detectarDuplicatas(
+      itemsValidos,
+      ['data', 'descricao', 'valor']
+    );
+
+    // Feedback
+    const mensagens = [];
+    if (itemsValidos.length > 0) mensagens.push(`${itemsValidos.length} transações válidas`);
+    if (duplicatas.length > 0) mensagens.push(`${duplicatas.length} duplicada(s)`);
+    if (itemsComErro.length > 0) mensagens.push(`${itemsComErro.length} com erro`);
+
+    if (itemsValidos.length === 0) {
+      setErros(['Nenhum registro válido encontrado após validação'].concat(errosDetalhados));
+      return;
+    }
+
+    setDadosPreview(itemsValidos);
+    setErros(errosDetalhados.length > 0 ? errosDetalhados : []);
     setEtapa('preview');
+
+    if (mensagens.length > 0) {
+      toast.info(`Análise: ${mensagens.join(', ')}`);
+    }
   };
 
   return (

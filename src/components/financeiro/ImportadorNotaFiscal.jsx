@@ -20,6 +20,11 @@ import {
 } from '@/components/ui/select';
 import { FileUp, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import {
+  validarData,
+  validarValorNumerico,
+  validarCamposObrigatorios
+} from '@/utils/importValidation';
 
 export default function ImportadorNotaFiscal() {
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -72,7 +77,38 @@ Retorne APENAS o JSON, sem explicações.`,
       return resultado;
     },
     onSuccess: (dados) => {
-      setDadosExtraidos(dados);
+      // VALIDAÇÃO dos dados extraídos
+      const errosValidacao = [];
+
+      // Validar campos obrigatórios
+      errosValidacao.push(...validarCamposObrigatorios(dados, ['numero_nf', 'data_emissao', 'fornecedor', 'valor_total']));
+
+      // Validar data
+      const { data: dataValidada, erros: errosData } = validarData(dados.data_emissao, 'data_emissao');
+      errosValidacao.push(...errosData);
+
+      // Validar valor
+      const { valor: valorValidado, erros: errosValor } = validarValorNumerico(
+        dados.valor_total,
+        'valor_total',
+        { permitirZero: false, max: 100000000, min: 0.01 }
+      );
+      errosValidacao.push(...errosValor);
+
+      if (errosValidacao.length > 0) {
+        setErros(errosValidacao);
+        setEtapa('upload');
+        return;
+      }
+
+      // Dados validados
+      const dadosValidados = {
+        ...dados,
+        data_emissao: dataValidada,
+        valor_total: valorValidado
+      };
+
+      setDadosExtraidos(dadosValidados);
       setFormData(prev => ({
         ...prev,
         documento_fiscal: dados.numero_nf,

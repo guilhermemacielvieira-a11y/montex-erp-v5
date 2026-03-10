@@ -36,6 +36,7 @@ import {
   STATUS_MAP_SUPABASE
 } from './transforms';
 import { erpReducer } from './reducers';
+import { retryWithBackoff } from '../utils/retryWithBackoff';
 
 // Mock data importado APENAS em desenvolvimento via lazy import
 let mockDataModule = null;
@@ -207,23 +208,23 @@ export function ERPProvider({ children }) {
           notasFiscaisData,
           movEstoqueData
         ] = await Promise.all([
-          clientesApi.getAll().catch(() => []),
-          obrasApi.getAll().catch(() => []),
-          orcamentosApi.getAll().catch(() => []),
-          listasApi.getAll().catch(() => []),
-          estoqueApi.getAll().catch(() => []),
-          pecasApi.getAll('id', true).catch(() => []),
-          funcionariosApi.getAll().catch(() => []),
-          equipesApi.getAll().catch(() => []),
-          comprasApi.getAll().catch(() => []),
-          maquinasApi.getAll().catch(() => []),
-          medicoesApi.getAll().catch(() => []),
-          expedicoesApi.getAll().catch(() => []),
-          configMedicaoApi.getAll().catch(() => []),
-          pedidosMaterialApi.getAll().catch(() => []),
-          lancamentosApi.getAll().catch(() => []),
-          notasFiscaisApi.getAll().catch(() => []),
-          movEstoqueApi.getAll().catch(() => [])
+          retryWithBackoff(() => clientesApi.getAll(), { operationName: 'clientes' }).catch(() => []),
+          retryWithBackoff(() => obrasApi.getAll(), { operationName: 'obras' }).catch(() => []),
+          retryWithBackoff(() => orcamentosApi.getAll(), { operationName: 'orcamentos' }).catch(() => []),
+          retryWithBackoff(() => listasApi.getAll(), { operationName: 'listas' }).catch(() => []),
+          retryWithBackoff(() => estoqueApi.getAll(), { operationName: 'estoque' }).catch(() => []),
+          retryWithBackoff(() => pecasApi.getAll('id', true), { operationName: 'pecas' }).catch(() => []),
+          retryWithBackoff(() => funcionariosApi.getAll(), { operationName: 'funcionarios' }).catch(() => []),
+          retryWithBackoff(() => equipesApi.getAll(), { operationName: 'equipes' }).catch(() => []),
+          retryWithBackoff(() => comprasApi.getAll(), { operationName: 'compras' }).catch(() => []),
+          retryWithBackoff(() => maquinasApi.getAll(), { operationName: 'maquinas' }).catch(() => []),
+          retryWithBackoff(() => medicoesApi.getAll(), { operationName: 'medicoes' }).catch(() => []),
+          retryWithBackoff(() => expedicoesApi.getAll(), { operationName: 'expedicoes' }).catch(() => []),
+          retryWithBackoff(() => configMedicaoApi.getAll(), { operationName: 'configMedicao' }).catch(() => []),
+          retryWithBackoff(() => pedidosMaterialApi.getAll(), { operationName: 'pedidosMaterial' }).catch(() => []),
+          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => []),
+          retryWithBackoff(() => notasFiscaisApi.getAll(), { operationName: 'notasFiscais' }).catch(() => []),
+          retryWithBackoff(() => movEstoqueApi.getAll(), { operationName: 'movimentacoesEstoque' }).catch(() => [])
         ]);
 
         // Se tem dados no Supabase, usar eles
@@ -387,6 +388,31 @@ export function ERPProvider({ children }) {
         console.log(`✅ Orçamento ${orcamento.id} criado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar orçamento no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const updateOrcamento = useCallback(async (orcamentoId, updates) => {
+    dispatch({ type: ACTIONS.UPDATE_ORCAMENTO, payload: { id: orcamentoId, data: updates } });
+    if (dataSource === 'supabase') {
+      try {
+        const record = reverseTransformRecord(updates);
+        await orcamentosApi.update(orcamentoId, record);
+        console.log(`✅ Orçamento ${orcamentoId} atualizado no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar orçamento no Supabase:', err.message);
+      }
+    }
+  }, [dataSource]);
+
+  const deleteOrcamento = useCallback(async (orcamentoId) => {
+    dispatch({ type: ACTIONS.DELETE_ORCAMENTO, payload: { orcamentoId } });
+    if (dataSource === 'supabase') {
+      try {
+        await orcamentosApi.delete(orcamentoId);
+        console.log(`✅ Orçamento ${orcamentoId} deletado do Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao deletar orçamento no Supabase:', err.message);
       }
     }
   }, [dataSource]);
@@ -1125,7 +1151,9 @@ export function ERPProvider({ children }) {
     updateObra,
     updateProgressoObra,
     aprovarOrcamento,
-    addOrcamento
+    addOrcamento,
+    updateOrcamento,
+    deleteOrcamento
   }), [
     state.obras,
     state.clientes,
@@ -1134,7 +1162,9 @@ export function ERPProvider({ children }) {
     updateObra,
     updateProgressoObra,
     aprovarOrcamento,
-    addOrcamento
+    addOrcamento,
+    updateOrcamento,
+    deleteOrcamento
   ]);
 
   // 3. ProducaoContext: pecas + maquinas
@@ -1401,6 +1431,37 @@ export function ERPProvider({ children }) {
 
 // ===== HOOK CUSTOMIZADO =====
 // useERP() now aggregates all domain contexts for backward compatibility
+
+/**
+ * Central ERP Context Hook
+ *
+ * @description
+ * Provides access to all ERP domain contexts aggregated into a single hook.
+ * Includes obras, produção, estoque, operações, and core features.
+ * Recommended: Use specific hooks (useObras, useProducao, etc.) for better performance.
+ *
+ * @throws {Error} Must be used within ERPProvider
+ *
+ * @returns {Object} Aggregated ERP state and actions from all domains
+ * @returns {Array} returns.obras - All projects/works
+ * @returns {Array} returns.pecas - All pieces in production
+ * @returns {Array} returns.estoque - All stock items
+ * @returns {Array} returns.equipes - All teams and employees
+ * @returns {string} returns.obraAtual - Currently selected work/project ID
+ * @returns {Object} returns.obraAtualData - Full data of current work
+ * @returns {Function} returns.setObraAtual - Switch current work
+ * @returns {Function} returns.addObra - Create new work
+ * @returns {Function} returns.updateObra - Update existing work
+ *
+ * @example
+ * // Access ERP context (legacy approach - use specific hooks instead)
+ * const { obras, pecas, estoque, setObraAtual } = useERP();
+ *
+ * // Better: use specific hooks for performance
+ * const { obras, setObraAtual } = useObras();
+ * const { pecas } = useProducao();
+ * const { estoque } = useEstoque();
+ */
 export function useERP() {
   const core = useContext(ERPCoreContext);
   const obras = useContext(ObrasContext);
@@ -1425,6 +1486,37 @@ export function useERP() {
 // ===== HOOKS ESPECÍFICOS (Domain-based) =====
 // Each hook now reads from its specific domain context for better performance
 
+/**
+ * Works/Projects Hook
+ *
+ * @description
+ * Manages project and work information including clients and budgets.
+ * Provides CRUD operations and project selection functionality.
+ *
+ * @throws {Error} Must be used within ERPProvider
+ *
+ * @returns {Object} Works management interface
+ * @returns {Array} returns.obras - List of all projects
+ * @returns {Array} returns.clientes - List of all clients
+ * @returns {Array} returns.orcamentos - List of all budgets/quotes
+ * @returns {string} returns.obraAtual - Currently selected project ID
+ * @returns {Object} returns.obraAtualData - Full data of current project
+ * @returns {Function} returns.setObraAtual - Switch to a different project
+ * @returns {Function} returns.addObra - Create new project
+ * @returns {Function} returns.updateObra - Update project details
+ * @returns {Function} returns.updateProgressoObra - Update project progress
+ * @returns {Function} returns.aprovarOrcamento - Approve a budget
+ * @returns {Function} returns.addOrcamento - Create new budget
+ *
+ * @example
+ * const { obras, obraAtual, setObraAtual, addObra } = useObras();
+ *
+ * // Switch to a different project
+ * const handleSelectProject = (projectId) => setObraAtual(projectId);
+ *
+ * // Create new project
+ * const newProject = await addObra({ nome: 'Novo Projeto', cliente_id: 'cli-123' });
+ */
 export function useObras() {
   const context = useContext(ObrasContext);
   if (!context) {
@@ -1446,6 +1538,36 @@ export function useObras() {
   };
 }
 
+/**
+ * Stock/Inventory Hook
+ *
+ * @description
+ * Manages inventory operations including stock tracking, alerts, and movements.
+ * Handles stock consumption, additions, and reservations for projects.
+ * Tracks low-stock alerts for critical materials.
+ *
+ * @throws {Error} Must be used within ERPProvider
+ *
+ * @returns {Object} Stock management interface
+ * @returns {Array} returns.estoque - All stock items with quantities
+ * @returns {Array} returns.estoqueObraAtual - Stock allocated to current project
+ * @returns {Array} returns.alertasEstoque - Low-stock alerts
+ * @returns {Array} returns.movimentacoesEstoque - Stock movement history
+ * @returns {Function} returns.adicionarEstoque - Add stock to inventory
+ * @returns {Function} returns.consumirEstoque - Remove stock (consumed in production)
+ * @returns {Function} returns.reservarEstoque - Reserve stock for a project
+ *
+ * @example
+ * const { estoque, alertasEstoque, consumirEstoque } = useEstoque();
+ *
+ * // Consume stock when piece is produced
+ * await consumirEstoque(itemId, quantityUsed);
+ *
+ * // Check for alerts
+ * if (alertasEstoque.length > 0) {
+ *   console.log('Low stock items:', alertasEstoque);
+ * }
+ */
 export function useEstoque() {
   const context = useContext(SupplyContext);
   if (!context) {
@@ -1462,6 +1584,37 @@ export function useEstoque() {
   };
 }
 
+/**
+ * Production Hook
+ *
+ * @description
+ * Manages all production-related data including pieces, machines, and kanban workflow.
+ * Handles piece movement through production stages (corte, fabricação, solda, pintura, expedição).
+ *
+ * @throws {Error} Must be used within ERPProvider
+ *
+ * @returns {Object} Production management interface
+ * @returns {Array} returns.pecas - All production pieces
+ * @returns {Array} returns.pecasObraAtual - Pieces for current project only
+ * @returns {Array} returns.maquinas - Available machines and their status
+ * @returns {Function} returns.addPecas - Create new pieces
+ * @returns {Function} returns.updatePeca - Update piece details
+ * @returns {Function} returns.moverPecaEtapa - Move piece to next stage
+ * @returns {Function} returns.updateStatusCorte - Update cutting stage status
+ * @returns {Function} returns.updateMaquina - Update machine status
+ * @returns {Function} returns.reloadPecas - Reload pieces from database
+ *
+ * @example
+ * const { pecas, pecasObraAtual, moverPecaEtapa } = useProducao();
+ *
+ * // Move piece through kanban stages
+ * const handleMovePiece = async (pieceId, nextStage) => {
+ *   await moverPecaEtapa(pieceId, nextStage);
+ * };
+ *
+ * // Get pieces for specific project
+ * const currentProjectPieces = pecasObraAtual;
+ */
 export function useProducao() {
   const context = useContext(ProducaoContext);
   if (!context) {
@@ -1560,7 +1713,9 @@ export function useOrcamentos() {
   return {
     orcamentos: context.orcamentos,
     aprovarOrcamento: context.aprovarOrcamento,
-    addOrcamento: context.addOrcamento
+    addOrcamento: context.addOrcamento,
+    updateOrcamento: context.updateOrcamento,
+    deleteOrcamento: context.deleteOrcamento
   };
 }
 

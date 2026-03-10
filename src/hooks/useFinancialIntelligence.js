@@ -88,6 +88,56 @@ const normalizarCategoria = (cat, descricao = '') => {
   return 'Administrativo';
 };
 
+/**
+ * Central Hook for Financial Intelligence and Cost Analysis
+ *
+ * @description
+ * Provides comprehensive financial calculations including:
+ * - Cost analysis by category and cost center
+ * - Production vs cost correlation
+ * - Advanced forecasting with seasonality
+ * - AI-powered suggestions for optimization
+ * - KPIs and financial targets
+ *
+ * Used by Metas Financeiras, Análise de Custos, and BI modules.
+ *
+ * @param {Object} filtros - Filter options
+ * @param {string} filtros.periodo - Time period ('geral', 'mensal', 'semanal', 'trimestral', 'anual')
+ * @param {string} filtros.categoria - Filter by expense category
+ * @param {string} filtros.centroCusto - Filter by cost center ID
+ *
+ * @returns {Object} Financial intelligence data object
+ * @returns {Array} returns.despesas - Filtered expenses
+ * @returns {Array} returns.despesasTotal - All expenses (unfiltered)
+ * @returns {number} returns.custoTotal - Total cost (filtered period)
+ * @returns {number} returns.custoTotalGeral - Total cost (all time)
+ * @returns {number} returns.pesoTotalPecas - Total production weight in kg
+ * @returns {number} returns.producaoMensal - Average monthly production
+ * @returns {number} returns.receitaEstimada - Estimated revenue
+ * @returns {Array} returns.evolucaoMensal - Monthly evolution with costs and revenue
+ * @returns {Array} returns.evolucaoSemanal - Weekly evolution
+ * @returns {Array} returns.custosPorCategoria - Costs breakdown by category with MoM variation
+ * @returns {Array} returns.custosPorCentro - Costs by cost center with budget analysis
+ * @returns {Array} returns.forecast3meses - 3-month forecast with seasonality
+ * @returns {Object} returns.kpisGerais - Key performance indicators
+ * @returns {Object} returns.metas - Financial targets and progress
+ * @returns {Array} returns.sugestoes - AI-powered optimization suggestions
+ *
+ * @example
+ * // In a financial dashboard
+ * const { kpisGerais, custosPorCategoria, forecast3meses } = useFinancialIntelligence({
+ *   periodo: 'mes_atual',
+ *   categoria: 'Mão de Obra'
+ * });
+ *
+ * return (
+ *   <div>
+ *     <KPICard label="Custo Total" value={kpisGerais.despesas} />
+ *     <CategoriesChart data={custosPorCategoria} />
+ *     <ForecastChart data={forecast3meses} />
+ *   </div>
+ * );
+ */
 export function useFinancialIntelligence(filtros = {}) {
   const { lancamentosDespesas } = useLancamentos();
   const { obras } = useObras();
@@ -312,29 +362,78 @@ export function useFinancialIntelligence(filtros = {}) {
 
     const custoPerKgGeral = pesoTotalPecas > 0 ? custoTotalGeral / pesoTotalPecas : 0;
 
-    // ========================================
-    // 9. FORECAST (média móvel 3 meses)
-    // ========================================
-    const forecast3meses = (() => {
-      if (evolucaoMensal.length < 3) return [];
-      const ultimos3 = evolucaoMensal.slice(-3);
-      const mediaCusto = ultimos3.reduce((s, e) => s + e.custo, 0) / 3;
-      const mediaProducao = ultimos3.reduce((s, e) => s + e.producaoKg, 0) / 3;
-      const mediaReceita = ultimos3.reduce((s, e) => s + e.receita, 0) / 3;
+    // ===== FORECAST AVANÇADO COM SAZONALIDADE =====
+    const calcularForecastAvancado = (dados, mesesFuturos = 3) => {
+      if (!dados || dados.length < 3) return [];
 
-      return [1, 2, 3].map(i => {
-        const d = new Date();
-        d.setMonth(d.getMonth() + i);
-        return {
-          mes: formatMesAno(d),
-          mesLabel: getMesLabel(formatMesAno(d)),
-          custoProjetado: mediaCusto,
-          producaoProjetada: mediaProducao,
-          receitaProjetada: mediaReceita,
-          forecast: true
-        };
+      // Seasonal indices for metalworking industry (relative to average)
+      const SAZONALIDADE = {
+        0: 0.85,  // Jan - férias, baixa produção
+        1: 0.90,  // Fev - retomada gradual
+        2: 1.00,  // Mar - normalização
+        3: 1.10,  // Abr - pico de atividade
+        4: 1.15,  // Mai - alta demanda
+        5: 1.10,  // Jun - alta demanda
+        6: 1.05,  // Jul - estável
+        7: 1.00,  // Ago - estável
+        8: 1.05,  // Set - retomada
+        9: 1.10,  // Out - pico secundário
+        10: 1.00, // Nov - desaceleração
+        11: 0.80, // Dez - férias coletivas
+      };
+
+      // Weighted moving average (recent months weigh more)
+      const n = Math.min(dados.length, 6);
+      const recentData = dados.slice(-n);
+      const weights = recentData.map((_, i) => i + 1); // 1, 2, 3... (newer = heavier)
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      const weightedAvgCusto = recentData.reduce((sum, d, i) => sum + (d.custo || 0) * weights[i], 0) / totalWeight;
+      const weightedAvgProducao = recentData.reduce((sum, d, i) => sum + (d.producaoKg || 0) * weights[i], 0) / totalWeight;
+
+      // Simple trend detection (linear regression on last 6 months)
+      const values = recentData.map(d => d.custo || 0);
+      const xMean = (n - 1) / 2;
+      const yMean = values.reduce((a, b) => a + b, 0) / n;
+      let slope = 0;
+      let denominator = 0;
+      values.forEach((y, x) => {
+        slope += (x - xMean) * (y - yMean);
+        denominator += (x - xMean) ** 2;
       });
-    })();
+      slope = denominator !== 0 ? slope / denominator : 0;
+
+      // Generate forecast
+      const lastMonth = dados.length > 0 ? new Date(dados[dados.length - 1].mes.split('-')[0], parseInt(dados[dados.length - 1].mes.split('-')[1]) - 1).getMonth() : new Date().getMonth();
+
+      const forecast = [];
+      for (let i = 1; i <= mesesFuturos; i++) {
+        const futureMonth = (lastMonth + i) % 12;
+        const baseValue = weightedAvgCusto + slope * i;
+        const seasonalValue = baseValue * (SAZONALIDADE[futureMonth] || 1.0);
+
+        const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+        forecast.push({
+          mes: monthNames[futureMonth],
+          mesIndex: futureMonth,
+          custoProjetado: Math.max(0, Math.round(seasonalValue * 100) / 100),
+          producaoProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * 100) / 100),
+          receitaProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA) * 100) / 100),
+          tipo: 'forecast',
+          confianca: Math.max(0.5, 1 - (i * 0.15)), // Confidence decreases with distance
+          tendencia: slope > 0 ? 'alta' : slope < 0 ? 'baixa' : 'estável',
+          sazonalidade: SAZONALIDADE[futureMonth] || 1.0,
+          forecast: true
+        });
+      }
+
+      return forecast;
+    };
+
+    // ========================================
+    // 9. FORECAST (AVANÇADO COM SAZONALIDADE)
+    // ========================================
+    const forecast3meses = calcularForecastAvancado(evolucaoMensal, 3);
 
     // ========================================
     // 10. KPIs GERAIS
@@ -605,4 +704,56 @@ export function useFinancialIntelligence(filtros = {}) {
   }, [lancamentosDespesas, obras, pecas, medicoes, periodo, filtroCat, filtroCentro]);
 }
 
-export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria };
+// Export forecast function for advanced seasonality-aware forecasting
+const getForecastAvancado = (dados, mesesFuturos = 3) => {
+  if (!dados || dados.length < 3) return [];
+
+  const SAZONALIDADE = {
+    0: 0.85, 1: 0.90, 2: 1.00, 3: 1.10, 4: 1.15, 5: 1.10,
+    6: 1.05, 7: 1.00, 8: 1.05, 9: 1.10, 10: 1.00, 11: 0.80,
+  };
+
+  const n = Math.min(dados.length, 6);
+  const recentData = dados.slice(-n);
+  const weights = recentData.map((_, i) => i + 1);
+  const totalWeight = weights.reduce((a, b) => a + b, 0);
+  const weightedAvgCusto = recentData.reduce((sum, d, i) => sum + (d.custo || 0) * weights[i], 0) / totalWeight;
+  const weightedAvgProducao = recentData.reduce((sum, d, i) => sum + (d.producaoKg || 0) * weights[i], 0) / totalWeight;
+
+  const values = recentData.map(d => d.custo || 0);
+  const xMean = (n - 1) / 2;
+  const yMean = values.reduce((a, b) => a + b, 0) / n;
+  let slope = 0;
+  let denominator = 0;
+  values.forEach((y, x) => {
+    slope += (x - xMean) * (y - yMean);
+    denominator += (x - xMean) ** 2;
+  });
+  slope = denominator !== 0 ? slope / denominator : 0;
+
+  const lastMonth = dados.length > 0 ? new Date(dados[dados.length - 1].mes.split('-')[0], parseInt(dados[dados.length - 1].mes.split('-')[1]) - 1).getMonth() : new Date().getMonth();
+
+  const forecast = [];
+  for (let i = 1; i <= mesesFuturos; i++) {
+    const futureMonth = (lastMonth + i) % 12;
+    const baseValue = weightedAvgCusto + slope * i;
+    const seasonalValue = baseValue * (SAZONALIDADE[futureMonth] || 1.0);
+
+    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+
+    forecast.push({
+      mes: monthNames[futureMonth],
+      mesIndex: futureMonth,
+      custoProjetado: Math.max(0, Math.round(seasonalValue * 100) / 100),
+      producaoProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * 100) / 100),
+      tipo: 'forecast',
+      confianca: Math.max(0.5, 1 - (i * 0.15)),
+      tendencia: slope > 0 ? 'alta' : slope < 0 ? 'baixa' : 'estável',
+      sazonalidade: SAZONALIDADE[futureMonth] || 1.0,
+    });
+  }
+
+  return forecast;
+};
+
+export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado };

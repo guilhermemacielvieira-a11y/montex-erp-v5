@@ -20,6 +20,12 @@ import {
 import { Upload, FileUp, Check, AlertCircle, Loader2 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
+import {
+  validarData,
+  validarValorNumerico,
+  detectarDuplicatas,
+  validarCamposObrigatorios
+} from '@/utils/importValidation';
 
 export default function ImportadorLancamentosMaterial({ projetos = [] }) {
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -112,9 +118,70 @@ export default function ImportadorLancamentosMaterial({ projetos = [] }) {
         return;
       }
 
-      setDadosPreview(linhasNormalizadas);
-      setErros([]);
+      // VALIDAÇÃO E DETECÇÃO DE DUPLICATAS
+      const itemsValidos = [];
+      const itemsComErro = [];
+      const errosDetalhados = [];
+
+      linhasNormalizadas.forEach((linha, idx) => {
+        // Validar data
+        const { data: dataValidada, erros: errosData } = validarData(linha.DATA, 'data');
+        // Validar valor
+        const { valor: valorValidado, erros: errosValor } = validarValorNumerico(
+          linha['VALOR TOTAL'],
+          'valor',
+          { permitirZero: false, max: 100000000, min: 0.01 }
+        );
+        // Validar campos obrigatórios
+        const errosObrigatorios = validarCamposObrigatorios(
+          {
+            nf: linha['Nº NOTA FISCAL'],
+            fornecedor: linha.FORNECEDOR
+          },
+          ['nf', 'fornecedor']
+        );
+
+        const todosErros = [...errosData, ...errosValor, ...errosObrigatorios];
+
+        if (todosErros.length === 0 && dataValidada && valorValidado) {
+          itemsValidos.push({
+            DATA: dataValidada,
+            'Nº NOTA FISCAL': String(linha['Nº NOTA FISCAL']).trim(),
+            FORNECEDOR: String(linha.FORNECEDOR).trim(),
+            'VALOR TOTAL': valorValidado
+          });
+        } else {
+          itemsComErro.push(idx);
+          if (todosErros.length > 0) {
+            errosDetalhados.push(`Linha ${idx + 1}: ${todosErros[0]}`);
+          }
+        }
+      });
+
+      // Detectar duplicatas dentro da importação
+      const { duplicatas } = detectarDuplicatas(
+        itemsValidos,
+        ['Nº NOTA FISCAL', 'FORNECEDOR']
+      );
+
+      // Feedback
+      const mensagens = [];
+      if (itemsValidos.length > 0) mensagens.push(`${itemsValidos.length} lançamentos válidos`);
+      if (duplicatas.length > 0) mensagens.push(`${duplicatas.length} duplicata(s)`);
+      if (itemsComErro.length > 0) mensagens.push(`${itemsComErro.length} com erro`);
+
+      if (itemsValidos.length === 0) {
+        setErros(['Nenhum lançamento válido encontrado após validação'].concat(errosDetalhados));
+        return;
+      }
+
+      setDadosPreview(itemsValidos);
+      setErros(errosDetalhados.length > 0 ? errosDetalhados : []);
       setEtapa('preview');
+
+      if (mensagens.length > 0) {
+        toast.info(`Análise: ${mensagens.join(', ')}`);
+      }
     } catch (error) {
       setErros(['Erro ao ler arquivo. Verifique se é um Excel válido.']);
       console.error(error);

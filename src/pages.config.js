@@ -62,6 +62,7 @@ const MetasFinanceirasPage = lazy(() => import('./pages/MetasFinanceirasPage'));
 const AnaliseCustosPage = lazy(() => import('./pages/AnaliseCustosPage'));
 const CentrosCustoPage = lazy(() => import('./pages/CentrosCustoPage'));
 const RelatoriosFinanceiros = lazy(() => import('./pages/RelatoriosFinanceiros'));
+const DREPage = lazy(() => import('./pages/DREPage'));
 
 // ===== ORÇAMENTOS (canônico: OrcamentosPage) =====
 const OrcamentosPage = lazy(() => import('./pages/OrcamentosPage'));
@@ -158,6 +159,7 @@ export const PAGES = {
     "AnaliseCustosPage": AnaliseCustosPage,
     "CentrosCustoPage": CentrosCustoPage,
     "RelatoriosFinanceiros": RelatoriosFinanceiros,
+    "DREPage": DREPage,
 
     // Orçamentos (canônico: OrcamentosPage)
     "OrcamentosPage": OrcamentosPage,

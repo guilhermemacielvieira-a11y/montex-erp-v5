@@ -84,6 +84,41 @@ export const supabase = createClient(
 // ============================================
 // HELPER: Gera CRUD genérico para qualquer tabela
 // ============================================
+
+/**
+ * Creates a generic CRUD interface for a Supabase table
+ *
+ * @description
+ * Factory function that generates a CRUD (Create, Read, Update, Delete) interface
+ * for any Supabase table. Provides standard operations with proper error handling
+ * and type transformations.
+ *
+ * @param {string} tableName - Name of the Supabase table
+ * @param {string} [defaultOrder='created_at'] - Default column for ordering queries
+ *
+ * @returns {Object} CRUD operations object
+ * @returns {Function} returns.getAll - Fetch all records from table
+ * @returns {Function} returns.getById - Fetch single record by ID
+ * @returns {Function} returns.getByField - Query records by field value
+ * @returns {Function} returns.create - Insert single record
+ * @returns {Function} returns.createMany - Insert multiple records
+ * @returns {Function} returns.update - Update record by ID
+ * @returns {Function} returns.upsert - Insert or update (merge) operation
+ * @returns {Function} returns.delete - Delete record by ID
+ *
+ * @example
+ * // Create API for 'obras' table
+ * const obrasApi = createCrud('obras', 'created_at');
+ *
+ * // Fetch all works
+ * const obras = await obrasApi.getAll();
+ *
+ * // Create new work
+ * const novaObra = await obrasApi.create({ nome: 'Projeto X', ... });
+ *
+ * // Update work
+ * await obrasApi.update('obra-123', { status: 'em_progresso' });
+ */
 function createCrud(tableName, defaultOrder = 'created_at') {
   return {
     async getAll(orderBy = defaultOrder, ascending = false) {
@@ -330,6 +365,30 @@ export async function getDashboardStats() {
   };
 }
 
+/**
+ * Check Supabase Connection Status
+ *
+ * @description
+ * Verifies that Supabase is properly configured and accessible.
+ * Tests connection by attempting a simple query to the 'obras' table.
+ * Used during app initialization to determine data source (Supabase vs mock data).
+ *
+ * @returns {Promise<Object>} Connection status object
+ * @returns {boolean} returns.connected - True if connection successful
+ * @returns {string} [returns.error] - Error message if connection failed
+ * @returns {Array} [returns.data] - Sample data from test query
+ *
+ * @example
+ * // Check if database is available
+ * const { connected, error } = await checkConnection();
+ *
+ * if (connected) {
+ *   console.log('Supabase is ready');
+ * } else {
+ *   console.error('Database unavailable:', error);
+ *   // Fall back to mock data or error state
+ * }
+ */
 export async function checkConnection() {
   try {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {

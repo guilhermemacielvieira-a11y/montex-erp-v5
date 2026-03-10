@@ -23,8 +23,40 @@ import { DRE_OBRA } from '@/data/obraFinanceiraDatabase';
 import { commandCenterData } from '@/data/commandCenterData';
 
 /**
- * Centralized KPI Calculation Hook
- * @returns {Object} Complete metrics object with all KPI sections
+ * Centralized Dashboard Metrics Hook
+ *
+ * @description
+ * Single source of truth for all KPI calculations across dashboards.
+ * Consolidates metrics from multiple ERPContext hooks and data sources.
+ * Eliminates inconsistencies by computing all metrics once and sharing
+ * across DashboardPremium, DashboardFuturista, and DashboardERPIntegrado.
+ *
+ * Provides comprehensive dashboard data including projects, production,
+ * financial metrics, stock, machines, expeditions, teams, and performance analytics.
+ *
+ * @returns {Object} Complete metrics object organized by section
+ * @returns {Object} returns.projetos - Active projects metrics (ativos, total, trend)
+ * @returns {Object} returns.producao - Production metrics (totalPecas, progressoGeral, pecasPorEtapa)
+ * @returns {Object} returns.financeiro - Financial metrics (receitas, despesas, lucro, margemLucro)
+ * @returns {Object} returns.estoque - Stock metrics (totalItens, totalToneladas, disponiveis)
+ * @returns {Object} returns.maquinas - Machine status (operando, total, eficienciaMedia, lista)
+ * @returns {Object} returns.expedicao - Expedition metrics (ativas, pesoEntregue, totalExpedicoes)
+ * @returns {Object} returns.equipes - Team metrics (total, lista)
+ * @returns {Object} returns.performance - Performance scores (producao, qualidade, prazo, custo, seguranca, inovacao)
+ * @returns {Object} returns.chartData - Pre-computed chart datasets (productionByEtapa, projectStatus, radarData, fluxoFinanceiro)
+ * @returns {Object} returns.raw - Raw data access (obras, pecas, estoque, medicoes, expedicoes, equipes)
+ *
+ * @example
+ * // In DashboardPremium.jsx
+ * const metrics = useDashboardMetrics();
+ *
+ * return (
+ *   <div>
+ *     <KPICard title="Produção" value={metrics.producao.progressoGeral} unit="%" />
+ *     <RadarChart data={metrics.chartData.radarData} />
+ *     <FinancialChart data={metrics.chartData.fluxoFinanceiro} />
+ *   </div>
+ * );
  */
 export function useDashboardMetrics() {
   // Import all required data from ERPContext

@@ -40,6 +40,12 @@ export function orcamentosReducer(state, action) {
       };
     }
 
+    case ACTIONS.DELETE_ORCAMENTO:
+      return {
+        ...state,
+        orcamentos: state.orcamentos.filter(o => o.id !== action.payload.orcamentoId)
+      };
+
     default:
       return state;
   }

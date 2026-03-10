@@ -59,6 +59,7 @@ import DisplaySettings from '@/components/DisplaySettings';
 import { useDisplay } from '@/contexts/DisplayContext';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useNotification } from '@/contexts/NotificationContext';
+import Breadcrumbs from '@/components/Breadcrumbs';
 
 // ====== COMPONENTES ERP ======
 import { ERPProvider, useERP } from '@/contexts/ERPContext';
@@ -107,6 +108,7 @@ const navigationCategories = [
       { name: 'Croquis', href: 'CroquisPage', icon: FileSearch, badge: 'PDF' },
       { name: 'Detalhamentos', href: 'DetalhamentosPage', icon: ClipboardList, badge: 'EM' },
       { name: 'Estoque', href: 'EstoquePage', icon: Warehouse, badge: '📊' },
+      { name: 'Compras', href: 'ComprasPage', icon: ShoppingCart, badge: 'NEW' },
     ]
   },
   {
@@ -123,6 +125,7 @@ const navigationCategories = [
       { name: 'Diário Produção', href: 'DiarioProducaoPage', icon: BookOpen },
       { name: 'Análise Produção', href: 'AnaliseProducaoPage', icon: Activity, badge: '📊' },
       { name: 'Equipes', href: 'EquipesPage', icon: Users },
+      { name: 'RH', href: 'RHPage', icon: Users, badge: 'NEW' },
     ]
   },
   {
@@ -175,6 +178,8 @@ const navigationCategories = [
       { name: 'Metas Financeiras', href: 'MetasFinanceirasPage', icon: Flag },
       { name: 'Análise de Custos', href: 'AnaliseCustosPage', icon: PieChart },
       { name: 'Centros de Custo', href: 'CentrosCustoPage', icon: Building2 },
+      { name: 'Relatórios Financeiros', href: 'RelatoriosFinanceiros', icon: FileBarChart, badge: 'NEW' },
+      { name: 'Vendas', href: 'VendasPage', icon: TrendingUp, badge: 'NEW' },
     ]
   },
   {
@@ -213,6 +218,9 @@ const navigationCategories = [
       { name: 'Tarefas', href: 'Tarefas', icon: CheckSquare },
       { name: 'Colaboração', href: 'ColaboracaoProjetos', icon: Users },
       { name: 'Relatórios IA', href: 'RelatoriosIA', icon: FileSearch },
+      { name: 'Relatórios', href: 'Relatorios', icon: FileBarChart, badge: 'NEW' },
+      { name: 'Gerenciador Relatórios', href: 'GerenciadorRelatorios', icon: FileBarChart, badge: 'NEW' },
+      { name: 'Agendamento Relatórios', href: 'AgendamentosRelatorios', icon: FileBarChart, badge: 'NEW' },
       { name: 'Automações', href: 'Automacoes', icon: Zap },
       { name: 'Analisador', href: 'Analisador', icon: FileSearch },
       { name: 'Chatbot', href: 'Chatbot', icon: MessageSquare },
@@ -749,6 +757,7 @@ function LayoutContent({ children, currentPageName }) {
             transition={{ duration: 0.2 }}
             className="p-4"
           >
+            <Breadcrumbs />
             {children}
           </motion.div>
         </main>

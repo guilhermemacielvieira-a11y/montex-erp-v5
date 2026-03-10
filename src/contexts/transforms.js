@@ -14,6 +14,26 @@ function snakeToCamel(str) {
   return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
 }
 
+/**
+ * Transform single database record from snake_case to camelCase
+ *
+ * @description
+ * Converts field names from Supabase snake_case format to JavaScript camelCase.
+ * Allows frontend code to use idiomatic naming (e.g., `obraId` instead of `obra_id`).
+ * Automatically applied to all records returned from Supabase queries.
+ * Handles null/undefined values safely.
+ *
+ * @param {Object|null|undefined} record - Database record with snake_case field names
+ * @returns {Object|null|undefined} Transformed record with camelCase field names, or original value if not an object
+ *
+ * @example
+ * // Input from Supabase
+ * const dbRecord = { obra_id: 1, status_corte: 'pending', peso_total: 50 };
+ *
+ * // After transformation
+ * const transformed = transformRecord(dbRecord);
+ * // Result: { obraId: 1, statusCorte: 'pending', pesoTotal: 50 }
+ */
 export function transformRecord(record) {
   if (!record || typeof record !== 'object') return record;
   const result = {};
@@ -23,6 +43,28 @@ export function transformRecord(record) {
   return result;
 }
 
+/**
+ * Transform array of database records from snake_case to camelCase
+ *
+ * @description
+ * Batch transforms multiple records from Supabase. Converts all field names
+ * to camelCase while preserving array structure and handling empty arrays safely.
+ *
+ * @param {Array<Object>|null|undefined} records - Array of database records to transform
+ * @returns {Array<Object>} Array of transformed records with camelCase field names
+ *
+ * @example
+ * const pecasFromDB = [
+ *   { obra_id: 1, peso_total: 50, status_corte: 'pending' },
+ *   { obra_id: 2, peso_total: 75, status_corte: 'done' }
+ * ];
+ *
+ * const transformed = transformArray(pecasFromDB);
+ * // Result: [
+ * //   { obraId: 1, pesoTotal: 50, statusCorte: 'pending' },
+ * //   { obraId: 2, pesoTotal: 75, statusCorte: 'done' }
+ * // ]
+ */
 export function transformArray(records) {
   return (records || []).map(transformRecord);
 }
