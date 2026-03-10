@@ -64,6 +64,9 @@ import { useObras, useProducao } from '../contexts/ERPContext';
 import { useSmartPagination } from '@/hooks/useSmartPagination';
 // Importar controles de paginação
 import PaginationControls from '@/components/ui/PaginationControls';
+// Modal de seleção de funcionário e histórico
+import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 
 // Importar configuração de produção e enums
 import { ETAPAS_PRODUCAO } from '../data/database';
@@ -356,6 +359,7 @@ export default function ProducaoPage() {
   // Dados do ERPContext
   const { obras } = useObras();
   const { pecas, moverPecaEtapa, updatePeca, reloadPecas, addPecas } = useProducao();
+  const { registrarTransicao } = useProducaoHistorico();
 
   // Estados locais
   const [search, setSearch] = useState('');
@@ -363,6 +367,11 @@ export default function ProducaoPage() {
   const [filtroPrioridade, setFiltroPrioridade] = useState('todas');
   const [draggedItem, setDraggedItem] = useState(null);
   const [activeTab, setActiveTab] = useState('kanban');
+
+  // Modal de funcionário para movimentações
+  const [modalFuncionario, setModalFuncionario] = useState(false);
+  const [pecaPendente, setPecaPendente] = useState(null);
+  const [etapaPendente, setEtapaPendente] = useState(null);
 
   // Filtro customizado para prioridade
   const customFilter = useMemo(() => {
@@ -482,8 +491,10 @@ export default function ProducaoPage() {
 
   const handleDrop = (colunaId) => {
     if (draggedItem && draggedItem.etapa !== colunaId) {
-      // Usa a função do context para mover a peça
-      moverPecaEtapa(draggedItem.id, colunaId, null);
+      // Abrir modal de funcionário antes de mover
+      setPecaPendente(draggedItem);
+      setEtapaPendente(colunaId);
+      setModalFuncionario(true);
     }
     setDraggedItem(null);
   };
@@ -491,9 +502,35 @@ export default function ProducaoPage() {
   // Handler para botões de ação rápida - mover peça para etapa
   const handleMoverEtapa = (item, novaEtapa) => {
     if (item.etapa === novaEtapa) return;
-    moverPecaEtapa(item.id, novaEtapa, null);
-    const nomeEtapa = getNomeEtapa(novaEtapa);
-    toast.success(`MK-${item.marca} movido para ${nomeEtapa}`);
+    // Abrir modal de funcionário antes de mover
+    setPecaPendente(item);
+    setEtapaPendente(novaEtapa);
+    setModalFuncionario(true);
+  };
+
+  // Callback após seleção de funcionário
+  const handleFuncionarioConfirm = (funcionarioId, funcionarioNome) => {
+    if (!pecaPendente || !etapaPendente) return;
+
+    const etapaAnterior = pecaPendente.etapa || 'aguardando';
+    moverPecaEtapa(pecaPendente.id, etapaPendente, funcionarioId);
+
+    // Registrar no histórico de produção
+    registrarTransicao(
+      pecaPendente.id,
+      etapaAnterior,
+      etapaPendente,
+      funcionarioId,
+      funcionarioNome,
+      `MK-${pecaPendente.marca || ''} | ${etapaAnterior} → ${etapaPendente}`
+    );
+
+    const nomeEtapa = getNomeEtapa(etapaPendente);
+    toast.success(`${funcionarioNome}: MK-${pecaPendente.marca} → ${nomeEtapa}`);
+
+    setModalFuncionario(false);
+    setPecaPendente(null);
+    setEtapaPendente(null);
   };
 
   // Modal handlers
@@ -1163,6 +1200,15 @@ export default function ProducaoPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Modal de seleção de funcionário para movimentações */}
+      <FuncionarioSelectorModal
+        isOpen={modalFuncionario}
+        onClose={() => { setModalFuncionario(false); setPecaPendente(null); setEtapaPendente(null); }}
+        onConfirm={handleFuncionarioConfirm}
+        etapaLabel={etapaPendente ? getNomeEtapa(etapaPendente) : 'Produção'}
+        pecaInfo={pecaPendente ? `Marca ${pecaPendente.marca} - ${pecaPendente.tipo || ''}` : ''}
+      />
     </div>
   );
 }

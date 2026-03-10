@@ -489,7 +489,15 @@ export default function KanbanProducaoIntegrado() {
       return c;
     }));
 
-    // Persistir no Supabase
+    // Se o status mudou, abrir modal de funcionário para registrar responsável
+    if (statusConjunto !== conjuntoSelecionado.status) {
+      // Abrir modal de funcionário para vincular à edição
+      setConjuntoPendente({ ...conjuntoSelecionado, status: statusConjunto });
+      setStatusPendenteProd(statusConjunto);
+      setModalFuncionarioProd(true);
+    }
+
+    // Persistir no Supabase (funcionário será vinculado quando o modal confirmar)
     try {
       await moverPecaEtapaContext(conjuntoSelecionado.id, statusConjunto, null);
       console.log(`[Kanban] ✅ Unidades de ${conjuntoSelecionado.conjunto} atualizadas no Supabase`);
