@@ -1,7 +1,7 @@
 // MONTEX ERP Premium - Módulo de Metas Financeiras
 // Gestão de metas de faturamento, objetivos e acompanhamento
 
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -15,7 +15,8 @@ import {
   Flag,
   Zap,
   ArrowUp,
-  ArrowDown
+  ArrowDown,
+  TrendingUp
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -27,6 +28,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from '@/components/ui/tabs';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -36,10 +43,20 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   Line,
   XAxis,
   YAxis,
@@ -48,29 +65,13 @@ import {
   ResponsiveContainer,
   RadialBarChart,
   RadialBar,
-  Legend
+  Legend,
+  ComposedChart
 } from 'recharts';
-
-// Metas - Será preenchido com dados reais
-const mockMetas = [];
-
-// Histórico Mensal - Será preenchido com dados reais
-// Histórico será preenchido com dados reais
-const historicoMensal = [];
-
-const formatCurrency = (value) => {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value);
-};
-
-const formatPercent = (value) => `${value.toFixed(1)}%`;
+import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
 
 // Componente de Card de Meta
-function MetaCard({ meta }) {
+function MetaCard({ meta, formatCurrency, formatPercent }) {
   const percentual = (meta.valorAtual / meta.valorMeta) * 100;
   const isPercentMeta = meta.unidade === '%';
 
@@ -227,49 +228,75 @@ function KPICard({ title, value, subtitle, icon: Icon, color, trend, trendValue 
   );
 }
 
+// Componente de Card de Estágio
+function EstagioCard({ etapa }) {
+  const getTaxaColor = (taxa) => {
+    if (taxa >= 95) return 'text-emerald-400';
+    if (taxa >= 80) return 'text-blue-400';
+    if (taxa >= 60) return 'text-amber-400';
+    return 'text-red-400';
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5 hover:border-slate-600/50 transition-all"
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div>
+          <h3 className="font-semibold text-white">{etapa.nome}</h3>
+          <p className="text-sm text-slate-400 mt-1">{etapa.etapa}</p>
+        </div>
+        <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
+          <TrendingUp className="h-3 w-3 mr-1" />
+          {etapa.taxa}%
+        </Badge>
+      </div>
+
+      <div className="space-y-3">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-slate-500">Produção</p>
+            <p className="text-lg font-semibold text-white">{(etapa.producaoKg / 1000).toFixed(1)} ton</p>
+          </div>
+          <div>
+            <p className="text-xs text-slate-500">Peças</p>
+            <p className="text-lg font-semibold text-white">{etapa.pecas}</p>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-slate-700/50">
+          <p className="text-xs text-slate-500 mb-1">Valor Gerado</p>
+          <p className="text-xl font-bold text-emerald-400">{etapa.valorGerado}</p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 export default function MetasFinanceirasPage() {
-  const [metas, setMetas] = useState(mockMetas);
-  const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroStatus, setFiltroStatus] = useState('todos');
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // KPIs calculados
-  const kpis = useMemo(() => {
-    const metasAtingidas = metas.filter(m => m.status === 'atingida').length;
-    const totalMetas = metas.length;
-    const taxaSucesso = totalMetas > 0 ? (metasAtingidas / totalMetas) * 100 : 0;
+  // Integração com hook real
+  const fi = useFinancialIntelligence();
 
-    const faturamentoMeta = metas.find(m => m.tipo === 'faturamento');
-    const progressoFaturamento = faturamentoMeta
-      ? (faturamentoMeta.valorAtual / faturamentoMeta.valorMeta) * 100
-      : 0;
-
-    return {
-      metasAtingidas,
-      totalMetas,
-      taxaSucesso,
-      progressoFaturamento,
-      faturamentoAtual: faturamentoMeta?.valorAtual || 0,
-      faturamentoMeta: faturamentoMeta?.valorMeta || 0
-    };
-  }, [metas]);
-
-  // Filtrar metas
-  const metasFiltradas = useMemo(() => {
-    return metas.filter(meta => {
-      if (filtroTipo !== 'todos' && meta.tipo !== filtroTipo) return false;
-      if (filtroStatus !== 'todos' && meta.status !== filtroStatus) return false;
-      return true;
-    });
-  }, [metas, filtroTipo, filtroStatus]);
-
-  // Dados para gráfico radial
+  // Dados para gráfico radial de metas
   const radialData = [
-    { name: 'Faturamento', value: kpis.progressoFaturamento, fill: '#10b981' },
-    { name: 'Produção', value: 113.9, fill: '#3b82f6' },
-    { name: 'Margem', value: 90, fill: '#f59e0b' },
-    { name: 'Clientes', value: 80, fill: '#8b5cf6' },
+    { name: 'Faturamento', value: fi.metas.faturamento.progresso, fill: '#10b981' },
+    { name: 'Produção', value: fi.metas.producao.progresso, fill: '#3b82f6' },
+    { name: 'Margem', value: fi.metas.margem.progresso, fill: '#f59e0b' },
+    { name: 'Red. Custos', value: Math.max(0, 100 + fi.metas.reducaoCustos.variacao), fill: '#8b5cf6' },
   ];
+
+  // Dados combinados para gráfico de tendências
+  const tendenciasData = [
+    ...(fi.evolucaoMensal || []),
+    ...(fi.forecast3meses || []).map(f => ({ ...f, forecast: true }))
+  ];
+
+  // Dados para gráfico de comparação mensal
+  const analiseMonthlyData = fi.evolucaoMensal || [];
 
   return (
     <div className="space-y-6">
@@ -286,33 +313,6 @@ export default function MetasFinanceirasPage() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-            <SelectTrigger className="w-[180px] bg-slate-800 border-slate-700">
-              <SelectValue placeholder="Tipo de Meta" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              <SelectItem value="todos">Todos os Tipos</SelectItem>
-              <SelectItem value="faturamento">Faturamento</SelectItem>
-              <SelectItem value="reducao_custo">Redução de Custo</SelectItem>
-              <SelectItem value="producao">Produção</SelectItem>
-              <SelectItem value="margem">Margem</SelectItem>
-              <SelectItem value="novos_clientes">Novos Clientes</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={filtroStatus} onValueChange={setFiltroStatus}>
-            <SelectTrigger className="w-[180px] bg-slate-800 border-slate-700">
-              <SelectValue placeholder="Status" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              <SelectItem value="todos">Todos Status</SelectItem>
-              <SelectItem value="atingida">Atingida</SelectItem>
-              <SelectItem value="em_andamento">Em Andamento</SelectItem>
-              <SelectItem value="atencao">Atenção</SelectItem>
-              <SelectItem value="nao_atingida">Não Atingida</SelectItem>
-            </SelectContent>
-          </Select>
-
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
               <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
@@ -385,140 +385,268 @@ export default function MetasFinanceirasPage() {
       {/* KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
-          title="Faturamento Atual"
-          value={formatCurrency(kpis.faturamentoAtual)}
-          subtitle={`Meta: ${formatCurrency(kpis.faturamentoMeta)}`}
+          title="Faturamento"
+          value={fi.formatCurrency(fi.kpisGerais.faturamento)}
+          subtitle={`Meta: ${fi.formatCurrency(fi.metas.faturamento.meta)}`}
           icon={DollarSign}
           color="from-emerald-500 to-green-500"
-          trend={-5.2}
         />
         <KPICard
-          title="Progresso da Meta"
-          value={formatPercent(kpis.progressoFaturamento)}
-          subtitle="do objetivo mensal"
-          icon={Target}
-          color="from-blue-500 to-cyan-500"
-          trend={3.8}
+          title="Custos Totais"
+          value={fi.formatCurrency(fi.kpisGerais.despesas)}
+          subtitle={`${fi.kpisGerais.totalDespesas} lançamentos`}
+          icon={BarChart3}
+          color="from-red-500 to-orange-500"
         />
         <KPICard
-          title="Metas Atingidas"
-          value={`${kpis.metasAtingidas}/${kpis.totalMetas}`}
-          subtitle={`Taxa de sucesso: ${formatPercent(kpis.taxaSucesso)}`}
-          icon={Award}
+          title="Margem Operacional"
+          value={fi.formatPercent(fi.margemOperacional)}
+          subtitle="Meta: 25%"
+          icon={TrendingUp}
           color="from-amber-500 to-orange-500"
-          trend={12}
         />
         <KPICard
-          title="Dias Restantes"
-          value="25"
-          subtitle="para fim do período"
-          icon={Calendar}
-          color="from-purple-500 to-pink-500"
+          title="Produção"
+          value={`${(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton`}
+          subtitle={`por mês: ${fi.kpisGerais.producaoMensal} kg`}
+          icon={Award}
+          color="from-blue-500 to-cyan-500"
         />
       </div>
 
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Gráfico de Evolução */}
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-emerald-400" />
-              Faturamento vs Meta
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <AreaChart data={historicoMensal}>
-                <defs>
-                  <linearGradient id="colorFaturamento" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="mes" stroke="#64748b" />
-                <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                  formatter={(value) => formatCurrency(value)}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="faturamento"
-                  stroke="#10b981"
-                  strokeWidth={2}
-                  fill="url(#colorFaturamento)"
-                  name="Faturamento"
-                />
-                <Line
-                  type="monotone"
-                  dataKey="meta"
-                  stroke="#f59e0b"
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Meta"
-                  dot={false}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
+      {/* Abas com Visão Geral, Análise Mensal, Por Estágio e Tendências */}
+      <Tabs defaultValue="visao-geral" className="space-y-4">
+        <TabsList className="bg-slate-900/60 border border-slate-700/50">
+          <TabsTrigger value="visao-geral">Visão Geral</TabsTrigger>
+          <TabsTrigger value="analise-mensal">Análise Mensal</TabsTrigger>
+          <TabsTrigger value="por-estagio">Por Estágio</TabsTrigger>
+          <TabsTrigger value="tendencias">Tendências</TabsTrigger>
+        </TabsList>
 
-        {/* Gráfico Radial de Progresso */}
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <PieChart className="h-5 w-5 text-blue-400" />
-              Progresso por Categoria
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <RadialBarChart
-                cx="50%"
-                cy="50%"
-                innerRadius="20%"
-                outerRadius="90%"
-                data={radialData}
-                startAngle={180}
-                endAngle={0}
-              >
-                <RadialBar
-                  minAngle={15}
-                  background={{ fill: '#1e293b' }}
-                  clockWise
-                  dataKey="value"
-                  cornerRadius={5}
-                />
-                <Legend
-                  iconSize={10}
-                  layout="horizontal"
-                  verticalAlign="bottom"
-                  wrapperStyle={{ color: '#94a3b8' }}
-                />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                  formatter={(value) => `${value}%`}
-                />
-              </RadialBarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-      </div>
+        {/* Aba: Visão Geral */}
+        <TabsContent value="visao-geral" className="space-y-6">
+          {/* Gráfico de Evolução */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-emerald-400" />
+                  Evolução: Receita vs Custo
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={fi.evolucaoMensal || []}>
+                    <defs>
+                      <linearGradient id="colorReceita" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                      <linearGradient id="colorCusto" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mesLabel" stroke="#64748b" />
+                    <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      formatter={(value) => fi.formatCurrency(value)}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="receita"
+                      stroke="#10b981"
+                      strokeWidth={2}
+                      fill="url(#colorReceita)"
+                      name="Receita"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="custo"
+                      stroke="#ef4444"
+                      strokeWidth={2}
+                      fill="url(#colorCusto)"
+                      name="Custo"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
 
-      {/* Lista de Metas */}
-      <div>
-        <h2 className="text-xl font-bold text-white mb-4 flex items-center gap-2">
-          <Flag className="h-5 w-5 text-amber-400" />
-          Metas Ativas ({metasFiltradas.length})
-        </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {metasFiltradas.map((meta) => (
-            <MetaCard key={meta.id} meta={meta} />
-          ))}
-        </div>
-      </div>
+            {/* Gráfico Radial de Progresso */}
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <PieChart className="h-5 w-5 text-blue-400" />
+                  Progresso de Metas
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <RadialBarChart
+                    cx="50%"
+                    cy="50%"
+                    innerRadius="20%"
+                    outerRadius="90%"
+                    data={radialData}
+                    startAngle={180}
+                    endAngle={0}
+                  >
+                    <RadialBar
+                      minAngle={15}
+                      background={{ fill: '#1e293b' }}
+                      clockWise
+                      dataKey="value"
+                      cornerRadius={5}
+                    />
+                    <Legend
+                      iconSize={10}
+                      layout="horizontal"
+                      verticalAlign="bottom"
+                      wrapperStyle={{ color: '#94a3b8' }}
+                    />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      formatter={(value) => `${value.toFixed(1)}%`}
+                    />
+                  </RadialBarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Aba: Análise Mensal */}
+        <TabsContent value="analise-mensal" className="space-y-6">
+          {/* Tabela de Análise */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white">Dados Mensais</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-slate-700/50">
+                      <TableHead className="text-slate-400">Mês</TableHead>
+                      <TableHead className="text-slate-400 text-right">Receita</TableHead>
+                      <TableHead className="text-slate-400 text-right">Custo</TableHead>
+                      <TableHead className="text-slate-400 text-right">Margem</TableHead>
+                      <TableHead className="text-slate-400 text-right">Custo/kg</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(fi.evolucaoMensal || []).map((mes, idx) => (
+                      <TableRow key={idx} className="border-slate-700/50 hover:bg-slate-800/30">
+                        <TableCell className="text-slate-300">{mes.mesLabel}</TableCell>
+                        <TableCell className="text-right text-emerald-400 font-semibold">{fi.formatCurrency(mes.receita)}</TableCell>
+                        <TableCell className="text-right text-red-400 font-semibold">{fi.formatCurrency(mes.custo)}</TableCell>
+                        <TableCell className="text-right text-blue-400 font-semibold">{fi.formatPercent(mes.margem)}</TableCell>
+                        <TableCell className="text-right text-slate-300">{fi.formatCurrency(mes.custoPerKg)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Gráfico de Comparação Mensal */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-amber-400" />
+                Comparação: Receita vs Custo
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={analiseMonthlyData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="mesLabel" stroke="#64748b" />
+                  <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                    formatter={(value) => fi.formatCurrency(value)}
+                  />
+                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                  <Bar dataKey="receita" fill="#10b981" name="Receita" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="custo" fill="#ef4444" name="Custo" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Aba: Por Estágio */}
+        <TabsContent value="por-estagio" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {(fi.etapasAnalise || []).map((etapa, idx) => (
+              <EstagioCard key={idx} etapa={etapa} />
+            ))}
+          </div>
+        </TabsContent>
+
+        {/* Aba: Tendências */}
+        <TabsContent value="tendencias" className="space-y-6">
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-purple-400" />
+                Evolução + Previsão (3 meses)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={350}>
+                <ComposedChart data={tendenciasData}>
+                  <defs>
+                    <linearGradient id="colorTendencia" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="mesLabel" stroke="#64748b" />
+                  <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                    formatter={(value) => fi.formatCurrency(value)}
+                  />
+                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                  <Area
+                    type="monotone"
+                    dataKey="receita"
+                    stroke="#10b981"
+                    strokeWidth={2}
+                    fill="url(#colorTendencia)"
+                    name="Receita Real"
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="receitaProjetada"
+                    stroke="#8b5cf6"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Receita Projetada"
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="custoProjetado"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="Custo Projetado"
+                    dot={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

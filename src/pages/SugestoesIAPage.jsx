@@ -1,7 +1,7 @@
 // MONTEX ERP Premium - Módulo de Sugestões IA
-// Recomendações inteligentes baseadas em análise de dados
+// Recomendações inteligentes baseadas em análise de dados REAIS do sistema
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles,
@@ -19,134 +19,41 @@ import {
   ThumbsUp,
   ThumbsDown,
   RefreshCw,
-  Lightbulb
+  Lightbulb,
+  TrendingUp,
+  BarChart3
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
-
-// Mock Data - Sugestões da IA
-const mockSugestoes = [
-  {
-    id: 1,
-    tipo: 'otimizacao',
-    categoria: 'producao',
-    titulo: 'Reorganizar sequência de corte',
-    descricao: 'Identificamos que reorganizando a sequência de corte das chapas podemos reduzir o desperdício de material em aproximadamente 12%.',
-    impacto: 'alto',
-    economiaEstimada: 15000,
-    tempoImplementacao: '2 semanas',
-    confianca: 94,
-    baseadoEm: ['Histórico de corte dos últimos 6 meses', 'Padrões de desperdício identificados', 'Análise de layout atual'],
-    status: 'nova',
-    dataCriacao: '2026-02-03'
-  },
-  {
-    id: 2,
-    tipo: 'alerta',
-    categoria: 'manutencao',
-    titulo: 'Manutenção preventiva necessária',
-    descricao: 'A máquina CNC-02 apresenta padrões de vibração 23% acima do normal. Recomendamos manutenção preventiva para evitar parada não programada.',
-    impacto: 'critico',
-    economiaEstimada: 45000,
-    tempoImplementacao: '1-2 dias',
-    confianca: 89,
-    baseadoEm: ['Sensores de vibração', 'Histórico de falhas similares', 'Tempo desde última manutenção'],
-    status: 'nova',
-    dataCriacao: '2026-02-03'
-  },
-  {
-    id: 3,
-    tipo: 'oportunidade',
-    categoria: 'financeiro',
-    titulo: 'Renegociação com fornecedor de aço',
-    descricao: 'Com base no volume de compras dos últimos 12 meses, você tem poder de barganha para negociar desconto de 5-8% com seu principal fornecedor de aço.',
-    impacto: 'medio',
-    economiaEstimada: 28000,
-    tempoImplementacao: '1 mês',
-    confianca: 82,
-    baseadoEm: ['Volume de compras anual', 'Preços de mercado', 'Histórico de negociações'],
-    status: 'analisando',
-    dataCriacao: '2026-02-02'
-  },
-  {
-    id: 4,
-    tipo: 'otimizacao',
-    categoria: 'equipe',
-    titulo: 'Redistribuição de tarefas na Equipe B',
-    descricao: 'A Equipe B está com carga de trabalho 18% maior que a Equipe A. Sugerimos redistribuir 2 funcionários para balancear a produtividade.',
-    impacto: 'medio',
-    economiaEstimada: 8000,
-    tempoImplementacao: '1 semana',
-    confianca: 91,
-    baseadoEm: ['Métricas de produção por equipe', 'Horas extras registradas', 'Eficiência comparativa'],
-    status: 'implementada',
-    dataCriacao: '2026-01-28'
-  },
-  {
-    id: 5,
-    tipo: 'alerta',
-    categoria: 'estoque',
-    titulo: 'Estoque crítico de parafusos M16',
-    descricao: 'O estoque de parafusos M16 está em nível crítico e pode esgotar em 5 dias úteis. Recomendamos pedido urgente.',
-    impacto: 'alto',
-    economiaEstimada: 0,
-    tempoImplementacao: 'Imediato',
-    confianca: 98,
-    baseadoEm: ['Nível atual de estoque', 'Consumo médio diário', 'Lead time do fornecedor'],
-    status: 'nova',
-    dataCriacao: '2026-02-03'
-  },
-  {
-    id: 6,
-    tipo: 'oportunidade',
-    categoria: 'producao',
-    titulo: 'Terceirizar pintura de peças pequenas',
-    descricao: 'Análise de custo indica que terceirizar a pintura de peças menores que 50kg pode reduzir custos em 15% e liberar capacidade produtiva.',
-    impacto: 'medio',
-    economiaEstimada: 12000,
-    tempoImplementacao: '1 mês',
-    confianca: 76,
-    baseadoEm: ['Custo interno de pintura', 'Cotações de terceiros', 'Capacidade ociosa identificada'],
-    status: 'descartada',
-    dataCriacao: '2026-01-15'
-  }
-];
-
-// Mock Data - Métricas da IA
-const metricsIA = {
-  sugestoesGeradas: 47,
-  implementadas: 23,
-  economiaTotal: 187500,
-  taxaAceitacao: 72,
-  precisaoMedia: 89
-};
+import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
+import { useEstoque, useProducao } from '@/contexts/ERPContext';
 
 const getTipoIcon = (tipo) => {
   switch (tipo) {
-    case 'otimizacao': return <Zap className="h-5 w-5" />;
-    case 'alerta': return <AlertTriangle className="h-5 w-5" />;
-    case 'oportunidade': return <Lightbulb className="h-5 w-5" />;
+    case 'Otimização': return <Zap className="h-5 w-5" />;
+    case 'Alerta': return <AlertTriangle className="h-5 w-5" />;
+    case 'Oportunidade': return <Lightbulb className="h-5 w-5" />;
     default: return <Brain className="h-5 w-5" />;
   }
 };
 
 const getTipoColor = (tipo) => {
   switch (tipo) {
-    case 'otimizacao': return 'from-blue-500 to-cyan-500';
-    case 'alerta': return 'from-red-500 to-orange-500';
-    case 'oportunidade': return 'from-emerald-500 to-green-500';
+    case 'Otimização': return 'from-blue-500 to-cyan-500';
+    case 'Alerta': return 'from-red-500 to-orange-500';
+    case 'Oportunidade': return 'from-emerald-500 to-green-500';
     default: return 'from-purple-500 to-pink-500';
   }
 };
 
 const getImpactoColor = (impacto) => {
-  switch (impacto) {
-    case 'critico': return 'bg-red-500/20 text-red-400 border-red-500/30';
+  switch (impacto?.toLowerCase()) {
+    case 'crítico': case 'critico': return 'bg-red-500/20 text-red-400 border-red-500/30';
     case 'alto': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    case 'medio': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    case 'médio': case 'medio': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
     case 'baixo': return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
     default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
   }
@@ -158,17 +65,19 @@ const getStatusColor = (status) => {
     case 'analisando': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
     case 'implementada': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     case 'descartada': return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-    default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+    default: return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
   }
 };
 
 const getCategoriaIcon = (categoria) => {
   switch (categoria) {
-    case 'producao': return <Package className="h-4 w-4" />;
-    case 'manutencao': return <Wrench className="h-4 w-4" />;
-    case 'financeiro': return <DollarSign className="h-4 w-4" />;
-    case 'equipe': return <Users className="h-4 w-4" />;
-    case 'estoque': return <Package className="h-4 w-4" />;
+    case 'Produção': return <Package className="h-4 w-4" />;
+    case 'Custos': return <DollarSign className="h-4 w-4" />;
+    case 'Orçamento': return <BarChart3 className="h-4 w-4" />;
+    case 'Margem': return <TrendingUp className="h-4 w-4" />;
+    case 'Estratégia': return <Target className="h-4 w-4" />;
+    case 'Estoque': return <Package className="h-4 w-4" />;
+    case 'Manutenção': return <Wrench className="h-4 w-4" />;
     default: return <Brain className="h-4 w-4" />;
   }
 };
@@ -182,8 +91,14 @@ const formatCurrency = (value) => {
 };
 
 // Componente de Card de Sugestão
-function SugestaoCard({ sugestao }) {
+function SugestaoCard({ sugestao, onStatusChange }) {
   const [expanded, setExpanded] = useState(false);
+
+  const baseadoEm = [
+    `Análise de ${sugestao.categoria || 'dados'} do sistema`,
+    `Confiança: ${sugestao.confianca}% baseado em dados reais`,
+    `Gerado em: ${new Date(sugestao.data).toLocaleDateString('pt-BR')}`
+  ];
 
   return (
     <motion.div
@@ -192,7 +107,7 @@ function SugestaoCard({ sugestao }) {
       animate={{ opacity: 1, y: 0 }}
       className={cn(
         "bg-slate-900/60 backdrop-blur-xl rounded-xl border overflow-hidden transition-all",
-        sugestao.impacto === 'critico' ? "border-red-500/50" : "border-slate-700/50"
+        sugestao.impacto === 'Crítico' ? "border-red-500/50" : "border-slate-700/50"
       )}
     >
       {/* Header */}
@@ -202,7 +117,7 @@ function SugestaoCard({ sugestao }) {
       >
         <div className="flex items-start gap-4">
           <div className={cn(
-            "w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br text-white",
+            "w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br text-white shrink-0",
             getTipoColor(sugestao.tipo)
           )}>
             {getTipoIcon(sugestao.tipo)}
@@ -214,9 +129,9 @@ function SugestaoCard({ sugestao }) {
                 <h3 className="font-semibold text-white">{sugestao.titulo}</h3>
                 <p className="text-sm text-slate-400 mt-1 line-clamp-2">{sugestao.descricao}</p>
               </div>
-              <div className="flex flex-col items-end gap-2">
+              <div className="flex flex-col items-end gap-2 shrink-0">
                 <Badge className={cn("border", getImpactoColor(sugestao.impacto))}>
-                  {sugestao.impacto.toUpperCase()}
+                  {(sugestao.impacto || '').toUpperCase()}
                 </Badge>
                 <Badge className={cn("border text-xs", getStatusColor(sugestao.status))}>
                   {sugestao.status}
@@ -224,20 +139,20 @@ function SugestaoCard({ sugestao }) {
               </div>
             </div>
 
-            <div className="flex items-center gap-4 mt-3">
+            <div className="flex items-center gap-4 mt-3 flex-wrap">
               <div className="flex items-center gap-1 text-sm text-slate-400">
                 {getCategoriaIcon(sugestao.categoria)}
-                <span className="capitalize">{sugestao.categoria}</span>
+                <span>{sugestao.categoria}</span>
               </div>
-              {sugestao.economiaEstimada > 0 && (
+              {sugestao.economia > 0 && (
                 <div className="flex items-center gap-1 text-sm text-emerald-400">
                   <DollarSign className="h-4 w-4" />
-                  {formatCurrency(sugestao.economiaEstimada)}/mês
+                  {formatCurrency(sugestao.economia)}/mês
                 </div>
               )}
               <div className="flex items-center gap-1 text-sm text-slate-400">
                 <Clock className="h-4 w-4" />
-                {sugestao.tempoImplementacao}
+                {new Date(sugestao.data).toLocaleDateString('pt-BR')}
               </div>
             </div>
           </div>
@@ -287,7 +202,7 @@ function SugestaoCard({ sugestao }) {
                   Análise baseada em:
                 </h4>
                 <ul className="space-y-1">
-                  {sugestao.baseadoEm.map((item, idx) => (
+                  {baseadoEm.map((item, idx) => (
                     <li key={idx} className="flex items-center gap-2 text-sm text-slate-400">
                       <div className="w-1.5 h-1.5 rounded-full bg-purple-500" />
                       {item}
@@ -299,15 +214,27 @@ function SugestaoCard({ sugestao }) {
               {/* Ações */}
               {sugestao.status === 'nova' && (
                 <div className="flex items-center gap-2 pt-2">
-                  <Button className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600">
+                  <Button
+                    onClick={(e) => { e.stopPropagation(); onStatusChange(sugestao.id, 'implementada'); }}
+                    className="flex-1 bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600"
+                  >
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                     Implementar
                   </Button>
-                  <Button variant="outline" className="border-slate-700 text-slate-300">
+                  <Button
+                    onClick={(e) => { e.stopPropagation(); onStatusChange(sugestao.id, 'analisando'); }}
+                    variant="outline"
+                    className="border-slate-700 text-slate-300"
+                  >
                     <Clock className="h-4 w-4 mr-2" />
                     Analisar
                   </Button>
-                  <Button variant="ghost" size="icon" className="text-slate-400">
+                  <Button
+                    onClick={(e) => { e.stopPropagation(); onStatusChange(sugestao.id, 'descartada'); }}
+                    variant="ghost"
+                    size="icon"
+                    className="text-slate-400"
+                  >
                     <ThumbsDown className="h-4 w-4" />
                   </Button>
                 </div>
@@ -323,18 +250,102 @@ function SugestaoCard({ sugestao }) {
 export default function SugestoesIAPage() {
   const [activeTab, setActiveTab] = useState('todas');
   const [loading, setLoading] = useState(false);
+  const [statusOverrides, setStatusOverrides] = useState({});
+
+  // Dados REAIS do sistema
+  const fi = useFinancialIntelligence();
+  const { estoque } = useEstoque();
+  const { maquinas } = useProducao();
+
+  // Sugestões geradas pelo motor de regras + sugestões de estoque e máquinas
+  const todasSugestoes = useMemo(() => {
+    const sugestoes = [...(fi.sugestoes || [])];
+    const agora = new Date();
+
+    // Regras de ESTOQUE
+    (estoque || []).forEach(item => {
+      const qty = parseInt(item.quantidade) || parseInt(item.qtd) || 0;
+      const min = parseInt(item.minimo) || parseInt(item.estoqueMinimo) || parseInt(item.estoque_minimo) || 0;
+      if (min > 0 && qty <= min) {
+        sugestoes.push({
+          id: `sug-estoque-${item.id}`,
+          tipo: 'Alerta',
+          titulo: `Estoque crítico: ${item.nome || item.descricao || item.material}`,
+          descricao: `O item "${item.nome || item.descricao || item.material}" está com ${qty} unidades, abaixo do mínimo de ${min}. Realizar pedido de compra urgente para evitar parada de produção.`,
+          impacto: qty === 0 ? 'Crítico' : 'Alto',
+          economia: 0,
+          confianca: 98,
+          categoria: 'Estoque',
+          data: agora.toISOString(),
+          status: 'nova'
+        });
+      }
+    });
+
+    // Regras de MÁQUINAS
+    (maquinas || []).forEach(maq => {
+      const eficiencia = parseFloat(maq.eficiencia) || 100;
+      if (eficiencia < 70) {
+        sugestoes.push({
+          id: `sug-maq-${maq.id}`,
+          tipo: 'Otimização',
+          titulo: `Manutenção preventiva: ${maq.nome || maq.codigo}`,
+          descricao: `A máquina ${maq.nome || maq.codigo} está com eficiência de ${eficiencia.toFixed(0)}%, abaixo do mínimo aceitável de 70%. Agendar manutenção preventiva para evitar paradas não programadas.`,
+          impacto: eficiencia < 50 ? 'Crítico' : 'Alto',
+          economia: 5000,
+          confianca: 85,
+          categoria: 'Manutenção',
+          data: agora.toISOString(),
+          status: 'nova'
+        });
+      }
+    });
+
+    // Aplicar overrides de status
+    return sugestoes.map(s => ({
+      ...s,
+      status: statusOverrides[s.id] || s.status
+    }));
+  }, [fi.sugestoes, estoque, maquinas, statusOverrides]);
+
+  // Métricas calculadas
+  const metricsIA = useMemo(() => {
+    const implementadas = todasSugestoes.filter(s => s.status === 'implementada').length;
+    const economiaTotal = todasSugestoes
+      .filter(s => s.status === 'implementada')
+      .reduce((sum, s) => sum + (s.economia || 0), 0);
+    const confiancaMedia = todasSugestoes.length > 0
+      ? todasSugestoes.reduce((sum, s) => sum + (s.confianca || 0), 0) / todasSugestoes.length
+      : 0;
+
+    return {
+      sugestoesGeradas: todasSugestoes.length,
+      implementadas,
+      economiaTotal,
+      taxaAceitacao: todasSugestoes.length > 0 ? Math.round((implementadas / todasSugestoes.length) * 100) : 0,
+      precisaoMedia: Math.round(confiancaMedia)
+    };
+  }, [todasSugestoes]);
+
+  const handleStatusChange = (id, novoStatus) => {
+    setStatusOverrides(prev => ({ ...prev, [id]: novoStatus }));
+  };
 
   const filtrarSugestoes = (tab) => {
-    if (tab === 'todas') return mockSugestoes;
-    if (tab === 'novas') return mockSugestoes.filter(s => s.status === 'nova');
-    if (tab === 'implementadas') return mockSugestoes.filter(s => s.status === 'implementada');
-    return mockSugestoes.filter(s => s.tipo === tab);
+    if (tab === 'todas') return todasSugestoes;
+    if (tab === 'novas') return todasSugestoes.filter(s => s.status === 'nova');
+    if (tab === 'Alerta') return todasSugestoes.filter(s => s.tipo === 'Alerta');
+    if (tab === 'Otimização') return todasSugestoes.filter(s => s.tipo === 'Otimização');
+    if (tab === 'Oportunidade') return todasSugestoes.filter(s => s.tipo === 'Oportunidade');
+    return todasSugestoes;
   };
 
   const handleRefresh = () => {
     setLoading(true);
-    setTimeout(() => setLoading(false), 2000);
+    setTimeout(() => setLoading(false), 1500);
   };
+
+  const alertasCriticos = todasSugestoes.filter(s => (s.impacto === 'Crítico' || s.impacto === 'Alto') && s.status === 'nova');
 
   return (
     <div className="space-y-6">
@@ -347,7 +358,7 @@ export default function SugestoesIAPage() {
             </div>
             Sugestões da IA
           </h1>
-          <p className="text-slate-400 mt-1">Recomendações inteligentes baseadas em análise de dados</p>
+          <p className="text-slate-400 mt-1">Recomendações baseadas em dados reais — {fi.kpisGerais?.totalDespesas || 0} lançamentos analisados</p>
         </div>
 
         <Button
@@ -382,7 +393,7 @@ export default function SugestoesIAPage() {
           <CardContent className="p-4 text-center">
             <DollarSign className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
             <p className="text-2xl font-bold text-emerald-400">{formatCurrency(metricsIA.economiaTotal)}</p>
-            <p className="text-xs text-slate-400">Economia Gerada</p>
+            <p className="text-xs text-slate-400">Economia Estimada</p>
           </CardContent>
         </Card>
 
@@ -398,13 +409,13 @@ export default function SugestoesIAPage() {
           <CardContent className="p-4 text-center">
             <Target className="h-8 w-8 text-amber-400 mx-auto mb-2" />
             <p className="text-2xl font-bold text-white">{metricsIA.precisaoMedia}%</p>
-            <p className="text-xs text-slate-400">Precisão Média</p>
+            <p className="text-xs text-slate-400">Confiança Média</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Alerta Crítico (se houver) */}
-      {mockSugestoes.some(s => s.impacto === 'critico' && s.status === 'nova') && (
+      {alertasCriticos.length > 0 && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -417,10 +428,14 @@ export default function SugestoesIAPage() {
             <div className="flex-1">
               <h3 className="font-semibold text-red-400">Atenção: Alertas Críticos Pendentes</h3>
               <p className="text-sm text-slate-300">
-                Existem {mockSugestoes.filter(s => s.impacto === 'critico' && s.status === 'nova').length} sugestões de impacto crítico que requerem ação imediata.
+                Existem {alertasCriticos.length} sugestões de impacto crítico/alto que requerem ação imediata.
               </p>
             </div>
-            <Button variant="outline" className="border-red-500/50 text-red-400 hover:bg-red-500/20">
+            <Button
+              onClick={() => setActiveTab('Alerta')}
+              variant="outline"
+              className="border-red-500/50 text-red-400 hover:bg-red-500/20"
+            >
               Ver Alertas
               <ArrowRight className="h-4 w-4 ml-2" />
             </Button>
@@ -432,28 +447,32 @@ export default function SugestoesIAPage() {
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="bg-slate-800/50 border border-slate-700/50">
           <TabsTrigger value="todas" className="data-[state=active]:bg-purple-500">
-            Todas ({mockSugestoes.length})
+            Todas ({todasSugestoes.length})
           </TabsTrigger>
           <TabsTrigger value="novas" className="data-[state=active]:bg-purple-500">
-            Novas ({mockSugestoes.filter(s => s.status === 'nova').length})
+            Novas ({todasSugestoes.filter(s => s.status === 'nova').length})
           </TabsTrigger>
-          <TabsTrigger value="alerta" className="data-[state=active]:bg-purple-500">
+          <TabsTrigger value="Alerta" className="data-[state=active]:bg-purple-500">
             <AlertTriangle className="h-4 w-4 mr-1" />
-            Alertas
+            Alertas ({todasSugestoes.filter(s => s.tipo === 'Alerta').length})
           </TabsTrigger>
-          <TabsTrigger value="otimizacao" className="data-[state=active]:bg-purple-500">
+          <TabsTrigger value="Otimização" className="data-[state=active]:bg-purple-500">
             <Zap className="h-4 w-4 mr-1" />
-            Otimizações
+            Otimizações ({todasSugestoes.filter(s => s.tipo === 'Otimização').length})
           </TabsTrigger>
-          <TabsTrigger value="oportunidade" className="data-[state=active]:bg-purple-500">
+          <TabsTrigger value="Oportunidade" className="data-[state=active]:bg-purple-500">
             <Lightbulb className="h-4 w-4 mr-1" />
-            Oportunidades
+            Oportunidades ({todasSugestoes.filter(s => s.tipo === 'Oportunidade').length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value={activeTab} className="space-y-4 mt-6">
           {filtrarSugestoes(activeTab).map(sugestao => (
-            <SugestaoCard key={sugestao.id} sugestao={sugestao} />
+            <SugestaoCard
+              key={sugestao.id}
+              sugestao={sugestao}
+              onStatusChange={handleStatusChange}
+            />
           ))}
 
           {filtrarSugestoes(activeTab).length === 0 && (

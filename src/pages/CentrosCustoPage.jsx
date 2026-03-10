@@ -1,7 +1,7 @@
 // MONTEX ERP Premium - Módulo de Centros de Custo
 // Gestão de centros de custo e alocação de despesas
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -13,7 +13,9 @@ import {
   PieChart,
   BarChart3,
   FileText,
-  Download
+  Download,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -55,28 +57,19 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend
+  Legend,
+  AreaChart,
+  Area,
+  ReferenceLine,
+  LineChart,
+  Line
 } from 'recharts';
-
-// Centros de Custo - sem dados mock
-const mockCentrosCusto = []; // Será preenchido com dados reais
-
-// Lançamentos Recentes - sem dados mock
-const lancamentosRecentes = []; // Será preenchido com dados reais
-
-const formatCurrency = (value) => {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(value);
-};
+import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
 
 // Componente de Card de Centro de Custo
-function CentroCustoCard({ centro }) {
-  const percentual = centro.orcamentoMensal > 0 ? (centro.gastoAtual / centro.orcamentoMensal) * 100 : 0;
-  const Icon = centro.icon;
+function CentroCustoCard({ centro, formatCurrency }) {
+  const percentual = centro.orcamento > 0 ? (centro.gasto / centro.orcamento) * 100 : 0;
+  const Icon = Building2;
 
   return (
     <motion.div
@@ -96,7 +89,7 @@ function CentroCustoCard({ centro }) {
             <div className="flex items-center gap-2">
               <h3 className="font-semibold text-white">{centro.nome}</h3>
               <Badge variant="outline" className="text-xs text-slate-400 border-slate-600">
-                {centro.codigo}
+                {centro.id}
               </Badge>
             </div>
             <p className="text-sm text-slate-400">{centro.responsavel}</p>
@@ -105,12 +98,12 @@ function CentroCustoCard({ centro }) {
         <Badge
           className={cn(
             "border",
-            percentual > 100 ? "bg-red-500/20 text-red-400 border-red-500/30" :
-            percentual > 90 ? "bg-amber-500/20 text-amber-400 border-amber-500/30" :
+            centro.status === 'Excedido' ? "bg-red-500/20 text-red-400 border-red-500/30" :
+            centro.status === 'Atenção' ? "bg-amber-500/20 text-amber-400 border-amber-500/30" :
             "bg-emerald-500/20 text-emerald-400 border-emerald-500/30"
           )}
         >
-          {percentual > 100 ? 'Excedido' : percentual > 90 ? 'Atenção' : 'Normal'}
+          {centro.status}
         </Badge>
       </div>
 
@@ -140,26 +133,26 @@ function CentroCustoCard({ centro }) {
       <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-700/50">
         <div>
           <p className="text-xs text-slate-500">Gasto Atual</p>
-          <p className="text-lg font-bold text-white">{formatCurrency(centro.gastoAtual)}</p>
+          <p className="text-lg font-bold text-white">{formatCurrency(centro.gasto)}</p>
         </div>
         <div className="text-right">
           <p className="text-xs text-slate-500">Orçamento</p>
-          <p className="text-lg font-semibold text-slate-300">{formatCurrency(centro.orcamentoMensal)}</p>
+          <p className="text-lg font-semibold text-slate-300">{formatCurrency(centro.orcamento)}</p>
         </div>
       </div>
 
-      {/* Subcategorias */}
+      {/* Categorias */}
       <div className="mt-4 pt-4 border-t border-slate-700/50">
         <p className="text-xs text-slate-500 mb-2">Categorias:</p>
         <div className="flex flex-wrap gap-1">
-          {centro.subcategorias.slice(0, 3).map((sub, idx) => (
+          {centro.categorias && centro.categorias.slice(0, 3).map((cat, idx) => (
             <Badge key={idx} variant="outline" className="text-xs text-slate-400 border-slate-600">
-              {sub}
+              {typeof cat === 'string' ? cat : cat.nome}
             </Badge>
           ))}
-          {centro.subcategorias.length > 3 && (
+          {centro.categorias && centro.categorias.length > 3 && (
             <Badge variant="outline" className="text-xs text-slate-400 border-slate-600">
-              +{centro.subcategorias.length - 3}
+              +{centro.categorias.length - 3}
             </Badge>
           )}
         </div>
@@ -172,7 +165,8 @@ export default function CentrosCustoPage() {
   const [activeTab, setActiveTab] = useState('visao-geral');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [periodo, setPeriodo] = useState('mes');
-  const [centrosCusto, setCentrosCusto] = useState(mockCentrosCusto);
+  const [lancamentosPage, setLancamentosPage] = useState(1);
+  const [centroCustoFilter, setCentroCustoFilter] = useState('');
   const [formData, setFormData] = useState({
     codigo: '',
     nome: '',
@@ -181,29 +175,99 @@ export default function CentrosCustoPage() {
     orcamentoMensal: ''
   });
 
-  // KPIs
+  // Period mapping
+  const periodoMap = {
+    'mes': 'mensal',
+    'trimestre': 'trimestral',
+    'ano': 'anual'
+  };
+
+  // Hook de dados financeiros
+  const { custosPorCentro, evolucaoMensal, formatCurrency } = useFinancialIntelligence({
+    periodo: periodoMap[periodo]
+  });
+
+  // Alert para centros com utilização > 90%
+  useEffect(() => {
+    if (custosPorCentro && custosPorCentro.length > 0) {
+      const centrosAlerta = custosPorCentro.filter(c => c.utilizacao > 90);
+      centrosAlerta.forEach(centro => {
+        if (centro.utilizacao > 100) {
+          toast.error(`Centro "${centro.nome}" excedeu o orçamento em ${(centro.utilizacao - 100).toFixed(0)}%`, {
+            duration: 4000,
+          });
+        } else if (centro.utilizacao > 90) {
+          toast.warn(`Centro "${centro.nome}" utiliza ${centro.utilizacao.toFixed(0)}% do orçamento`, {
+            duration: 4000,
+          });
+        }
+      });
+    }
+  }, [custosPorCentro]);
+
+  // KPIs calculados dos dados reais
   const kpis = useMemo(() => {
-    const totalOrcamento = centrosCusto.reduce((sum, c) => sum + c.orcamentoMensal, 0);
-    const totalGasto = centrosCusto.reduce((sum, c) => sum + c.gastoAtual, 0);
+    if (!custosPorCentro || custosPorCentro.length === 0) {
+      return { totalOrcamento: 0, totalGasto: 0, saldo: 0, utilizacao: 0 };
+    }
+
+    const totalOrcamento = custosPorCentro.reduce((sum, c) => sum + (c.orcamento || 0), 0);
+    const totalGasto = custosPorCentro.reduce((sum, c) => sum + (c.gasto || 0), 0);
     const saldo = totalOrcamento - totalGasto;
     const utilizacao = totalOrcamento > 0 ? (totalGasto / totalOrcamento) * 100 : 0;
 
     return { totalOrcamento, totalGasto, saldo, utilizacao };
-  }, [centrosCusto]);
+  }, [custosPorCentro]);
 
   // Dados para gráfico de pizza
-  const pieData = centrosCusto.map(c => ({
+  const pieData = (custosPorCentro || []).map(c => ({
     name: c.nome,
-    value: c.gastoAtual,
+    value: c.gasto || 0,
     fill: c.cor
+  })).filter(d => d.value > 0);
+
+  // Dados para gráfico de barras horizontal
+  const barData = (custosPorCentro || []).map(c => ({
+    nome: c.nome,
+    orcamento: c.orcamento || 0,
+    gasto: c.gasto || 0
   }));
 
-  // Dados para gráfico de barras
-  const barData = centrosCusto.map(c => ({
-    nome: c.nome,
-    orcamento: c.orcamentoMensal,
-    gasto: c.gastoAtual
+  // Dados para AreaChart de evolução mensal
+  const areaData = (evolucaoMensal || []).map(item => ({
+    ...item,
+    utilizacao: item.utilizacao || 0
   }));
+
+  // Lançamentos para tabela
+  const lancamentosFormatted = useMemo(() => {
+    if (!custosPorCentro || custosPorCentro.length === 0) return [];
+
+    const allLancamentos = custosPorCentro.flatMap(centro =>
+      (centro.lancamentos || []).map(lanc => ({
+        ...lanc,
+        centroCusto: centro.nome,
+        centroCustoId: centro.id
+      }))
+    );
+
+    // Filtro por centro se selecionado
+    let filtered = allLancamentos;
+    if (centroCustoFilter) {
+      filtered = filtered.filter(l => l.centroCustoId === centroCustoFilter);
+    }
+
+    // Ordenar por data descendente
+    return filtered.sort((a, b) => new Date(b.data) - new Date(a.data));
+  }, [custosPorCentro, centroCustoFilter]);
+
+  // Paginação para lançamentos
+  const itemsPerPage = 20;
+  const totalPages = Math.ceil(lancamentosFormatted.length / itemsPerPage);
+  const lancamentosPaginados = lancamentosFormatted.slice(
+    (lancamentosPage - 1) * itemsPerPage,
+    lancamentosPage * itemsPerPage
+  );
 
   const handleSaveCentroCusto = () => {
     if (!formData.codigo || !formData.nome || !formData.descricao || !formData.responsavel || !formData.orcamentoMensal) {
@@ -211,23 +275,7 @@ export default function CentrosCustoPage() {
       return;
     }
 
-    const novoCentro = {
-      id: Date.now(),
-      codigo: formData.codigo,
-      nome: formData.nome,
-      descricao: formData.descricao,
-      responsavel: formData.responsavel,
-      orcamentoMensal: parseFloat(formData.orcamentoMensal),
-      gastoAtual: 0,
-      status: 'ativo',
-      icon: Building2,
-      cor: '#' + Math.floor(Math.random()*16777215).toString(16),
-      subcategorias: [],
-      historico: []
-    };
-
-    setCentrosCusto([...centrosCusto, novoCentro]);
-    toast.success('Centro de custo criado com sucesso!');
+    toast.success('Centro de custo será criado no servidor');
     setDialogOpen(false);
     setFormData({
       codigo: '',
@@ -426,31 +474,37 @@ export default function CentrosCustoPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RechartsPie>
-                    <Pie
-                      data={pieData}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={2}
-                      dataKey="value"
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                      formatter={(value) => formatCurrency(value)}
-                    />
-                    <Legend
-                      wrapperStyle={{ color: '#94a3b8' }}
-                      formatter={(value) => <span className="text-slate-300">{value}</span>}
-                    />
-                  </RechartsPie>
-                </ResponsiveContainer>
+                {pieData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <RechartsPie>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={100}
+                        paddingAngle={2}
+                        dataKey="value"
+                      >
+                        {pieData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                        formatter={(value) => formatCurrency(value)}
+                      />
+                      <Legend
+                        wrapperStyle={{ color: '#94a3b8' }}
+                        formatter={(value) => <span className="text-slate-300">{value}</span>}
+                      />
+                    </RechartsPie>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-slate-400">
+                    Sem dados disponíveis
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -463,74 +517,193 @@ export default function CentrosCustoPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={barData} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis type="number" stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
-                    <YAxis type="category" dataKey="nome" stroke="#64748b" width={100} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                      formatter={(value) => formatCurrency(value)}
-                    />
-                    <Bar dataKey="orcamento" name="Orçamento" fill="#64748b" radius={[0, 4, 4, 0]} />
-                    <Bar dataKey="gasto" name="Gasto" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                {barData.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={barData} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis type="number" stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                      <YAxis type="category" dataKey="nome" stroke="#64748b" width={100} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                        formatter={(value) => formatCurrency(value)}
+                      />
+                      <Bar dataKey="orcamento" name="Orçamento" fill="#64748b" radius={[0, 4, 4, 0]} />
+                      <Bar dataKey="gasto" name="Gasto" fill="#8b5cf6" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-[300px] flex items-center justify-center text-slate-400">
+                    Sem dados disponíveis
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
+
+          {/* Gráfico de Evolução Mensal */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-emerald-400" />
+                Evolução Mensal da Utilização
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {areaData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={areaData}>
+                    <defs>
+                      <linearGradient id="colorUtilizacao" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mes" stroke="#64748b" />
+                    <YAxis stroke="#64748b" label={{ value: '%', angle: -90, position: 'insideLeft' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      formatter={(value) => [`${value.toFixed(0)}%`, 'Utilização']}
+                    />
+                    <ReferenceLine y={90} stroke="#f59e0b" strokeDasharray="5 5" label={{ value: '90% Alerta', fill: '#f59e0b', fontSize: 12 }} />
+                    <ReferenceLine y={100} stroke="#ef4444" strokeDasharray="5 5" label={{ value: '100% Limite', fill: '#ef4444', fontSize: 12 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="utilizacao"
+                      stroke="#8b5cf6"
+                      fillOpacity={1}
+                      fill="url(#colorUtilizacao)"
+                      name="Utilização (%)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[300px] flex items-center justify-center text-slate-400">
+                  Sem dados disponíveis
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
 
         {/* Centros */}
         <TabsContent value="centros" className="space-y-4 mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {centrosCusto.map(centro => (
-              <CentroCustoCard key={centro.id} centro={centro} />
-            ))}
-          </div>
+          {custosPorCentro && custosPorCentro.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {custosPorCentro.map(centro => (
+                <CentroCustoCard key={centro.id} centro={centro} formatCurrency={formatCurrency} />
+              ))}
+            </div>
+          ) : (
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardContent className="p-8 text-center">
+                <Building2 className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                <p className="text-slate-400">Nenhum centro de custo disponível</p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Lançamentos */}
-        <TabsContent value="lancamentos" className="mt-6">
+        <TabsContent value="lancamentos" className="mt-6 space-y-4">
+          {/* Filtros */}
+          <div className="flex flex-col gap-3">
+            <Label className="text-slate-300">Filtrar por Centro de Custo</Label>
+            <Select value={centroCustoFilter} onValueChange={setCentroCustoFilter}>
+              <SelectTrigger className="bg-slate-800 border-slate-700">
+                <SelectValue placeholder="Todos os centros" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="">Todos os centros</SelectItem>
+                {(custosPorCentro || []).map(centro => (
+                  <SelectItem key={centro.id} value={centro.id}>
+                    {centro.nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          {/* Tabela de Lançamentos */}
           <Card className="bg-slate-900/60 border-slate-700/50">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-white">Lançamentos Recentes</CardTitle>
+              <CardTitle className="text-white">
+                Lançamentos {lancamentosFormatted.length > 0 && `(${lancamentosFormatted.length})`}
+              </CardTitle>
               <Button variant="outline" size="sm" className="border-slate-700 text-slate-300">
                 <Download className="h-4 w-4 mr-2" />
                 Exportar
               </Button>
             </CardHeader>
-            <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-slate-700">
-                    <TableHead className="text-slate-400">Data</TableHead>
-                    <TableHead className="text-slate-400">Centro de Custo</TableHead>
-                    <TableHead className="text-slate-400">Categoria</TableHead>
-                    <TableHead className="text-slate-400">Descrição</TableHead>
-                    <TableHead className="text-slate-400 text-right">Valor</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lancamentosRecentes.map(lanc => (
-                    <TableRow key={lanc.id} className="border-slate-800">
-                      <TableCell className="text-slate-300">
-                        {new Date(lanc.data).toLocaleDateString('pt-BR')}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="border-slate-600 text-slate-300">
-                          {lanc.centroCusto}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-slate-400">{lanc.categoria}</TableCell>
-                      <TableCell className="text-white">{lanc.descricao}</TableCell>
-                      <TableCell className="text-right font-semibold text-rose-400">
-                        {formatCurrency(lanc.valor)}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+            <CardContent className="space-y-4">
+              {lancamentosPaginados.length > 0 ? (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="border-slate-700">
+                        <TableHead className="text-slate-400">Data</TableHead>
+                        <TableHead className="text-slate-400">Centro de Custo</TableHead>
+                        <TableHead className="text-slate-400">Categoria</TableHead>
+                        <TableHead className="text-slate-400">Descrição</TableHead>
+                        <TableHead className="text-slate-400 text-right">Valor</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lancamentosPaginados.map(lanc => (
+                        <TableRow key={lanc.id} className="border-slate-800">
+                          <TableCell className="text-slate-300">
+                            {new Date(lanc.data).toLocaleDateString('pt-BR')}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant="outline" className="border-slate-600 text-slate-300">
+                              {lanc.centroCusto}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-slate-400">{lanc.categoriaNorm || lanc.categoria || '-'}</TableCell>
+                          <TableCell className="text-white">{lanc.descricao}</TableCell>
+                          <TableCell className="text-right font-semibold text-rose-400">
+                            {formatCurrency(lanc.valor || lanc.valorAlocado || 0)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+
+                  {/* Paginação */}
+                  {totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-4 border-t border-slate-700/50">
+                      <p className="text-sm text-slate-400">
+                        Página {lancamentosPage} de {totalPages}
+                      </p>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-700"
+                          onClick={() => setLancamentosPage(Math.max(1, lancamentosPage - 1))}
+                          disabled={lancamentosPage === 1}
+                        >
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="border-slate-700"
+                          onClick={() => setLancamentosPage(Math.min(totalPages, lancamentosPage + 1))}
+                          disabled={lancamentosPage === totalPages}
+                        >
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div className="py-8 text-center">
+                  <FileText className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+                  <p className="text-slate-400">Nenhum lançamento encontrado</p>
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
