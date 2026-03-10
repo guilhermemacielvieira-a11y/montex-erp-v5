@@ -431,7 +431,12 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
 
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        throw new Error(errData.error || 'Erro ao consultar NFe. Tente importar via XML.');
+        const sugestoes = errData.sugestoes || [];
+        const msgBase = errData.error || 'Erro ao consultar NFe.';
+        const msgFull = sugestoes.length > 0
+          ? msgBase + '\n\n' + sugestoes.map(s => '• ' + s).join('\n')
+          : msgBase;
+        throw new Error(msgFull);
       }
 
       const data = await resp.json();
@@ -647,9 +652,20 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                 )}
 
                 {erro && (
-                  <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
-                    <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
-                    <p className="text-sm text-red-400">{erro}</p>
+                  <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-lg space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+                      <div className="text-sm text-red-400 whitespace-pre-line">{erro}</div>
+                    </div>
+                    {metodo === 'chave' && erro.includes('nao encontrada') && (
+                      <button
+                        onClick={() => { setMetodo('xml'); setErro(''); }}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-600/20 border border-amber-500/40 rounded-lg text-amber-400 text-sm hover:bg-amber-600/30 transition-colors"
+                      >
+                        <Upload className="w-4 h-4" />
+                        Importar via XML (mais confiavel)
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
