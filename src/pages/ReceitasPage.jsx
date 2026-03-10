@@ -1,7 +1,8 @@
 // MONTEX ERP Premium - Gestão de Receitas
-// Cadastro, filtros e controle de receitas
+// 100% INDEPENDENTE de obras - localStorage próprio
+// Puxa receitas de Gestão Financeira Obra automaticamente
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import {
   DollarSign,
@@ -13,7 +14,10 @@ import {
   Clock,
   AlertTriangle,
   TrendingUp,
-  Eye
+  Eye,
+  Calendar,
+  Trash2,
+  RefreshCw,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -26,6 +30,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from '@/components/ui/dialog';
 import {
   Select,
@@ -46,16 +51,30 @@ import { cn } from '@/lib/utils';
 import {
   AreaChart,
   Area,
+  PieChart,
+  Pie,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
-  ResponsiveContainer
+  ResponsiveContainer,
+  Legend,
 } from 'recharts';
 import { useLancamentos } from '../contexts/ERPContext';
 
-// Evolução Mensal - dados dinâmicos (preenchidos a partir do Supabase)
-const evolucaoMensal = [];
+// ========== STORAGE INDEPENDENTE ==========
+const STORAGE_KEY = 'montex_receitas_gerais';
+
+// Categorias de receita
+const categoriasReceita = [
+  { id: 1, nome: 'Medição', cor: '#10b981' },
+  { id: 2, nome: 'Adiantamento', cor: '#3b82f6' },
+  { id: 3, nome: 'Medição Final', cor: '#8b5cf6' },
+  { id: 4, nome: 'Venda Material', cor: '#f59e0b' },
+  { id: 5, nome: 'Serviço Avulso', cor: '#ec4899' },
+  { id: 6, nome: 'Outros', cor: '#64748b' },
+];
 
 const formatCurrency = (value) => {
   return new Intl.NumberFormat('pt-BR', {
@@ -77,20 +96,29 @@ const getStatusColor = (status) => {
 const getStatusText = (status) => {
   switch (status) {
     case 'recebido': return 'Recebido';
+    case 'confirmado': return 'Recebido';
     case 'pendente': return 'Pendente';
     case 'atrasado': return 'Atrasado';
-    default: return status;
+    default: return status || '-';
   }
 };
 
+const getCategoriaColor = (nome) => {
+  const cat = categoriasReceita.find(c => c.nome === nome);
+  return cat?.cor || '#64748b';
+};
+
 export default function ReceitasPage() {
-  // ERPContext - dados financeiros (independente de obra)
-  const { lancamentosDespesas, addLancamento, updateLancamento } = useLancamentos();
+  // ERPContext - APENAS para puxar receitas da Gestão Financeira Obra
+  const { lancamentosDespesas } = useLancamentos();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
+  const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [receitas, setReceitas] = useState([]);
   const [formData, setFormData] = useState({
     descricao: '',
     cliente: '',
@@ -100,36 +128,132 @@ export default function ReceitasPage() {
     formaPagto: ''
   });
 
-  // Receitas do Supabase: APENAS tipo=receita e SEM obra_id (independente de obra)
-  const receitas = useMemo(() => {
-    return (lancamentosDespesas || [])
-      .filter(l => l.tipo === 'receita' && !l.obraId && !l.obra_id)
-      .sort((a, b) => new Date(b.data) - new Date(a.data));
+  // Salvar receitas no localStorage
+  const salvarReceitas = (lista) => {
+    try {
+      // Salvar apenas as manuais (não as importadas da obra)
+      const manuais = lista.filter(r => !r.origemObra);
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(manuais));
+    } catch (e) {
+      console.warn('Erro ao salvar receitas:', e);
+    }
+  };
+
+  // Carregar receitas: localStorage (manuais) + ERPContext (obras)
+  useEffect(() => {
+    const todasReceitas = [];
+
+    // 1. Receitas manuais do localStorage
+    try {
+      const salvas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+      salvas.forEach(r => todasReceitas.push(r));
+    } catch (e) {
+      console.warn('Erro ao carregar receitas:', e);
+    }
+
+    // 2. Receitas automáticas da Gestão Financeira Obra
+    if (lancamentosDespesas && lancamentosDespesas.length > 0) {
+      const receitasObra = lancamentosDespesas.filter(l =>
+        l.tipo === 'receita' || l.categoria === 'receita' || l.categoria === 'Medição' || l.categoria === 'Adiantamento'
+      );
+      const existingIds = new Set(todasReceitas.map(r => r.id));
+      receitasObra.forEach(l => {
+        if (!existingIds.has(l.id)) {
+          todasReceitas.push({
+            id: l.id,
+            data: l.data || l.createdAt || new Date().toISOString().split('T')[0],
+            descricao: l.descricao || l.nome || '-',
+            cliente: l.cliente || l.fornecedor || '-',
+            categoria: l.categoria || 'Medição',
+            valor: l.valor || 0,
+            status: l.status === 'confirmado' ? 'recebido' : (l.status || 'pendente'),
+            formaPagto: l.formaPagto || l.formaPagamento || '-',
+            vencimento: l.vencimento || l.dataVencimento || l.data || '-',
+            origemObra: true,
+            obraNome: l.obraNome || l.obra_nome || 'Gestão Financeira',
+          });
+        }
+      });
+    }
+
+    setReceitas(todasReceitas);
   }, [lancamentosDespesas]);
 
-  // KPIs calculados a partir das receitas reais
+  // Helper: filtrar por período
+  const filtrarPorPeriodo = (lista) => {
+    if (filtroPeriodo === 'geral') return lista;
+    const hoje = new Date();
+    const inicio = new Date();
+    if (filtroPeriodo === 'semanal') {
+      inicio.setDate(hoje.getDate() - 7);
+    } else if (filtroPeriodo === 'mensal') {
+      inicio.setMonth(hoje.getMonth() - 1);
+    } else if (filtroPeriodo === 'trimestral') {
+      inicio.setMonth(hoje.getMonth() - 3);
+    }
+    return lista.filter(r => {
+      const dataRec = new Date(r.data || r.vencimento);
+      return dataRec >= inicio && dataRec <= hoje;
+    });
+  };
+
+  // Receitas filtradas por período (para KPIs e gráficos)
+  const receitasPeriodo = useMemo(() => filtrarPorPeriodo(receitas), [receitas, filtroPeriodo]);
+
+  // Dados para gráfico por categoria
+  const dadosCategorias = useMemo(() => {
+    const catMap = {};
+    receitasPeriodo.forEach(r => {
+      const cat = r.categoria || 'Outros';
+      catMap[cat] = (catMap[cat] || 0) + (r.valor || 0);
+    });
+    return Object.entries(catMap).map(([nome, valor]) => ({
+      nome,
+      valor,
+      cor: getCategoriaColor(nome),
+    }));
+  }, [receitasPeriodo]);
+
+  // Evolução mensal para gráfico
+  const evolucaoMensal = useMemo(() => {
+    const meses = {};
+    receitasPeriodo.forEach(r => {
+      const d = new Date(r.data || r.vencimento);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      if (!meses[key]) meses[key] = { mes: label, key, recebido: 0, pendente: 0 };
+      if (r.status === 'recebido' || r.status === 'confirmado') {
+        meses[key].recebido += r.valor || 0;
+      } else {
+        meses[key].pendente += r.valor || 0;
+      }
+    });
+    return Object.values(meses).sort((a, b) => a.key.localeCompare(b.key));
+  }, [receitasPeriodo]);
+
+  // KPIs
   const kpis = useMemo(() => {
-    const totalRecebido = receitas.filter(r => r.status === 'recebido' || r.status === 'confirmado').reduce((sum, r) => sum + (r.valor || 0), 0);
-    const totalPendente = receitas.filter(r => r.status === 'pendente').reduce((sum, r) => sum + (r.valor || 0), 0);
-    const totalAtrasado = receitas.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
-    const total = receitas.reduce((sum, r) => sum + (r.valor || 0), 0);
-
+    const totalRecebido = receitasPeriodo.filter(r => r.status === 'recebido' || r.status === 'confirmado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalPendente = receitasPeriodo.filter(r => r.status === 'pendente').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalAtrasado = receitasPeriodo.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const total = receitasPeriodo.reduce((sum, r) => sum + (r.valor || 0), 0);
     return { totalRecebido, totalPendente, totalAtrasado, total };
-  }, [receitas]);
+  }, [receitasPeriodo]);
 
-  // Filtrar receitas
+  // Filtrar receitas para tabela
   const receitasFiltradas = useMemo(() => {
-    return receitas.filter(r => {
-      if (searchTerm && !r.descricao?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-          !r.cliente?.toLowerCase().includes(searchTerm.toLowerCase()) &&
-          !r.fornecedor?.toLowerCase().includes(searchTerm.toLowerCase())) return false;
+    let resultado = receitas.filter(r => {
+      if (searchTerm && !(r.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
+          !(r.cliente || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos' && r.status !== filtroStatus) return false;
       if (filtroCategoria !== 'todos' && r.categoria !== filtroCategoria) return false;
       return true;
     });
-  }, [receitas, searchTerm, filtroStatus, filtroCategoria]);
+    return filtrarPorPeriodo(resultado);
+  }, [receitas, searchTerm, filtroStatus, filtroCategoria, filtroPeriodo]);
 
-  const handleSaveReceita = async () => {
+  // Cadastrar receita manual
+  const handleSaveReceita = () => {
     if (!formData.descricao || !formData.valor) {
       toast.error('Preencha descrição e valor');
       return;
@@ -137,29 +261,32 @@ export default function ReceitasPage() {
 
     const novaReceita = {
       id: `REC-${Date.now()}`,
-      tipo: 'receita',
       data: formData.vencimento || new Date().toISOString().split('T')[0],
       descricao: formData.descricao,
-      fornecedor: formData.cliente || '',
+      cliente: formData.cliente || '-',
+      categoria: formData.categoria || 'Outros',
       valor: parseFloat(formData.valor),
       status: 'pendente',
-      formaPagto: formData.formaPagto || 'boleto',
-      categoria: formData.categoria || 'venda',
-      obra_id: null, // Independente de obra
-      obraId: null,
+      formaPagto: formData.formaPagto || '-',
+      vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
+      origemObra: false,
     };
 
-    await addLancamento(novaReceita);
-    toast.success('Receita criada com sucesso!');
+    const novaLista = [...receitas, novaReceita];
+    setReceitas(novaLista);
+    salvarReceitas(novaLista);
+    toast.success('Receita cadastrada com sucesso!');
     setDialogOpen(false);
-    setFormData({
-      descricao: '',
-      cliente: '',
-      categoria: '',
-      valor: '',
-      vencimento: '',
-      formaPagto: ''
-    });
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '' });
+  };
+
+  // Apagar receita manual
+  const handleApagarReceita = (id) => {
+    const novaLista = receitas.filter(r => r.id !== id);
+    setReceitas(novaLista);
+    salvarReceitas(novaLista);
+    setDeleteConfirmId(null);
+    toast.success('Receita removida!');
   };
 
   return (
@@ -173,7 +300,23 @@ export default function ReceitasPage() {
             </div>
             Gestão de Receitas
           </h1>
-          <p className="text-slate-400 mt-1">Controle de faturamento e recebimentos</p>
+          <div className="flex items-center gap-3 mt-2">
+            <span className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium border border-emerald-500/30">
+              <DollarSign className="h-3.5 w-3.5 mr-1" />
+              Financeiro Fábrica
+            </span>
+            <span className="text-slate-500 text-sm">|</span>
+            <span className="text-slate-400 text-sm">{receitasFiltradas.length} lançamentos</span>
+            {receitas.filter(r => r.origemObra).length > 0 && (
+              <>
+                <span className="text-slate-500 text-sm">|</span>
+                <span className="text-blue-400 text-xs flex items-center gap-1">
+                  <RefreshCw className="h-3 w-3" />
+                  {receitas.filter(r => r.origemObra).length} da Gestão Financeira Obra
+                </span>
+              </>
+            )}
+          </div>
         </div>
 
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
@@ -189,10 +332,10 @@ export default function ReceitasPage() {
             </DialogHeader>
             <div className="space-y-4 pt-4">
               <div>
-                <Label className="text-slate-300">Descrição</Label>
+                <Label className="text-slate-300">Descrição *</Label>
                 <Input
                   className="mt-1 bg-slate-800 border-slate-700"
-                  placeholder="Ex: Medição 3 - Obra X"
+                  placeholder="Ex: Medição 3 - Obra Super Luna"
                   value={formData.descricao}
                   onChange={(e) => setFormData({...formData, descricao: e.target.value})}
                 />
@@ -200,17 +343,12 @@ export default function ReceitasPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-slate-300">Cliente</Label>
-                  <Select value={formData.cliente} onValueChange={(value) => setFormData({...formData, cliente: value})}>
-                    <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                      <SelectValue placeholder="Selecione" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-slate-700">
-                      <SelectItem value="SPASSO">SPASSO</SelectItem>
-                      <SelectItem value="Amaggi">Amaggi</SelectItem>
-                      <SelectItem value="Bunge">Bunge</SelectItem>
-                      <SelectItem value="Cargill">Cargill</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Input
+                    className="mt-1 bg-slate-800 border-slate-700"
+                    placeholder="Nome do cliente"
+                    value={formData.cliente}
+                    onChange={(e) => setFormData({...formData, cliente: e.target.value})}
+                  />
                 </div>
                 <div>
                   <Label className="text-slate-300">Categoria</Label>
@@ -219,17 +357,21 @@ export default function ReceitasPage() {
                       <SelectValue placeholder="Selecione" />
                     </SelectTrigger>
                     <SelectContent className="bg-slate-800 border-slate-700">
-                      <SelectItem value="Medição">Medição</SelectItem>
-                      <SelectItem value="Adiantamento">Adiantamento</SelectItem>
-                      <SelectItem value="Medição Final">Medição Final</SelectItem>
-                      <SelectItem value="Outros">Outros</SelectItem>
+                      {categoriasReceita.map(cat => (
+                        <SelectItem key={cat.id} value={cat.nome}>
+                          <div className="flex items-center gap-2">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cat.cor }} />
+                            {cat.nome}
+                          </div>
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-slate-300">Valor</Label>
+                  <Label className="text-slate-300">Valor *</Label>
                   <Input
                     className="mt-1 bg-slate-800 border-slate-700"
                     type="number"
@@ -271,6 +413,31 @@ export default function ReceitasPage() {
             </div>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Filtros de Período */}
+      <div className="flex items-center gap-2">
+        <Calendar className="h-4 w-4 text-slate-400" />
+        <span className="text-sm text-slate-400 mr-1">Período:</span>
+        {[
+          { value: 'geral', label: 'Geral' },
+          { value: 'semanal', label: 'Semanal' },
+          { value: 'mensal', label: 'Mensal' },
+          { value: 'trimestral', label: 'Trimestral' },
+        ].map(p => (
+          <button
+            key={p.value}
+            onClick={() => setFiltroPeriodo(p.value)}
+            className={cn(
+              "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
+              filtroPeriodo === p.value
+                ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/25"
+                : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700"
+            )}
+          >
+            {p.label}
+          </button>
+        ))}
       </div>
 
       {/* KPIs */}
@@ -332,44 +499,78 @@ export default function ReceitasPage() {
         </Card>
       </div>
 
-      {/* Gráfico */}
-      <Card className="bg-slate-900/60 border-slate-700/50">
-        <CardHeader>
-          <CardTitle className="text-white flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-emerald-400" />
-            Evolução de Receitas
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={250}>
-            <AreaChart data={evolucaoMensal}>
-              <defs>
-                <linearGradient id="colorRecebido" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="mes" stroke="#64748b" />
-              <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
-              <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-              <Area type="monotone" dataKey="recebido" name="Recebido" stroke="#10b981" fill="url(#colorRecebido)" />
-              <Area type="monotone" dataKey="pendente" name="Pendente" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} />
-            </AreaChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Evolução */}
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <TrendingUp className="h-5 w-5 text-emerald-400" />
+              Evolução de Receitas
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <AreaChart data={evolucaoMensal}>
+                <defs>
+                  <linearGradient id="colorRecebido" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                <XAxis dataKey="mes" stroke="#64748b" />
+                <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
+                <Area type="monotone" dataKey="recebido" name="Recebido" stroke="#10b981" fill="url(#colorRecebido)" />
+                <Area type="monotone" dataKey="pendente" name="Pendente" stroke="#f59e0b" fill="#f59e0b" fillOpacity={0.1} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Por Categoria */}
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2">
+              <DollarSign className="h-5 w-5 text-emerald-400" />
+              Por Categoria
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={250}>
+              <PieChart>
+                <Pie
+                  data={dadosCategorias}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={50}
+                  outerRadius={90}
+                  paddingAngle={2}
+                  dataKey="valor"
+                >
+                  {dadosCategorias.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.cor} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
+                <Legend wrapperStyle={{ color: '#94a3b8' }} formatter={(value) => <span className="text-slate-300 text-sm">{value}</span>} />
+              </PieChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Filtros e Tabela */}
       <Card className="bg-slate-900/60 border-slate-700/50">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
           <CardTitle className="text-white">Lista de Receitas</CardTitle>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
               <Input
                 placeholder="Buscar..."
-                className="pl-10 w-[200px] bg-slate-800 border-slate-700"
+                className="pl-10 w-[180px] bg-slate-800 border-slate-700"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
@@ -383,6 +584,17 @@ export default function ReceitasPage() {
                 <SelectItem value="recebido">Recebido</SelectItem>
                 <SelectItem value="pendente">Pendente</SelectItem>
                 <SelectItem value="atrasado">Atrasado</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
+              <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700">
+                <SelectValue placeholder="Categoria" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-slate-700">
+                <SelectItem value="todos">Todas</SelectItem>
+                {categoriasReceita.map(cat => (
+                  <SelectItem key={cat.id} value={cat.nome}>{cat.nome}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button variant="outline" className="border-slate-700 text-slate-300">
@@ -402,6 +614,7 @@ export default function ReceitasPage() {
                 <TableHead className="text-slate-400">Vencimento</TableHead>
                 <TableHead className="text-slate-400 text-right">Valor</TableHead>
                 <TableHead className="text-slate-400">Status</TableHead>
+                <TableHead className="text-slate-400">Origem</TableHead>
                 <TableHead className="text-slate-400 w-20">Ações</TableHead>
               </TableRow>
             </TableHeader>
@@ -410,11 +623,16 @@ export default function ReceitasPage() {
                 <TableRow key={receita.id} className="border-slate-800 hover:bg-slate-800/50">
                   <TableCell className="text-slate-300">{receita.data ? new Date(receita.data).toLocaleDateString('pt-BR') : '-'}</TableCell>
                   <TableCell className="text-white font-medium">{receita.descricao}</TableCell>
-                  <TableCell className="text-slate-300">{receita.cliente || receita.fornecedor || '-'}</TableCell>
+                  <TableCell className="text-slate-300">{receita.cliente || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant="outline" className="border-slate-600 text-slate-300">{receita.categoria || '-'}</Badge>
+                    <Badge variant="outline" className="border-slate-600" style={{ color: getCategoriaColor(receita.categoria) }}>
+                      <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(receita.categoria) }} />
+                      {receita.categoria || '-'}
+                    </Badge>
                   </TableCell>
-                  <TableCell className="text-slate-400">{receita.vencimento ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : (receita.data ? new Date(receita.data).toLocaleDateString('pt-BR') : '-')}</TableCell>
+                  <TableCell className="text-slate-400">
+                    {receita.vencimento && receita.vencimento !== '-' ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : '-'}
+                  </TableCell>
                   <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(receita.valor)}</TableCell>
                   <TableCell>
                     <Badge className={cn("border", getStatusColor(receita.status))}>
@@ -422,17 +640,48 @@ export default function ReceitasPage() {
                     </Badge>
                   </TableCell>
                   <TableCell>
+                    {receita.origemObra ? (
+                      <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 border text-xs">
+                        Obra
+                      </Badge>
+                    ) : (
+                      <Badge className="bg-slate-500/20 text-slate-400 border-slate-500/30 border text-xs">
+                        Manual
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     <div className="flex items-center gap-1">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
                         <Eye className="h-4 w-4" />
                       </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                        <Edit className="h-4 w-4" />
-                      </Button>
+                      {!receita.origemObra && (
+                        deleteConfirmId === receita.id ? (
+                          <div className="flex items-center gap-1">
+                            <Button size="icon" className="h-7 w-7 bg-red-600 hover:bg-red-700" onClick={() => handleApagarReceita(receita.id)}>
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-slate-400" onClick={() => setDeleteConfirmId(null)}>
+                              ✕
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-red-400" onClick={() => setDeleteConfirmId(receita.id)}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )
+                      )}
                     </div>
                   </TableCell>
                 </TableRow>
               ))}
+              {receitasFiltradas.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center text-slate-500 py-8">
+                    Nenhuma receita encontrada. Cadastre uma nova ou importe da Gestão Financeira Obra.
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </CardContent>

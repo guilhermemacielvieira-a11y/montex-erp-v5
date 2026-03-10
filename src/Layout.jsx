@@ -729,7 +729,7 @@ function LayoutContent({ children, currentPageName }) {
             <h2 className="text-white font-medium">
               {filteredCategoriesByRole.flatMap(c => c.items).find(i => i.href === currentPageName)?.name || 'Dashboard'}
             </h2>
-            {currentPageName !== 'SimuladorOrcamento' && currentPageName !== 'DespesasPage' && <SeletorObra compact />}
+            {currentPageName !== 'SimuladorOrcamento' && currentPageName !== 'DespesasPage' && currentPageName !== 'ReceitasPage' && <SeletorObra compact />}
           </div>
           <div className="flex items-center gap-3">
             <ProgressoObra compact />

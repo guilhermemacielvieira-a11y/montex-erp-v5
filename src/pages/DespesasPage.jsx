@@ -133,7 +133,7 @@ export default function DespesasPage() {
   const [filtroCategoria, setFiltroCategoria] = useState('todos');
   const [filtroCentro, setFiltroCentro] = useState('todos');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
-  const [filtroOrigem, setFiltroOrigem] = useState('fabrica'); // fabrica, administrativo, todas
+  // Removido seletor de origem — agora é "Financeiro Fábrica" fixo
   const [dialogOpen, setDialogOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [importPreview, setImportPreview] = useState([]);
@@ -341,14 +341,6 @@ export default function DespesasPage() {
     setImporting(false);
   };
 
-  // Mapeamento de origem para categorias (definido antes dos useMemo)
-  const origemCategorias = {
-    fabrica: ['Matéria Prima', 'Manutenção', 'Energia/Utilidades'],
-    administrativo: ['Administrativo'],
-    transporte: ['Transporte'],
-    maodeobra: ['Mão de Obra', 'Impostos'],
-  };
-
   // Helper: filtrar por período (definido antes dos useMemo que o usam)
   const filtrarPorPeriodo = (lista) => {
     if (filtroPeriodo === 'geral') return lista;
@@ -367,15 +359,10 @@ export default function DespesasPage() {
     });
   };
 
-  // Despesas filtradas por período + origem (para KPIs e gráficos)
+  // Despesas filtradas por período (para KPIs e gráficos)
   const despesasPeriodo = useMemo(() => {
-    let lista = despesas;
-    if (filtroOrigem !== 'todas') {
-      const catsPermitidas = origemCategorias[filtroOrigem] || [];
-      lista = lista.filter(d => catsPermitidas.includes(d.categoria));
-    }
-    return filtrarPorPeriodo(lista);
-  }, [despesas, filtroPeriodo, filtroOrigem]);
+    return filtrarPorPeriodo(despesas);
+  }, [despesas, filtroPeriodo]);
 
   // Dados para gráficos - dinâmicos (usam período)
   const dadosCategorias = useMemo(() => {
@@ -413,11 +400,6 @@ export default function DespesasPage() {
   // Filtrar despesas
   const despesasFiltradas = useMemo(() => {
     let resultado = despesas.filter(d => {
-      // Filtro por origem/tipo
-      if (filtroOrigem !== 'todas') {
-        const catsPermitidas = origemCategorias[filtroOrigem] || [];
-        if (!catsPermitidas.includes(d.categoria)) return false;
-      }
       if (searchTerm && !d.descricao.toLowerCase().includes(searchTerm.toLowerCase()) &&
           !d.fornecedor.toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos' && d.status !== filtroStatus) return false;
@@ -426,7 +408,7 @@ export default function DespesasPage() {
       return true;
     });
     return filtrarPorPeriodo(resultado);
-  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo, filtroOrigem]);
+  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtroPeriodo]);
 
   const handleSaveDespesa = async () => {
     if (!formData.descricao || !formData.fornecedor || !formData.categoria || !formData.centroCusto || !formData.valor || !formData.vencimento || !formData.formaPagto) {
@@ -480,18 +462,10 @@ export default function DespesasPage() {
             Gestão de Despesas
           </h1>
           <div className="flex items-center gap-3 mt-2">
-            <Select value={filtroOrigem} onValueChange={setFiltroOrigem}>
-              <SelectTrigger className="w-[220px] bg-slate-800 border-slate-700 text-white">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="todas" className="text-white">Todas as Despesas</SelectItem>
-                <SelectItem value="fabrica" className="text-white">Despesas Fábrica</SelectItem>
-                <SelectItem value="administrativo" className="text-white">Despesas Administrativo</SelectItem>
-                <SelectItem value="transporte" className="text-white">Despesas Transporte</SelectItem>
-                <SelectItem value="maodeobra" className="text-white">Despesas Mão de Obra</SelectItem>
-              </SelectContent>
-            </Select>
+            <span className="inline-flex items-center px-3 py-1 rounded-lg bg-rose-500/20 text-rose-400 text-sm font-medium border border-rose-500/30">
+              <DollarSign className="h-3.5 w-3.5 mr-1" />
+              Financeiro Fábrica
+            </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{despesasFiltradas.length} lançamentos</span>
           </div>
