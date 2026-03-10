@@ -29,7 +29,7 @@ import {
   ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis,
   PolarRadiusAxis, Radar
 } from 'recharts';
-import { DndContext, DragOverlay, closestCenter, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
+import { DndContext, DragOverlay, rectIntersection, pointerWithin, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core';
 import { SortableContext, verticalListSortingStrategy, useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 
@@ -141,8 +141,16 @@ function SortableEmployeeCard({ func, getStatusColor }) {
 
 function KanbanColumn({ equipe, membros, getStatusColor, colorClass }) {
   const memberIds = membros.map(m => m.id);
+  // useDroppable makes the entire column a valid drop target (even when empty)
+  const { setNodeRef, isOver } = useDroppable({
+    id: `column-${equipe.id}`,
+    data: { type: 'column', equipeId: equipe.id },
+  });
   return (
-    <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 flex flex-col min-w-[280px] max-w-[320px]">
+    <div className={cn(
+      "bg-slate-900/60 backdrop-blur-xl rounded-xl border flex flex-col min-w-[280px] max-w-[320px] transition-all",
+      isOver ? "border-cyan-500/60 ring-2 ring-cyan-500/20 shadow-lg shadow-cyan-500/10" : "border-slate-700/50"
+    )}>
       <div className={`p-3 border-b border-slate-700/50 rounded-t-xl bg-gradient-to-r ${colorClass} bg-opacity-10`}>
         <div className="flex items-center justify-between">
           <h3 className="font-semibold text-white text-sm">{equipe.nome}</h3>
@@ -150,15 +158,18 @@ function KanbanColumn({ equipe, membros, getStatusColor, colorClass }) {
         </div>
         {equipe.liderNome && <p className="text-xs text-slate-400 mt-1">Líder: {equipe.liderNome}</p>}
       </div>
-      <div className="p-2 flex-1 space-y-2 min-h-[100px] overflow-y-auto max-h-[60vh]">
+      <div ref={setNodeRef} className="p-2 flex-1 space-y-2 min-h-[100px] overflow-y-auto max-h-[60vh]">
         <SortableContext items={memberIds} strategy={verticalListSortingStrategy}>
           {membros.map(func => (
             <SortableEmployeeCard key={func.id} func={func} getStatusColor={getStatusColor} />
           ))}
         </SortableContext>
         {membros.length === 0 && (
-          <div className="flex items-center justify-center h-20 text-slate-600 text-xs border-2 border-dashed border-slate-700 rounded-lg">
-            Arraste funcionários aqui
+          <div className={cn(
+            "flex items-center justify-center h-20 text-xs border-2 border-dashed rounded-lg transition-colors",
+            isOver ? "border-cyan-500/50 text-cyan-400 bg-cyan-500/5" : "border-slate-700 text-slate-600"
+          )}>
+            {isOver ? "Solte aqui para mover" : "Arraste funcionários aqui"}
           </div>
         )}
       </div>
@@ -365,23 +376,31 @@ export default function EquipesPage() {
     // Find which equipe the item was dropped over
     let targetEquipeId = null;
 
-    // Check if dropped over another funcionario
-    const overFunc = funcionarios.find(f => f.id === over.id);
-    if (overFunc) {
-      targetEquipeId = overFunc.equipeId || 'SEM_EQUIPE';
+    // Check if dropped over a column container (useDroppable id = "column-{equipeId}")
+    const overId = String(over.id);
+    if (overId.startsWith('column-')) {
+      targetEquipeId = overId.replace('column-', '');
+    } else {
+      // Check if dropped over another funcionario
+      const overFunc = funcionarios.find(f => f.id === over.id);
+      if (overFunc) {
+        targetEquipeId = overFunc.equipeId || 'SEM_EQUIPE';
+      }
     }
+
+    if (!targetEquipeId) return;
 
     // If dropped on same equipe, do nothing
     const currentEquipeId = activeFunc.equipeId || 'SEM_EQUIPE';
-    if (targetEquipeId && targetEquipeId !== currentEquipeId) {
-      const newEquipeId = targetEquipeId === 'SEM_EQUIPE' ? null : targetEquipeId;
+    if (targetEquipeId !== currentEquipeId) {
+      const newEquipeId = targetEquipeId === 'SEM_EQUIPE' ? '' : targetEquipeId;
       const targetEquipe = equipes.find(e => e.id === targetEquipeId);
-      const newEquipeNome = targetEquipe?.nome || '-';
+      const newEquipeNome = targetEquipeId === 'SEM_EQUIPE' ? 'Sem Equipe' : (targetEquipe?.nome || '-');
       const newSetor = targetEquipe?.setor || activeFunc.setor;
 
       updateFuncionario(activeFunc.id, {
         ...activeFunc,
-        equipeId: newEquipeId || '',
+        equipeId: newEquipeId,
         equipeNome: newEquipeNome,
         setor: newSetor,
       });
@@ -701,7 +720,7 @@ export default function EquipesPage() {
               <span className="text-sm">Arraste os funcionários entre as equipes para reorganizar</span>
             </div>
           </div>
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragOver={handleDragOver}>
+          <DndContext sensors={sensors} collisionDetection={pointerWithin} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragOver={handleDragOver}>
             <div className="flex gap-4 overflow-x-auto pb-4">
               {[...equipes, SEM_EQUIPE].map((eq) => {
                 const membros = funcionarios.filter(f => {
