@@ -3,7 +3,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Search, FileText, X, Loader2, CheckCircle2, AlertCircle,
   Receipt, Building2, Calendar, DollarSign, Hash,
-  Download, Upload, Key, FileUp, Tag, CreditCard, Layers
+  Download, Upload, Key, FileUp, Tag, CreditCard, Layers,
+  Edit3, ExternalLink
 } from 'lucide-react';
 import { notasFiscaisApi } from '../api/supabaseClient';
 import { toast } from 'sonner';
@@ -38,13 +39,11 @@ function parseNFeXML(xmlText) {
     return Array.from(els);
   };
 
-  // Dados de identificação (ide)
   const numero = getText(doc, 'nNF');
   const serie = getText(doc, 'serie');
   const dataEmissao = getText(doc, 'dhEmi')?.substring(0, 10) || getText(doc, 'dEmi');
   const natOp = getText(doc, 'natOp');
 
-  // Chave de acesso
   let chaveAcesso = '';
   const infNFe = doc.getElementsByTagName('infNFe')[0]
     || doc.getElementsByTagNameNS('http://www.portalfiscal.inf.br/nfe', 'infNFe')[0];
@@ -53,7 +52,6 @@ function parseNFeXML(xmlText) {
     chaveAcesso = id.replace(/^NFe/, '');
   }
 
-  // Emitente (emit)
   const emitNode = doc.getElementsByTagName('emit')[0]
     || doc.getElementsByTagNameNS('http://www.portalfiscal.inf.br/nfe', 'emit')[0];
   const fornecedor = getText(emitNode, 'xNome') || getText(emitNode, 'xFant');
@@ -62,10 +60,8 @@ function parseNFeXML(xmlText) {
     ? cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5')
     : cnpj;
 
-  // Totais (ICMSTot)
   const valorTotal = parseFloat(getText(doc, 'vNF')) || 0;
 
-  // === PAGAMENTO (pag > detPag > tPag) ===
   const detPagNodes = getAll(doc, 'detPag');
   let formaPagamento = '';
   let codigoPagamento = '';
@@ -73,27 +69,21 @@ function parseNFeXML(xmlText) {
     codigoPagamento = getText(detPagNodes[0], 'tPag');
     formaPagamento = mapearFormaPagamento(codigoPagamento);
   } else {
-    // Fallback: tentar tPag direto
     codigoPagamento = getText(doc, 'tPag');
     formaPagamento = mapearFormaPagamento(codigoPagamento);
   }
 
-  // === COBRANÇA / VENCIMENTO (cobr > dup > dVenc) ===
   let dataVencimento = '';
   const dupNodes = getAll(doc, 'dup');
   if (dupNodes.length > 0) {
-    // Pegar a primeira duplicata (ou a última para prazo maior)
     const primeiraVenc = getText(dupNodes[0], 'dVenc');
     const ultimaVenc = getText(dupNodes[dupNodes.length - 1], 'dVenc');
     dataVencimento = ultimaVenc || primeiraVenc || '';
-
-    // Se tem múltiplas duplicatas e sem forma de pagamento, é parcelado (boleto)
     if (!formaPagamento && dupNodes.length >= 1) {
       formaPagamento = 'Boleto';
     }
   }
 
-  // Se ainda não tem vencimento, usar 30 dias após emissão como padrão
   if (!dataVencimento && dataEmissao) {
     try {
       const dtEmissao = new Date(dataEmissao + 'T00:00:00');
@@ -102,21 +92,19 @@ function parseNFeXML(xmlText) {
     } catch (e) { /* ignorar */ }
   }
 
-  // Itens (det)
   const detNodes = getAll(doc, 'det');
   const itens = detNodes.map(det => {
     const prod = det.getElementsByTagName('prod')[0]
       || det.getElementsByTagNameNS('http://www.portalfiscal.inf.br/nfe', 'prod')[0];
-
-    const descricao = getText(prod, 'xProd');
-    const qtd = parseFloat(getText(prod, 'qCom')) || 0;
-    const unidade = getText(prod, 'uCom') || getText(prod, 'uTrib');
-    const valorUnit = parseFloat(getText(prod, 'vUnCom')) || 0;
-    const valorTotalItem = parseFloat(getText(prod, 'vProd')) || 0;
-    const ncm = getText(prod, 'NCM');
-    const cfop = getText(prod, 'CFOP');
-
-    return { descricao, qtd, unidade, valorUnit, valorTotal: valorTotalItem, ncm, cfop };
+    return {
+      descricao: getText(prod, 'xProd'),
+      qtd: parseFloat(getText(prod, 'qCom')) || 0,
+      unidade: getText(prod, 'uCom') || getText(prod, 'uTrib'),
+      valorUnit: parseFloat(getText(prod, 'vUnCom')) || 0,
+      valorTotal: parseFloat(getText(prod, 'vProd')) || 0,
+      ncm: getText(prod, 'NCM'),
+      cfop: getText(prod, 'CFOP')
+    };
   });
 
   if (!numero && !fornecedor && itens.length === 0) {
@@ -127,8 +115,44 @@ function parseNFeXML(xmlText) {
     numero, serie, fornecedor, cnpj: cnpjFormatado,
     dataEmissao, dataVencimento, valor: valorTotal, tipo: 'entrada',
     itens, chaveAcesso, naturezaOp: natOp,
-    formaPagamento,
-    observacoes: ''
+    formaPagamento, observacoes: ''
+  };
+}
+
+// ============================================
+// EXTRAIR DADOS DA CHAVE DE ACESSO (44 dígitos)
+// Formato: UF(2) AAMM(4) CNPJ(14) MOD(2) SERIE(3) NUM(9) tpEmis(1) cNF(8) DV(1)
+// ============================================
+function extrairDadosDaChave(chave) {
+  if (!chave || chave.length !== 44) return null;
+  const uf = chave.substring(0, 2);
+  const aamm = chave.substring(2, 6);
+  const cnpj = chave.substring(6, 20);
+  const modelo = chave.substring(20, 22);
+  const serie = chave.substring(22, 25);
+  const numero = chave.substring(25, 34);
+
+  const ano = '20' + aamm.substring(0, 2);
+  const mes = aamm.substring(2, 4);
+
+  const cnpjFormatado = cnpj.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+
+  const UF_NOMES = {
+    '11': 'RO', '12': 'AC', '13': 'AM', '14': 'RR', '15': 'PA', '16': 'AP', '17': 'TO',
+    '21': 'MA', '22': 'PI', '23': 'CE', '24': 'RN', '25': 'PB', '26': 'PE', '27': 'AL',
+    '28': 'SE', '29': 'BA', '31': 'MG', '32': 'ES', '33': 'RJ', '35': 'SP',
+    '41': 'PR', '42': 'SC', '43': 'RS', '50': 'MS', '51': 'MT', '52': 'GO', '53': 'DF',
+  };
+
+  return {
+    uf: UF_NOMES[uf] || uf,
+    cnpj: cnpjFormatado,
+    cnpjRaw: cnpj,
+    serie: String(parseInt(serie, 10)),
+    numero: String(parseInt(numero, 10)),
+    modelo,
+    mesAno: `${mes}/${ano}`,
+    dataAproximada: `${ano}-${mes}-01`,
   };
 }
 
@@ -137,30 +161,16 @@ function parseNFeXML(xmlText) {
 // ============================================
 function mapearFormaPagamento(codigo) {
   const mapa = {
-    '01': 'Dinheiro',
-    '02': 'Cheque',
-    '03': 'Cartão de Crédito',
-    '04': 'Cartão de Débito',
-    '05': 'Crédito Loja',
-    '10': 'Vale Alimentação',
-    '11': 'Vale Refeição',
-    '12': 'Vale Presente',
-    '13': 'Vale Combustível',
-    '14': 'Duplicata Mercantil',
-    '15': 'Boleto',
-    '16': 'Depósito Bancário',
-    '17': 'PIX',
-    '18': 'Transferência',
-    '19': 'Cashback',
-    '90': 'Sem Pagamento',
-    '99': 'Outros',
+    '01': 'Dinheiro', '02': 'Cheque', '03': 'Cartão de Crédito',
+    '04': 'Cartão de Débito', '05': 'Crédito Loja', '10': 'Vale Alimentação',
+    '11': 'Vale Refeição', '12': 'Vale Presente', '13': 'Vale Combustível',
+    '14': 'Duplicata Mercantil', '15': 'Boleto', '16': 'Depósito Bancário',
+    '17': 'PIX', '18': 'Transferência', '19': 'Cashback',
+    '90': 'Sem Pagamento', '99': 'Outros',
   };
   return mapa[String(codigo || '')] || '';
 }
 
-// ============================================
-// CLASSIFICAÇÃO DE NATUREZA POR CFOP/NCM
-// ============================================
 function classificarNaturezaPorCFOP(cfop) {
   const c = String(cfop || '');
   if (['1101', '2101', '1151', '2151', '1201', '2201'].includes(c)) return 'Compra de matéria-prima';
@@ -172,81 +182,43 @@ function classificarNaturezaPorCFOP(cfop) {
   return '';
 }
 
-// ============================================
-// CLASSIFICAÇÃO AUTOMÁTICA DE CATEGORIA
-// Mapeia para as categorias do DespesasPage
-// ============================================
 const CATEGORIAS_DISPONIVEIS = [
-  'Matéria Prima',
-  'Mão de Obra',
-  'Energia/Utilidades',
-  'Manutenção',
-  'Transporte',
-  'Administrativo',
-  'Impostos',
-  'Outros',
+  'Matéria Prima', 'Mão de Obra', 'Energia/Utilidades',
+  'Manutenção', 'Transporte', 'Administrativo', 'Impostos', 'Outros',
 ];
 
 function classificarCategoria(itens, naturezaOp) {
   if (!itens || itens.length === 0) return 'Outros';
-
-  // Analisar todos os itens para uma classificação mais precisa
   const descricoes = itens.map(i => (i.descricao || '').toLowerCase()).join(' ');
   const ncms = itens.map(i => (i.ncm || '').substring(0, 4));
   const cfops = itens.map(i => String(i.cfop || ''));
   const natOpLower = (naturezaOp || '').toLowerCase();
 
-  // Transporte/Frete
   if (descricoes.match(/frete|transporte|logistic|carreto|mudança/) ||
       natOpLower.includes('frete') || natOpLower.includes('transporte') ||
-      cfops.some(c => ['1352', '2352', '1353', '2353'].includes(c))) {
-    return 'Transporte';
-  }
+      cfops.some(c => ['1352', '2352', '1353', '2353'].includes(c))) return 'Transporte';
 
-  // Mão de Obra / Serviços
   if (descricoes.match(/servico|serviço|mao de obra|mão de obra|consultoria|locação|aluguel/) ||
-      natOpLower.includes('serviço') || natOpLower.includes('servico') ||
-      natOpLower.includes('prestação') ||
-      cfops.some(c => ['1126', '2126', '1128', '2128', '1933', '2933'].includes(c))) {
-    return 'Mão de Obra';
-  }
+      natOpLower.includes('serviço') || natOpLower.includes('servico') || natOpLower.includes('prestação') ||
+      cfops.some(c => ['1126', '2126', '1128', '2128', '1933', '2933'].includes(c))) return 'Mão de Obra';
 
-  // Energia / Utilidades
   if (descricoes.match(/energia|eletric|gas|agua|água|combustivel|combustível|diesel|gasolina|etanol/) ||
-      ncms.some(n => ['2710', '2711', '2716'].includes(n))) {
-    return 'Energia/Utilidades';
-  }
+      ncms.some(n => ['2710', '2711', '2716'].includes(n))) return 'Energia/Utilidades';
 
-  // Manutenção
   if (descricoes.match(/manutenção|manutencao|peça|peca|rolamento|correia|filtro|lubrific|oleo|óleo|ferramenta|epi/) ||
-      ncms.some(n => ['8482', '8483', '8484', '4016', '8481'].includes(n))) {
-    return 'Manutenção';
-  }
+      ncms.some(n => ['8482', '8483', '8484', '4016', '8481'].includes(n))) return 'Manutenção';
 
-  // Matéria Prima (chapas, perfis, aço, tinta, solda, eletrodo, etc.)
   if (descricoes.match(/chapa|perfil|viga|tubo|aço|aco|ferro|metalon|barra|cantoneira|tinta|primer|epoxi|epóxi|solda|eletrodo|arame|abrasivo|disco|lixa/) ||
       ncms.some(n => ['7208', '7209', '7210', '7214', '7216', '7306', '7307', '3208', '3209', '8311', '7217', '6804', '6805'].includes(n)) ||
-      cfops.some(c => ['1101', '2101', '1151', '2151'].includes(c))) {
-    return 'Matéria Prima';
-  }
+      cfops.some(c => ['1101', '2101', '1151', '2151'].includes(c))) return 'Matéria Prima';
 
-  // Administrativo (material de escritório, informática, etc.)
   if (descricoes.match(/escritorio|escritório|papel|impressora|toner|cartucho|inform|computador|notebook|monitor|telefone/) ||
-      ncms.some(n => ['4802', '8471', '8443', '8528'].includes(n))) {
-    return 'Administrativo';
-  }
+      ncms.some(n => ['4802', '8471', '8443', '8528'].includes(n))) return 'Administrativo';
 
-  // Fallback baseado no CFOP
-  if (cfops.some(c => c.startsWith('1') || c.startsWith('2'))) {
-    return 'Matéria Prima'; // Compras gerais → assume matéria prima para metalúrgica
-  }
-
+  if (cfops.some(c => c.startsWith('1') || c.startsWith('2'))) return 'Matéria Prima';
   return 'Outros';
 }
 
-// ============================================
-// CLASSIFICAÇÃO AUTOMÁTICA DE CENTRO DE CUSTO
-// ============================================
 const CENTROS_CUSTO = [
   { nome: 'Produção', codigo: 'CC-001' },
   { nome: 'Administrativo', codigo: 'CC-002' },
@@ -259,7 +231,6 @@ function classificarCentroCusto(categoria, naturezaOp) {
   const natLower = (naturezaOp || '').toLowerCase();
   if (natLower.includes('venda') || natLower.includes('comercial')) return 'Comercial';
   if (natLower.includes('frete') || natLower.includes('transporte')) return 'Logística';
-
   switch (categoria) {
     case 'Matéria Prima': return 'Produção';
     case 'Mão de Obra': return 'Produção';
@@ -284,24 +255,14 @@ function formatDate(d) {
 }
 
 const NATUREZAS = [
-  'Compra de matéria-prima',
-  'Compra de material de embalagem',
-  'Compra para revenda',
-  'Compra para utilização na prestação de serviços',
+  'Compra de matéria-prima', 'Compra de material de embalagem',
+  'Compra para revenda', 'Compra para utilização na prestação de serviços',
   'Compra para uso e consumo'
 ];
 
 const FORMAS_PAGAMENTO = [
-  'Dinheiro',
-  'Boleto',
-  'PIX',
-  'Transferência',
-  'Cartão de Crédito',
-  'Cartão de Débito',
-  'Cheque',
-  'Depósito Bancário',
-  'Duplicata Mercantil',
-  'Outros',
+  'Dinheiro', 'Boleto', 'PIX', 'Transferência', 'Cartão de Crédito',
+  'Cartão de Débito', 'Cheque', 'Depósito Bancário', 'Duplicata Mercantil', 'Outros',
 ];
 
 // ============================================
@@ -323,6 +284,10 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
   const [statusSelecionado, setStatusSelecionado] = useState('pendente');
   const [importando, setImportando] = useState(false);
   const [chaveAcesso, setChaveAcesso] = useState('');
+  // Campos para entrada manual
+  const [manualFornecedor, setManualFornecedor] = useState('');
+  const [manualValor, setManualValor] = useState('');
+  const [manualDescricao, setManualDescricao] = useState('');
   const fileInputRef = useRef(null);
 
   const resetModal = useCallback(() => {
@@ -333,49 +298,36 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
     setFormaPagamentoSelecionada(''); setDataVencimento('');
     setDataEmissao(''); setStatusSelecionado('pendente');
     setImportando(false); setChaveAcesso('');
+    setManualFornecedor(''); setManualValor(''); setManualDescricao('');
   }, []);
 
-  // Preencher campos automáticos após parsear
   const preencherCamposAutomaticos = useCallback((parsed) => {
     setNfData(parsed);
     setItensSelecionados(parsed.itens.map((_, i) => i));
 
-    // Natureza por CFOP
     const cfopPrimeiro = parsed.itens[0]?.cfop;
     const natSugerida = classificarNaturezaPorCFOP(cfopPrimeiro);
     setNaturezaSelecionada(natSugerida || 'Compra para uso e consumo');
 
-    // Categoria automática
     const catSugerida = classificarCategoria(parsed.itens, parsed.naturezaOp);
     setCategoriaSelecionada(catSugerida);
 
-    // Centro de custo automático
     const ccSugerido = classificarCentroCusto(catSugerida, parsed.naturezaOp);
     setCentroCustoSelecionado(ccSugerido);
 
-    // Forma de pagamento
     const formaPgto = parsed.formaPagamento || 'Boleto';
     setFormaPagamentoSelecionada(formaPgto);
 
-    // Datas
     setDataEmissao(parsed.dataEmissao || '');
     setDataVencimento(parsed.dataVencimento || '');
 
-    // Status automático:
-    // "pago" SOMENTE para compras à vista (Dinheiro, PIX, Cartão de Débito)
-    // Demais formas de pagamento = "pendente" (ou "atrasado" se vencido)
     const formasAVista = ['Dinheiro', 'PIX', 'Cartão de Débito'];
     if (formasAVista.includes(formaPgto)) {
       setStatusSelecionado('pago');
     } else if (parsed.dataVencimento) {
-      const hoje = new Date();
-      hoje.setHours(0, 0, 0, 0);
+      const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
       const venc = new Date(parsed.dataVencimento + 'T00:00:00');
-      if (venc < hoje) {
-        setStatusSelecionado('atrasado');
-      } else {
-        setStatusSelecionado('pendente');
-      }
+      setStatusSelecionado(venc < hoje ? 'atrasado' : 'pendente');
     } else {
       setStatusSelecionado('pendente');
     }
@@ -403,15 +355,13 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
   }, [preencherCamposAutomaticos]);
 
   const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
     const file = e.dataTransfer?.files?.[0];
     if (file) handleFileUpload(file);
   }, [handleFileUpload]);
 
   const handleDragOver = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
+    e.preventDefault(); e.stopPropagation();
   }, []);
 
   // === CONSULTA POR CHAVE ===
@@ -423,7 +373,6 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
     }
     setLoading(true); setErro('');
     try {
-      // Usar proxy serverless do Vercel (resolve CORS)
       const resp = await fetch(`/api/nfe-proxy?chave=${chave}`, {
         signal: AbortSignal.timeout(20000),
         headers: { 'Accept': 'application/json' }
@@ -431,12 +380,30 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
 
       if (!resp.ok) {
         const errData = await resp.json().catch(() => ({}));
-        const sugestoes = errData.sugestoes || [];
-        const msgBase = errData.error || 'Erro ao consultar NFe.';
-        const msgFull = sugestoes.length > 0
-          ? msgBase + '\n\n' + sugestoes.map(s => '• ' + s).join('\n')
-          : msgBase;
-        throw new Error(msgFull);
+        // Se não encontrou, ir para entrada manual com dados extraídos da chave
+        const dadosChave = extrairDadosDaChave(chave);
+        if (dadosChave) {
+          setManualFornecedor('');
+          setManualValor('');
+          setManualDescricao('');
+          setDataEmissao(dadosChave.dataAproximada);
+          // Calcular vencimento +30 dias
+          try {
+            const dt = new Date(dadosChave.dataAproximada + 'T00:00:00');
+            dt.setDate(dt.getDate() + 30);
+            setDataVencimento(dt.toISOString().split('T')[0]);
+          } catch (e) { setDataVencimento(''); }
+          setFormaPagamentoSelecionada('Boleto');
+          setCategoriaSelecionada('Matéria Prima');
+          setCentroCustoSelecionado('Produção');
+          setNaturezaSelecionada('Compra para uso e consumo');
+          setStatusSelecionado('pendente');
+          setStep('manual');
+          setLoading(false);
+          toast.info('NFe nao encontrada nas APIs. Preencha os dados manualmente.');
+          return;
+        }
+        throw new Error(errData.error || 'Erro ao consultar NFe.');
       }
 
       const data = await resp.json();
@@ -469,13 +436,59 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
       toast.success(`NFe encontrada: ${parsed.fornecedor}`);
     } catch (err) {
       if (err.name === 'AbortError' || err.name === 'TimeoutError') {
-        setErro('Timeout na consulta. O servico pode estar indisponivel. Tente importar via XML.');
+        setErro('Timeout na consulta. O servico pode estar indisponivel.');
       } else {
         setErro(err.message || 'Erro na consulta');
       }
     }
     setLoading(false);
   }, [chaveAcesso, preencherCamposAutomaticos]);
+
+  // === CONFIRMAR ENTRADA MANUAL ===
+  const confirmarManual = useCallback(() => {
+    const chave = chaveAcesso.replace(/\s/g, '');
+    const dadosChave = extrairDadosDaChave(chave);
+    const valor = parseFloat(manualValor.replace(/[^\d.,]/g, '').replace(',', '.')) || 0;
+
+    if (!manualFornecedor.trim()) {
+      setErro('Informe o nome do fornecedor.');
+      return;
+    }
+    if (valor <= 0) {
+      setErro('Informe o valor total da NFe.');
+      return;
+    }
+
+    const parsed = {
+      numero: dadosChave?.numero || '',
+      serie: dadosChave?.serie || '1',
+      fornecedor: manualFornecedor.trim(),
+      cnpj: dadosChave?.cnpj || '',
+      dataEmissao: dataEmissao,
+      dataVencimento: dataVencimento,
+      valor: valor,
+      tipo: 'entrada',
+      formaPagamento: formaPagamentoSelecionada,
+      itens: [{
+        descricao: manualDescricao.trim() || `NF ${dadosChave?.numero || ''} - ${manualFornecedor.trim()}`,
+        qtd: 1,
+        unidade: 'UN',
+        valorUnit: valor,
+        valorTotal: valor,
+        ncm: '',
+        cfop: ''
+      }],
+      chaveAcesso: chave,
+      naturezaOp: '',
+      observacoes: 'Entrada manual via chave de acesso'
+    };
+
+    setNfData(parsed);
+    setItensSelecionados([0]);
+    setStep('preview');
+    setErro('');
+    toast.success('Dados preenchidos. Confira antes de importar.');
+  }, [chaveAcesso, manualFornecedor, manualValor, manualDescricao, dataEmissao, dataVencimento, formaPagamentoSelecionada]);
 
   const toggleItem = useCallback((idx) => {
     setItensSelecionados(prev => prev.includes(idx) ? prev.filter(i => i !== idx) : [...prev, idx]);
@@ -516,7 +529,6 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
       lancamento.obra_id = obraId;
     }
 
-    // Salvar NF no Supabase
     try {
       await notasFiscaisApi.create({
         id: 'NF-' + Date.now(),
@@ -535,7 +547,6 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
       console.error('Erro ao salvar NF no Supabase:', err.message);
     }
 
-    // Callback para o componente pai
     if (onImportar) {
       await onImportar(lancamento, itensParaImportar);
     }
@@ -543,6 +554,9 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
     setStep('sucesso');
     setImportando(false);
   }, [nfData, itensSelecionados, naturezaSelecionada, categoriaSelecionada, centroCustoSelecionado, formaPagamentoSelecionada, dataVencimento, dataEmissao, statusSelecionado, obraId, onImportar]);
+
+  // Dados extraídos da chave (para step manual)
+  const dadosChave = extrairDadosDaChave(chaveAcesso.replace(/\s/g, ''));
 
   return (
     <Dialog.Root open={open} onOpenChange={(o) => { if (!o) resetModal(); onOpenChange(o); }}>
@@ -558,7 +572,10 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
               <div>
                 <Dialog.Title className="text-lg font-semibold text-white">Importar Nota Fiscal</Dialog.Title>
                 <p className="text-xs text-gray-400">
-                  {step === 'entrada' ? 'Upload XML ou consulta por chave de acesso' : step === 'preview' ? 'Confira e ajuste os dados antes de importar' : 'Importacao concluida'}
+                  {step === 'entrada' ? 'Upload XML ou consulta por chave de acesso'
+                    : step === 'manual' ? 'Preencha os dados da NFe manualmente'
+                    : step === 'preview' ? 'Confira e ajuste os dados antes de importar'
+                    : 'Importacao concluida'}
                 </p>
               </div>
             </div>
@@ -586,23 +603,15 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                 {/* XML Upload */}
                 {metodo === 'xml' && (
                   <div className="space-y-3">
-                    <div
-                      onDrop={handleDrop}
-                      onDragOver={handleDragOver}
+                    <div onDrop={handleDrop} onDragOver={handleDragOver}
                       onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-gray-600 hover:border-amber-500/50 rounded-xl p-8 text-center cursor-pointer transition-colors group"
-                    >
+                      className="border-2 border-dashed border-gray-600 hover:border-amber-500/50 rounded-xl p-8 text-center cursor-pointer transition-colors group">
                       <FileUp className="w-12 h-12 text-gray-500 group-hover:text-amber-400 mx-auto mb-3 transition-colors" />
                       <p className="text-sm text-gray-300 font-medium">Arraste o XML da NFe aqui</p>
                       <p className="text-xs text-gray-500 mt-1">ou clique para selecionar o arquivo</p>
                       <p className="text-xs text-gray-600 mt-3">Aceita arquivos .xml de NFe (SEFAZ)</p>
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".xml"
-                        className="hidden"
-                        onChange={(e) => handleFileUpload(e.target.files?.[0])}
-                      />
+                      <input ref={fileInputRef} type="file" accept=".xml" className="hidden"
+                        onChange={(e) => handleFileUpload(e.target.files?.[0])} />
                     </div>
                     {loading && (
                       <div className="flex items-center justify-center gap-2 py-3">
@@ -622,7 +631,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                         <div>
                           <p className="text-sm text-blue-300 font-medium">Consulta por Chave de Acesso</p>
                           <p className="text-xs text-blue-400/70 mt-1">
-                            Informe os 44 digitos da chave de acesso da NFe. Os dados serao consultados automaticamente via API publica.
+                            Informe os 44 digitos. Tentaremos buscar automaticamente. Se nao encontrar, voce podera preencher manualmente.
                           </p>
                         </div>
                       </div>
@@ -631,21 +640,18 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                       <label className="block text-sm text-gray-400 mb-1.5">Chave de Acesso (44 digitos) *</label>
                       <div className="relative">
                         <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
-                        <input
-                          type="text"
-                          value={chaveAcesso}
+                        <input type="text" value={chaveAcesso}
                           onChange={e => setChaveAcesso(e.target.value.replace(/\D/g, '').substring(0, 44))}
                           placeholder="00000000000000000000000000000000000000000000"
                           className="w-full pl-10 pr-4 py-2.5 bg-gray-800 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 outline-none transition-colors font-mono text-sm"
-                          onKeyDown={e => { if (e.key === 'Enter') consultarPorChave(); }}
-                        />
+                          onKeyDown={e => { if (e.key === 'Enter') consultarPorChave(); }} />
                       </div>
                       <p className="text-xs text-gray-500 mt-1">{chaveAcesso.replace(/\s/g, '').length}/44 digitos</p>
                     </div>
                     {loading && (
                       <div className="flex items-center justify-center gap-2 py-3">
                         <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
-                        <span className="text-sm text-gray-300">Consultando NFe...</span>
+                        <span className="text-sm text-gray-300">Consultando NFe nas APIs publicas...</span>
                       </div>
                     )}
                   </div>
@@ -658,14 +664,141 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                       <div className="text-sm text-red-400 whitespace-pre-line">{erro}</div>
                     </div>
                     {metodo === 'chave' && erro.includes('nao encontrada') && (
-                      <button
-                        onClick={() => { setMetodo('xml'); setErro(''); }}
-                        className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-600/20 border border-amber-500/40 rounded-lg text-amber-400 text-sm hover:bg-amber-600/30 transition-colors"
-                      >
-                        <Upload className="w-4 h-4" />
-                        Importar via XML (mais confiavel)
+                      <button onClick={() => { setMetodo('xml'); setErro(''); }}
+                        className="w-full flex items-center justify-center gap-2 py-2 px-3 bg-amber-600/20 border border-amber-500/40 rounded-lg text-amber-400 text-sm hover:bg-amber-600/30 transition-colors">
+                        <Upload className="w-4 h-4" /> Importar via XML (mais confiavel)
                       </button>
                     )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* === STEP: MANUAL (preencher dados da NFe) === */}
+            {step === 'manual' && (
+              <div className="space-y-4">
+                {/* Info da chave extraída */}
+                <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <Edit3 className="w-5 h-5 text-blue-400 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm text-blue-300 font-medium">Entrada Manual - Dados da Chave</p>
+                      <p className="text-xs text-blue-400/70 mt-1">
+                        A consulta automatica nao encontrou esta NFe. Extraimos os dados abaixo da chave de acesso. Complete o fornecedor, valor e descricao.
+                      </p>
+                      {dadosChave && (
+                        <div className="mt-2 grid grid-cols-4 gap-2 text-xs">
+                          <div><span className="text-gray-500">NF:</span> <span className="text-white font-medium">{dadosChave.numero}</span></div>
+                          <div><span className="text-gray-500">Serie:</span> <span className="text-white">{dadosChave.serie}</span></div>
+                          <div><span className="text-gray-500">UF:</span> <span className="text-white">{dadosChave.uf}</span></div>
+                          <div><span className="text-gray-500">Periodo:</span> <span className="text-white">{dadosChave.mesAno}</span></div>
+                          <div className="col-span-4"><span className="text-gray-500">CNPJ:</span> <span className="text-white font-mono">{dadosChave.cnpj}</span></div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Link para consulta SEFAZ */}
+                <a href={`https://www.nfe.fazenda.gov.br/portal/consultaRecaptcha.aspx?tipoConsulta=resumo&tipoConteudo=7PhJ+gAVw2g=`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-2 p-3 bg-gray-800 border border-gray-600 rounded-lg text-gray-300 hover:text-amber-400 hover:border-amber-500/50 transition-colors text-sm">
+                  <ExternalLink className="w-4 h-4" />
+                  Consultar no Portal SEFAZ (para copiar os dados)
+                </a>
+
+                {/* Campos obrigatórios */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      <Building2 className="w-3 h-3 inline mr-1" />Fornecedor (Razao Social) *
+                    </label>
+                    <input type="text" value={manualFornecedor}
+                      onChange={e => setManualFornecedor(e.target.value)}
+                      placeholder="Nome do fornecedor conforme NFe"
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none placeholder-gray-500" />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <DollarSign className="w-3 h-3 inline mr-1" />Valor Total (R$) *
+                      </label>
+                      <input type="text" value={manualValor}
+                        onChange={e => setManualValor(e.target.value)}
+                        placeholder="0,00"
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none placeholder-gray-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <CreditCard className="w-3 h-3 inline mr-1" />Forma de Pagamento
+                      </label>
+                      <select value={formaPagamentoSelecionada}
+                        onChange={e => setFormaPagamentoSelecionada(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
+                        <option value="">Selecionar...</option>
+                        {FORMAS_PAGAMENTO.map(f => <option key={f} value={f}>{f}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Calendar className="w-3 h-3 inline mr-1" />Data Emissao
+                      </label>
+                      <input type="date" value={dataEmissao}
+                        onChange={e => setDataEmissao(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Calendar className="w-3 h-3 inline mr-1" />Data Vencimento
+                      </label>
+                      <input type="date" value={dataVencimento}
+                        onChange={e => setDataVencimento(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none" />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Layers className="w-3 h-3 inline mr-1" />Categoria
+                      </label>
+                      <select value={categoriaSelecionada}
+                        onChange={e => setCategoriaSelecionada(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
+                        {CATEGORIAS_DISPONIVEIS.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1">
+                        <Building2 className="w-3 h-3 inline mr-1" />Centro de Custo
+                      </label>
+                      <select value={centroCustoSelecionado}
+                        onChange={e => setCentroCustoSelecionado(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
+                        {CENTROS_CUSTO.map(cc => <option key={cc.nome} value={cc.nome}>{cc.codigo} - {cc.nome}</option>)}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-400 mb-1">
+                      <FileText className="w-3 h-3 inline mr-1" />Descricao dos itens (opcional)
+                    </label>
+                    <input type="text" value={manualDescricao}
+                      onChange={e => setManualDescricao(e.target.value)}
+                      placeholder="Ex: Chapas de aço, perfis metalicos..."
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none placeholder-gray-500" />
+                  </div>
+                </div>
+
+                {erro && (
+                  <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
+                    <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <p className="text-sm text-red-400">{erro}</p>
                   </div>
                 )}
               </div>
@@ -674,7 +807,6 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
             {/* === STEP: PREVIEW === */}
             {step === 'preview' && nfData && (
               <div className="space-y-4">
-                {/* Dados da NF */}
                 <div className="bg-gray-800 rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
                     <div>
@@ -705,120 +837,65 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                   )}
                 </div>
 
-                {/* === CAMPOS EDITÁVEIS === */}
+                {/* Campos Editáveis */}
                 <div className="bg-gray-800/50 border border-gray-700 rounded-xl p-4 space-y-3">
                   <p className="text-sm font-medium text-amber-400 flex items-center gap-2">
-                    <Tag className="w-4 h-4" /> Classificação (editável)
+                    <Tag className="w-4 h-4" /> Classificacao (editavel)
                   </p>
-
-                  {/* Linha 1: Data Emissão + Data Vencimento */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-400 mb-1">
-                        <Calendar className="w-3 h-3 inline mr-1" />Data Emissão
-                      </label>
-                      <input
-                        type="date"
-                        value={dataEmissao}
-                        onChange={e => setDataEmissao(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                      />
+                      <label className="block text-xs text-gray-400 mb-1"><Calendar className="w-3 h-3 inline mr-1" />Data Emissao</label>
+                      <input type="date" value={dataEmissao} onChange={e => setDataEmissao(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none" />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-400 mb-1">
-                        <Calendar className="w-3 h-3 inline mr-1" />Data Vencimento
-                      </label>
-                      <input
-                        type="date"
-                        value={dataVencimento}
-                        onChange={e => setDataVencimento(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                      />
+                      <label className="block text-xs text-gray-400 mb-1"><Calendar className="w-3 h-3 inline mr-1" />Data Vencimento</label>
+                      <input type="date" value={dataVencimento} onChange={e => setDataVencimento(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none" />
                     </div>
                   </div>
-
-                  {/* Linha 2: Forma de Pagamento + Status */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-400 mb-1">
-                        <CreditCard className="w-3 h-3 inline mr-1" />Forma de Pagamento
-                      </label>
-                      <select
-                        value={formaPagamentoSelecionada}
-                        onChange={e => setFormaPagamentoSelecionada(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                      >
+                      <label className="block text-xs text-gray-400 mb-1"><CreditCard className="w-3 h-3 inline mr-1" />Forma de Pagamento</label>
+                      <select value={formaPagamentoSelecionada} onChange={e => setFormaPagamentoSelecionada(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
                         <option value="">Selecionar...</option>
-                        {FORMAS_PAGAMENTO.map(f => (
-                          <option key={f} value={f}>{f}</option>
-                        ))}
+                        {FORMAS_PAGAMENTO.map(f => <option key={f} value={f}>{f}</option>)}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs text-gray-400 mb-1">Status</label>
-                      <select
-                        value={statusSelecionado}
-                        onChange={e => setStatusSelecionado(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                      >
+                      <select value={statusSelecionado} onChange={e => setStatusSelecionado(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
                         <option value="pendente">Pendente</option>
                         <option value="pago">Pago</option>
                         <option value="atrasado">Atrasado</option>
                       </select>
                     </div>
                   </div>
-
-                  {/* Linha 3: Categoria + Centro de Custo */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-400 mb-1">
-                        <Layers className="w-3 h-3 inline mr-1" />Categoria
-                      </label>
-                      <select
-                        value={categoriaSelecionada}
-                        onChange={e => setCategoriaSelecionada(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                      >
-                        {CATEGORIAS_DISPONIVEIS.map(c => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
+                      <label className="block text-xs text-gray-400 mb-1"><Layers className="w-3 h-3 inline mr-1" />Categoria</label>
+                      <select value={categoriaSelecionada} onChange={e => setCategoriaSelecionada(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
+                        {CATEGORIAS_DISPONIVEIS.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-400 mb-1">
-                        <Building2 className="w-3 h-3 inline mr-1" />Centro de Custo
-                      </label>
-                      <select
-                        value={centroCustoSelecionado}
-                        onChange={e => setCentroCustoSelecionado(e.target.value)}
-                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                      >
-                        {CENTROS_CUSTO.map(cc => (
-                          <option key={cc.nome} value={cc.nome}>{cc.codigo} - {cc.nome}</option>
-                        ))}
+                      <label className="block text-xs text-gray-400 mb-1"><Building2 className="w-3 h-3 inline mr-1" />Centro de Custo</label>
+                      <select value={centroCustoSelecionado} onChange={e => setCentroCustoSelecionado(e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
+                        {CENTROS_CUSTO.map(cc => <option key={cc.nome} value={cc.nome}>{cc.codigo} - {cc.nome}</option>)}
                       </select>
                     </div>
                   </div>
-
-                  {/* Linha 4: Natureza de Aquisição */}
                   <div>
-                    <label className="block text-xs text-gray-400 mb-1">
-                      <Tag className="w-3 h-3 inline mr-1" />Natureza de Aquisição
-                    </label>
-                    <select
-                      value={naturezaSelecionada}
-                      onChange={e => setNaturezaSelecionada(e.target.value)}
-                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none"
-                    >
-                      {NATUREZAS.map(n => (
-                        <option key={n} value={n}>{n}</option>
-                      ))}
+                    <label className="block text-xs text-gray-400 mb-1"><Tag className="w-3 h-3 inline mr-1" />Natureza de Aquisicao</label>
+                    <select value={naturezaSelecionada} onChange={e => setNaturezaSelecionada(e.target.value)}
+                      className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none">
+                      {NATUREZAS.map(n => <option key={n} value={n}>{n}</option>)}
                     </select>
                   </div>
-
-                  <p className="text-xs text-gray-500 italic">
-                    Categoria, centro de custo e forma de pagamento foram preenchidos automaticamente com base na NFe. Altere se necessário.
-                  </p>
                 </div>
 
                 {/* Itens */}
@@ -830,9 +907,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                     {nfData.itens.map((item, idx) => (
                       <button key={idx} onClick={() => toggleItem(idx)}
                         className={`w-full flex items-center gap-3 p-3 rounded-lg border transition-all text-left ${
-                          itensSelecionados.includes(idx)
-                            ? 'bg-gray-800 border-amber-500/50'
-                            : 'bg-gray-800/50 border-gray-700 opacity-50'
+                          itensSelecionados.includes(idx) ? 'bg-gray-800 border-amber-500/50' : 'bg-gray-800/50 border-gray-700 opacity-50'
                         }`}>
                         <div className={`w-5 h-5 rounded border flex items-center justify-center flex-shrink-0 ${
                           itensSelecionados.includes(idx) ? 'bg-amber-500 border-amber-500' : 'border-gray-600'
@@ -853,7 +928,6 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                   </div>
                 </div>
 
-                {/* Total */}
                 <div className="bg-gray-800 rounded-lg p-3 flex items-center justify-between">
                   <span className="text-sm text-gray-400">Total a importar:</span>
                   <span className="text-lg font-bold text-amber-400">
@@ -922,6 +996,18 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                     {loading ? 'Consultando...' : 'Consultar NFe'}
                   </button>
                 )}
+              </>
+            )}
+            {step === 'manual' && (
+              <>
+                <button onClick={() => { setStep('entrada'); setErro(''); }}
+                  className="px-4 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors text-sm">
+                  Voltar
+                </button>
+                <button onClick={confirmarManual}
+                  className="px-5 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-500 transition-colors text-sm flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4" /> Confirmar Dados
+                </button>
               </>
             )}
             {step === 'preview' && (
