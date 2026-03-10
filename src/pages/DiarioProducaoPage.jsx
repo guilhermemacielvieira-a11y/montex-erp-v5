@@ -1,31 +1,27 @@
-// MONTEX ERP Premium - Módulo de Diário de Produção
-// Registro diário de atividades, ocorrências e progresso
+// MONTEX ERP Premium - Diário de Produção com Supabase
+// Registro diário de produção por etapa com persistência real em banco de dados
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   BookOpen,
-  Clock,
-  User,
   Plus,
   Edit,
-  CheckCircle2,
-  AlertTriangle,
-  Wrench,
-  Camera,
-  MessageSquare,
+  Trash2,
   Download,
   ChevronLeft,
   ChevronRight,
-  Sun,
-  Moon,
-  CloudRain
+  Loader,
+  AlertCircle,
+  CheckCircle2
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -33,8 +29,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Select,
   SelectContent,
@@ -43,150 +37,48 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
+import { useEquipes } from '@/contexts/ERPContext';
+import {
+  ETAPAS_LABELS,
+  ETAPAS_CORES,
+  VALORES_ETAPA,
+  formatKg,
+  formatReais,
+  calcularValorPorEtapa,
+  calcularEficiencia,
+  getEficienciaBadge
+} from '@/utils/producaoCalculations';
 
-// Dados do Diário - Será preenchido com dados reais
-const mockRegistros = [
-  {
-    id: 'REG-001',
-    data: '2026-02-09',
-    obra: 'SUPER LUNA - BELO VALE',
-    turno: 'Diurno',
-    encarregado: 'José Ferreira',
-    pecasProduzidas: 36,
-    horasTrabalhadas: 8.5,
-    eficiencia: 88,
-    atividades: [
-      { descricao: 'Corte de perfis H 250x25', quantidade: 24, unidade: 'pç', peso: 1850 },
-      { descricao: 'Furação de chapas base', quantidade: 12, unidade: 'pç', peso: 420 },
-    ],
-    ocorrencias: ['Chuva forte no período da tarde - parada de 1h30'],
-    observacoes: 'Produção dentro do previsto. Material para POSTO em dia.',
-    clima: 'Parcialmente nublado',
-    equipamentos: ['Policorte', 'Furadeira de bancada', 'Ponte rolante 5t'],
-    fotosAntes: 2,
-    fotosDepois: 3,
-  },
-  {
-    id: 'REG-002',
-    data: '2026-02-08',
-    obra: 'SUPER LUNA - BELO VALE',
-    turno: 'Diurno',
-    encarregado: 'Marcos Santos',
-    pecasProduzidas: 50,
-    horasTrabalhadas: 9,
-    eficiencia: 94,
-    atividades: [
-      { descricao: 'Soldagem de ligações viga-pilar', quantidade: 18, unidade: 'pç', peso: 2100 },
-      { descricao: 'Pintura primer Zarcão', quantidade: 32, unidade: 'm²', peso: 0 },
-    ],
-    ocorrencias: [],
-    observacoes: 'Soldas de primeira qualidade. Inspeção visual OK.',
-    clima: 'Ensolarado',
-    equipamentos: ['Máquina MIG 400A', 'Pistola airless', 'Ponte rolante 10t'],
-    fotosAntes: 1,
-    fotosDepois: 2,
-  },
-  {
-    id: 'REG-003',
-    data: '2026-02-07',
-    obra: 'SUPER LUNA - BELO VALE',
-    turno: 'Diurno',
-    encarregado: 'Ricardo Lima',
-    pecasProduzidas: 44,
-    horasTrabalhadas: 8,
-    eficiencia: 91,
-    atividades: [
-      { descricao: 'Montagem de terças U 150x12', quantidade: 36, unidade: 'pç', peso: 1200 },
-      { descricao: 'Instalação de contraventamentos', quantidade: 8, unidade: 'pç', peso: 340 },
-    ],
-    ocorrencias: ['Falta de parafusos ASTM A325 3/4" - solicitado compra urgente'],
-    observacoes: 'Ritmo bom. Pendência de material para amanhã.',
-    clima: 'Ensolarado',
-    equipamentos: ['Caminhão Munck', 'Chaves de torque', 'Nível laser'],
-    fotosAntes: 2,
-    fotosDepois: 4,
-  },
-  {
-    id: 'REG-004',
-    data: '2026-02-06',
-    obra: 'SUPER LUNA - BELO VALE',
-    turno: 'Diurno',
-    encarregado: 'José Ferreira',
-    pecasProduzidas: 28,
-    horasTrabalhadas: 7.5,
-    eficiencia: 82,
-    atividades: [
-      { descricao: 'Corte de perfis U 200x20', quantidade: 16, unidade: 'pç', peso: 980 },
-      { descricao: 'Preparação de juntas para solda', quantidade: 12, unidade: 'pç', peso: 0 },
-    ],
-    ocorrencias: ['Manutenção preventiva na policorte - parada de 2h'],
-    observacoes: 'Produção reduzida por manutenção. Equipamento normalizado ao final do turno.',
-    clima: 'Ensolarado',
-    equipamentos: ['Policorte', 'Esmerilhadeira angular', 'Ponte rolante 5t'],
-    fotosAntes: 1,
-    fotosDepois: 2,
-  },
-];
-
-// Dados de Obras - Será preenchido com dados reais
-const mockObras = [
-  { id: 'super-luna', nome: 'SUPER LUNA - BELO VALE', codigo: '2026-01', status: 'Em Andamento' },
-];
-
-const formatDate = (dateStr) => {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('pt-BR', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'long'
-  });
-};
-
-const getClimaIcon = (clima) => {
-  switch (clima) {
-    case 'ensolarado': return <Sun className="h-4 w-4 text-amber-400" />;
-    case 'nublado': return <Moon className="h-4 w-4 text-slate-400" />;
-    case 'chuvoso': return <CloudRain className="h-4 w-4 text-blue-400" />;
-    default: return <Sun className="h-4 w-4 text-amber-400" />;
-  }
-};
-
-const getTurnoColor = (turno) => {
-  switch (turno) {
-    case 'manhã': return 'from-amber-500 to-orange-500';
-    case 'tarde': return 'from-blue-500 to-cyan-500';
-    case 'noite': return 'from-purple-500 to-indigo-500';
-    default: return 'from-slate-500 to-slate-600';
-  }
-};
-
-const getStatusColor = (status) => {
-  switch (status) {
-    case 'concluido': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-    case 'em_andamento': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-    case 'pendente': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-  }
-};
-
-const getImpactoColor = (impacto) => {
-  switch (impacto) {
-    case 'alto': return 'bg-red-500/20 text-red-400 border-red-500/30';
-    case 'medio': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    case 'baixo': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-    default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-  }
-};
+const TURNOS = ['Manhã', 'Tarde', 'Noite'];
+const ETAPAS = ['corte', 'fabricacao', 'solda', 'pintura'];
 
 // Componente de Card do Registro
-function RegistroCard({ registro }) {
+function DiarioRegistroCard({ registro, onEdit, onDelete, etapa }) {
   const [expanded, setExpanded] = useState(false);
+
+  const eficiencia = useMemo(() => {
+    if (registro.meta_unidades && registro.meta_unidades > 0) {
+      return calcularEficiencia(registro.unidades_produzidas, registro.meta_unidades);
+    }
+    return 0;
+  }, [registro]);
+
+  const valor = useMemo(() => {
+    return calcularValorPorEtapa(registro.kg_processados, etapa);
+  }, [registro.kg_processados, etapa]);
+
+  const cores = ETAPAS_CORES[etapa];
 
   return (
     <motion.div
       layout
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 overflow-hidden"
+      className={cn(
+        "bg-slate-900/60 backdrop-blur-xl rounded-xl border overflow-hidden",
+        "border-slate-700/50 hover:border-slate-600/80 transition-colors"
+      )}
     >
       {/* Header */}
       <div
@@ -197,56 +89,35 @@ function RegistroCard({ registro }) {
           <div className="flex items-center gap-3">
             <div className={cn(
               "w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br",
-              getTurnoColor(registro.turno)
+              cores.bg
             )}>
-              <Clock className="h-6 w-6 text-white" />
+              <CheckCircle2 className={cn("h-6 w-6", cores.text)} />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-white capitalize">Turno {registro.turno}</h3>
-                <Badge variant="outline" className="text-xs text-slate-400 border-slate-600">
-                  {registro.horaInicio} - {registro.horaFim}
-                </Badge>
-              </div>
-              <p className="text-sm text-slate-400">{registro.obra}</p>
+              <h3 className="font-semibold text-white">{registro.funcionario_nome}</h3>
+              <p className="text-sm text-slate-400">{registro.equipe_nome}</p>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Clima */}
-            <div className="flex items-center gap-2 text-sm text-slate-400">
-              {getClimaIcon(registro.clima)}
-              <span>{registro.temperatura}°C</span>
-            </div>
+            {/* Turno */}
+            <Badge variant="outline" className="text-xs text-slate-400 border-slate-600">
+              {registro.turno}
+            </Badge>
 
             {/* Eficiência */}
-            <div className={cn(
-              "px-3 py-1 rounded-lg text-sm font-semibold",
-              registro.eficiencia >= 90 ? "bg-emerald-500/20 text-emerald-400" :
-              registro.eficiencia >= 70 ? "bg-amber-500/20 text-amber-400" :
-              "bg-red-500/20 text-red-400"
-            )}>
-              {registro.eficiencia}% efic.
-            </div>
+            {registro.meta_unidades && (
+              <Badge className={cn("text-xs", getEficienciaBadge(eficiencia))}>
+                {eficiencia}% efic.
+              </Badge>
+            )}
 
-            {/* Peças */}
+            {/* Unidades */}
             <div className="text-right">
-              <p className="text-lg font-bold text-white">{registro.pecasProduzidas}</p>
-              <p className="text-xs text-slate-500">peças</p>
+              <p className="text-lg font-bold text-white">{registro.unidades_produzidas}</p>
+              <p className="text-xs text-slate-500">un.</p>
             </div>
           </div>
-        </div>
-
-        {/* Responsável */}
-        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-700/50">
-          <User className="h-4 w-4 text-slate-500" />
-          <span className="text-sm text-slate-400">{registro.responsavel}</span>
-          {registro.ocorrencias.length > 0 && (
-            <Badge className={cn("ml-auto", getImpactoColor(registro.ocorrencias[0].impacto))}>
-              <AlertTriangle className="h-3 w-3 mr-1" />
-              {registro.ocorrencias.length} ocorrência(s)
-            </Badge>
-          )}
         </div>
       </div>
 
@@ -260,64 +131,32 @@ function RegistroCard({ registro }) {
             className="border-t border-slate-700/50"
           >
             <div className="p-4 space-y-4">
-              {/* Atividades */}
-              <div>
-                <h4 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
-                  <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-                  Atividades Realizadas
-                </h4>
-                <div className="space-y-2">
-                  {registro.atividades.map((atividade, idx) => (
-                    <div key={idx} className="flex items-center justify-between bg-slate-800/50 rounded-lg p-3">
-                      <div className="flex items-center gap-3">
-                        <Badge variant="outline" className="text-xs capitalize border-slate-600 text-slate-400">
-                          {atividade.tipo}
-                        </Badge>
-                        <span className="text-sm text-white">{atividade.descricao}</span>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm text-slate-400">{atividade.quantidade} un.</span>
-                        <Badge className={cn("text-xs border", getStatusColor(atividade.status))}>
-                          {atividade.status === 'concluido' ? 'Concluído' : 'Em andamento'}
-                        </Badge>
-                      </div>
-                    </div>
-                  ))}
+              {/* Métricas */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Unidades</p>
+                  <p className="text-lg font-bold text-white">{registro.unidades_produzidas}</p>
                 </div>
-              </div>
-
-              {/* Ocorrências */}
-              {registro.ocorrencias.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-amber-400" />
-                    Ocorrências
-                  </h4>
-                  <div className="space-y-2">
-                    {registro.ocorrencias.map((ocorrencia, idx) => (
-                      <div key={idx} className="flex items-center justify-between bg-slate-800/50 rounded-lg p-3">
-                        <div className="flex items-center gap-3">
-                          <Badge variant="outline" className="text-xs capitalize border-slate-600 text-slate-400">
-                            {ocorrencia.tipo}
-                          </Badge>
-                          <span className="text-sm text-white">{ocorrencia.descricao}</span>
-                        </div>
-                        <Badge className={cn("text-xs border", getImpactoColor(ocorrencia.impacto))}>
-                          Impacto {ocorrencia.impacto}
-                        </Badge>
-                      </div>
-                    ))}
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">KG</p>
+                  <p className="text-lg font-bold text-white">{formatKg(registro.kg_processados)}</p>
+                </div>
+                <div className="bg-slate-800/50 rounded-lg p-3">
+                  <p className="text-xs text-slate-400">Valor</p>
+                  <p className="text-lg font-bold text-green-400">{formatReais(valor)}</p>
+                </div>
+                {registro.meta_unidades && (
+                  <div className="bg-slate-800/50 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">Meta Un.</p>
+                    <p className="text-lg font-bold text-white">{registro.meta_unidades}</p>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* Observações */}
               {registro.observacoes && (
                 <div>
-                  <h4 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
-                    <MessageSquare className="h-4 w-4 text-blue-400" />
-                    Observações
-                  </h4>
+                  <h4 className="text-sm font-semibold text-slate-300 mb-2">Observações</h4>
                   <p className="text-sm text-slate-400 bg-slate-800/50 rounded-lg p-3">
                     {registro.observacoes}
                   </p>
@@ -330,7 +169,7 @@ function RegistroCard({ registro }) {
                   variant="outline"
                   size="sm"
                   className="border-slate-700 text-slate-300"
-                  onClick={() => handleEditarRegistro(registro)}
+                  onClick={() => onEdit(registro)}
                 >
                   <Edit className="h-4 w-4 mr-2" />
                   Editar
@@ -338,20 +177,11 @@ function RegistroCard({ registro }) {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="border-slate-700 text-slate-300"
-                  onClick={() => handleFotos(registro)}
+                  className="border-red-700 text-red-400 hover:bg-red-500/10"
+                  onClick={() => onDelete(registro.id)}
                 >
-                  <Camera className="h-4 w-4 mr-2" />
-                  Fotos
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-slate-700 text-slate-300"
-                  onClick={() => handleExportarRegistro(registro)}
-                >
-                  <Download className="h-4 w-4 mr-2" />
-                  Exportar
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Deletar
                 </Button>
               </div>
             </div>
@@ -362,124 +192,436 @@ function RegistroCard({ registro }) {
   );
 }
 
-export default function DiarioProducaoPage() {
-  const [dataAtual, setDataAtual] = useState(() => {
-    const hoje = new Date();
-    return hoje.toISOString().split('T')[0];
-  });
-  const [obraFiltro, setObraFiltro] = useState('todas');
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [registros, setRegistros] = useState(mockRegistros);
-  const [selectedRegistro, setSelectedRegistro] = useState(null);
+// Dialog de Novo/Editar Registro
+function DiarioFormDialog({ open, onOpenChange, etapa, data, funcionarios, equipes, onSave, editingRegistro }) {
   const [formData, setFormData] = useState({
-    data: '',
+    funcionarioId: '',
+    funcionarioNome: '',
+    equipeId: '',
+    equipeNome: '',
     turno: '',
-    obra: '',
-    atividades: '',
-    observacoes: ''
+    unidades: '',
+    kg: '',
+    metaUnidades: '',
+    metaKg: '',
+    observacoes: '',
   });
 
-  // Filtrar registros por data e obra
-  const registrosFiltrados = useMemo(() => {
-    return registros.filter(r => {
-      if (r.data !== dataAtual) return false;
-      if (obraFiltro !== 'todas' && r.obra !== obraFiltro) return false;
-      return true;
-    });
-  }, [registros, dataAtual, obraFiltro]);
+  useEffect(() => {
+    if (editingRegistro) {
+      setFormData({
+        funcionarioId: editingRegistro.funcionario_id || '',
+        funcionarioNome: editingRegistro.funcionario_nome || '',
+        equipeId: editingRegistro.equipe_id || '',
+        equipeNome: editingRegistro.equipe_nome || '',
+        turno: editingRegistro.turno || '',
+        unidades: editingRegistro.unidades_produzidas || '',
+        kg: editingRegistro.kg_processados || '',
+        metaUnidades: editingRegistro.meta_unidades || '',
+        metaKg: editingRegistro.meta_kg || '',
+        observacoes: editingRegistro.observacoes || '',
+      });
+    } else {
+      setFormData({
+        funcionarioId: '',
+        funcionarioNome: '',
+        equipeId: '',
+        equipeNome: '',
+        turno: '',
+        unidades: '',
+        kg: '',
+        metaUnidades: '',
+        metaKg: '',
+        observacoes: '',
+      });
+    }
+  }, [editingRegistro, open]);
 
-  // KPIs do dia
-  const kpisDia = useMemo(() => {
-    const registrosDia = registros.filter(r => r.data === dataAtual);
-    return {
-      totalPecas: registrosDia.reduce((sum, r) => sum + r.pecasProduzidas, 0),
-      totalHoras: registrosDia.reduce((sum, r) => sum + r.horasTrabalhadas, 0),
-      eficienciaMedia: registrosDia.length > 0
-        ? registrosDia.reduce((sum, r) => sum + r.eficiencia, 0) / registrosDia.length
-        : 0,
-      totalOcorrencias: registrosDia.reduce((sum, r) => sum + r.ocorrencias.length, 0)
-    };
-  }, [registros, dataAtual]);
-
-  const navegarData = (direcao) => {
-    const data = new Date(dataAtual + 'T00:00:00');
-    data.setDate(data.getDate() + direcao);
-    setDataAtual(data.toISOString().split('T')[0]);
+  const handleFuncionarioChange = (value) => {
+    const func = funcionarios.find(f => f.id === value);
+    if (func) {
+      setFormData({
+        ...formData,
+        funcionarioId: func.id,
+        funcionarioNome: func.nome,
+      });
+    }
   };
 
-  const handleSaveRegistro = () => {
-    if (!formData.data || !formData.turno || !formData.obra || !formData.atividades) {
-      toast.error('Preencher todos os campos obrigatórios');
+  const handleEquipeChange = (value) => {
+    const equipe = equipes.find(e => e.id === value);
+    if (equipe) {
+      setFormData({
+        ...formData,
+        equipeId: equipe.id,
+        equipeNome: equipe.nome,
+      });
+    }
+  };
+
+  const handleSave = async () => {
+    if (!formData.funcionarioId || !formData.equipeId || !formData.turno || !formData.unidades) {
+      toast.error('Preencher campos obrigatórios');
       return;
     }
 
-    const novoRegistro = {
-      id: Date.now(),
-      data: formData.data,
-      turno: formData.turno,
-      responsavel: 'Usuário',
-      clima: 'ensolarado',
-      temperatura: 25,
-      horaInicio: '07:00',
-      horaFim: '12:00',
-      obra: formData.obra,
-      atividades: [{
-        tipo: 'producao',
-        descricao: formData.atividades,
-        quantidade: 0,
-        status: 'em_andamento'
-      }],
-      ocorrencias: [],
-      observacoes: formData.observacoes,
-      pecasProduzidas: 0,
-      horasTrabalhadas: 5,
-      eficiencia: 90
-    };
-
-    setRegistros([...registros, novoRegistro]);
-    toast.success('Registro salvo com sucesso!');
-    setDialogOpen(false);
-    setFormData({
-      data: '',
-      turno: '',
-      obra: '',
-      atividades: '',
-      observacoes: ''
+    await onSave({
+      ...formData,
+      id: editingRegistro?.id,
+      data,
+      etapa,
     });
-  };
 
-  const handleEditarRegistro = (registro) => {
-    setSelectedRegistro(registro);
-    toast.success('Registro aberto para edição!');
-  };
-
-  const handleFotos = (registro) => {
-    toast.success('Abrir galeria de fotos do registro!');
-  };
-
-  const handleExportarRegistro = (registro) => {
-    const csv = `Data,Turno,Obra,Responsável,Peças,Eficiência\n${registro.data},${registro.turno},${registro.obra},${registro.responsavel},${registro.pecasProduzidas},${registro.eficiencia}%`;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `registro-${registro.id}.csv`;
-    a.click();
-    toast.success('Registro exportado com sucesso!');
+    onOpenChange(false);
   };
 
   return (
-    <div className="space-y-4">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-white">
+            {editingRegistro ? 'Editar Registro' : 'Novo Registro'} - {ETAPAS_LABELS[etapa]}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 pt-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-slate-300">Funcionário *</Label>
+              <Select value={formData.funcionarioId} onValueChange={handleFuncionarioChange}>
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  {funcionarios.map(f => (
+                    <SelectItem key={f.id} value={f.id}>{f.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-slate-300">Equipe *</Label>
+              <Select value={formData.equipeId} onValueChange={handleEquipeChange}>
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  {equipes.map(e => (
+                    <SelectItem key={e.id} value={e.id}>{e.nome}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label className="text-slate-300">Turno *</Label>
+              <Select value={formData.turno} onValueChange={(value) => setFormData({...formData, turno: value})}>
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                  <SelectValue placeholder="Selecione" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  {TURNOS.map(t => (
+                    <SelectItem key={t} value={t}>{t}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-slate-300">Unidades Produzidas *</Label>
+              <Input
+                type="number"
+                min="0"
+                className="mt-1 bg-slate-800 border-slate-700"
+                value={formData.unidades}
+                onChange={(e) => setFormData({...formData, unidades: e.target.value})}
+              />
+            </div>
+            <div>
+              <Label className="text-slate-300">KG Processados</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.1"
+                className="mt-1 bg-slate-800 border-slate-700"
+                value={formData.kg}
+                onChange={(e) => setFormData({...formData, kg: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <Label className="text-slate-300">Meta Unidades</Label>
+              <Input
+                type="number"
+                min="0"
+                className="mt-1 bg-slate-800 border-slate-700"
+                value={formData.metaUnidades}
+                onChange={(e) => setFormData({...formData, metaUnidades: e.target.value})}
+              />
+            </div>
+            <div>
+              <Label className="text-slate-300">Meta KG</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.1"
+                className="mt-1 bg-slate-800 border-slate-700"
+                value={formData.metaKg}
+                onChange={(e) => setFormData({...formData, metaKg: e.target.value})}
+              />
+            </div>
+          </div>
+
+          <div>
+            <Label className="text-slate-300">Observações</Label>
+            <Textarea
+              className="mt-1 bg-slate-800 border-slate-700"
+              placeholder="Anotações sobre o registro..."
+              value={formData.observacoes}
+              onChange={(e) => setFormData({...formData, observacoes: e.target.value})}
+            />
+          </div>
+
+          <Button
+            className="w-full bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600"
+            onClick={handleSave}
+          >
+            {editingRegistro ? 'Atualizar' : 'Criar'} Registro
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+export default function DiarioProducaoPage() {
+  const { funcionarios = [], equipes = [] } = useEquipes();
+
+  // Estados principais
+  const [selectedData, setSelectedData] = useState(() => {
+    const hoje = new Date();
+    return hoje.toISOString().split('T')[0];
+  });
+  const [selectedEtapa, setSelectedEtapa] = useState('corte');
+  const [registros, setRegistros] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingRegistro, setEditingRegistro] = useState(null);
+
+  // Fetch de registros do Supabase
+  const fetchRegistros = useCallback(async () => {
+    if (!isSupabaseConfigured()) {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('diario_producao')
+        .select('*')
+        .eq('data', selectedData)
+        .eq('etapa', selectedEtapa)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setRegistros(data || []);
+    } catch (err) {
+      console.error('Erro ao buscar registros:', err);
+      toast.error('Erro ao carregar registros');
+      setRegistros([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedData, selectedEtapa]);
+
+  // Fetch ao mudar data ou etapa
+  useEffect(() => {
+    fetchRegistros();
+  }, [fetchRegistros]);
+
+  // Salvar registro
+  const handleSaveRegistro = useCallback(async (formData) => {
+    if (!isSupabaseConfigured()) {
+      toast.error('Supabase não configurado');
+      return;
+    }
+
+    try {
+      const recordToSave = {
+        id: formData.id || `DIARIO-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        data: formData.data,
+        etapa: formData.etapa,
+        equipe_id: formData.equipeId,
+        equipe_nome: formData.equipeNome,
+        funcionario_id: formData.funcionarioId,
+        funcionario_nome: formData.funcionarioNome,
+        unidades_produzidas: parseInt(formData.unidades) || 0,
+        kg_processados: parseFloat(formData.kg) || 0,
+        meta_unidades: parseInt(formData.metaUnidades) || null,
+        meta_kg: parseFloat(formData.metaKg) || null,
+        observacoes: formData.observacoes || null,
+        turno: formData.turno,
+      };
+
+      const { error } = await supabase
+        .from('diario_producao')
+        .upsert([recordToSave]);
+
+      if (error) throw error;
+
+      toast.success(formData.id ? 'Registro atualizado' : 'Registro criado com sucesso');
+      setEditingRegistro(null);
+      await fetchRegistros();
+    } catch (err) {
+      console.error('Erro ao salvar:', err);
+      toast.error('Erro ao salvar registro');
+    }
+  }, [fetchRegistros]);
+
+  // Deletar registro
+  const handleDeleteRegistro = useCallback(async (registroId) => {
+    if (!window.confirm('Tem certeza que deseja deletar este registro?')) {
+      return;
+    }
+
+    if (!isSupabaseConfigured()) {
+      toast.error('Supabase não configurado');
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('diario_producao')
+        .delete()
+        .eq('id', registroId);
+
+      if (error) throw error;
+
+      toast.success('Registro deletado');
+      await fetchRegistros();
+    } catch (err) {
+      console.error('Erro ao deletar:', err);
+      toast.error('Erro ao deletar registro');
+    }
+  }, [fetchRegistros]);
+
+  // Exportar CSV
+  const handleExportarCSV = useCallback(() => {
+    if (registros.length === 0) {
+      toast.error('Nenhum registro para exportar');
+      return;
+    }
+
+    const headers = [
+      'Data',
+      'Etapa',
+      'Funcionário',
+      'Equipe',
+      'Turno',
+      'Unidades',
+      'KG',
+      'Meta Un.',
+      'Meta KG',
+      'Valor (R$)',
+      'Observações'
+    ];
+
+    const rows = registros.map(r => [
+      r.data,
+      ETAPAS_LABELS[r.etapa],
+      r.funcionario_nome,
+      r.equipe_nome,
+      r.turno,
+      r.unidades_produzidas,
+      r.kg_processados,
+      r.meta_unidades || '',
+      r.meta_kg || '',
+      formatReais(calcularValorPorEtapa(r.kg_processados, r.etapa)),
+      r.observacoes || ''
+    ]);
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `diario-producao-${selectedData}-${selectedEtapa}.csv`);
+    link.click();
+
+    toast.success('Exportado com sucesso');
+  }, [registros, selectedData, selectedEtapa]);
+
+  // Navegar datas
+  const navegarData = useCallback((dias) => {
+    const data = new Date(selectedData + 'T00:00:00');
+    data.setDate(data.getDate() + dias);
+    setSelectedData(data.toISOString().split('T')[0]);
+  }, [selectedData]);
+
+  // KPIs do dia
+  const kpis = useMemo(() => {
+    const totalUnidades = registros.reduce((sum, r) => sum + (r.unidades_produzidas || 0), 0);
+    const totalKg = registros.reduce((sum, r) => sum + (r.kg_processados || 0), 0);
+    const totalValor = registros.reduce((sum, r) => sum + calcularValorPorEtapa(r.kg_processados, r.etapa), 0);
+
+    const comMeta = registros.filter(r => r.meta_unidades && r.meta_unidades > 0);
+    const eficienciaMedia = comMeta.length > 0
+      ? comMeta.reduce((sum, r) => sum + calcularEficiencia(r.unidades_produzidas, r.meta_unidades), 0) / comMeta.length
+      : 0;
+
+    return {
+      totalUnidades,
+      totalKg,
+      totalValor,
+      eficienciaMedia,
+      numFuncionarios: new Set(registros.map(r => r.funcionario_id)).size
+    };
+  }, [registros]);
+
+  // Fallback se Supabase não configurado
+  if (!isSupabaseConfigured()) {
+    return (
+      <div className="space-y-4">
+        <Card className="bg-slate-900/60 border-red-700/50">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-4">
+              <AlertCircle className="h-8 w-8 text-red-400 flex-shrink-0" />
+              <div>
+                <h3 className="font-semibold text-red-400">Supabase não configurado</h3>
+                <p className="text-slate-400 text-sm mt-1">
+                  Configure as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para usar o Diário de Produção.
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  const cores = ETAPAS_CORES[selectedEtapa];
+
+  return (
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center">
-              <BookOpen className="h-6 w-6 text-white" />
+            <div className={cn(
+              "w-12 h-12 rounded-xl bg-gradient-to-br flex items-center justify-center",
+              cores.bg
+            )}>
+              <BookOpen className={cn("h-6 w-6", cores.text)} />
             </div>
             Diário de Produção
           </h1>
-          <p className="text-slate-400 mt-1">Registro diário de atividades e ocorrências</p>
+          <p className="text-slate-400 mt-1">Registro diário por etapa de produção</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -493,11 +635,12 @@ export default function DiarioProducaoPage() {
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <div className="px-3 py-1">
-              <p className="text-sm font-medium text-white capitalize">
-                {formatDate(dataAtual)}
-              </p>
-            </div>
+            <input
+              type="date"
+              value={selectedData}
+              onChange={(e) => setSelectedData(e.target.value)}
+              className="px-3 py-1 bg-slate-700 border-0 rounded text-white text-sm cursor-pointer"
+            />
             <Button
               variant="ghost"
               size="icon"
@@ -508,179 +651,159 @@ export default function DiarioProducaoPage() {
             </Button>
           </div>
 
-          <Select value={obraFiltro} onValueChange={setObraFiltro}>
-            <SelectTrigger className="w-[200px] bg-slate-800 border-slate-700">
-              <SelectValue placeholder="Filtrar por obra" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              <SelectItem value="todas">Todas as Obras</SelectItem>
-              {mockObras.map(obra => (
-                <SelectItem key={obra.id} value={obra.nome}>{obra.nome}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Button
+            variant="outline"
+            className="border-slate-700 text-slate-300"
+            onClick={handleExportarCSV}
+          >
+            <Download className="h-4 w-4 mr-2" />
+            Exportar
+          </Button>
 
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
-              <Button className="bg-gradient-to-r from-indigo-500 to-purple-500 hover:from-indigo-600 hover:to-purple-600">
+              <Button className={cn(
+                "bg-gradient-to-r hover:opacity-90",
+                selectedEtapa === 'corte' ? 'from-amber-500 to-orange-500' :
+                selectedEtapa === 'fabricacao' ? 'from-purple-500 to-indigo-500' :
+                selectedEtapa === 'solda' ? 'from-red-500 to-rose-500' :
+                'from-cyan-500 to-blue-500'
+              )}>
                 <Plus className="h-4 w-4 mr-2" />
                 Novo Registro
               </Button>
             </DialogTrigger>
-            <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
-              <DialogHeader>
-                <DialogTitle className="text-white">Novo Registro do Diário</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="grid grid-cols-3 gap-4">
-                  <div>
-                    <Label className="text-slate-300">Data</Label>
-                    <Input
-                      type="date"
-                      className="mt-1 bg-slate-800 border-slate-700"
-                      value={formData.data || dataAtual}
-                      onChange={(e) => setFormData({...formData, data: e.target.value})}
-                    />
-                  </div>
-                  <div>
-                    <Label className="text-slate-300">Turno</Label>
-                    <Select value={formData.turno} onValueChange={(value) => setFormData({...formData, turno: value})}>
-                      <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-slate-700">
-                        <SelectItem value="manhã">Manhã</SelectItem>
-                        <SelectItem value="tarde">Tarde</SelectItem>
-                        <SelectItem value="noite">Noite</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="text-slate-300">Obra</Label>
-                    <Select value={formData.obra} onValueChange={(value) => setFormData({...formData, obra: value})}>
-                      <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-slate-700">
-                        {mockObras.map(obra => (
-                          <SelectItem key={obra.id} value={obra.nome}>{obra.nome}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div>
-                  <Label className="text-slate-300">Atividades Realizadas</Label>
-                  <Textarea
-                    className="mt-1 bg-slate-800 border-slate-700 min-h-[100px]"
-                    placeholder="Descreva as atividades realizadas no turno..."
-                    value={formData.atividades}
-                    onChange={(e) => setFormData({...formData, atividades: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <Label className="text-slate-300">Observações</Label>
-                  <Textarea
-                    className="mt-1 bg-slate-800 border-slate-700"
-                    placeholder="Observações gerais..."
-                    value={formData.observacoes}
-                    onChange={(e) => setFormData({...formData, observacoes: e.target.value})}
-                  />
-                </div>
-                <Button
-                  className="w-full bg-gradient-to-r from-indigo-500 to-purple-500"
-                  onClick={handleSaveRegistro}
-                >
-                  Salvar Registro
-                </Button>
-              </div>
-            </DialogContent>
+            <DiarioFormDialog
+              open={dialogOpen}
+              onOpenChange={setDialogOpen}
+              etapa={selectedEtapa}
+              data={selectedData}
+              funcionarios={funcionarios}
+              equipes={equipes}
+              onSave={handleSaveRegistro}
+              editingRegistro={editingRegistro}
+            />
           </Dialog>
         </div>
       </div>
 
+      {/* Abas de Etapas */}
+      <div className="flex gap-2 overflow-x-auto pb-2">
+        {ETAPAS.map(etapa => (
+          <motion.button
+            key={etapa}
+            onClick={() => {
+              setSelectedEtapa(etapa);
+              setEditingRegistro(null);
+            }}
+            className={cn(
+              "px-4 py-2 rounded-lg font-semibold text-sm whitespace-nowrap transition-all",
+              selectedEtapa === etapa
+                ? cn("bg-gradient-to-r text-white", ETAPAS_CORES[etapa].bg)
+                : "bg-slate-800 text-slate-400 hover:bg-slate-700"
+            )}
+            whileTap={{ scale: 0.95 }}
+          >
+            {ETAPAS_LABELS[etapa]}
+          </motion.button>
+        ))}
+      </div>
+
       {/* KPIs do Dia */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Peças Produzidas</p>
-                <p className="text-2xl font-bold text-white">{kpisDia.totalPecas}</p>
-              </div>
+            <div className="space-y-1">
+              <p className="text-xs text-slate-400">Unidades</p>
+              <p className="text-2xl font-bold text-white">{kpis.totalUnidades}</p>
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-blue-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Horas Trabalhadas</p>
-                <p className="text-2xl font-bold text-white">{kpisDia.totalHoras}h</p>
-              </div>
+            <div className="space-y-1">
+              <p className="text-xs text-slate-400">KG</p>
+              <p className="text-2xl font-bold text-white">{formatKg(kpis.totalKg)}</p>
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                <Wrench className="h-5 w-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Eficiência Média</p>
-                <p className="text-2xl font-bold text-white">{kpisDia.eficienciaMedia.toFixed(0)}%</p>
-              </div>
+            <div className="space-y-1">
+              <p className="text-xs text-slate-400">Valor</p>
+              <p className="text-2xl font-bold text-green-400">{formatReais(kpis.totalValor)}</p>
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-red-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Ocorrências</p>
-                <p className="text-2xl font-bold text-white">{kpisDia.totalOcorrencias}</p>
-              </div>
+            <div className="space-y-1">
+              <p className="text-xs text-slate-400">Eficiência Média</p>
+              <p className="text-2xl font-bold text-white">{kpis.eficienciaMedia.toFixed(0)}%</p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-4">
+            <div className="space-y-1">
+              <p className="text-xs text-slate-400">Funcionários</p>
+              <p className="text-2xl font-bold text-white">{kpis.numFuncionarios}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
       {/* Lista de Registros */}
-      <div className="space-y-4">
-        {registrosFiltrados.length > 0 ? (
-          registrosFiltrados.map(registro => (
-            <RegistroCard key={registro.id} registro={registro} />
-          ))
-        ) : (
-          <Card className="bg-slate-900/60 border-slate-700/50">
-            <CardContent className="p-8 text-center">
-              <BookOpen className="h-12 w-12 text-slate-600 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-slate-300">Nenhum registro encontrado</h3>
-              <p className="text-slate-500 mt-1">Não há registros para esta data e filtros selecionados.</p>
-              <Button
-                className="mt-4 bg-gradient-to-r from-indigo-500 to-purple-500"
-                onClick={() => setDialogOpen(true)}
-              >
-                <Plus className="h-4 w-4 mr-2" />
-                Criar Primeiro Registro
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+      {loading ? (
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-8 text-center">
+            <Loader className="h-8 w-8 text-slate-500 mx-auto animate-spin" />
+            <p className="text-slate-400 mt-4">Carregando registros...</p>
+          </CardContent>
+        </Card>
+      ) : registros.length > 0 ? (
+        <div className="space-y-4">
+          {registros.map(registro => (
+            <DiarioRegistroCard
+              key={registro.id}
+              registro={registro}
+              etapa={selectedEtapa}
+              onEdit={(reg) => {
+                setEditingRegistro(reg);
+                setDialogOpen(true);
+              }}
+              onDelete={handleDeleteRegistro}
+            />
+          ))}
+        </div>
+      ) : (
+        <Card className="bg-slate-900/60 border-slate-700/50">
+          <CardContent className="p-8 text-center">
+            <BookOpen className="h-12 w-12 text-slate-600 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-slate-300">Nenhum registro encontrado</h3>
+            <p className="text-slate-500 mt-1">
+              Não há registros para {ETAPAS_LABELS[selectedEtapa]} nesta data.
+            </p>
+            <Button
+              className={cn(
+                "mt-4 bg-gradient-to-r",
+                selectedEtapa === 'corte' ? 'from-amber-500 to-orange-500' :
+                selectedEtapa === 'fabricacao' ? 'from-purple-500 to-indigo-500' :
+                selectedEtapa === 'solda' ? 'from-red-500 to-rose-500' :
+                'from-cyan-500 to-blue-500'
+              )}
+              onClick={() => setDialogOpen(true)}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Criar Primeiro Registro
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

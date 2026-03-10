@@ -1,0 +1,186 @@
+/**
+ * MONTEX ERP - Utilitários de Cálculo de Produção
+ *
+ * Funções centralizadas para cálculos de KG, unidades, eficiência
+ * e valores financeiros por etapa de produção.
+ */
+
+// Valores por etapa (R$/kg)
+export const VALORES_ETAPA = {
+  corte: 1.20,
+  fabricacao: 2.50,
+  solda: 3.00,
+  pintura: 1.80,
+};
+
+// Labels das etapas
+export const ETAPAS_LABELS = {
+  corte: 'Corte',
+  fabricacao: 'Fabricação',
+  solda: 'Solda',
+  pintura: 'Pintura',
+  expedido: 'Expedição',
+};
+
+// Cores por etapa
+export const ETAPAS_CORES = {
+  corte: { bg: 'from-amber-500/20 to-orange-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
+  fabricacao: { bg: 'from-purple-500/20 to-indigo-500/20', text: 'text-purple-400', border: 'border-purple-500/30' },
+  solda: { bg: 'from-red-500/20 to-rose-500/20', text: 'text-red-400', border: 'border-red-500/30' },
+  pintura: { bg: 'from-cyan-500/20 to-blue-500/20', text: 'text-cyan-400', border: 'border-cyan-500/30' },
+  expedido: { bg: 'from-emerald-500/20 to-green-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30' },
+};
+
+/**
+ * Calcular valor financeiro por etapa
+ * @param {number} kg - Peso em kg
+ * @param {string} etapa - Nome da etapa (corte, fabricacao, solda, pintura)
+ * @returns {number} Valor em R$
+ */
+export function calcularValorPorEtapa(kg, etapa) {
+  const valor = VALORES_ETAPA[etapa] || 0;
+  return Math.round(((kg || 0) * valor) * 100) / 100;
+}
+
+/**
+ * Calcular eficiência (% realizado vs meta)
+ * @param {number} realizado
+ * @param {number} meta
+ * @returns {number} Percentual 0-100+
+ */
+export function calcularEficiencia(realizado, meta) {
+  if (!meta || meta <= 0) return 0;
+  return Math.round((realizado / meta) * 100);
+}
+
+/**
+ * Agregar histórico de produção por etapa para um funcionário
+ * @param {Array} historico - Registros de producao_historico
+ * @param {Array} pecas - Registros de pecas_producao (com peso_total)
+ * @returns {Object} Métricas por etapa
+ */
+export function agregarPorEtapa(historico, pecas = []) {
+  const etapas = { corte: { unidades: 0, kg: 0 }, fabricacao: { unidades: 0, kg: 0 }, solda: { unidades: 0, kg: 0 }, pintura: { unidades: 0, kg: 0 } };
+
+  // Criar mapa de peças para lookup rápido de peso
+  const pecaMap = new Map();
+  pecas.forEach(p => {
+    pecaMap.set(p.id, {
+      peso: p.peso_total || p.peso_unitario || 0,
+      quantidade: p.quantidade || 1,
+    });
+  });
+
+  historico.forEach(h => {
+    const etapa = h.etapa_para;
+    if (etapas[etapa]) {
+      etapas[etapa].unidades += 1;
+      const pecaInfo = pecaMap.get(h.peca_id);
+      if (pecaInfo) {
+        etapas[etapa].kg += pecaInfo.peso;
+      }
+    }
+  });
+
+  // Calcular valores financeiros
+  Object.keys(etapas).forEach(etapa => {
+    etapas[etapa].kg = Math.round(etapas[etapa].kg * 100) / 100;
+    etapas[etapa].valor = calcularValorPorEtapa(etapas[etapa].kg, etapa);
+  });
+
+  return etapas;
+}
+
+/**
+ * Calcular totais a partir de métricas por etapa
+ * @param {Object} porEtapa - Output de agregarPorEtapa
+ * @returns {Object} Totais consolidados
+ */
+export function calcularTotais(porEtapa) {
+  let totalUnidades = 0;
+  let totalKg = 0;
+  let totalValor = 0;
+
+  Object.values(porEtapa).forEach(e => {
+    totalUnidades += e.unidades;
+    totalKg += e.kg;
+    totalValor += e.valor || 0;
+  });
+
+  return {
+    unidades: totalUnidades,
+    kg: Math.round(totalKg * 100) / 100,
+    valorTotal: Math.round(totalValor * 100) / 100,
+  };
+}
+
+/**
+ * Agregar histórico por dia para gráfico de tendência
+ * @param {Array} historico
+ * @returns {Array} [{ data: '2026-02-10', unidades: 5, kg: 120.5 }, ...]
+ */
+export function agregarPorDia(historico) {
+  const porDia = {};
+  historico.forEach(h => {
+    const dia = h.data_inicio ? h.data_inicio.substring(0, 10) : null;
+    if (!dia) return;
+    if (!porDia[dia]) porDia[dia] = { data: dia, unidades: 0, kg: 0 };
+    porDia[dia].unidades += 1;
+  });
+  return Object.values(porDia).sort((a, b) => a.data.localeCompare(b.data));
+}
+
+/**
+ * Calcular tendência (alta, estável, baixa) baseado nos últimos N dias
+ * @param {Array} dadosDiarios - Saída de agregarPorDia
+ * @returns {string} 'alta' | 'estavel' | 'baixa'
+ */
+export function calcularTendencia(dadosDiarios) {
+  if (dadosDiarios.length < 5) return 'estavel';
+  const metade = Math.floor(dadosDiarios.length / 2);
+  const primeiraParte = dadosDiarios.slice(0, metade);
+  const segundaParte = dadosDiarios.slice(metade);
+  const mediaPrimeira = primeiraParte.reduce((s, d) => s + d.unidades, 0) / primeiraParte.length;
+  const mediaSegunda = segundaParte.reduce((s, d) => s + d.unidades, 0) / segundaParte.length;
+  const diff = mediaSegunda - mediaPrimeira;
+  if (diff > mediaPrimeira * 0.1) return 'alta';
+  if (diff < -mediaPrimeira * 0.1) return 'baixa';
+  return 'estavel';
+}
+
+/**
+ * Obter cor de eficiência
+ */
+export function getEficienciaCor(valor) {
+  if (valor >= 90) return 'text-emerald-400';
+  if (valor >= 75) return 'text-blue-400';
+  if (valor >= 60) return 'text-amber-400';
+  return 'text-red-400';
+}
+
+/**
+ * Obter cor de badge de eficiência
+ */
+export function getEficienciaBadge(valor) {
+  if (valor >= 90) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+  if (valor >= 75) return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+  if (valor >= 60) return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+  return 'bg-red-500/20 text-red-400 border-red-500/30';
+}
+
+/**
+ * Formatar peso em KG
+ */
+export function formatKg(valor) {
+  if (!valor) return '0 kg';
+  if (valor >= 1000) return `${(valor / 1000).toFixed(1)}t`;
+  return `${valor.toFixed(1)} kg`;
+}
+
+/**
+ * Formatar valor em R$
+ */
+export function formatReais(valor) {
+  if (!valor) return 'R$ 0,00';
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor);
+}
