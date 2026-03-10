@@ -2521,29 +2521,41 @@ export const expedicoes = [
 // ========================================
 
 export const funcionarios = [
-  // Funcionários MONTEX - Importados das planilhas oficiais (salários atualizados dez/2024)
-  { id: 'FUNC001', nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', setor: 'geral', equipeId: null, salario: 3322, admissao: '2023-01-15', ativo: true },
-  { id: 'FUNC002', nome: 'Diego Alves da Silva', cargo: 'Montador I', setor: 'montagem', equipeId: 'EQP003', salario: 4628, admissao: '2022-06-01', ativo: true },
-  { id: 'FUNC003', nome: 'David Barbosa de Souza', cargo: 'Coordenador de Produção', setor: 'producao', equipeId: 'EQP001', salario: 4388, admissao: '2019-03-10', ativo: true },
-  { id: 'FUNC004', nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', setor: 'montagem', equipeId: 'EQP003', salario: 5217, admissao: '2022-08-15', ativo: true },
-  { id: 'FUNC005', nome: 'Derlei Gobbi', cargo: 'Montador I', setor: 'montagem', equipeId: 'EQP003', salario: 3500, admissao: '2021-11-20', ativo: true },
-  { id: 'FUNC006', nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', setor: 'montagem', equipeId: 'EQP003', salario: 2800, admissao: '2023-02-01', ativo: true },
-  { id: 'FUNC007', nome: 'Flavio da Cruz', cargo: 'Instalador Esquadrias Alumínio', setor: 'fabricacao', equipeId: 'EQP001', salario: 6623, admissao: '2020-05-10', ativo: true },
-  { id: 'FUNC008', nome: 'Flavio de Jesus Santos', cargo: 'Líder de Produção', setor: 'producao', equipeId: 'EQP001', salario: 5559, admissao: '2018-09-01', ativo: true },
-  { id: 'FUNC009', nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', setor: 'solda', equipeId: 'EQP001', salario: 6411, admissao: '2017-06-15', ativo: true },
-  { id: 'FUNC010', nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', setor: 'montagem', equipeId: 'EQP003', salario: 4628, admissao: '2022-04-20', ativo: true },
-  { id: 'FUNC011', nome: 'Jeferson Bruno de O. Costa', cargo: 'Montador III', setor: 'montagem', equipeId: 'EQP003', salario: 6833, admissao: '2019-08-10', ativo: true },
-  { id: 'FUNC012', nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', setor: 'fabricacao', equipeId: 'EQP001', salario: 9776, admissao: '2018-11-05', ativo: true },
-  { id: 'FUNC013', nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', setor: 'montagem', equipeId: 'EQP003', salario: 2100, admissao: '2023-05-15', ativo: true },
-  { id: 'FUNC014', nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', setor: 'montagem', equipeId: 'EQP004', salario: 4628, admissao: '2022-10-01', ativo: true },
-  { id: 'FUNC015', nome: 'Juscelio Rodrigues de Souza', cargo: 'Soldador I', setor: 'solda', equipeId: 'EQP001', salario: 5440, admissao: '2020-02-20', ativo: true },
-  { id: 'FUNC016', nome: 'Juscelio Rodrigues', cargo: 'Montador III', setor: 'montagem', equipeId: 'EQP003', salario: 6245, admissao: '2018-04-10', ativo: true },
-  { id: 'FUNC017', nome: 'Luiz Barbosa Ferrera', cargo: 'Soldador I', setor: 'solda', equipeId: 'EQP001', salario: 5440, admissao: '2019-07-15', ativo: true },
-  { id: 'FUNC018', nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', setor: 'fabricacao', equipeId: 'EQP001', salario: 7881, admissao: '2017-09-01', ativo: true },
-  { id: 'FUNC019', nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', setor: 'geral', equipeId: null, salario: 3496, admissao: '2021-03-10', ativo: true },
-  { id: 'FUNC020', nome: 'Waldercy Miranda', cargo: 'Montador II', setor: 'montagem', equipeId: 'EQP003', salario: 6245, admissao: '2019-12-05', ativo: true },
-  { id: 'FUNC021', nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', setor: 'montagem', equipeId: 'EQP004', salario: 3496, admissao: '2023-03-20', ativo: true },
-  { id: 'FUNC022', nome: 'Whashington de Oliveira', cargo: 'Encarregado de Campo II', setor: 'producao', equipeId: 'EQP003', salario: 7096, admissao: '2016-11-15', ativo: true }
+  // === EQUIPE PINTURA (EQP001) ===
+  { id: 'FUNC301', nome: 'Anderson Marçal Silva', cargo: 'Pintor', setor: 'pintura', equipeId: 'EQP001', salario: 6000, admissao: '2025-01-10', ativo: true },
+  { id: 'FUNC302', nome: 'Flávio Pereira Miranda', cargo: 'Pintor', setor: 'pintura', equipeId: 'EQP001', salario: 5600, admissao: '2025-01-10', ativo: true },
+  { id: 'FUNC303', nome: 'José Elvécio Mariano', cargo: 'Pintor', setor: 'pintura', equipeId: 'EQP001', salario: 5000, admissao: '2025-01-10', ativo: true },
+  // === EQUIPE SOLDA (EQP002) ===
+  { id: 'FUNC109', nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', setor: 'solda', equipeId: 'EQP002', salario: 3368.98, admissao: '2018-07-02', ativo: true },
+  { id: 'FUNC124', nome: 'Juscélio Rodrigues de Souza', cargo: 'Soldador', setor: 'solda', equipeId: 'EQP002', salario: 2859.14, admissao: '2020-07-14', ativo: true },
+  { id: 'FUNC170', nome: 'Luiz Barbosa Ferreira', cargo: 'Soldador', setor: 'solda', equipeId: 'EQP002', salario: 2859.14, admissao: '2023-02-13', ativo: true },
+  { id: 'FUNC203', nome: 'Daniel Vinícius de Souza Silva', cargo: 'Soldador I', setor: 'solda', equipeId: 'EQP002', salario: 2859.14, admissao: '2025-04-03', ativo: true },
+  // === EQUIPE MONTAGEM DE CAMPO (EQP003) ===
+  { id: 'FUNC117', nome: 'Washington de Oliveira', cargo: 'Encarregado de Campo II', setor: 'montagem_campo', equipeId: 'EQP003', salario: 4133.86, admissao: '2018-11-01', ativo: true },
+  { id: 'FUNC100', nome: 'Jeferson Bruno de Oliveira Costa', cargo: 'Montador Estrut Metal III', setor: 'montagem_campo', equipeId: 'EQP003', salario: 3591.01, admissao: '2016-01-04', ativo: true },
+  { id: 'FUNC112', nome: 'Waldercy Miranda', cargo: 'Montador de Estrut Met II', setor: 'montagem_campo', equipeId: 'EQP003', salario: 3281.80, admissao: '2018-08-01', ativo: true },
+  { id: 'FUNC166', nome: 'Juscélio Rodrigues', cargo: 'Montador Estrut Metal III', setor: 'montagem_campo', equipeId: 'EQP003', salario: 3591.01, admissao: '2022-11-23', ativo: true },
+  { id: 'FUNC191', nome: 'Derlei Gobbi', cargo: 'Montador Estrut Metal III', setor: 'montagem_campo', equipeId: 'EQP003', salario: 3591.01, admissao: '2025-10-14', ativo: true },
+  { id: 'FUNC151', nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', setor: 'montagem_campo', equipeId: 'EQP003', salario: 2741.86, admissao: '2022-06-01', ativo: true },
+  { id: 'FUNC152', nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', setor: 'montagem_campo', equipeId: 'EQP003', salario: 2741.86, admissao: '2022-06-01', ativo: true },
+  { id: 'FUNC169', nome: 'Diego Alves da Silva', cargo: 'Montador I', setor: 'montagem_campo', equipeId: 'EQP003', salario: 2741.86, admissao: '2023-02-13', ativo: true },
+  { id: 'FUNC162', nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', setor: 'montagem_campo', equipeId: 'EQP003', salario: 2432.14, admissao: '2022-10-24', ativo: true },
+  { id: 'FUNC190', nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', setor: 'montagem_campo', equipeId: 'EQP003', salario: 2432.01, admissao: '2025-03-20', ativo: true },
+  { id: 'FUNC175', nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', setor: 'montagem_campo', equipeId: 'EQP003', salario: 2432.14, admissao: '2023-04-04', ativo: true },
+  { id: 'FUNC188', nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', setor: 'montagem_campo', equipeId: 'EQP003', salario: 1837.63, admissao: '2025-02-21', ativo: true },
+  { id: 'FUNC204', nome: 'Arquiris Junior Rodrigues', cargo: 'Ajudante de Montagem', setor: 'montagem_campo', equipeId: 'EQP003', salario: 1837.63, admissao: '2025-04-03', ativo: true },
+  { id: 'FUNC208', nome: 'Matheus André Celestino dos Santos', cargo: 'Ajudante de Montagem', setor: 'montagem_campo', equipeId: 'EQP003', salario: 1837.63, admissao: '2025-06-10', ativo: true },
+  // === EQUIPE FABRICAÇÃO (EQP004) ===
+  { id: 'FUNC110', nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', setor: 'fabricacao', equipeId: 'EQP004', salario: 5137.71, admissao: '2018-07-02', ativo: true },
+  { id: 'FUNC153', nome: 'Flávio da Cruz', cargo: 'Instalador Esquadrias Alumínio', setor: 'fabricacao', equipeId: 'EQP004', salario: 3480.70, admissao: '2022-06-03', ativo: true },
+  { id: 'FUNC140', nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', setor: 'fabricacao', equipeId: 'EQP004', salario: 4141.86, admissao: '2021-04-15', ativo: true },
+  // === ADMINISTRATIVO PRODUÇÃO (EQP005) ===
+  { id: 'FUNC126', nome: 'Flávio de Jesus Santos', cargo: 'Líder de Produção', setor: 'adm_producao', equipeId: 'EQP005', salario: 3587.32, admissao: '2020-07-14', ativo: true },
+  { id: 'FUNC148', nome: 'David Barboza de Sousa', cargo: 'Coordenador de Produção', setor: 'adm_producao', equipeId: 'EQP005', salario: 2700.00, admissao: '2022-04-01', ativo: true },
+  { id: 'FUNC207', nome: 'Letícia Fonseca Soares', cargo: 'Técnico em Segurança do Trabalho', setor: 'adm_producao', equipeId: 'EQP005', salario: 3783.60, admissao: '2025-06-05', ativo: true },
+  // === ADMINISTRATIVO GERAL (EQP006) ===
+  { id: 'FUNC136', nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', setor: 'adm_geral', equipeId: 'EQP006', salario: 1837.63, admissao: '2021-04-09', ativo: true },
+  { id: 'FUNC102', nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', setor: 'adm_geral', equipeId: 'EQP006', salario: 1900.00, admissao: '2016-07-01', ativo: true }
 ];
 
 // ========================================
@@ -2551,10 +2563,12 @@ export const funcionarios = [
 // ========================================
 
 export const equipes = [
-  { id: 'EQP001', nome: 'Equipe Fábrica', tipo: 'producao', lider: 'FUNC003', membros: ['FUNC003', 'FUNC007', 'FUNC008', 'FUNC009', 'FUNC012', 'FUNC015', 'FUNC017', 'FUNC018'], obraAtual: 'OBR001' },
-  { id: 'EQP002', nome: 'Equipe Pintura', tipo: 'pintura', lider: 'FUNC008', membros: [], obraAtual: 'OBR001' },
-  { id: 'EQP003', nome: 'Equipe Montagem Campo', tipo: 'montagem', lider: 'FUNC022', membros: ['FUNC002', 'FUNC004', 'FUNC005', 'FUNC006', 'FUNC010', 'FUNC011', 'FUNC013', 'FUNC016', 'FUNC020', 'FUNC022'], obraAtual: 'OBR001' },
-  { id: 'EQP004', nome: 'Equipe Montagem Interior', tipo: 'montagem', lider: 'FUNC011', membros: ['FUNC014', 'FUNC021'], obraAtual: 'OBR003' }
+  { id: 'EQP001', nome: 'Equipe Pintura', tipo: 'pintura', lider: 'FUNC301', membros: ['FUNC301', 'FUNC302', 'FUNC303'], obraAtual: 'OBR001' },
+  { id: 'EQP002', nome: 'Equipe Solda', tipo: 'solda', lider: 'FUNC109', membros: ['FUNC109', 'FUNC124', 'FUNC170', 'FUNC203'], obraAtual: 'OBR001' },
+  { id: 'EQP003', nome: 'Equipe Montagem de Campo', tipo: 'montagem_campo', lider: 'FUNC117', membros: ['FUNC117', 'FUNC100', 'FUNC112', 'FUNC166', 'FUNC191', 'FUNC151', 'FUNC152', 'FUNC169', 'FUNC162', 'FUNC190', 'FUNC175', 'FUNC188', 'FUNC204', 'FUNC208'], obraAtual: 'OBR001' },
+  { id: 'EQP004', nome: 'Equipe Fabricação', tipo: 'fabricacao', lider: 'FUNC110', membros: ['FUNC110', 'FUNC153', 'FUNC140'], obraAtual: 'OBR001' },
+  { id: 'EQP005', nome: 'Administrativo Produção', tipo: 'adm_producao', lider: 'FUNC126', membros: ['FUNC126', 'FUNC148', 'FUNC207'], obraAtual: null },
+  { id: 'EQP006', nome: 'Administrativo Geral', tipo: 'adm_geral', lider: 'FUNC102', membros: ['FUNC136', 'FUNC102'], obraAtual: null }
 ];
 
 // ========================================

@@ -34,46 +34,62 @@ import {
 import { useEquipes } from '@/contexts/ERPContext';
 
 // Setores disponíveis
-const SETORES = ['Geral', 'Produção', 'Fabricação', 'Solda', 'Pintura', 'Montagem', 'Expedição', 'Administrativo'];
+const SETORES = ['Pintura', 'Solda', 'Montagem de Campo', 'Fabricação', 'Administrativo Produção', 'Administrativo Geral'];
 const TIPOS_EQUIPE = [
-  { value: 'producao', label: 'Produção / Fábrica' },
   { value: 'pintura', label: 'Pintura' },
-  { value: 'montagem', label: 'Montagem' },
   { value: 'solda', label: 'Solda' },
-  { value: 'expedicao', label: 'Expedição' },
+  { value: 'montagem_campo', label: 'Montagem de Campo' },
+  { value: 'fabricacao', label: 'Fabricação' },
+  { value: 'adm_producao', label: 'Administrativo Produção' },
+  { value: 'adm_geral', label: 'Administrativo Geral' },
 ];
 
 // Dados mock fallback caso ERPContext não tenha dados
 const mockFuncionarios = [
-  { id: 'FUNC001', nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', setor: 'Geral', equipeId: null, equipeNome: '-', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0 },
-  { id: 'FUNC002', nome: 'Diego Alves da Silva', cargo: 'Montador I', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 85, eficiencia: 88, qualidade: 96 },
-  { id: 'FUNC003', nome: 'David Barbosa de Souza', cargo: 'Coordenador de Produção', setor: 'Produção', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0 },
-  { id: 'FUNC004', nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 92, eficiencia: 91, qualidade: 97 },
-  { id: 'FUNC005', nome: 'Derlei Gobbi', cargo: 'Montador I', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 78, eficiencia: 82, qualidade: 94 },
-  { id: 'FUNC006', nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 55, eficiencia: 76, qualidade: 92 },
-  { id: 'FUNC007', nome: 'Flavio da Cruz', cargo: 'Instalador Esquadrias Alumínio', setor: 'Fabricação', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 68, eficiencia: 89, qualidade: 98 },
-  { id: 'FUNC008', nome: 'Flavio de Jesus Santos', cargo: 'Líder de Produção', setor: 'Produção', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 45, eficiencia: 94, qualidade: 99 },
-  { id: 'FUNC009', nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', setor: 'Solda', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 110, eficiencia: 96, qualidade: 98 },
-  { id: 'FUNC010', nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 82, eficiencia: 85, qualidade: 95 },
-  { id: 'FUNC011', nome: 'Jeferson Bruno de O. Costa', cargo: 'Montador III', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 120, eficiencia: 97, qualidade: 99 },
-  { id: 'FUNC012', nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', setor: 'Fabricação', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 95, eficiencia: 93, qualidade: 97 },
-  { id: 'FUNC013', nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 40, eficiencia: 72, qualidade: 90 },
-  { id: 'FUNC014', nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', setor: 'Montagem', equipeId: 'EQP004', equipeNome: 'Equipe Montagem Interior', status: 'ativo', ativo: true, pecasMes: 58, eficiencia: 78, qualidade: 93 },
-  { id: 'FUNC015', nome: 'Juscelio Rodrigues de Souza', cargo: 'Soldador I', setor: 'Solda', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 88, eficiencia: 90, qualidade: 96 },
-  { id: 'FUNC016', nome: 'Juscelio Rodrigues', cargo: 'Montador III', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 115, eficiencia: 95, qualidade: 98 },
-  { id: 'FUNC017', nome: 'Luiz Barbosa Ferrera', cargo: 'Soldador I', setor: 'Solda', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 85, eficiencia: 88, qualidade: 95 },
-  { id: 'FUNC018', nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', setor: 'Fabricação', equipeId: 'EQP001', equipeNome: 'Equipe Fábrica', status: 'ativo', ativo: true, pecasMes: 72, eficiencia: 91, qualidade: 97 },
-  { id: 'FUNC019', nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', setor: 'Geral', equipeId: null, equipeNome: '-', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0 },
-  { id: 'FUNC020', nome: 'Waldercy Miranda', cargo: 'Montador II', setor: 'Montagem', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 98, eficiencia: 92, qualidade: 96 },
-  { id: 'FUNC021', nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', setor: 'Montagem', equipeId: 'EQP004', equipeNome: 'Equipe Montagem Interior', status: 'ativo', ativo: true, pecasMes: 52, eficiencia: 75, qualidade: 91 },
-  { id: 'FUNC022', nome: 'Whashington de Oliveira', cargo: 'Encarregado de Campo II', setor: 'Produção', equipeId: 'EQP003', equipeNome: 'Equipe Montagem Campo', status: 'ativo', ativo: true, pecasMes: 35, eficiencia: 93, qualidade: 99 },
+  // === EQUIPE PINTURA ===
+  { id: 'FUNC301', nome: 'Anderson Marçal Silva', cargo: 'Pintor', setor: 'Pintura', equipeId: 'EQP001', equipeNome: 'Equipe Pintura', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 85, qualidade: 92, salario: 6000 },
+  { id: 'FUNC302', nome: 'Flávio Pereira Miranda', cargo: 'Pintor', setor: 'Pintura', equipeId: 'EQP001', equipeNome: 'Equipe Pintura', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 83, qualidade: 90, salario: 5600 },
+  { id: 'FUNC303', nome: 'José Elvécio Mariano', cargo: 'Pintor', setor: 'Pintura', equipeId: 'EQP001', equipeNome: 'Equipe Pintura', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 80, qualidade: 88, salario: 5000 },
+  // === EQUIPE SOLDA ===
+  { id: 'FUNC109', nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', setor: 'Solda', equipeId: 'EQP002', equipeNome: 'Equipe Solda', status: 'ativo', ativo: true, pecasMes: 110, eficiencia: 96, qualidade: 98, salario: 3368.98 },
+  { id: 'FUNC124', nome: 'Juscélio Rodrigues de Souza', cargo: 'Soldador', setor: 'Solda', equipeId: 'EQP002', equipeNome: 'Equipe Solda', status: 'ativo', ativo: true, pecasMes: 88, eficiencia: 90, qualidade: 96, salario: 2859.14 },
+  { id: 'FUNC170', nome: 'Luiz Barbosa Ferreira', cargo: 'Soldador', setor: 'Solda', equipeId: 'EQP002', equipeNome: 'Equipe Solda', status: 'ativo', ativo: true, pecasMes: 85, eficiencia: 88, qualidade: 95, salario: 2859.14 },
+  { id: 'FUNC203', nome: 'Daniel Vinícius de Souza Silva', cargo: 'Soldador I', setor: 'Solda', equipeId: 'EQP002', equipeNome: 'Equipe Solda', status: 'ativo', ativo: true, pecasMes: 75, eficiencia: 84, qualidade: 93, salario: 2859.14 },
+  // === EQUIPE MONTAGEM DE CAMPO ===
+  { id: 'FUNC117', nome: 'Washington de Oliveira', cargo: 'Encarregado de Campo II', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 35, eficiencia: 93, qualidade: 99, salario: 4133.86 },
+  { id: 'FUNC100', nome: 'Jeferson Bruno de Oliveira Costa', cargo: 'Montador Estrut Metal III', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 120, eficiencia: 97, qualidade: 99, salario: 3591.01 },
+  { id: 'FUNC112', nome: 'Waldercy Miranda', cargo: 'Montador de Estrut Met II', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 98, eficiencia: 92, qualidade: 96, salario: 3281.80 },
+  { id: 'FUNC166', nome: 'Juscélio Rodrigues', cargo: 'Montador Estrut Metal III', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 115, eficiencia: 95, qualidade: 98, salario: 3591.01 },
+  { id: 'FUNC191', nome: 'Derlei Gobbi', cargo: 'Montador Estrut Metal III', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 78, eficiencia: 82, qualidade: 94, salario: 3591.01 },
+  { id: 'FUNC151', nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 92, eficiencia: 91, qualidade: 97, salario: 2741.86 },
+  { id: 'FUNC152', nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 82, eficiencia: 85, qualidade: 95, salario: 2741.86 },
+  { id: 'FUNC169', nome: 'Diego Alves da Silva', cargo: 'Montador I', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 85, eficiencia: 88, qualidade: 96, salario: 2741.86 },
+  { id: 'FUNC162', nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 58, eficiencia: 78, qualidade: 93, salario: 2432.14 },
+  { id: 'FUNC190', nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 55, eficiencia: 76, qualidade: 92, salario: 2432.01 },
+  { id: 'FUNC175', nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ferias', ativo: true, pecasMes: 52, eficiencia: 75, qualidade: 91, salario: 2432.14 },
+  { id: 'FUNC188', nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 40, eficiencia: 72, qualidade: 90, salario: 1837.63 },
+  { id: 'FUNC204', nome: 'Arquiris Junior Rodrigues', cargo: 'Ajudante de Montagem', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 38, eficiencia: 70, qualidade: 89, salario: 1837.63 },
+  { id: 'FUNC208', nome: 'Matheus André Celestino dos Santos', cargo: 'Ajudante de Montagem', setor: 'Montagem de Campo', equipeId: 'EQP003', equipeNome: 'Equipe Montagem de Campo', status: 'ativo', ativo: true, pecasMes: 36, eficiencia: 68, qualidade: 88, salario: 1837.63 },
+  // === EQUIPE FABRICAÇÃO ===
+  { id: 'FUNC110', nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', setor: 'Fabricação', equipeId: 'EQP004', equipeNome: 'Equipe Fabricação', status: 'ativo', ativo: true, pecasMes: 95, eficiencia: 93, qualidade: 97, salario: 5137.71 },
+  { id: 'FUNC153', nome: 'Flávio da Cruz', cargo: 'Instalador Esquadrias Alumínio', setor: 'Fabricação', equipeId: 'EQP004', equipeNome: 'Equipe Fabricação', status: 'ativo', ativo: true, pecasMes: 68, eficiencia: 89, qualidade: 98, salario: 3480.70 },
+  { id: 'FUNC140', nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', setor: 'Fabricação', equipeId: 'EQP004', equipeNome: 'Equipe Fabricação', status: 'ativo', ativo: true, pecasMes: 72, eficiencia: 91, qualidade: 97, salario: 4141.86 },
+  // === EQUIPE ADMINISTRATIVO PRODUÇÃO ===
+  { id: 'FUNC126', nome: 'Flávio de Jesus Santos', cargo: 'Líder de Produção', setor: 'Administrativo Produção', equipeId: 'EQP005', equipeNome: 'Administrativo Produção', status: 'ativo', ativo: true, pecasMes: 45, eficiencia: 94, qualidade: 99, salario: 3587.32 },
+  { id: 'FUNC148', nome: 'David Barboza de Sousa', cargo: 'Coordenador de Produção', setor: 'Administrativo Produção', equipeId: 'EQP005', equipeNome: 'Administrativo Produção', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0, salario: 2700.00 },
+  { id: 'FUNC207', nome: 'Letícia Fonseca Soares', cargo: 'Técnico em Segurança do Trabalho', setor: 'Administrativo Produção', equipeId: 'EQP005', equipeNome: 'Administrativo Produção', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0, salario: 3783.60 },
+  // === EQUIPE ADMINISTRATIVO GERAL ===
+  { id: 'FUNC136', nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', setor: 'Administrativo Geral', equipeId: 'EQP006', equipeNome: 'Administrativo Geral', status: 'ferias', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0, salario: 1837.63 },
+  { id: 'FUNC102', nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', setor: 'Administrativo Geral', equipeId: 'EQP006', equipeNome: 'Administrativo Geral', status: 'ativo', ativo: true, pecasMes: 0, eficiencia: 0, qualidade: 0, salario: 1900.00 },
 ];
 
 const mockEquipes = [
-  { id: 'EQP001', nome: 'Equipe Fábrica', tipo: 'producao', liderId: 'FUNC003', liderNome: 'David Barbosa de Souza', turno: 'Diurno', setor: 'Fabricação', metaMes: 600, producaoMes: 563, eficiencia: 92, ativa: true },
-  { id: 'EQP002', nome: 'Equipe Pintura', tipo: 'pintura', liderId: 'FUNC008', liderNome: 'Flavio de Jesus Santos', turno: 'Diurno', setor: 'Pintura', metaMes: 140, producaoMes: 120, eficiencia: 85, ativa: true },
-  { id: 'EQP003', nome: 'Equipe Montagem Campo', tipo: 'montagem', liderId: 'FUNC022', liderNome: 'Whashington de Oliveira', turno: 'Diurno', setor: 'Montagem', metaMes: 850, producaoMes: 745, eficiencia: 89, ativa: true },
-  { id: 'EQP004', nome: 'Equipe Montagem Interior', tipo: 'montagem', liderId: 'FUNC011', liderNome: 'Jeferson Bruno de O. Costa', turno: 'Diurno', setor: 'Montagem', metaMes: 150, producaoMes: 110, eficiencia: 77, ativa: true },
+  { id: 'EQP001', nome: 'Equipe Pintura', tipo: 'pintura', liderId: 'FUNC301', liderNome: 'Anderson Marçal Silva', turno: 'Diurno', setor: 'Pintura', metaMes: 140, producaoMes: 120, eficiencia: 85, ativa: true },
+  { id: 'EQP002', nome: 'Equipe Solda', tipo: 'solda', liderId: 'FUNC109', liderNome: 'Gilmar Sousa da Silva', turno: 'Diurno', setor: 'Solda', metaMes: 400, producaoMes: 358, eficiencia: 90, ativa: true },
+  { id: 'EQP003', nome: 'Equipe Montagem de Campo', tipo: 'montagem_campo', liderId: 'FUNC117', liderNome: 'Washington de Oliveira', turno: 'Diurno', setor: 'Montagem de Campo', metaMes: 900, producaoMes: 784, eficiencia: 87, ativa: true },
+  { id: 'EQP004', nome: 'Equipe Fabricação', tipo: 'fabricacao', liderId: 'FUNC110', liderNome: 'João Ermelindo Soares', turno: 'Diurno', setor: 'Fabricação', metaMes: 280, producaoMes: 235, eficiencia: 91, ativa: true },
+  { id: 'EQP005', nome: 'Administrativo Produção', tipo: 'adm_producao', liderId: 'FUNC126', liderNome: 'Flávio de Jesus Santos', turno: 'Diurno', setor: 'Administrativo Produção', metaMes: 0, producaoMes: 0, eficiencia: 94, ativa: true },
+  { id: 'EQP006', nome: 'Administrativo Geral', tipo: 'adm_geral', liderId: 'FUNC102', liderNome: 'Tarcísio Vieira de Almeida', turno: 'Diurno', setor: 'Administrativo Geral', metaMes: 0, producaoMes: 0, eficiencia: 0, ativa: true },
 ];
 
 const getStatusColor = (status) => {
