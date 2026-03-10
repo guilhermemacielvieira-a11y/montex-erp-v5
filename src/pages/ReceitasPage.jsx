@@ -69,7 +69,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { useLancamentos, useObras } from '../contexts/ERPContext';
+import { useMedicoes, useObras } from '../contexts/ERPContext';
 
 // ========== STORAGE INDEPENDENTE ==========
 const STORAGE_KEY = 'montex_receitas_gerais';
@@ -85,14 +85,11 @@ const categoriasReceita = [
   { id: 7, nome: 'Outros', cor: '#64748b' },
 ];
 
-// Tipos de lançamento da Gestão Financeira Obra que são receitas
-const TIPOS_RECEITA_OBRA = [
-  'medicao_fabricacao',
-  'medicao_montagem',
-  'adiantamento',
-  'material_faturado',
-  'receita',
-];
+// Mapeamento de etapa de medição para label
+const ETAPA_LABELS = {
+  fabricacao: 'Fabricação',
+  montagem: 'Montagem',
+};
 
 const formatCurrency = (value) => {
   return new Intl.NumberFormat('pt-BR', {
@@ -134,32 +131,19 @@ const getCategoriaColor = (nome) => {
   return cat?.cor || '#64748b';
 };
 
-// Mapear tipo de lançamento da obra para categoria de receita
-const mapTipoToCategoria = (tipo) => {
-  switch (tipo) {
-    case 'medicao_fabricacao': return 'Medição';
-    case 'medicao_montagem': return 'Medição';
-    case 'adiantamento': return 'Adiantamento';
-    case 'material_faturado': return 'Material Faturado';
-    case 'receita': return 'Outros';
-    default: return 'Outros';
-  }
-};
-
-const mapTipoLabel = (tipo) => {
-  switch (tipo) {
-    case 'medicao_fabricacao': return 'Medição Fabricação';
-    case 'medicao_montagem': return 'Medição Montagem';
-    case 'adiantamento': return 'Adiantamento';
-    case 'material_faturado': return 'Material Faturado';
-    case 'receita': return 'Receita';
-    default: return tipo || '-';
+// Mapear etapa de medição para categoria de receita
+const mapEtapaToCategoria = (etapa, isAvulsa) => {
+  if (isAvulsa) return 'Serviço Avulso';
+  switch (etapa) {
+    case 'fabricacao': return 'Medição';
+    case 'montagem': return 'Medição';
+    default: return 'Medição';
   }
 };
 
 export default function ReceitasPage() {
-  // ERPContext - para puxar receitas da Gestão Financeira Obra + nome das obras
-  const { lancamentosDespesas } = useLancamentos();
+  // ERPContext - puxar MEDIÇÕES da Gestão Financeira Obra + nome das obras
+  const { medicoes: todasMedicoes } = useMedicoes();
   const { obras } = useObras();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -201,7 +185,7 @@ export default function ReceitasPage() {
     }
   }, []);
 
-  // Carregar receitas: localStorage (manuais) + ERPContext (obras)
+  // Carregar receitas: localStorage (manuais) + MEDIÇÕES da Gestão Financeira Obra
   useEffect(() => {
     const todasReceitas = [];
 
@@ -213,34 +197,30 @@ export default function ReceitasPage() {
       console.warn('Erro ao carregar receitas:', e);
     }
 
-    // 2. Receitas automáticas da Gestão Financeira Obra
-    if (lancamentosDespesas && lancamentosDespesas.length > 0) {
-      const receitasObra = lancamentosDespesas.filter(l =>
-        TIPOS_RECEITA_OBRA.includes(l.tipo) ||
-        l.tipo === 'receita' ||
-        l.categoria === 'receita' ||
-        l.categoria === 'Medição' ||
-        l.categoria === 'Adiantamento'
-      );
+    // 2. APENAS MEDIÇÕES da Gestão Financeira Obra (aba Medições)
+    if (todasMedicoes && todasMedicoes.length > 0) {
       const existingIds = new Set(todasReceitas.map(r => r.id));
-      receitasObra.forEach(l => {
-        if (!existingIds.has(l.id)) {
-          const obraId = l.obraId || l.obra_id;
-          const obraNome = l.obraNome || l.obra_nome || obrasMap[obraId] || '-';
+      todasMedicoes.forEach(m => {
+        if (!existingIds.has(m.id)) {
+          const obraId = m.obraId || m.obra_id;
+          const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
+          const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
           todasReceitas.push({
-            id: l.id,
-            data: l.data || l.dataEmissao || l.createdAt || new Date().toISOString().split('T')[0],
-            descricao: l.descricao || l.nome || '-',
-            cliente: l.cliente || l.fornecedor || '-',
-            categoria: mapTipoToCategoria(l.tipo) || l.categoria || 'Outros',
-            tipoOriginal: l.tipo,
-            valor: l.valor || 0,
-            status: l.status || 'pendente',
-            formaPagto: l.formaPagto || l.formaPagamento || '-',
-            vencimento: l.dataVencimento || l.vencimento || l.data || '-',
-            notaFiscal: l.notaFiscal || l.nf || '-',
-            setor: l.setor || '-',
-            observacao: l.observacao || '',
+            id: m.id,
+            data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || new Date().toISOString().split('T')[0],
+            descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
+            cliente: '-',
+            categoria: mapEtapaToCategoria(m.etapa, m.isAvulsa),
+            numero: m.numero,
+            etapa: m.etapa,
+            etapaLabel: etapaLabel,
+            valor: m.valorBruto || m.valor_bruto || 0,
+            valorLiquido: m.valorLiquido || m.valor_liquido || 0,
+            status: m.status === 'pago' || m.status === 'faturado' || m.status === 'confirmado' ? 'recebido' : (m.status || 'pendente'),
+            formaPagto: '-',
+            vencimento: m.dataMedicao || m.data_medicao || '-',
+            setor: m.setor || '-',
+            observacao: m.observacao || m.observacoes || '',
             origemObra: true,
             obraId: obraId,
             obraNome: obraNome,
@@ -250,7 +230,7 @@ export default function ReceitasPage() {
     }
 
     setReceitas(todasReceitas);
-  }, [lancamentosDespesas, obrasMap]);
+  }, [todasMedicoes, obrasMap]);
 
   // Helper: filtrar por período (definido antes dos useMemo)
   const filtrarPorPeriodo = useCallback((lista) => {
@@ -787,10 +767,17 @@ export default function ReceitasPage() {
                     <TableCell className="text-slate-300 text-sm">
                       {receita.data && receita.data !== '-' ? new Date(receita.data).toLocaleDateString('pt-BR') : '-'}
                     </TableCell>
-                    <TableCell className="text-white font-medium max-w-[200px] truncate">
-                      {receita.descricao}
-                      {receita.tipoOriginal && (
-                        <span className="block text-xs text-slate-500">{mapTipoLabel(receita.tipoOriginal)}</span>
+                    <TableCell className="text-white font-medium max-w-[220px]">
+                      <span className="truncate block">{receita.descricao}</span>
+                      {receita.origemObra && receita.numero && (
+                        <span className="block text-xs text-emerald-500">
+                          Medição #{receita.numero} • {receita.etapaLabel || receita.etapa || 'Medição'}
+                        </span>
+                      )}
+                      {receita.origemObra && receita.valorLiquido > 0 && receita.valorLiquido !== receita.valor && (
+                        <span className="block text-xs text-slate-500">
+                          Líquido: {formatCurrency(receita.valorLiquido)}
+                        </span>
                       )}
                     </TableCell>
                     <TableCell className="text-slate-300 text-sm">{receita.cliente || '-'}</TableCell>
