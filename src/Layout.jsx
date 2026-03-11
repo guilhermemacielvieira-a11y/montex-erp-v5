@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { createPageUrl } from './utils';
 import { useAuth, ROLE_COLORS, ROLE_LABELS } from '@/lib/AuthContext';
 import {
@@ -52,7 +52,11 @@ import {
   Sun,
   Moon,
   Maximize2,
-  Command
+  Command,
+  MoreHorizontal,
+  Home,
+  BarChart3,
+  Layers
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -543,6 +547,15 @@ function LayoutContent({ children, currentPageName }) {
     return filteredCategoriesByRole.find(c => c.items.some(i => i.href === currentPageName));
   }, [filteredCategoriesByRole, currentPageName]);
 
+  // Mobile bottom nav items
+  const mobileBottomNav = useMemo(() => [
+    { id: 'home', name: 'Início', icon: Home, href: 'VisaoGeralPage' },
+    { id: 'producao', name: 'Produção', icon: Package, href: 'KanbanProducaoIntegrado' },
+    { id: 'financeiro', name: 'Financeiro', icon: Wallet, href: 'GestaoFinanceiraObra' },
+    { id: 'expedicao', name: 'Expedição', icon: Truck, href: 'EnviosExpedicaoPage' },
+    { id: 'mais', name: 'Mais', icon: MoreHorizontal, href: null },
+  ], []);
+
   return (
     <>
       <CommandPalette onAction={handleCommandAction} />
@@ -555,24 +568,25 @@ function LayoutContent({ children, currentPageName }) {
 
         {/* ============ MOBILE HEADER ============ */}
         <div className="lg:hidden fixed top-0 left-0 right-0 z-50">
-          <div className="h-16 bg-[#0f1422]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-4">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={() => setMobileOpen(!mobileOpen)}
-                className="w-10 h-10 flex items-center justify-center rounded-xl bg-white/5 text-slate-300 hover:text-white hover:bg-white/10 transition-all active:scale-95"
-              >
-                {mobileOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-              </button>
-              <MontexLogoIcon className="w-8 h-8" />
-              <div>
+          <div className="h-14 bg-[#0f1422]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-3">
+            <div className="flex items-center gap-2">
+              <MontexLogoIcon className="w-7 h-7" />
+              <div className="flex items-center">
                 <span className="text-white font-bold text-sm tracking-wide">MONTEX</span>
-                <span className="text-orange-400 text-[10px] font-medium ml-1.5">ERP</span>
+                <span className="text-orange-400 text-[9px] font-bold ml-1">V5</span>
               </div>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex-1 mx-2 flex justify-center">
               <SeletorObra compact />
+            </div>
+            <div className="flex items-center gap-1">
               <NotificationCenter />
-              <ThemeToggle />
+              <button
+                onClick={() => setShowDisplaySettings(true)}
+                className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-white active:scale-95 transition-all"
+              >
+                <Settings className="h-4 w-4" />
+              </button>
             </div>
           </div>
         </div>
@@ -591,17 +605,53 @@ function LayoutContent({ children, currentPageName }) {
           )}
         </AnimatePresence>
 
+        {/* ============ MOBILE BOTTOM NAV ============ */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+          <div className="bg-[#0f1422]/95 backdrop-blur-xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
+            <div className="flex items-center justify-around h-16 px-1">
+              {mobileBottomNav.map((item) => {
+                const isActive = item.href && currentPageName === item.href;
+                const isMore = item.id === 'mais';
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => {
+                      if (isMore) {
+                        setMobileOpen(!mobileOpen);
+                      } else if (item.href) {
+                        window.location.href = createPageUrl(item.href);
+                      }
+                    }}
+                    className={cn(
+                      "flex flex-col items-center justify-center gap-0.5 w-16 h-14 rounded-2xl transition-all active:scale-90",
+                      isActive
+                        ? "text-orange-400"
+                        : isMore && mobileOpen
+                          ? "text-orange-400"
+                          : "text-slate-500"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-10 h-7 flex items-center justify-center rounded-xl transition-all",
+                      isActive ? "bg-orange-500/15" : ""
+                    )}>
+                      <item.icon className={cn("h-5 w-5", isActive && "text-orange-400")} />
+                    </div>
+                    <span className="text-[10px] font-medium leading-none">{item.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {/* ============ SIDEBAR ============ */}
         <aside
           className={cn(
             "fixed top-0 left-0 h-full z-50 flex flex-col transition-all duration-300 ease-in-out",
-            // Background
             "bg-[#0f1422]/95 backdrop-blur-xl",
-            // Border
             "border-r border-white/[0.06]",
-            // Width
             sidebarCollapsed ? "w-[68px]" : "w-[280px]",
-            // Mobile
             "lg:translate-x-0",
             mobileOpen ? "translate-x-0 !w-[280px]" : "-translate-x-full lg:translate-x-0"
           )}
@@ -625,6 +675,16 @@ function LayoutContent({ children, currentPageName }) {
                   <p className="text-slate-500 text-[10px] uppercase tracking-[0.15em] mt-0.5">Enterprise Resource Planning</p>
                 </div>
               </div>
+            )}
+
+            {/* Mobile close button */}
+            {mobileOpen && (
+              <button
+                onClick={() => setMobileOpen(false)}
+                className="lg:hidden w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-all active:scale-95"
+              >
+                <X className="h-5 w-5" />
+              </button>
             )}
 
             {/* Collapse/Expand button */}
@@ -876,7 +936,11 @@ function LayoutContent({ children, currentPageName }) {
         {/* ============ MAIN CONTENT ============ */}
         <main className={cn(
           "min-h-screen transition-all duration-300",
-          "pt-16 lg:pt-16",
+          // Top padding: mobile header (h-14) + desktop header (h-16)
+          "pt-14 lg:pt-16",
+          // Bottom padding: mobile bottom nav bar
+          "pb-20 lg:pb-0",
+          // Left margin: sidebar on desktop
           sidebarCollapsed ? "lg:ml-[68px]" : "lg:ml-[280px]"
         )}>
           <motion.div
@@ -884,9 +948,11 @@ function LayoutContent({ children, currentPageName }) {
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.25, ease: "easeOut" }}
-            className="p-4 lg:p-5"
+            className="p-3 sm:p-4 lg:p-5"
           >
-            <Breadcrumbs />
+            <div className="hidden lg:block">
+              <Breadcrumbs />
+            </div>
             {children}
           </motion.div>
         </main>
