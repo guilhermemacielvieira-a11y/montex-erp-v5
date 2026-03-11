@@ -79,19 +79,19 @@ import SeletorObra from '@/components/erp/SeletorObra';
 import ProgressoObra from '@/components/erp/ProgressoObra';
 import Notificacoes from '@/components/erp/Notificacoes';
 
-// ====== MONTEX LOGO SVG INLINE ======
+// ====== MONTEX LOGO ======
 const MontexLogoIcon = ({ className = "w-9 h-9" }) => (
-  <div className={cn("relative flex-shrink-0", className)}>
+  <div className={cn("relative flex-shrink-0 rounded-xl overflow-hidden bg-white", className)}>
     <img
-      src="/images/proposta/logo-montex.png"
+      src="/images/proposta/logo-m-main.png"
       alt="Montex"
-      className="w-full h-full object-contain"
+      className="w-full h-full object-contain p-0.5"
       onError={(e) => {
         e.target.style.display = 'none';
         e.target.nextSibling.style.display = 'flex';
       }}
     />
-    <div className="w-full h-full bg-gradient-to-br from-orange-500 to-amber-600 rounded-lg items-center justify-center text-white font-black text-lg hidden">
+    <div className="w-full h-full bg-gradient-to-br from-teal-500 to-teal-700 rounded-xl items-center justify-center text-white font-black text-lg hidden">
       M
     </div>
   </div>
@@ -349,7 +349,7 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >
-            <div className="bg-slate-900/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/40 py-2 px-1 min-w-[220px]">
+            <div className="bg-[#22262e]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/40 py-2 px-1 min-w-[220px]">
               <div className={cn("px-3 py-2 text-xs font-bold uppercase tracking-widest mb-1", category.color)}>
                 {category.step && <span className="mr-1 opacity-50">{category.step}.</span>}
                 {category.name}
@@ -572,11 +572,11 @@ function LayoutContent({ children, currentPageName }) {
       <DisplaySettings isOpen={showDisplaySettings} onClose={() => setShowDisplaySettings(false)} />
       <Notificacoes />
 
-      <div className="min-h-screen bg-[#0a0e1a]">
+      <div className="min-h-screen bg-[#1a1d23]">
 
         {/* ============ MOBILE HEADER ============ */}
         <div className="lg:hidden fixed top-0 left-0 right-0 z-50">
-          <div className="h-14 bg-[#0f1422]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-3">
+          <div className="h-14 bg-[#22262e]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-3">
             <div className="flex items-center gap-2">
               <MontexLogoIcon className="w-7 h-7" />
               <div className="flex items-center">
@@ -615,7 +615,7 @@ function LayoutContent({ children, currentPageName }) {
 
         {/* ============ MOBILE BOTTOM NAV ============ */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
-          <div className="bg-[#0f1422]/95 backdrop-blur-xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
+          <div className="bg-[#22262e]/95 backdrop-blur-xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-center justify-around h-16 px-1">
               {mobileBottomNav.map((item) => {
                 const isActive = item.href && currentPageName === item.href;
@@ -657,7 +657,7 @@ function LayoutContent({ children, currentPageName }) {
         <aside
           className={cn(
             "fixed top-0 left-0 h-full z-50 flex flex-col transition-all duration-300 ease-in-out",
-            "bg-[#0f1422]/95 backdrop-blur-xl",
+            "bg-[#22262e]/95 backdrop-blur-xl",
             "border-r border-white/[0.06]",
             sidebarCollapsed ? "w-[68px]" : "w-[280px]",
             "lg:translate-x-0",
@@ -708,7 +708,7 @@ function LayoutContent({ children, currentPageName }) {
             {sidebarCollapsed && !mobileOpen && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#0f1422] border border-white/10 rounded-full hidden lg:flex items-center justify-center text-slate-400 hover:text-white hover:bg-orange-500 hover:border-orange-500 transition-all z-[60] shadow-lg"
+                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#22262e] border border-white/10 rounded-full hidden lg:flex items-center justify-center text-slate-400 hover:text-white hover:bg-orange-500 hover:border-orange-500 transition-all z-[60] shadow-lg"
                 title="Expandir menu"
               >
                 <ChevronRight className="h-3 w-3" />
@@ -889,7 +889,7 @@ function LayoutContent({ children, currentPageName }) {
         {/* ============ TOP BAR (DESKTOP) ============ */}
         <header className={cn(
           "fixed top-0 right-0 h-16 z-40 hidden lg:flex items-center justify-between px-6 transition-all duration-300",
-          "bg-[#0f1422]/80 backdrop-blur-xl border-b border-white/[0.06]",
+          "bg-[#22262e]/80 backdrop-blur-xl border-b border-white/[0.06]",
           sidebarCollapsed ? "left-[68px]" : "left-[280px]"
         )}>
           <div className="flex items-center gap-4">
