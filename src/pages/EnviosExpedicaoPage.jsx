@@ -241,39 +241,114 @@ export default function EnviosExpedicaoPage() {
   }, [pecasSelecionadas, novoEnvio, obraAtiva, addExpedicao, carregarPecasExpedidas, quantidadesEnvio]);
 
   // ==== GERAR ROMANEIO ====
-  const gerarRomaneio = useCallback((envio) => {
-    const pecasEnvio = (envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length;
-    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-    <title>Romaneio - ${envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio'}</title>
-    <style>
-      body{font-family:Arial,sans-serif;margin:20px;color:#333}
-      h1{color:#1a56db;border-bottom:2px solid #1a56db;padding-bottom:8px}
-      table{width:100%;border-collapse:collapse;margin-top:16px}
-      th{background:#1a56db;color:white;padding:8px;text-align:left}
-      td{padding:8px;border-bottom:1px solid #ddd}
-      .info{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;background:#f5f5f5;padding:16px;border-radius:8px}
-      .info p{margin:4px 0}
-      @media print{button{display:none}}
-    </style></head><body>
-    <h1>🚛 Romaneio de Embarque</h1>
-    <div class="info">
-      <div>
-        <p><strong>Número:</strong> ${envio.numero || '-'}</p>
-        <p><strong>Data:</strong> ${envio.data_envio ? new Date(envio.data_envio + 'T12:00:00').toLocaleDateString('pt-BR') : '-'}</p>
-        <p><strong>Transportadora:</strong> ${envio.transportadora || '-'}</p>
+  const gerarRomaneio = useCallback(async (envio) => {
+    try {
+      toast.loading('Gerando Romaneio...', { id: 'romaneio-loading' });
+      const numero = envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio';
+      const dataEnvio = envio.data_envio || envio.dataExpedicao || envio.data_expedicao;
+      const dataFormatada = dataEnvio ? new Date(dataEnvio + 'T12:00:00').toLocaleDateString('pt-BR') : '-';
+      const obraNome = envio.obra_nome || envio.obraNome || envio.destino || '-';
+
+      // Buscar peças completas
+      let pecasCompletas = [];
+      const pecasRaw = envio.pecas_ids || envio.pecasIds || envio.pecas || [];
+      const ids = pecasRaw.map(p => typeof p === 'object' ? (p.id || p) : p);
+      const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || (Array.isArray(envio.pecas) ? envio.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
+      if (ids.length > 0) {
+        const todasPecasRaw = await pecasApi.getAll('id', true);
+        const todasPecas = transformPecaArray(todasPecasRaw);
+        const idsSet = new Set(ids.map(String));
+        pecasCompletas = todasPecas.filter(p => idsSet.has(String(p.id)));
+        pecasCompletas = pecasCompletas.map(p => {
+          const det = detalhes.find(d => String(d.id) === String(p.id));
+          return { ...p, qtdEnviada: det?.qtd_enviada || det?.qtdEnviada || parseInt(p.quantidade) || 1 };
+        });
+      }
+
+      // Calcular peso total real
+      const pesoTotal = pecasCompletas.reduce((sum, p) => {
+        const qtyOrig = parseInt(p.quantidade) || 1;
+        const qtyEnv = p.qtdEnviada || qtyOrig;
+        const pesoUnit = qtyOrig > 0 ? (parseFloat(p.peso) || 0) / qtyOrig : 0;
+        return sum + (pesoUnit * qtyEnv);
+      }, 0);
+
+      // Gerar linhas da tabela
+      const linhasTabela = pecasCompletas.map((p, idx) => {
+        const qtyOrig = parseInt(p.quantidade) || 1;
+        const qtyEnv = p.qtdEnviada || qtyOrig;
+        const pesoUnit = qtyOrig > 0 ? (parseFloat(p.peso) || 0) / qtyOrig : 0;
+        const pesoTot = pesoUnit * qtyEnv;
+        return `<tr>
+          <td style="text-align:center">${idx + 1}</td>
+          <td><strong>${p.marca || p.nome || p.codigo || '-'}</strong></td>
+          <td>${(p.tipo || p.perfil || p.descricao || '-').toUpperCase()}</td>
+          <td style="text-align:center">${qtyEnv}</td>
+          <td style="text-align:right">${pesoUnit.toFixed(1)}</td>
+          <td style="text-align:right"><strong>${pesoTot.toFixed(1)}</strong></td>
+        </tr>`;
+      }).join('');
+
+      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+      <title>Romaneio - ${numero}</title>
+      <style>
+        body{font-family:Arial,sans-serif;margin:20px;color:#333}
+        h1{color:#1a56db;border-bottom:2px solid #1a56db;padding-bottom:8px;font-size:22px}
+        table{width:100%;border-collapse:collapse;margin-top:16px}
+        th{background:#1a56db;color:white;padding:8px;text-align:left;font-size:12px}
+        td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:12px}
+        tr:nth-child(even){background:#f9f9f9}
+        .info{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;background:#f5f5f5;padding:16px;border-radius:8px}
+        .info p{margin:4px 0;font-size:13px}
+        .totais{margin-top:12px;font-size:14px;padding:12px;background:#e8f4fd;border-radius:8px;border-left:4px solid #1a56db}
+        .footer{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:40px;font-size:12px;color:#666}
+        .footer div{border-top:1px solid #999;padding-top:8px;text-align:center}
+        @media print{button{display:none !important}}
+      </style></head><body>
+      <h1>🚛 Romaneio de Embarque</h1>
+      <div class="info">
+        <div>
+          <p><strong>Número:</strong> ${numero}</p>
+          <p><strong>Data:</strong> ${dataFormatada}</p>
+          <p><strong>Transportadora:</strong> ${envio.transportadora || '-'}</p>
+        </div>
+        <div>
+          <p><strong>Motorista:</strong> ${envio.motorista || '-'}</p>
+          <p><strong>Placa:</strong> ${envio.placa || '-'}</p>
+          <p><strong>Obra:</strong> ${obraNome}</p>
+        </div>
       </div>
-      <div>
-        <p><strong>Motorista:</strong> ${envio.motorista || '-'}</p>
-        <p><strong>Placa:</strong> ${envio.placa || '-'}</p>
-        <p><strong>Obra:</strong> ${envio.obra_nome || '-'}</p>
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px;text-align:center">#</th>
+            <th>Marca/Peça</th>
+            <th>Tipo/Perfil</th>
+            <th style="width:60px;text-align:center">Qtd</th>
+            <th style="width:90px;text-align:right">Peso Unit (kg)</th>
+            <th style="width:100px;text-align:right">Peso Total (kg)</th>
+          </tr>
+        </thead>
+        <tbody>${linhasTabela}</tbody>
+      </table>
+      <div class="totais">
+        <strong>Total de Peças:</strong> ${pecasCompletas.length} conjunto(s) &nbsp;|&nbsp; <strong>Peso Total:</strong> ${pesoTotal.toFixed(2)} kg
       </div>
-    </div>
-    <p><strong>Total de Peças:</strong> ${pecasEnvio} conjunto(s) | <strong>Peso Total:</strong> ${(parseFloat(envio.peso_total) || 0).toFixed(2)}kg</p>
-    ${envio.observacoes ? `<p><strong>Obs:</strong> ${envio.observacoes}</p>` : ''}
-    <button onclick="window.print()" style="margin-top:16px;padding:8px 16px;background:#1a56db;color:white;border:none;border-radius:4px;cursor:pointer">🖨️ Imprimir</button>
-    </body></html>`;
-    const blob = new Blob([html], { type: 'text/html' });
-    window.open(URL.createObjectURL(blob));
+      ${envio.observacoes ? `<p style="margin-top:12px"><strong>Obs:</strong> ${envio.observacoes}</p>` : ''}
+      <div class="footer">
+        <div>Assinatura do Motorista</div>
+        <div>Assinatura do Responsável</div>
+      </div>
+      <button onclick="window.print()" style="margin-top:24px;padding:10px 20px;background:#1a56db;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ Imprimir</button>
+      </body></html>`;
+      const blob = new Blob([html], { type: 'text/html' });
+      window.open(URL.createObjectURL(blob));
+      toast.dismiss('romaneio-loading');
+    } catch (err) {
+      toast.dismiss('romaneio-loading');
+      console.error('Erro romaneio:', err);
+      toast.error('Erro ao gerar romaneio: ' + err.message);
+    }
   }, []);
 
   // ==== RENDER ====
