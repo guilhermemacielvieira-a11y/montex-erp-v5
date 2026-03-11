@@ -127,13 +127,16 @@ async function downloadIFCFromSupabase() {
 // ==============================================
 
 const STATUS_CONFIG = {
-  NAO_INICIADO: { color: new THREE.Color(0.42, 0.45, 0.50), label: 'Nao Iniciado', hex: '#6b7280', opacity: 0.35 },
-  CORTE:        { color: new THREE.Color(0.96, 0.62, 0.04), label: 'Em Corte',      hex: '#f59e0b', opacity: 0.7 },
-  FABRICACAO:   { color: new THREE.Color(0.23, 0.51, 0.96), label: 'Fabricacao',     hex: '#3b82f6', opacity: 0.75 },
-  SOLDA:        { color: new THREE.Color(0.55, 0.36, 0.96), label: 'Solda',          hex: '#8b5cf6', opacity: 0.8 },
-  PINTURA:      { color: new THREE.Color(0.06, 0.73, 0.51), label: 'Pintura',        hex: '#10b981', opacity: 0.85 },
-  EXPEDICAO:    { color: new THREE.Color(0.06, 0.52, 0.96), label: 'Expedicao',      hex: '#0ea5e9', opacity: 0.9 },
-  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',        hex: '#22c55e', opacity: 1.0 },
+  NAO_INICIADO: { color: new THREE.Color(0.42, 0.45, 0.50), label: 'Nao Iniciado',       hex: '#6b7280', opacity: 0.35 },
+  CORTE:        { color: new THREE.Color(0.96, 0.62, 0.04), label: 'Em Corte',            hex: '#f59e0b', opacity: 0.7 },
+  FABRICACAO:   { color: new THREE.Color(0.23, 0.51, 0.96), label: 'Fabricacao',           hex: '#3b82f6', opacity: 0.75 },
+  SOLDA:        { color: new THREE.Color(0.55, 0.36, 0.96), label: 'Solda',                hex: '#8b5cf6', opacity: 0.8 },
+  PINTURA:      { color: new THREE.Color(0.06, 0.73, 0.51), label: 'Pintura',              hex: '#10b981', opacity: 0.85 },
+  EXPEDICAO:    { color: new THREE.Color(0.06, 0.52, 0.96), label: 'Expedicao',            hex: '#0ea5e9', opacity: 0.9 },
+  CARREGANDO:   { color: new THREE.Color(0.97, 0.52, 0.10), label: 'Em Carregamento',      hex: '#f97316', opacity: 0.9 },
+  EM_TRANSITO:  { color: new THREE.Color(0.49, 0.27, 0.96), label: 'Em Transito',          hex: '#7c3aed', opacity: 0.92 },
+  ENTREGUE:     { color: new THREE.Color(0.92, 0.70, 0.05), label: 'Entregue em Obra',     hex: '#eab308', opacity: 0.95 },
+  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',              hex: '#22c55e', opacity: 1.0 },
 };
 
 // IFC type IDs - CORRIGIDOS conforme web-ifc v0.0.76 runtime
@@ -634,35 +637,64 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   const [searchText, setSearchText] = useState('');
   const [showFasteners, setShowFasteners] = useState(false);
   const [loadingStage, setLoadingStage] = useState(''); // 'primary' | 'secondary' | ''
+  const [expedicoes, setExpedicoes] = useState([]);
 
   const fileInputRef = useRef(null);
 
   // ==============================================
-  // FETCH ERP DATA
+  // FETCH ERP DATA + EXPEDICOES
   // ==============================================
   useEffect(() => {
     if (!obraAtual) return;
     async function loadERP() {
       setErpLoading(true);
       try {
-        const [{ data: corte }, { data: producao }] = await Promise.all([
+        const [{ data: corte }, { data: producao }, { data: expData }] = await Promise.all([
           supabase.from('materiais_corte').select('id, marca, peca, status_corte, perfil, peso_teorico, comprimento_mm').eq('obra_id', obraAtual),
           supabase.from('pecas_producao').select('id, marca, nome, tipo, etapa, status, peso_total, perfil').eq('obra_id', obraAtual),
+          supabase.from('expedicoes').select('id, numero_romaneio, status, peso_total, pecas, pecas_ids, data_expedicao, destino').eq('obra_id', obraAtual),
         ]);
+
+        // Guardar expedicoes
+        setExpedicoes(expData || []);
+
+        // Mapear pecas de expedicoes: id/marca -> status da expedicao
+        const expedicaoStatusMap = new Map(); // marca (upper) -> status expedição
+        (expData || []).forEach(exp => {
+          const expStatus = mapExpedicaoStatus(exp.status);
+          // pecas pode ser array de objetos {id, marca, ...} ou array de strings/ids
+          const pecasArr = Array.isArray(exp.pecas) ? exp.pecas : [];
+          pecasArr.forEach(p => {
+            const marca = typeof p === 'string' ? p : (p.marca || p.nome || p.peca || '');
+            if (marca) expedicaoStatusMap.set(marca.toUpperCase().trim(), expStatus);
+          });
+          // pecas_ids pode ser array de IDs
+          const idsArr = Array.isArray(exp.pecas_ids) ? exp.pecas_ids : [];
+          idsArr.forEach(id => {
+            expedicaoStatusMap.set(String(id), expStatus);
+          });
+        });
+
         const allPecas = [];
         (corte || []).forEach(c => {
+          const marca = c.marca || c.peca || '';
+          const marcaKey = marca.toUpperCase().trim();
           allPecas.push({
-            marca: c.marca || c.peca || '',
-            status: mapCorteStatus(c.status_corte),
+            id: c.id,
+            marca,
+            status: expedicaoStatusMap.get(marcaKey) || expedicaoStatusMap.get(String(c.id)) || mapCorteStatus(c.status_corte),
             perfil: c.perfil,
             peso: parseFloat(c.peso_teorico) || 0,
             source: 'corte',
           });
         });
         (producao || []).forEach(p => {
+          const marca = p.marca || p.nome || '';
+          const marcaKey = marca.toUpperCase().trim();
           allPecas.push({
-            marca: p.marca || p.nome || '',
-            status: mapProducaoEtapa(p.etapa),
+            id: p.id,
+            marca,
+            status: expedicaoStatusMap.get(marcaKey) || expedicaoStatusMap.get(String(p.id)) || mapProducaoEtapa(p.etapa),
             perfil: p.perfil,
             peso: parseFloat(p.peso_total) || 0,
             source: 'producao',
@@ -689,8 +721,19 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (etapa === 'solda') return 'SOLDA';
     if (etapa === 'pintura') return 'PINTURA';
     if (etapa === 'expedicao' || etapa === 'expedido') return 'EXPEDICAO';
-    if (etapa === 'finalizado' || etapa === 'entregue') return 'MONTADO';
+    if (etapa === 'finalizado' || etapa === 'entregue' || etapa === 'montado') return 'MONTADO';
     return 'FABRICACAO';
+  }
+
+  function mapExpedicaoStatus(status) {
+    if (!status) return 'EXPEDICAO';
+    const s = status.toLowerCase().replace(/[\s-]/g, '_');
+    if (s === 'preparando' || s === 'aguardando' || s === 'aguardando_carregamento') return 'EXPEDICAO';
+    if (s === 'carregando' || s === 'em_carregamento') return 'CARREGANDO';
+    if (s === 'em_transito' || s === 'transito') return 'EM_TRANSITO';
+    if (s === 'entregue' || s === 'entregue_em_obra' || s === 'delivered') return 'ENTREGUE';
+    if (s === 'montado' || s === 'instalado') return 'MONTADO';
+    return 'EXPEDICAO';
   }
 
   // ==============================================
@@ -1123,6 +1166,31 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   </div>
                 </div>
               </div>
+
+              {/* Expedição Status */}
+              {expedicoes.length > 0 && (
+                <div className="bg-yellow-500/5 border border-yellow-500/20 rounded-xl p-3">
+                  <h3 className="text-yellow-400 text-xs font-semibold mb-2">Expedicoes</h3>
+                  <div className="text-xs text-slate-400 space-y-1">
+                    <div className="flex justify-between">
+                      <span>Romaneios</span>
+                      <span className="text-white">{expedicoes.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Entregues</span>
+                      <span className="text-yellow-400">{expedicoes.filter(e => (e.status || '').toLowerCase() === 'entregue').length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Em Transito</span>
+                      <span className="text-violet-400">{expedicoes.filter(e => (e.status || '').toLowerCase() === 'em_transito').length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Peso Total</span>
+                      <span className="text-white">{(expedicoes.reduce((s, e) => s + (parseFloat(e.peso_total) || 0), 0) / 1000).toFixed(1)} ton</span>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -1261,7 +1329,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   {/* Pipeline */}
                   <div className="space-y-1.5">
                     {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
-                      const statusOrder = ['NAO_INICIADO', 'CORTE', 'FABRICACAO', 'SOLDA', 'PINTURA', 'EXPEDICAO', 'MONTADO'];
+                      const statusOrder = ['NAO_INICIADO', 'CORTE', 'FABRICACAO', 'SOLDA', 'PINTURA', 'EXPEDICAO', 'CARREGANDO', 'EM_TRANSITO', 'ENTREGUE', 'MONTADO'];
                       const currentIdx = statusOrder.indexOf(selectedElement.erpStatus);
                       const thisIdx = statusOrder.indexOf(key);
                       const done = thisIdx <= currentIdx;
