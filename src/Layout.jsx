@@ -349,7 +349,7 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >
-            <div className="bg-[#363b47]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/40 py-2 px-1 min-w-[220px]">
+            <div className="bg-[#243344]/95 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl shadow-black/40 py-2 px-1 min-w-[220px]">
               <div className={cn("px-3 py-2 text-xs font-bold uppercase tracking-widest mb-1", category.color)}>
                 {category.step && <span className="mr-1 opacity-50">{category.step}.</span>}
                 {category.name}
@@ -572,11 +572,11 @@ function LayoutContent({ children, currentPageName }) {
       <DisplaySettings isOpen={showDisplaySettings} onClose={() => setShowDisplaySettings(false)} />
       <Notificacoes />
 
-      <div className="min-h-screen bg-[#2b2f38]" style={{ backgroundImage: 'linear-gradient(135deg, rgba(255,255,255,0.02) 0%, transparent 50%, rgba(255,255,255,0.015) 100%), repeating-linear-gradient(90deg, rgba(255,255,255,0.008) 0px, transparent 1px, transparent 3px)', backgroundSize: '100% 100%, 4px 100%' }}>
+      <div className="min-h-screen bg-[#1a2332]" style={{ backgroundImage: 'linear-gradient(135deg, rgba(100,160,220,0.04) 0%, transparent 50%, rgba(80,140,200,0.03) 100%), repeating-linear-gradient(90deg, rgba(140,180,220,0.012) 0px, transparent 1px, transparent 3px)', backgroundSize: '100% 100%, 4px 100%' }}>
 
         {/* ============ MOBILE HEADER ============ */}
         <div className="lg:hidden fixed top-0 left-0 right-0 z-50">
-          <div className="h-14 bg-[#363b47]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-3">
+          <div className="h-14 bg-[#243344]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-3">
             <div className="flex items-center gap-2">
               <MontexLogoIcon className="w-7 h-7" />
               <div className="flex items-center">
@@ -615,7 +615,7 @@ function LayoutContent({ children, currentPageName }) {
 
         {/* ============ MOBILE BOTTOM NAV ============ */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
-          <div className="bg-[#363b47]/95 backdrop-blur-xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
+          <div className="bg-[#243344]/95 backdrop-blur-xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-center justify-around h-16 px-1">
               {mobileBottomNav.map((item) => {
                 const isActive = item.href && currentPageName === item.href;
@@ -657,7 +657,7 @@ function LayoutContent({ children, currentPageName }) {
         <aside
           className={cn(
             "fixed top-0 left-0 h-full z-50 flex flex-col transition-all duration-300 ease-in-out",
-            "bg-[#363b47]/95 backdrop-blur-xl",
+            "bg-[#243344]/95 backdrop-blur-xl",
             "border-r border-white/[0.06]",
             sidebarCollapsed ? "w-[68px]" : "w-[280px]",
             "lg:translate-x-0",
@@ -708,7 +708,7 @@ function LayoutContent({ children, currentPageName }) {
             {sidebarCollapsed && !mobileOpen && (
               <button
                 onClick={() => setSidebarCollapsed(false)}
-                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#363b47] border border-white/10 rounded-full hidden lg:flex items-center justify-center text-slate-400 hover:text-white hover:bg-orange-500 hover:border-orange-500 transition-all z-[60] shadow-lg"
+                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#243344] border border-white/10 rounded-full hidden lg:flex items-center justify-center text-slate-400 hover:text-white hover:bg-orange-500 hover:border-orange-500 transition-all z-[60] shadow-lg"
                 title="Expandir menu"
               >
                 <ChevronRight className="h-3 w-3" />
@@ -889,7 +889,7 @@ function LayoutContent({ children, currentPageName }) {
         {/* ============ TOP BAR (DESKTOP) ============ */}
         <header className={cn(
           "fixed top-0 right-0 h-16 z-40 hidden lg:flex items-center justify-between px-6 transition-all duration-300",
-          "bg-[#363b47]/80 backdrop-blur-xl border-b border-white/[0.06]",
+          "bg-[#243344]/80 backdrop-blur-xl border-b border-white/[0.06]",
           sidebarCollapsed ? "left-[68px]" : "left-[280px]"
         )}>
           <div className="flex items-center gap-4">
