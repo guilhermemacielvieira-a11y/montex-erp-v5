@@ -708,9 +708,9 @@ function LayoutContent({ children, currentPageName }) {
             )}
           </div>
 
-          {/* ---- Obra Selector (desktop sidebar only) ---- */}
-          {!sidebarCollapsed && !mobileOpen && (
-            <div className="hidden lg:block px-3 py-3 border-b border-white/[0.04]">
+          {/* ---- Obra Selector (desktop sidebar only, mobile uses header) ---- */}
+          {!sidebarCollapsed && (
+            <div className="hidden lg:block px-3 py-2 border-b border-white/[0.04]">
               <SeletorObra />
             </div>
           )}
