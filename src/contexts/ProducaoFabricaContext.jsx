@@ -19,7 +19,9 @@ export const ETAPAS_PRODUCAO = {
   FABRICACAO: 'fabricacao',
   SOLDA: 'solda',
   PINTURA: 'pintura',
-  EXPEDIDO: 'expedido'
+  EXPEDIDO: 'expedido',
+  ENVIADO: 'enviado',
+  ENTREGUE: 'entregue'
 };
 
 export const VALORES_KG = {
