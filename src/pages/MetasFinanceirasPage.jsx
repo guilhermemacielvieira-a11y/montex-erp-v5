@@ -377,17 +377,16 @@ export default function MetasFinanceirasPage() {
         <div className="flex items-center gap-3 flex-wrap">
           <Percent className="h-5 w-5 text-blue-400" />
           <span className="text-sm font-semibold text-blue-300">Regra Contrato 50/50</span>
-          <span className="text-xs text-slate-400 mx-2">|</span>
+          <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-700">
+            {fi.kpisGerais.qtdObrasAtivas || 0} obras ativas = {fi.formatCurrency(fi.kpisGerais.valorTotalContratos || 0)}
+          </Badge>
+          <span className="text-xs text-slate-400 mx-1">|</span>
           <span className="text-xs text-slate-400">
-            50% Material Faturado Direto: <span className="text-amber-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.materialFaturadoDireto)}</span>
+            50% Material: <span className="text-amber-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.materialFaturadoDireto)}</span>
           </span>
           <span className="text-xs text-slate-400 mx-1">+</span>
           <span className="text-xs text-slate-400">
-            50% Receita Empresa: <span className="text-emerald-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.receitaEmpresa)}</span>
-          </span>
-          <span className="text-xs text-slate-400 mx-1">=</span>
-          <span className="text-xs text-slate-400">
-            Faturamento: <span className="text-white font-semibold">{fi.formatCurrency(fi.kpisGerais.faturamentoBruto)}</span>
+            50% Receita: <span className="text-emerald-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.receitaEmpresa)}</span>
           </span>
         </div>
       </div>

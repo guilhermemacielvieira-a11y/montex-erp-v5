@@ -320,15 +320,32 @@ export function useFinancialIntelligence(filtros = {}) {
       producaoPorEtapa[etapa].pecas += parseInt(p.quantidade) || 1;
     });
 
-    // Receita estimada — aplicando regra 50/50
-    let receitaBrutaEstimada = 0;
+    // ========================================
+    // 5b. VALOR TOTAL CONTRATOS ATIVOS (base para regra 50/50)
+    // ========================================
+    // Obras ativas = qualquer status exceto concluída, cancelada e orçamento
+    const statusInativos = ['concluida', 'cancelada', 'orcamento'];
+    const obrasArr = obras || [];
+    const obrasAtivas = obrasArr.filter(o => !statusInativos.includes(o.status));
+    const valorTotalContratosAtivos = obrasAtivas.reduce((sum, o) => {
+      const val = parseFloat(o.valorContrato) || parseFloat(o.valor_contrato) || parseFloat(o.contratoValorTotal) || parseFloat(o.valor) || 0;
+      return sum + val;
+    }, 0);
+    const qtdObrasAtivas = obrasAtivas.length;
+
+    // Receita por etapa (fallback caso não tenha obras ativas cadastradas)
+    let receitaBrutaEstimadaPorEtapa = 0;
     Object.entries(producaoPorEtapa).forEach(([etapa, dados]) => {
       const taxa = TAXA_ETAPA[etapa] || 0;
-      receitaBrutaEstimada += dados.kg * taxa;
+      receitaBrutaEstimadaPorEtapa += dados.kg * taxa;
     });
-    // Regra: 50% do valor do contrato é material faturado direto, 50% é receita da empresa
-    const receitaEmpresa = receitaBrutaEstimada * PERCENTUAL_RECEITA_CONTRATO;
-    const materialFaturadoDireto = receitaBrutaEstimada * PERCENTUAL_MATERIAL_CONTRATO;
+
+    // Faturamento bruto = valor total dos contratos ativos (prioridade) ou estimado por etapa
+    const faturamentoBrutoContratos = valorTotalContratosAtivos > 0 ? valorTotalContratosAtivos : receitaBrutaEstimadaPorEtapa;
+
+    // Regra 50/50: 50% do valor do contrato é material faturado direto, 50% é receita da empresa
+    const receitaEmpresa = faturamentoBrutoContratos * PERCENTUAL_RECEITA_CONTRATO;
+    const materialFaturadoDireto = faturamentoBrutoContratos * PERCENTUAL_MATERIAL_CONTRATO;
 
     // ========================================
     // 6. EVOLUÇÃO MENSAL
@@ -350,10 +367,15 @@ export function useFinancialIntelligence(filtros = {}) {
     }
     const producaoMensal = pesoTotalPecas / numMesesProducao;
 
+    // Receita mensal baseada no valor de contrato ativo distribuído pelos meses
+    const numMeses = Math.max(mesesOrdenados.length, 1);
+    const receitaBrutaMensal = faturamentoBrutoContratos / numMeses;
+
     const evolucaoMensal = mesesOrdenados.map(mes => {
       const custoMes = mesesMap[mes].custo;
-      const receitaMes = producaoMensal * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA);
+      const receitaMes = receitaBrutaMensal;
       const receitaEmpresaMes = receitaMes * PERCENTUAL_RECEITA_CONTRATO;
+      const materialFaturadoMes = receitaMes * PERCENTUAL_MATERIAL_CONTRATO;
       const custoPerKg = producaoMensal > 0 ? custoMes / producaoMensal : 0;
       const margem = receitaEmpresaMes > 0 ? ((receitaEmpresaMes - custoMes) / receitaEmpresaMes) * 100 : 0;
 
@@ -363,7 +385,7 @@ export function useFinancialIntelligence(filtros = {}) {
         custo: custoMes,
         receita: receitaMes,
         receitaEmpresa: receitaEmpresaMes,
-        materialFaturado: receitaMes * PERCENTUAL_MATERIAL_CONTRATO,
+        materialFaturado: materialFaturadoMes,
         producaoKg: producaoMensal,
         custoPerKg,
         margem,
@@ -533,7 +555,7 @@ export function useFinancialIntelligence(filtros = {}) {
           mesIndex: futureMonth,
           custoProjetado: Math.max(0, Math.round(seasonalValue * 100) / 100),
           producaoProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * 100) / 100),
-          receitaProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA) * PERCENTUAL_RECEITA_CONTRATO * 100) / 100),
+          receitaProjetada: Math.max(0, Math.round((faturamentoBrutoContratos > 0 ? faturamentoBrutoContratos / numMeses : (weightedAvgProducao + slope * i / 2.5) * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA)) * PERCENTUAL_RECEITA_CONTRATO * 100) / 100),
           tipo: 'forecast',
           confianca: Math.max(0.5, 1 - (i * 0.15)),
           tendencia: slope > 0 ? 'alta' : slope < 0 ? 'baixa' : 'estável',
@@ -547,31 +569,33 @@ export function useFinancialIntelligence(filtros = {}) {
     const forecast3meses = calcularForecastAvancado(evolucaoMensal, 3);
 
     // ========================================
-    // 12. KPIs GERAIS
+    // 12. KPIs GERAIS (baseado em contratos ativos)
     // ========================================
-    const receitasGerais = (lancamentosDespesas || [])
-      .filter(l => l.tipo === 'receita' && !l.obraId && !l.obra_id)
-      .reduce((sum, l) => sum + (parseFloat(l.valor) || 0), 0);
-
-    const faturamentoReal = receitasGerais > 0 ? receitasGerais : receitaBrutaEstimada;
+    // Faturamento = valor total dos contratos de obras ativas
+    const faturamentoReal = faturamentoBrutoContratos;
     const receitaEmpresaReal = faturamentoReal * PERCENTUAL_RECEITA_CONTRATO;
-    const margemOperacional = receitaEmpresaReal > 0 ? ((receitaEmpresaReal - custoTotalGeral) / receitaEmpresaReal) * 100 : 0;
+    const materialFaturadoDiretoReal = faturamentoReal * PERCENTUAL_MATERIAL_CONTRATO;
+    const margemOperacional = receitaEmpresaReal > 0 ? ((receitaEmpresaReal - custoTotalGeral - custoTotalRH) / receitaEmpresaReal) * 100 : 0;
     const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
 
     const kpisGerais = {
+      // Regra 50/50 baseada nos contratos ativos
       faturamentoBruto: faturamentoReal,
-      materialFaturadoDireto: faturamentoReal * PERCENTUAL_MATERIAL_CONTRATO,
+      valorTotalContratos: valorTotalContratosAtivos,
+      qtdObrasAtivas,
+      materialFaturadoDireto: materialFaturadoDiretoReal,
       receitaEmpresa: receitaEmpresaReal,
+      // Custos
       despesas: custoTotalGeral,
       despesasRH: custoTotalRH,
       saldo: receitaEmpresaReal - custoTotalGeral - custoTotalRH,
       margem: margemOperacional,
       custoKg: custoPerKgGeral,
       custoProducaoKg: custoProducaoPerKg,
+      // Produção
       producaoKg: pesoTotalPecas,
       producaoMensal,
-      receitaEstimada: receitaBrutaEstimada,
-      receitaEmpresaEstimada: receitaEmpresa,
+      receitaEstimadaPorEtapa: receitaBrutaEstimadaPorEtapa,
       totalDespesas: despesas.length,
       maiorCategoria,
       totalFuncionarios: Object.values(RH_CENTROS).reduce((s, c) => s + c.funcionarios.length, 0),
@@ -584,10 +608,10 @@ export function useFinancialIntelligence(filtros = {}) {
     // ========================================
     const metas = {
       receitaEmpresa: {
-        meta: receitaEmpresaReal > 0 ? receitaEmpresaReal * 1.1 : receitaEmpresa * 1.1,
+        meta: receitaEmpresaReal > 0 ? receitaEmpresaReal : receitaEmpresa,
         real: receitaEmpresaReal,
-        progresso: receitaEmpresaReal > 0 ? (receitaEmpresaReal / (receitaEmpresaReal * 1.1)) * 100 : 0,
-        descricao: '50% do valor de contrato (receita líquida da empresa)'
+        progresso: receitaEmpresaReal > 0 ? 100 : 0,
+        descricao: `50% do contrato ativo (${qtdObrasAtivas} obras = ${new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 }).format(valorTotalContratosAtivos)})`
       },
       custoProducao: {
         meta: custoProducaoTotal > 0 ? custoProducaoTotal * 0.95 : 0,
@@ -731,7 +755,9 @@ export function useFinancialIntelligence(filtros = {}) {
       pesoTotalPecas,
       producaoMensal,
       producaoPorEtapa,
-      receitaEstimada: receitaBrutaEstimada,
+      valorTotalContratosAtivos,
+      qtdObrasAtivas,
+      faturamentoBrutoContratos,
       receitaEmpresa,
       materialFaturadoDireto,
 

@@ -406,6 +406,9 @@ export default function AnaliseCustosPage() {
           <div className="flex items-center gap-2">
             <Percent className="h-5 w-5 text-blue-400" />
             <span className="text-sm font-semibold text-blue-300">Regra Contrato 50/50</span>
+            <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-700">
+              {kpisGerais?.qtdObrasAtivas || 0} obras ativas = {formatCurrency(kpisGerais?.valorTotalContratos || 0)}
+            </Badge>
           </div>
           <div className="flex gap-6 text-sm">
             <span className="text-slate-300">
