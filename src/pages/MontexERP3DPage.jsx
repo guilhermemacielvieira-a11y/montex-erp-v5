@@ -629,7 +629,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   const [selectedElement, setSelectedElement] = useState(null);
   const [colorMode, setColorMode] = useState('status'); // status | type
   const [typeFilter, setTypeFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
+  const [statusFilter, setStatusFilter] = useState(new Set()); // empty = ALL; Set of active status keys
   const [showStats, setShowStats] = useState(false);
   const [erpPecas, setErpPecas] = useState([]);
   const [erpLoading, setErpLoading] = useState(true);
@@ -997,9 +997,10 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       // Parafusos controlados pelo toggle separado
       if (el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER) return showFasteners;
       if (typeFilter !== 'ALL' && el.typeName !== typeFilter) return false;
-      if (statusFilter !== 'ALL') {
+      // Multi-status filter: se Set vazio = ALL (sem filtro)
+      if (statusFilter.size > 0) {
         const st = statusMap.get(el.expressID) || 'NAO_INICIADO';
-        if (st !== statusFilter) return false;
+        if (!statusFilter.has(st)) return false;
       }
       if (searchText) {
         const q = searchText.toUpperCase();
@@ -1248,29 +1249,77 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                 </select>
               </div>
 
-              {/* Filter by Status */}
+              {/* Filter by Status (Multi-select) + Legenda integrada */}
               <div>
-                <h3 className="text-white text-xs font-semibold mb-2">Filtrar por Status</h3>
-                <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs">
-                  <option value="ALL">Todos os Status</option>
-                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                    <option key={key} value={key}>{cfg.label} {stats ? `(${stats.byStatus[key] || 0})` : ''}</option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Status Legend */}
-              <div>
-                <h3 className="text-white text-xs font-semibold mb-2">Legenda Status</h3>
-                <div className="space-y-1.5">
-                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
-                    <div key={key} className="flex items-center gap-2 text-xs">
-                      <div className="w-3 h-3 rounded-sm" style={{ backgroundColor: cfg.hex }} />
-                      <span className="text-slate-300 flex-1">{cfg.label}</span>
-                      {stats && <span className="text-slate-500">{stats.byStatus[key] || 0}</span>}
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-white text-xs font-semibold">Filtrar por Status</h3>
+                  {statusFilter.size > 0 && (
+                    <button onClick={() => setStatusFilter(new Set())}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors">
+                      Limpar ({statusFilter.size})
+                    </button>
+                  )}
+                </div>
+                {statusFilter.size === 0 && (
+                  <p className="text-[10px] text-slate-500 mb-2">Clique para filtrar (multi-select)</p>
+                )}
+                <div className="space-y-1">
+                  {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
+                    const isActive = statusFilter.size === 0 || statusFilter.has(key);
+                    const count = stats?.byStatus[key] || 0;
+                    return (
+                      <button key={key}
+                        onClick={() => {
+                          setStatusFilter(prev => {
+                            const next = new Set(prev);
+                            if (next.has(key)) {
+                              next.delete(key);
+                            } else {
+                              next.add(key);
+                            }
+                            return next;
+                          });
+                        }}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-all ${
+                          statusFilter.size > 0 && statusFilter.has(key)
+                            ? 'bg-white/10 border border-white/20'
+                            : statusFilter.size > 0
+                              ? 'opacity-30 hover:opacity-60'
+                              : 'hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="w-3.5 h-3.5 rounded-sm flex-shrink-0 border border-white/10"
+                          style={{ backgroundColor: isActive ? cfg.hex : 'transparent', borderColor: cfg.hex }} />
+                        <span className={`flex-1 text-left ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>
+                          {cfg.label}
+                        </span>
+                        <span className={`tabular-nums ${count > 0 ? 'text-white font-medium' : 'text-slate-600'}`}>
+                          {count.toLocaleString()}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {/* Atalhos rapidos */}
+                <div className="flex gap-1.5 mt-2">
+                  <button onClick={() => {
+                    setStatusFilter(new Set(['EXPEDICAO', 'CARREGANDO', 'EM_TRANSITO', 'ENTREGUE', 'MONTADO']));
+                  }}
+                    className="flex-1 px-2 py-1 rounded text-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-all">
+                    Expedidos+
+                  </button>
+                  <button onClick={() => {
+                    setStatusFilter(new Set(['FABRICACAO', 'SOLDA', 'PINTURA']));
+                  }}
+                    className="flex-1 px-2 py-1 rounded text-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-all">
+                    Em Producao
+                  </button>
+                  <button onClick={() => {
+                    setStatusFilter(new Set(['NAO_INICIADO']));
+                  }}
+                    className="flex-1 px-2 py-1 rounded text-[10px] bg-slate-500/10 border border-slate-500/20 text-slate-400 hover:bg-slate-500/20 transition-all">
+                    Pendentes
+                  </button>
                 </div>
               </div>
 
