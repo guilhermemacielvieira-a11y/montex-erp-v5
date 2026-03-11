@@ -682,6 +682,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           allPecas.push({
             id: c.id,
             marca,
+            tipo: '', // corte nao tem tipo direto
             status: expedicaoStatusMap.get(marcaKey) || expedicaoStatusMap.get(String(c.id)) || mapCorteStatus(c.status_corte),
             perfil: c.perfil,
             peso: parseFloat(c.peso_teorico) || 0,
@@ -694,6 +695,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           allPecas.push({
             id: p.id,
             marca,
+            tipo: (p.tipo || '').toUpperCase().trim(),
             status: expedicaoStatusMap.get(marcaKey) || expedicaoStatusMap.get(String(p.id)) || mapProducaoEtapa(p.etapa),
             perfil: p.perfil,
             peso: parseFloat(p.peso_total) || 0,
@@ -739,9 +741,50 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   // ==============================================
   // MATCH IFC ELEMENTS TO ERP DATA (multi-strategy)
   // ==============================================
+
+  // Mapeamento IFC typeName / name → ERP tipo (normalizado)
+  const IFC_TO_ERP_TIPO = {
+    'COLUNA': 'COLUNA',
+    'VIGA': 'VIGA',
+    'CHAPA': 'CHAPA',
+    'LAJE': 'LAJE',
+    'PAREDE': 'PAREDE',
+    'ELEMENTO': 'ELEMENTO',
+    'COBERTURA': 'COBERTURA',
+    'ESCADA': 'ESCADA',
+    'GUARDA-CORPO': 'GUARDA-CORPO',
+    'FUNDACAO': 'FUNDACAO',
+    'PARAFUSO': 'PARAFUSO',
+    'CONJUNTO': 'CONJUNTO',
+    'FIXADOR': 'FIXADOR',
+    'ACESSORIO': 'ACESSORIO',
+    // Nomes comuns de elementos IFC que mapeiam para tipos ERP
+    'TERÇA': 'TERÇA',
+    'TERCA': 'TERÇA',
+    'TESOURA': 'TESOURA',
+    'CONTRAVENTAMENTO': 'CONTRAVENTAMENTO',
+    'TRELIÇA': 'TRELIÇA',
+    'TRELICA': 'TRELIÇA',
+    'CALHA': 'CALHA',
+    'COLUNETA': 'COLUNETA',
+    'BOCAL': 'BOCAL',
+    'CHUMBADOR': 'CHUMBADOR',
+    'PLACA': 'PLACA',
+    'BASE': 'PLACA DE BASE',
+    'PLACA DE BASE': 'PLACA DE BASE',
+    'BEAM': 'VIGA',
+    'COLUMN': 'COLUNA',
+    'PLATE': 'CHAPA',
+    'BRACE': 'CONTRAVENTAMENTO',
+    'PURLIN': 'TERÇA',
+    'TRUSS': 'TESOURA',
+  };
+
   const statusMap = useMemo(() => {
     const map = new Map();
     if (ifcElements.length === 0 || erpPecas.length === 0) return map;
+
+    const statusPriority = ['MONTADO', 'ENTREGUE', 'EM_TRANSITO', 'CARREGANDO', 'EXPEDICAO', 'PINTURA', 'SOLDA', 'FABRICACAO', 'CORTE', 'NAO_INICIADO'];
 
     // Pre-index ERP peças por marca (upper)
     const marcaIndex = new Map();
@@ -762,22 +805,57 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
     }
 
+    // Pre-index ERP peças por tipo (upper) - NOVO: para match por tipo de peça
+    const tipoIndex = new Map();
+    for (const peca of erpPecas) {
+      const tipo = (peca.tipo || '').toUpperCase().trim();
+      if (tipo) {
+        if (!tipoIndex.has(tipo)) tipoIndex.set(tipo, []);
+        tipoIndex.get(tipo).push(peca);
+      }
+    }
+
+    // Helper: encontrar o status mais avançado de um grupo de peças
+    const getMostAdvancedStatus = (pecas) => {
+      return pecas.reduce((best, p) => {
+        const bestIdx = statusPriority.indexOf(best.status);
+        const pIdx = statusPriority.indexOf(p.status);
+        return pIdx < bestIdx ? p : best;
+      }, pecas[0]);
+    };
+
+    // Helper: calcular status representativo de um grupo (o mais comum, nao o mais avançado)
+    const getRepresentativeStatus = (pecas) => {
+      const statusCount = {};
+      let maxCount = 0;
+      let dominantStatus = 'NAO_INICIADO';
+      for (const p of pecas) {
+        statusCount[p.status] = (statusCount[p.status] || 0) + 1;
+        if (statusCount[p.status] > maxCount) {
+          maxCount = statusCount[p.status];
+          dominantStatus = p.status;
+        }
+      }
+      return dominantStatus;
+    };
+
     for (const el of ifcElements) {
       const elName = (el.name || '').toUpperCase().trim();
       const elDesc = (el.description || '').toUpperCase().trim();
       const elGlobalId = (el.globalId || '').toUpperCase().trim();
 
       let bestMatch = null;
+      let matchedStatus = null;
 
       // Strategy 1: Exact marca match on name
       if (marcaIndex.has(elName)) {
         bestMatch = marcaIndex.get(elName);
       }
 
-      // Strategy 2: Name contains marca or marca contains name
-      if (!bestMatch && elName.length >= 2) {
+      // Strategy 2: Name contains marca or marca contains name (min 3 chars to avoid false positives)
+      if (!bestMatch && elName.length >= 3) {
         for (const [marca, peca] of marcaIndex) {
-          if (elName.includes(marca) || marca.includes(elName)) {
+          if (marca.length >= 3 && (elName.includes(marca) || marca.includes(elName))) {
             bestMatch = peca;
             break;
           }
@@ -787,29 +865,54 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       // Strategy 3: Description/GlobalId contains marca
       if (!bestMatch && (elDesc || elGlobalId)) {
         for (const [marca, peca] of marcaIndex) {
-          if ((elDesc && elDesc.includes(marca)) || (elGlobalId && elGlobalId.includes(marca))) {
-            bestMatch = peca;
-            break;
+          if (marca.length >= 3) {
+            if ((elDesc && elDesc.includes(marca)) || (elGlobalId && elGlobalId.includes(marca))) {
+              bestMatch = peca;
+              break;
+            }
           }
         }
       }
 
-      // Strategy 4: Match by perfil in description (e.g. IFC desc "UE200X75X20X2" matches ERP perfil)
+      // Strategy 4: Match by perfil in description
       if (!bestMatch && elDesc) {
         const pecasByPerfil = perfilIndex.get(elDesc);
         if (pecasByPerfil && pecasByPerfil.length > 0) {
-          // Pick the most advanced status among matching pieces
-          const statusPriority = ['MONTADO', 'ENTREGUE', 'EM_TRANSITO', 'CARREGANDO', 'EXPEDICAO', 'PINTURA', 'SOLDA', 'FABRICACAO', 'CORTE', 'NAO_INICIADO'];
-          bestMatch = pecasByPerfil.reduce((best, p) => {
-            const bestIdx = statusPriority.indexOf(best.status);
-            const pIdx = statusPriority.indexOf(p.status);
-            return pIdx < bestIdx ? p : best;
-          }, pecasByPerfil[0]);
+          bestMatch = getMostAdvancedStatus(pecasByPerfil);
+        }
+      }
+
+      // Strategy 5: Match IFC element name/typeName → ERP tipo (usando dados de DWG/conjuntos)
+      // Ex: IFC name "TERÇA" → ERP tipo "TERÇA" → status representativo das terças
+      if (!bestMatch) {
+        // Tentar pelo nome do elemento primeiro (mais específico que typeName)
+        const erpTipoFromName = IFC_TO_ERP_TIPO[elName] || null;
+        if (erpTipoFromName && tipoIndex.has(erpTipoFromName)) {
+          matchedStatus = getRepresentativeStatus(tipoIndex.get(erpTipoFromName));
+        }
+        // Se não achou, tentar pelo typeName do IFC (Viga, Coluna, Chapa)
+        if (!matchedStatus) {
+          const typeName = (el.typeName || '').toUpperCase().trim();
+          const erpTipoFromType = IFC_TO_ERP_TIPO[typeName] || null;
+          if (erpTipoFromType && tipoIndex.has(erpTipoFromType)) {
+            matchedStatus = getRepresentativeStatus(tipoIndex.get(erpTipoFromType));
+          }
+        }
+        // Strategy 5b: busca parcial no tipo — ex: desc contem parte do tipo
+        if (!matchedStatus && elDesc) {
+          for (const [tipo, pecas] of tipoIndex) {
+            if (elDesc.includes(tipo) || tipo.includes(elDesc)) {
+              matchedStatus = getRepresentativeStatus(pecas);
+              break;
+            }
+          }
         }
       }
 
       if (bestMatch) {
         map.set(el.expressID, bestMatch.status);
+      } else if (matchedStatus) {
+        map.set(el.expressID, matchedStatus);
       }
     }
     return map;
