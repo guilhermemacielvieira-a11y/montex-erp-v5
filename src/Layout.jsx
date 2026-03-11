@@ -708,9 +708,9 @@ function LayoutContent({ children, currentPageName }) {
             )}
           </div>
 
-          {/* ---- Obra Selector (expanded only) ---- */}
-          {(!sidebarCollapsed || mobileOpen) && (
-            <div className="px-3 py-3 border-b border-white/[0.04]">
+          {/* ---- Obra Selector (desktop sidebar only) ---- */}
+          {!sidebarCollapsed && !mobileOpen && (
+            <div className="hidden lg:block px-3 py-3 border-b border-white/[0.04]">
               <SeletorObra />
             </div>
           )}
@@ -727,10 +727,10 @@ function LayoutContent({ children, currentPageName }) {
                 </div>
               </div>
             ) : (
-              <div className="mx-3 mt-3 p-2.5 bg-amber-500/5 border border-amber-500/15 rounded-xl">
+              <div className="mx-3 mt-2 p-2 bg-amber-500/5 border border-amber-500/15 rounded-xl">
                 <div className="flex items-center gap-2 text-amber-400 text-xs">
                   <AlertTriangle className="w-3.5 h-3.5" />
-                  <span className="font-semibold">{alertasEstoque.length} itens em estoque baixo</span>
+                  <span className="font-semibold">{alertasEstoque.length} alerta(s) estoque</span>
                 </div>
               </div>
             )
@@ -738,12 +738,12 @@ function LayoutContent({ children, currentPageName }) {
 
           {/* ---- Search Box (expanded only) ---- */}
           {(!sidebarCollapsed || mobileOpen) && (
-            <div className="px-3 py-3">
+            <div className="px-3 py-2">
               <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                 <input
                   type="text"
-                  placeholder="Buscar módulo... (Ctrl+K)"
+                  placeholder="Buscar módulo..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl py-2 pl-9 pr-4 text-[13px] text-white placeholder-slate-500 focus:outline-none focus:border-orange-500/40 focus:bg-white/[0.06] transition-all"
@@ -754,7 +754,7 @@ function LayoutContent({ children, currentPageName }) {
 
           {/* ---- Navigation ---- */}
           <nav className={cn(
-            "flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent",
+            "flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-white/5 scrollbar-track-transparent",
             sidebarCollapsed && !mobileOpen ? "px-2 pt-2 space-y-0.5" : "px-3 pb-2"
           )}>
             {sidebarCollapsed && !mobileOpen
@@ -780,7 +780,7 @@ function LayoutContent({ children, currentPageName }) {
           </nav>
 
           {/* ---- Bottom Actions ---- */}
-          <div className={cn("border-t border-white/[0.06]", sidebarCollapsed && !mobileOpen ? "p-2 space-y-1" : "p-3 space-y-0.5")}>
+          <div className={cn("border-t border-white/[0.06] flex-shrink-0", sidebarCollapsed && !mobileOpen ? "p-2 space-y-1" : "p-2 space-y-0.5")}>
             {sidebarCollapsed && !mobileOpen ? (
               <div className="flex flex-col items-center gap-1">
                 <button
@@ -799,28 +799,28 @@ function LayoutContent({ children, currentPageName }) {
                 </button>
               </div>
             ) : (
-              <>
+              <div className="flex items-center gap-1">
                 <button
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all text-[13px]"
-                  onClick={() => setShowDisplaySettings(true)}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all text-[12px]"
+                  onClick={() => { setShowDisplaySettings(true); setMobileOpen(false); }}
                 >
-                  <Settings className="h-4 w-4" />
-                  <span>Configurações</span>
+                  <Settings className="h-3.5 w-3.5" />
+                  <span>Config</span>
                 </button>
                 <button
-                  className="w-full flex items-center gap-3 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all text-[13px]"
-                  onClick={() => setShowShortcuts(true)}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/[0.04] transition-all text-[12px]"
+                  onClick={() => { setShowShortcuts(true); setMobileOpen(false); }}
                 >
-                  <Command className="h-4 w-4" />
-                  <span>Atalhos (Ctrl+/)</span>
+                  <Command className="h-3.5 w-3.5" />
+                  <span>Atalhos</span>
                 </button>
-              </>
+              </div>
             )}
           </div>
 
           {/* ---- User Info ---- */}
           {user && (
-            <div className={cn("border-t border-white/[0.06]", sidebarCollapsed && !mobileOpen ? "p-2" : "p-3")}>
+            <div className={cn("border-t border-white/[0.06] flex-shrink-0", sidebarCollapsed && !mobileOpen ? "p-2" : "p-2")}>
               {sidebarCollapsed && !mobileOpen ? (
                 <div className="flex flex-col items-center gap-2">
                   <div className={cn(
@@ -840,32 +840,30 @@ function LayoutContent({ children, currentPageName }) {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-3 p-2 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+                <div className="flex items-center gap-2 px-2 py-1.5 rounded-xl bg-white/[0.02]">
                   <div className={cn(
-                    "w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ring-2 ring-white/10",
+                    "w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0",
                     ROLE_COLORS[user.role] || 'bg-gradient-to-br from-slate-600 to-slate-700'
                   )}>
-                    <span className="text-white font-bold text-sm">
+                    <span className="text-white font-bold text-xs">
                       {user.name?.charAt(0) || user.email?.charAt(0) || 'U'}
                     </span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-white text-[13px] font-semibold truncate">
+                    <p className="text-white text-[12px] font-semibold truncate">
                       {user.name || 'Usuário'}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className={cn(
-                        "text-[9px] font-bold px-1.5 py-0.5 rounded-md uppercase tracking-wide",
-                        user.role === 'admin' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/20' :
-                        user.role === 'gerente' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/20' :
-                        user.role === 'supervisor' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/20' :
-                        user.role === 'operador' ? 'bg-green-500/20 text-green-400 border border-green-500/20' :
-                        user.role === 'financeiro' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' :
-                        'bg-slate-500/20 text-slate-400 border border-slate-500/20'
-                      )}>
-                        {ROLE_LABELS[user.role] || (user.role || 'viewer').toUpperCase()}
-                      </span>
-                    </div>
+                    <span className={cn(
+                      "text-[9px] font-bold px-1 py-0.5 rounded uppercase tracking-wide",
+                      user.role === 'admin' ? 'bg-orange-500/20 text-orange-400' :
+                      user.role === 'gerente' ? 'bg-purple-500/20 text-purple-400' :
+                      user.role === 'supervisor' ? 'bg-blue-500/20 text-blue-400' :
+                      user.role === 'operador' ? 'bg-green-500/20 text-green-400' :
+                      user.role === 'financeiro' ? 'bg-emerald-500/20 text-emerald-400' :
+                      'bg-slate-500/20 text-slate-400'
+                    )}>
+                      {ROLE_LABELS[user.role] || (user.role || 'viewer').toUpperCase()}
+                    </span>
                   </div>
                   <button
                     onClick={handleLogout}
