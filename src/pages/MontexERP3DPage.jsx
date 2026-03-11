@@ -737,24 +737,77 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   }
 
   // ==============================================
-  // MATCH IFC ELEMENTS TO ERP DATA
+  // MATCH IFC ELEMENTS TO ERP DATA (multi-strategy)
   // ==============================================
   const statusMap = useMemo(() => {
     const map = new Map();
     if (ifcElements.length === 0 || erpPecas.length === 0) return map;
 
+    // Pre-index ERP peças por marca (upper)
+    const marcaIndex = new Map();
+    for (const peca of erpPecas) {
+      const marca = (peca.marca || '').toUpperCase().trim();
+      if (marca && marca.length >= 2) {
+        marcaIndex.set(marca, peca);
+      }
+    }
+
+    // Pre-index ERP peças por perfil (upper)
+    const perfilIndex = new Map();
+    for (const peca of erpPecas) {
+      const perfil = (peca.perfil || '').toUpperCase().trim();
+      if (perfil) {
+        if (!perfilIndex.has(perfil)) perfilIndex.set(perfil, []);
+        perfilIndex.get(perfil).push(peca);
+      }
+    }
+
     for (const el of ifcElements) {
       const elName = (el.name || '').toUpperCase().trim();
-      // Try matching by marca (name contains marca)
+      const elDesc = (el.description || '').toUpperCase().trim();
+      const elGlobalId = (el.globalId || '').toUpperCase().trim();
+
       let bestMatch = null;
-      for (const peca of erpPecas) {
-        const marca = (peca.marca || '').toUpperCase().trim();
-        if (!marca) continue;
-        if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
-          bestMatch = peca;
-          break;
+
+      // Strategy 1: Exact marca match on name
+      if (marcaIndex.has(elName)) {
+        bestMatch = marcaIndex.get(elName);
+      }
+
+      // Strategy 2: Name contains marca or marca contains name
+      if (!bestMatch && elName.length >= 2) {
+        for (const [marca, peca] of marcaIndex) {
+          if (elName.includes(marca) || marca.includes(elName)) {
+            bestMatch = peca;
+            break;
+          }
         }
       }
+
+      // Strategy 3: Description/GlobalId contains marca
+      if (!bestMatch && (elDesc || elGlobalId)) {
+        for (const [marca, peca] of marcaIndex) {
+          if ((elDesc && elDesc.includes(marca)) || (elGlobalId && elGlobalId.includes(marca))) {
+            bestMatch = peca;
+            break;
+          }
+        }
+      }
+
+      // Strategy 4: Match by perfil in description (e.g. IFC desc "UE200X75X20X2" matches ERP perfil)
+      if (!bestMatch && elDesc) {
+        const pecasByPerfil = perfilIndex.get(elDesc);
+        if (pecasByPerfil && pecasByPerfil.length > 0) {
+          // Pick the most advanced status among matching pieces
+          const statusPriority = ['MONTADO', 'ENTREGUE', 'EM_TRANSITO', 'CARREGANDO', 'EXPEDICAO', 'PINTURA', 'SOLDA', 'FABRICACAO', 'CORTE', 'NAO_INICIADO'];
+          bestMatch = pecasByPerfil.reduce((best, p) => {
+            const bestIdx = statusPriority.indexOf(best.status);
+            const pIdx = statusPriority.indexOf(p.status);
+            return pIdx < bestIdx ? p : best;
+          }, pecasByPerfil[0]);
+        }
+      }
+
       if (bestMatch) {
         map.set(el.expressID, bestMatch.status);
       }
@@ -788,27 +841,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   // ==============================================
   // IFC FILE HANDLING
   // ==============================================
-  // Helper para aplicar cores ERP a um set de elementos
-  const applyColorsToScene = useCallback((sm, elements) => {
+  // Helper para aplicar cores ERP a um set de elementos (usa statusMap global)
+  const applyColorsToScene = useCallback((sm, _elements) => {
     if (!sm) return;
     if (colorMode === 'status') {
-      const newMap = new Map();
-      for (const el of elements) {
-        const elName = (el.name || '').toUpperCase().trim();
-        for (const peca of erpPecas) {
-          const marca = (peca.marca || '').toUpperCase().trim();
-          if (!marca) continue;
-          if (elName === marca || elName.includes(marca) || marca.includes(elName)) {
-            newMap.set(el.expressID, peca.status);
-            break;
-          }
-        }
-      }
-      sm.applyStatusColors(newMap);
+      sm.applyStatusColors(statusMap);
     } else {
       sm.applyTypeColors();
     }
-  }, [erpPecas, colorMode]);
+  }, [statusMap, colorMode]);
 
   // ==============================================
   // TOGGLE FASTENERS (parafusos) - carrega sob demanda
