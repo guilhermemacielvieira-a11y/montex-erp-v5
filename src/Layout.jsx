@@ -298,15 +298,21 @@ const CATEGORY_PERMISSIONS = {
 function CollapsedNavItem({ category, currentPageName, onNavigate }) {
   const hasActiveItem = category.items.some(item => currentPageName === item.href);
   const [showFlyout, setShowFlyout] = useState(false);
+  const [flyoutPos, setFlyoutPos] = useState({ top: 0 });
   const timeoutRef = useRef(null);
+  const iconRef = useRef(null);
 
   const handleMouseEnter = () => {
     clearTimeout(timeoutRef.current);
+    if (iconRef.current) {
+      const rect = iconRef.current.getBoundingClientRect();
+      setFlyoutPos({ top: rect.top });
+    }
     setShowFlyout(true);
   };
 
   const handleMouseLeave = () => {
-    timeoutRef.current = setTimeout(() => setShowFlyout(false), 150);
+    timeoutRef.current = setTimeout(() => setShowFlyout(false), 200);
   };
 
   return (
@@ -316,12 +322,13 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
       onMouseLeave={handleMouseLeave}
     >
       <Link
+        ref={iconRef}
         to={createPageUrl(category.items[0]?.href || '')}
         onClick={onNavigate}
         className={cn(
           "w-10 h-10 mx-auto flex items-center justify-center rounded-xl transition-all duration-200",
           hasActiveItem
-            ? `bg-gradient-to-br ${category.gradient} shadow-lg shadow-${category.gradient.split('-')[1]}-500/20`
+            ? `bg-gradient-to-br ${category.gradient} shadow-lg`
             : "text-slate-400 hover:text-white hover:bg-white/5"
         )}
         title={category.name}
@@ -329,7 +336,7 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
         <category.icon className={cn("h-[18px] w-[18px]", hasActiveItem && "text-white")} />
       </Link>
 
-      {/* Flyout */}
+      {/* Flyout - fixed position to escape overflow:auto */}
       <AnimatePresence>
         {showFlyout && (
           <motion.div
@@ -337,7 +344,8 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
             animate={{ opacity: 1, x: 0, scale: 1 }}
             exit={{ opacity: 0, x: -8, scale: 0.95 }}
             transition={{ duration: 0.15 }}
-            className="absolute left-full top-0 ml-3 z-[70]"
+            className="fixed z-[9999]"
+            style={{ top: flyoutPos.top, left: 76 }}
             onMouseEnter={handleMouseEnter}
             onMouseLeave={handleMouseLeave}
           >
