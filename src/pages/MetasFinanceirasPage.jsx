@@ -1,7 +1,7 @@
-// MONTEX ERP Premium - Módulo de Metas Financeiras
-// Gestão de metas de faturamento, objetivos e acompanhamento
+// MONTEX ERP Premium - Módulo de Metas Financeiras v3
+// Reestruturado com regra 50/50, centros separados, dados RH integrados
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -16,7 +16,13 @@ import {
   Zap,
   ArrowUp,
   ArrowDown,
-  TrendingUp
+  TrendingUp,
+  TrendingDown,
+  Factory,
+  HardHat,
+  Users,
+  Percent,
+  Building2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -70,206 +76,141 @@ import {
 } from 'recharts';
 import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
 
-// Componente de Card de Meta
-function MetaCard({ meta, formatCurrency, formatPercent }) {
-  const percentual = (meta.valorAtual / meta.valorMeta) * 100;
-  const isPercentMeta = meta.unidade === '%';
+// Componente de KPI
+function KPICard({ title, value, subtitle, icon: Icon, color, trend, trendLabel, isNegativeTrendGood = false }) {
+  const trendColor = isNegativeTrendGood
+    ? (trend >= 0 ? "text-red-400" : "text-emerald-400")
+    : (trend >= 0 ? "text-emerald-400" : "text-red-400");
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'atingida': return 'from-emerald-500 to-green-500';
-      case 'em_andamento': return 'from-blue-500 to-cyan-500';
-      case 'atencao': return 'from-amber-500 to-orange-500';
-      case 'nao_atingida': return 'from-red-500 to-rose-500';
-      default: return 'from-slate-500 to-slate-600';
-    }
-  };
-
-  const getStatusText = (status) => {
-    switch (status) {
-      case 'atingida': return 'Meta Atingida';
-      case 'em_andamento': return 'Em Andamento';
-      case 'atencao': return 'Atenção';
-      case 'nao_atingida': return 'Não Atingida';
-      default: return status;
-    }
-  };
-
-  const getPrioridadeColor = (prioridade) => {
-    switch (prioridade) {
-      case 'alta': return 'bg-red-500/20 text-red-400 border-red-500/30';
-      case 'media': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-      case 'baixa': return 'bg-green-500/20 text-green-400 border-green-500/30';
-      default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-    }
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5 hover:border-slate-600/50 transition-all"
-    >
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            "w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br",
-            getStatusColor(meta.status)
-          )}>
-            <Target className="h-6 w-6 text-white" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-white">{meta.titulo}</h3>
-            <p className="text-sm text-slate-400">{meta.responsavel}</p>
-          </div>
-        </div>
-        <Badge className={cn("border", getPrioridadeColor(meta.prioridade))}>
-          {meta.prioridade.toUpperCase()}
-        </Badge>
-      </div>
-
-      <div className="space-y-3">
-        <div className="flex justify-between text-sm">
-          <span className="text-slate-400">Progresso</span>
-          <span className={cn(
-            "font-semibold",
-            percentual >= 100 ? "text-emerald-400" : percentual >= 75 ? "text-blue-400" : percentual >= 50 ? "text-amber-400" : "text-red-400"
-          )}>
-            {formatPercent(percentual)}
-          </span>
-        </div>
-
-        <div className="relative">
-          <div className="h-3 bg-slate-800 rounded-full overflow-hidden">
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${Math.min(percentual, 100)}%` }}
-              transition={{ duration: 1, ease: "easeOut" }}
-              className={cn(
-                "h-full rounded-full bg-gradient-to-r",
-                getStatusColor(meta.status)
-              )}
-            />
-          </div>
-          {percentual > 100 && (
-            <div className="absolute -top-1 right-0 text-emerald-400">
-              <Zap className="h-4 w-4" />
-            </div>
-          )}
-        </div>
-
-        <div className="flex justify-between items-end pt-2">
-          <div>
-            <p className="text-xs text-slate-500">Atual</p>
-            <p className="text-lg font-bold text-white">
-              {isPercentMeta ? formatPercent(meta.valorAtual) : meta.unidade ? `${meta.valorAtual} ${meta.unidade}` : formatCurrency(meta.valorAtual)}
-            </p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs text-slate-500">Meta</p>
-            <p className="text-lg font-semibold text-slate-300">
-              {isPercentMeta ? formatPercent(meta.valorMeta) : meta.unidade ? `${meta.valorMeta} ${meta.unidade}` : formatCurrency(meta.valorMeta)}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-between pt-3 border-t border-slate-700/50">
-          <Badge variant="outline" className="text-xs text-slate-400 border-slate-600">
-            <Calendar className="h-3 w-3 mr-1" />
-            {meta.dataLimite}
-          </Badge>
-          <Badge className={cn("text-xs", meta.status === 'atingida' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-700/50 text-slate-300')}>
-            {getStatusText(meta.status)}
-          </Badge>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// Componente de KPI Grande
-function KPICard({ title, value, subtitle, icon: Icon, color, trend, trendValue }) {
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-6"
+      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
     >
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-slate-400 mb-1">{title}</p>
-          <p className="text-3xl font-bold text-white">{value}</p>
-          {subtitle && <p className="text-sm text-slate-500 mt-1">{subtitle}</p>}
+          <p className="text-xs text-slate-400 mb-1">{title}</p>
+          <p className="text-2xl font-bold text-white">{value}</p>
+          {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
         </div>
-        <div className={cn(
-          "w-14 h-14 rounded-xl flex items-center justify-center bg-gradient-to-br",
-          color
-        )}>
-          <Icon className="h-7 w-7 text-white" />
+        <div className={cn("w-12 h-12 rounded-xl flex items-center justify-center bg-gradient-to-br", color)}>
+          <Icon className="h-6 w-6 text-white" />
         </div>
       </div>
       {trend !== undefined && (
-        <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-700/50">
-          {trend >= 0 ? (
-            <ArrowUp className="h-4 w-4 text-emerald-400" />
+        <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-700/50">
+          {(isNegativeTrendGood ? trend < 0 : trend >= 0) ? (
+            <TrendingUp className={cn("h-4 w-4", trendColor)} />
           ) : (
-            <ArrowDown className="h-4 w-4 text-red-400" />
+            <TrendingDown className={cn("h-4 w-4", trendColor)} />
           )}
-          <span className={cn(
-            "text-sm font-medium",
-            trend >= 0 ? "text-emerald-400" : "text-red-400"
-          )}>
-            {trend >= 0 ? '+' : ''}{typeof (trendValue || trend) === 'number' ? (trendValue || trend).toFixed(1) : (trendValue || trend)}%
+          <span className={cn("text-sm font-medium", trendColor)}>
+            {trend >= 0 ? '+' : ''}{typeof trend === 'number' ? trend.toFixed(1) : trend}%
           </span>
-          <span className="text-xs text-slate-500">vs mês anterior</span>
+          <span className="text-xs text-slate-500">{trendLabel || 'vs meta'}</span>
         </div>
       )}
     </motion.div>
   );
 }
 
-// Componente de Card de Estágio
-function EstagioCard({ etapa }) {
-  const getTaxaColor = (taxa) => {
-    if (taxa >= 95) return 'text-emerald-400';
-    if (taxa >= 80) return 'text-blue-400';
-    if (taxa >= 60) return 'text-amber-400';
-    return 'text-red-400';
-  };
+// Componente de Card de Meta com Progress
+function MetaProgressCard({ titulo, descricao, meta, real, progresso, icon: Icon, cor, formatCurrency, isPercent = false, isNegativeTrendGood = false }) {
+  const percentual = Math.min(progresso, 150);
+  const statusColor = progresso >= 100 ? 'from-emerald-500 to-green-500' :
+                       progresso >= 75 ? 'from-blue-500 to-cyan-500' :
+                       progresso >= 50 ? 'from-amber-500 to-orange-500' :
+                       'from-red-500 to-rose-500';
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
-      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5 hover:border-slate-600/50 transition-all"
+      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
+    >
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center bg-gradient-to-br", statusColor)}>
+            <Icon className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h3 className="font-semibold text-white text-sm">{titulo}</h3>
+            <p className="text-xs text-slate-500">{descricao}</p>
+          </div>
+        </div>
+        <Badge className={cn("text-xs",
+          progresso >= 100 ? "bg-emerald-500/20 text-emerald-400" :
+          progresso >= 75 ? "bg-blue-500/20 text-blue-400" :
+          progresso >= 50 ? "bg-amber-500/20 text-amber-400" :
+          "bg-red-500/20 text-red-400"
+        )}>
+          {progresso.toFixed(0)}%
+        </Badge>
+      </div>
+
+      {/* Progress bar */}
+      <div className="mb-3">
+        <div className="h-2.5 bg-slate-800 rounded-full overflow-hidden">
+          <motion.div
+            initial={{ width: 0 }}
+            animate={{ width: `${Math.min(percentual, 100)}%` }}
+            transition={{ duration: 1 }}
+            className={cn("h-full rounded-full bg-gradient-to-r", statusColor)}
+          />
+        </div>
+      </div>
+
+      <div className="flex justify-between text-sm">
+        <div>
+          <p className="text-xs text-slate-500">Real</p>
+          <p className="font-bold text-white">
+            {isPercent ? `${(real || 0).toFixed(1)}%` : formatCurrency(real || 0)}
+          </p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-slate-500">Meta</p>
+          <p className="font-semibold text-slate-400">
+            {isPercent ? `${(meta || 0).toFixed(1)}%` : formatCurrency(meta || 0)}
+          </p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+// Card de Estágio
+function EstagioCard({ etapa, formatCurrency }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-5"
     >
       <div className="flex items-start justify-between mb-4">
         <div>
           <h3 className="font-semibold text-white">{etapa.nome}</h3>
-          <p className="text-sm text-slate-400 mt-1">{etapa.etapa}</p>
+          <p className="text-sm text-slate-400 mt-1">R$ {etapa.taxa}/kg</p>
         </div>
         <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">
-          <TrendingUp className="h-3 w-3 mr-1" />
-          {etapa.taxa}%
+          {etapa.pecas} peças
         </Badge>
       </div>
 
-      <div className="space-y-3">
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs text-slate-500">Produção</p>
-            <p className="text-lg font-semibold text-white">{(etapa.producaoKg / 1000).toFixed(1)} ton</p>
-          </div>
-          <div>
-            <p className="text-xs text-slate-500">Peças</p>
-            <p className="text-lg font-semibold text-white">{etapa.pecas}</p>
-          </div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <p className="text-xs text-slate-500">Produção</p>
+          <p className="text-lg font-semibold text-white">{(etapa.producaoKg / 1000).toFixed(1)} ton</p>
         </div>
+        <div>
+          <p className="text-xs text-slate-500">Valor Gerado</p>
+          <p className="text-lg font-bold text-emerald-400">{formatCurrency(etapa.valorGerado)}</p>
+        </div>
+      </div>
 
-        <div className="pt-3 border-t border-slate-700/50">
-          <p className="text-xs text-slate-500 mb-1">Valor Gerado</p>
-          <p className="text-xl font-bold text-emerald-400">{etapa.valorGerado}</p>
-        </div>
+      <div className="pt-3 mt-3 border-t border-slate-700/50">
+        <p className="text-xs text-slate-500">Custo Estimado/KG</p>
+        <p className="text-sm font-semibold text-amber-400">R$ {(etapa.custoEstimadoKg || 0).toFixed(2)}</p>
       </div>
     </motion.div>
   );
@@ -278,25 +219,32 @@ function EstagioCard({ etapa }) {
 export default function MetasFinanceirasPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // Integração com hook real
   const fi = useFinancialIntelligence();
 
-  // Dados para gráfico radial de metas
-  const radialData = [
-    { name: 'Faturamento', value: fi.metas.faturamento.progresso, fill: '#10b981' },
-    { name: 'Produção', value: fi.metas.producao.progresso, fill: '#3b82f6' },
-    { name: 'Margem', value: fi.metas.margem.progresso, fill: '#f59e0b' },
-    { name: 'Red. Custos', value: Math.max(0, 100 + fi.metas.reducaoCustos.variacao), fill: '#8b5cf6' },
-  ];
+  // Dados para radial chart
+  const radialData = useMemo(() => [
+    { name: 'Receita Empresa', value: Math.min(fi.metas.receitaEmpresa?.progresso || 0, 100), fill: '#10b981' },
+    { name: 'Produção', value: Math.min(fi.metas.producao?.progresso || 0, 100), fill: '#3b82f6' },
+    { name: 'Margem', value: Math.min(fi.metas.margem?.progresso || 0, 100), fill: '#f59e0b' },
+    { name: 'Red. Custos', value: Math.max(0, 100 + (fi.metas.reducaoCustos?.variacao || 0)), fill: '#8b5cf6' },
+  ], [fi.metas]);
 
-  // Dados combinados para gráfico de tendências
-  const tendenciasData = [
+  // Tendências com forecast
+  const tendenciasData = useMemo(() => [
     ...(fi.evolucaoMensal || []),
-    ...(fi.forecast3meses || []).map(f => ({ ...f, forecast: true }))
-  ];
+    ...(fi.forecast3meses || []).map(f => ({ ...f, mesLabel: f.mes, forecast: true }))
+  ], [fi.evolucaoMensal, fi.forecast3meses]);
 
-  // Dados para gráfico de comparação mensal
-  const analiseMonthlyData = fi.evolucaoMensal || [];
+  // Dados centros para comparação
+  const centrosData = useMemo(() =>
+    (fi.custosPorCentro || []).map(c => ({
+      nome: c.nome.replace('(Fábrica)', '').replace('(Esquadrias)', '').trim(),
+      despesas: c.gasto,
+      rh: c.gastoRH,
+      orcamento: c.orcamento,
+      utilizacao: c.utilizacao
+    })),
+  [fi.custosPorCentro]);
 
   return (
     <div className="space-y-6">
@@ -309,7 +257,7 @@ export default function MetasFinanceirasPage() {
             </div>
             Metas Financeiras
           </h1>
-          <p className="text-slate-400 mt-1">Acompanhamento de objetivos e metas da empresa</p>
+          <p className="text-slate-400 mt-1">Metas por centro de custo com regra contrato 50/50</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -327,18 +275,17 @@ export default function MetasFinanceirasPage() {
               <div className="space-y-4 pt-4">
                 <div>
                   <Label className="text-slate-300">Título da Meta</Label>
-                  <Input className="mt-1 bg-slate-800 border-slate-700" placeholder="Ex: Meta de Faturamento Q1" />
+                  <Input className="mt-1 bg-slate-800 border-slate-700" placeholder="Ex: Redução custo montagem" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label className="text-slate-300">Tipo</Label>
                     <Select>
-                      <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
+                      <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Selecione" /></SelectTrigger>
                       <SelectContent className="bg-slate-800 border-slate-700">
-                        <SelectItem value="faturamento">Faturamento</SelectItem>
-                        <SelectItem value="reducao_custo">Redução de Custo</SelectItem>
+                        <SelectItem value="receita">Receita Empresa</SelectItem>
+                        <SelectItem value="custo_producao">Custo Produção</SelectItem>
+                        <SelectItem value="custo_montagem">Custo Montagem</SelectItem>
                         <SelectItem value="producao">Produção</SelectItem>
                         <SelectItem value="margem">Margem</SelectItem>
                       </SelectContent>
@@ -347,9 +294,7 @@ export default function MetasFinanceirasPage() {
                   <div>
                     <Label className="text-slate-300">Prioridade</Label>
                     <Select>
-                      <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                        <SelectValue placeholder="Selecione" />
-                      </SelectTrigger>
+                      <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Selecione" /></SelectTrigger>
                       <SelectContent className="bg-slate-800 border-slate-700">
                         <SelectItem value="alta">Alta</SelectItem>
                         <SelectItem value="media">Média</SelectItem>
@@ -368,11 +313,7 @@ export default function MetasFinanceirasPage() {
                     <Input className="mt-1 bg-slate-800 border-slate-700" type="date" />
                   </div>
                 </div>
-                <Button
-                  onClick={() => {
-                    toast.success('Meta criada com sucesso!');
-                    setDialogOpen(false);
-                  }}
+                <Button onClick={() => { toast.success('Meta criada!'); setDialogOpen(false); }}
                   className="w-full bg-gradient-to-r from-amber-500 to-orange-500">
                   Criar Meta
                 </Button>
@@ -382,21 +323,36 @@ export default function MetasFinanceirasPage() {
         </div>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* KPIs Principais - 6 cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <KPICard
-          title="Faturamento"
-          value={fi.formatCurrency(fi.kpisGerais.faturamento)}
-          subtitle={`Meta: ${fi.formatCurrency(fi.metas.faturamento.meta)}`}
+          title="Receita Empresa (50%)"
+          value={fi.formatCurrency(fi.kpisGerais.receitaEmpresa)}
+          subtitle={`Faturamento bruto: ${fi.formatCurrency(fi.kpisGerais.faturamentoBruto)}`}
           icon={DollarSign}
           color="from-emerald-500 to-green-500"
         />
         <KPICard
-          title="Custos Totais"
-          value={fi.formatCurrency(fi.kpisGerais.despesas)}
-          subtitle={`${fi.kpisGerais.totalDespesas} lançamentos`}
-          icon={BarChart3}
-          color="from-red-500 to-orange-500"
+          title="Material Faturado (50%)"
+          value={fi.formatCurrency(fi.kpisGerais.materialFaturadoDireto)}
+          subtitle="Faturado direto pelo fornecedor"
+          icon={Percent}
+          color="from-cyan-500 to-blue-500"
+        />
+        <KPICard
+          title="Custo Produção"
+          value={fi.formatCurrency(fi.custoProducaoTotal)}
+          subtitle={`R$ ${(fi.custoProducaoPerKg || 0).toFixed(2)}/kg (fábrica)`}
+          icon={Factory}
+          color="from-rose-500 to-pink-500"
+          isNegativeTrendGood={true}
+        />
+        <KPICard
+          title="Custo Montagem"
+          value={fi.formatCurrency(fi.metas.custoMontagem?.real || 0)}
+          subtitle="Equipe campo + despesas"
+          icon={HardHat}
+          color="from-blue-500 to-indigo-500"
         />
         <KPICard
           title="Margem Operacional"
@@ -404,45 +360,68 @@ export default function MetasFinanceirasPage() {
           subtitle="Meta: 25%"
           icon={TrendingUp}
           color="from-amber-500 to-orange-500"
+          trend={fi.margemOperacional - 25}
+          trendLabel="vs meta 25%"
         />
         <KPICard
           title="Produção"
           value={`${(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton`}
-          subtitle={`por mês: ${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton`}
+          subtitle={`${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton/mês | ${fi.kpisGerais.totalFuncionarios} func.`}
           icon={Award}
-          color="from-blue-500 to-cyan-500"
+          color="from-violet-500 to-purple-500"
         />
       </div>
 
-      {/* Abas com Visão Geral, Análise Mensal, Por Estágio e Tendências */}
+      {/* Regra 50/50 Banner */}
+      <div className="bg-gradient-to-r from-blue-900/30 to-emerald-900/30 rounded-xl border border-blue-700/20 p-4">
+        <div className="flex items-center gap-3 flex-wrap">
+          <Percent className="h-5 w-5 text-blue-400" />
+          <span className="text-sm font-semibold text-blue-300">Regra Contrato 50/50</span>
+          <span className="text-xs text-slate-400 mx-2">|</span>
+          <span className="text-xs text-slate-400">
+            50% Material Faturado Direto: <span className="text-amber-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.materialFaturadoDireto)}</span>
+          </span>
+          <span className="text-xs text-slate-400 mx-1">+</span>
+          <span className="text-xs text-slate-400">
+            50% Receita Empresa: <span className="text-emerald-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.receitaEmpresa)}</span>
+          </span>
+          <span className="text-xs text-slate-400 mx-1">=</span>
+          <span className="text-xs text-slate-400">
+            Faturamento: <span className="text-white font-semibold">{fi.formatCurrency(fi.kpisGerais.faturamentoBruto)}</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Tabs */}
       <Tabs defaultValue="visao-geral" className="space-y-4">
         <TabsList className="bg-slate-900/60 border border-slate-700/50">
           <TabsTrigger value="visao-geral">Visão Geral</TabsTrigger>
+          <TabsTrigger value="metas">Metas por Centro</TabsTrigger>
           <TabsTrigger value="analise-mensal">Análise Mensal</TabsTrigger>
           <TabsTrigger value="por-estagio">Por Estágio</TabsTrigger>
           <TabsTrigger value="tendencias">Tendências</TabsTrigger>
         </TabsList>
 
-        {/* Aba: Visão Geral */}
+        {/* Visão Geral */}
         <TabsContent value="visao-geral" className="space-y-6">
-          {/* Gráfico de Evolução */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Evolução Receita Empresa vs Custo */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-emerald-400" />
-                  Evolução: Receita vs Custo
+                  Receita Empresa (50%) vs Custo
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
                   <AreaChart data={fi.evolucaoMensal || []}>
                     <defs>
-                      <linearGradient id="colorReceita" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="colorRecMeta" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
-                      <linearGradient id="colorCusto" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="colorCustoMeta" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
                         <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                       </linearGradient>
@@ -454,28 +433,15 @@ export default function MetasFinanceirasPage() {
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
                       formatter={(value) => fi.formatCurrency(value)}
                     />
-                    <Area
-                      type="monotone"
-                      dataKey="receita"
-                      stroke="#10b981"
-                      strokeWidth={2}
-                      fill="url(#colorReceita)"
-                      name="Receita"
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="custo"
-                      stroke="#ef4444"
-                      strokeWidth={2}
-                      fill="url(#colorCusto)"
-                      name="Custo"
-                    />
+                    <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                    <Area type="monotone" dataKey="receitaEmpresa" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Receita Empresa (50%)" />
+                    <Area type="monotone" dataKey="custo" stroke="#ef4444" strokeWidth={2} fill="url(#colorCustoMeta)" name="Custo Total" />
                   </AreaChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
 
-            {/* Gráfico Radial de Progresso */}
+            {/* Radial de Progresso */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
@@ -485,28 +451,9 @@ export default function MetasFinanceirasPage() {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <RadialBarChart
-                    cx="50%"
-                    cy="50%"
-                    innerRadius="20%"
-                    outerRadius="90%"
-                    data={radialData}
-                    startAngle={180}
-                    endAngle={0}
-                  >
-                    <RadialBar
-                      minAngle={15}
-                      background={{ fill: '#1e293b' }}
-                      clockWise
-                      dataKey="value"
-                      cornerRadius={5}
-                    />
-                    <Legend
-                      iconSize={10}
-                      layout="horizontal"
-                      verticalAlign="bottom"
-                      wrapperStyle={{ color: '#94a3b8' }}
-                    />
+                  <RadialBarChart cx="50%" cy="50%" innerRadius="20%" outerRadius="90%" data={radialData} startAngle={180} endAngle={0}>
+                    <RadialBar minAngle={15} background={{ fill: '#1e293b' }} clockWise dataKey="value" cornerRadius={5} />
+                    <Legend iconSize={10} layout="horizontal" verticalAlign="bottom" wrapperStyle={{ color: '#94a3b8' }} />
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
                       formatter={(value) => `${value.toFixed(1)}%`}
@@ -516,14 +463,165 @@ export default function MetasFinanceirasPage() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
 
-        {/* Aba: Análise Mensal */}
-        <TabsContent value="analise-mensal" className="space-y-6">
-          {/* Tabela de Análise */}
+          {/* Custos por Centro - BarChart */}
           <Card className="bg-slate-900/60 border-slate-700/50">
             <CardHeader>
-              <CardTitle className="text-white">Dados Mensais</CardTitle>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Building2 className="h-5 w-5 text-violet-400" />
+                Custos por Centro (Despesas + RH vs Orçamento)
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {centrosData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={centrosData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="nome" stroke="#64748b" />
+                    <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                      formatter={(value, name) => [fi.formatCurrency(value), name === 'despesas' ? 'Despesas' : name === 'rh' ? 'RH' : 'Orçamento']}
+                    />
+                    <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                    <Bar dataKey="despesas" name="Despesas" stackId="a" fill="#3b82f6" radius={[0, 0, 0, 0]} />
+                    <Bar dataKey="rh" name="RH" stackId="a" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="orcamento" name="Orçamento" fill="#334155" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-[280px] flex items-center justify-center text-slate-500">Sem dados</div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Metas por Centro */}
+        <TabsContent value="metas" className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <MetaProgressCard
+              titulo="Receita Empresa"
+              descricao={fi.metas.receitaEmpresa?.descricao || '50% do contrato'}
+              meta={fi.metas.receitaEmpresa?.meta || 0}
+              real={fi.metas.receitaEmpresa?.real || 0}
+              progresso={fi.metas.receitaEmpresa?.progresso || 0}
+              icon={DollarSign}
+              cor="emerald"
+              formatCurrency={fi.formatCurrency}
+            />
+            <MetaProgressCard
+              titulo="Custo Produção (Fábrica)"
+              descricao={fi.metas.custoProducao?.descricao || 'Sem alumínio/montagem'}
+              meta={fi.metas.custoProducao?.meta || 0}
+              real={fi.metas.custoProducao?.real || 0}
+              progresso={fi.metas.custoProducao?.progresso || 0}
+              icon={Factory}
+              cor="rose"
+              formatCurrency={fi.formatCurrency}
+              isNegativeTrendGood={true}
+            />
+            <MetaProgressCard
+              titulo="Custo Montagem Campo"
+              descricao={fi.metas.custoMontagem?.descricao || 'Equipe + despesas campo'}
+              meta={fi.metas.custoMontagem?.meta || 0}
+              real={fi.metas.custoMontagem?.real || 0}
+              progresso={fi.metas.custoMontagem?.progresso || 0}
+              icon={HardHat}
+              cor="blue"
+              formatCurrency={fi.formatCurrency}
+              isNegativeTrendGood={true}
+            />
+            <MetaProgressCard
+              titulo="Produção Mensal"
+              descricao="KG produzidos vs meta"
+              meta={fi.metas.producao?.meta || 0}
+              real={fi.metas.producao?.real || 0}
+              progresso={fi.metas.producao?.progresso || 0}
+              icon={Award}
+              cor="violet"
+              formatCurrency={(v) => `${(v / 1000).toFixed(1)} ton`}
+            />
+            <MetaProgressCard
+              titulo="Margem Operacional"
+              descricao="Receita Empresa - Custos"
+              meta={fi.metas.margem?.meta || 25}
+              real={fi.metas.margem?.real || 0}
+              progresso={fi.metas.margem?.progresso || 0}
+              icon={TrendingUp}
+              cor="amber"
+              formatCurrency={fi.formatCurrency}
+              isPercent={true}
+            />
+            <MetaProgressCard
+              titulo="Redução de Custos"
+              descricao={`Meta: ${fi.metas.reducaoCustos?.meta || -5}% vs média`}
+              meta={fi.metas.reducaoCustos?.mediaHistorica || 0}
+              real={fi.metas.reducaoCustos?.real || 0}
+              progresso={fi.metas.reducaoCustos?.variacao ? Math.max(0, 100 + fi.metas.reducaoCustos.variacao) : 0}
+              icon={TrendingDown}
+              cor="purple"
+              formatCurrency={fi.formatCurrency}
+              isNegativeTrendGood={true}
+            />
+          </div>
+
+          {/* RH Summary por Centro */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Users className="h-5 w-5 text-violet-400" />
+                Custo RH por Centro
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-700/50">
+                    <TableHead className="text-slate-400">Centro</TableHead>
+                    <TableHead className="text-slate-400 text-center">Funcionários</TableHead>
+                    <TableHead className="text-slate-400 text-right">Custo RH</TableHead>
+                    <TableHead className="text-slate-400 text-right">Despesas</TableHead>
+                    <TableHead className="text-slate-400 text-right">Total</TableHead>
+                    <TableHead className="text-slate-400 text-right">Orçamento</TableHead>
+                    <TableHead className="text-slate-400 text-center">Utilização</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(fi.custosPorCentro || []).map(c => (
+                    <TableRow key={c.id} className="border-slate-700/50 hover:bg-slate-800/30">
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full" style={{ backgroundColor: c.cor }} />
+                          <span className="text-white font-medium text-sm">{c.nome}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-center text-slate-300">{c.qtdFuncionarios}</TableCell>
+                      <TableCell className="text-right text-violet-400 font-semibold">{fi.formatCurrency(c.gastoRH)}</TableCell>
+                      <TableCell className="text-right text-blue-400">{fi.formatCurrency(c.gasto)}</TableCell>
+                      <TableCell className="text-right text-rose-400 font-bold">{fi.formatCurrency(c.gastoTotal)}</TableCell>
+                      <TableCell className="text-right text-slate-400">{fi.formatCurrency(c.orcamento)}</TableCell>
+                      <TableCell className="text-center">
+                        <Badge className={cn("text-xs",
+                          c.utilizacao > 100 ? "bg-red-500/20 text-red-400" :
+                          c.utilizacao > 90 ? "bg-amber-500/20 text-amber-400" :
+                          "bg-emerald-500/20 text-emerald-400"
+                        )}>
+                          {c.utilizacao.toFixed(0)}%
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* Análise Mensal */}
+        <TabsContent value="analise-mensal" className="space-y-6">
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white">Dados Mensais (com regra 50/50)</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto">
@@ -531,7 +629,9 @@ export default function MetasFinanceirasPage() {
                   <TableHeader>
                     <TableRow className="border-slate-700/50">
                       <TableHead className="text-slate-400">Mês</TableHead>
-                      <TableHead className="text-slate-400 text-right">Receita</TableHead>
+                      <TableHead className="text-slate-400 text-right">Receita Bruta</TableHead>
+                      <TableHead className="text-slate-400 text-right">Material (50%)</TableHead>
+                      <TableHead className="text-slate-400 text-right">Receita Empresa (50%)</TableHead>
                       <TableHead className="text-slate-400 text-right">Custo</TableHead>
                       <TableHead className="text-slate-400 text-right">Margem</TableHead>
                       <TableHead className="text-slate-400 text-right">Custo/kg</TableHead>
@@ -541,10 +641,12 @@ export default function MetasFinanceirasPage() {
                     {(fi.evolucaoMensal || []).map((mes, idx) => (
                       <TableRow key={idx} className="border-slate-700/50 hover:bg-slate-800/30">
                         <TableCell className="text-slate-300">{mes.mesLabel}</TableCell>
-                        <TableCell className="text-right text-emerald-400 font-semibold">{fi.formatCurrency(mes.receita)}</TableCell>
+                        <TableCell className="text-right text-white font-semibold">{fi.formatCurrency(mes.receita)}</TableCell>
+                        <TableCell className="text-right text-amber-400">{fi.formatCurrency(mes.materialFaturado)}</TableCell>
+                        <TableCell className="text-right text-emerald-400 font-semibold">{fi.formatCurrency(mes.receitaEmpresa)}</TableCell>
                         <TableCell className="text-right text-red-400 font-semibold">{fi.formatCurrency(mes.custo)}</TableCell>
-                        <TableCell className="text-right text-blue-400 font-semibold">{fi.formatPercent(mes.margem)}</TableCell>
-                        <TableCell className="text-right text-slate-300">{fi.formatCurrency(mes.custoPerKg)}</TableCell>
+                        <TableCell className={cn("text-right font-semibold", mes.margem >= 0 ? "text-emerald-400" : "text-red-400")}>{fi.formatPercent(mes.margem)}</TableCell>
+                        <TableCell className="text-right text-slate-300">R$ {(mes.custoPerKg || 0).toFixed(2)}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -553,17 +655,16 @@ export default function MetasFinanceirasPage() {
             </CardContent>
           </Card>
 
-          {/* Gráfico de Comparação Mensal */}
           <Card className="bg-slate-900/60 border-slate-700/50">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-amber-400" />
-                Comparação: Receita vs Custo
+                Comparação: Receita Empresa vs Custo
               </CardTitle>
             </CardHeader>
             <CardContent>
               <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={analiseMonthlyData}>
+                <BarChart data={fi.evolucaoMensal || []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                   <XAxis dataKey="mesLabel" stroke="#64748b" />
                   <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000)}k`} />
@@ -572,7 +673,7 @@ export default function MetasFinanceirasPage() {
                     formatter={(value) => fi.formatCurrency(value)}
                   />
                   <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                  <Bar dataKey="receita" fill="#10b981" name="Receita" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="receitaEmpresa" fill="#10b981" name="Receita Empresa (50%)" radius={[8, 8, 0, 0]} />
                   <Bar dataKey="custo" fill="#ef4444" name="Custo" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -580,22 +681,22 @@ export default function MetasFinanceirasPage() {
           </Card>
         </TabsContent>
 
-        {/* Aba: Por Estágio */}
+        {/* Por Estágio */}
         <TabsContent value="por-estagio" className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {(fi.etapasAnalise || []).map((etapa, idx) => (
-              <EstagioCard key={idx} etapa={etapa} />
+              <EstagioCard key={idx} etapa={etapa} formatCurrency={fi.formatCurrency} />
             ))}
           </div>
         </TabsContent>
 
-        {/* Aba: Tendências */}
+        {/* Tendências */}
         <TabsContent value="tendencias" className="space-y-6">
           <Card className="bg-slate-900/60 border-slate-700/50">
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-purple-400" />
-                Evolução + Previsão (3 meses)
+                Evolução + Previsão 3 meses
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -603,8 +704,8 @@ export default function MetasFinanceirasPage() {
                 <ComposedChart data={tendenciasData}>
                   <defs>
                     <linearGradient id="colorTendencia" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3}/>
-                      <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0}/>
+                      <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                      <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -615,32 +716,10 @@ export default function MetasFinanceirasPage() {
                     formatter={(value) => fi.formatCurrency(value)}
                   />
                   <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                  <Area
-                    type="monotone"
-                    dataKey="receita"
-                    stroke="#10b981"
-                    strokeWidth={2}
-                    fill="url(#colorTendencia)"
-                    name="Receita Real"
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="receitaProjetada"
-                    stroke="#8b5cf6"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    name="Receita Projetada"
-                    dot={false}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="custoProjetado"
-                    stroke="#f97316"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    name="Custo Projetado"
-                    dot={false}
-                  />
+                  <Area type="monotone" dataKey="receitaEmpresa" stroke="#10b981" strokeWidth={2} fill="url(#colorTendencia)" name="Receita Empresa" />
+                  <Line type="monotone" dataKey="custo" stroke="#ef4444" strokeWidth={2} name="Custo Real" dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="receitaProjetada" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" name="Receita Projetada" dot={false} />
+                  <Line type="monotone" dataKey="custoProjetado" stroke="#f97316" strokeWidth={2} strokeDasharray="5 5" name="Custo Projetado" dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </CardContent>

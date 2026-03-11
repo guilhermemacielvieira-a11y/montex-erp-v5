@@ -1,14 +1,107 @@
 /**
  * MONTEX ERP - Hook Central de Inteligência Financeira
  *
- * Centraliza TODOS os cálculos financeiros usados por múltiplos módulos:
- * - Metas Financeiras, Análise de Custos, Centros de Custo
- * - BI Estratégico, Tático, Operacional
- * - Sugestões IA
+ * v3 - Reestruturado com centros de custos baseados em RH real:
+ * - Produção (Fábrica): Corte, Solda, Fabricação, Pintura - EXCLUI Alumínio e Montagem
+ * - Montagem em Campo: equipe de montagem + despesas de campo (independente)
+ * - Alumínio (Esquadrias): equipe separada - EXCLUÍDO da produção
+ * - Administrativo Produção: liderança e segurança
+ * - Administrativo Geral: almoxarifado, serviços gerais, overhead
+ * - Regra contrato: 50% material faturado direto, 50% receita empresa
  */
 
 import { useMemo } from 'react';
 import { useLancamentos, useObras, useProducao, useMedicoes, useEstoque } from '@/contexts/ERPContext';
+
+// ==========================================
+// DADOS DE RH POR CENTRO DE CUSTO (salários reais Fev/2026)
+// ==========================================
+
+// Funcionários por centro de custo (baseado em departamento + cargo do RH real)
+const RH_CENTROS = {
+  producao: {
+    id: 'CC-PROD',
+    nome: 'Produção (Fábrica)',
+    funcionarios: [
+      // Solda
+      { nome: 'Gilmar Sousa da Silva', cargo: 'Soldador II', depto: 'Solda', salarioBruto: 3368.98, totalProventos: 4008.98, fgts: 269.51, empresa: 'montex' },
+      { nome: 'Juscélio Rodrigues de Souza', cargo: 'Soldador', depto: 'Solda', salarioBruto: 2859.14, totalProventos: 3499.14, fgts: 228.73, empresa: 'montex' },
+      { nome: 'Luiz Barbosa Ferreira', cargo: 'Soldador', depto: 'Solda', salarioBruto: 2859.14, totalProventos: 3499.14, fgts: 228.73, empresa: 'montex' },
+      { nome: 'Daniel Vinícius de Souza Silva', cargo: 'Soldador I', depto: 'Solda', salarioBruto: 2859.14, totalProventos: 3179.14, fgts: 228.73, empresa: 'mr' },
+      // Fabricação (SEM Alumínio)
+      { nome: 'Ricardo Alves Pereira', cargo: 'Caldeireiro Montador', depto: 'Fabricação', salarioBruto: 4141.86, totalProventos: 4781.86, fgts: 331.34, empresa: 'montex' },
+      // Pintura (Diaristas)
+      { nome: 'Anderson Marçal Silva', cargo: 'Diarista Pintura', depto: 'Pintura', salarioBruto: 6000, totalProventos: 6000, fgts: 0, empresa: 'diaria' },
+      { nome: 'Flávio Pereira Miranda', cargo: 'Diarista Pintura', depto: 'Pintura', salarioBruto: 5600, totalProventos: 5600, fgts: 0, empresa: 'diaria' },
+      { nome: 'José Elvécio Mariano', cargo: 'Diarista Pintura', depto: 'Pintura', salarioBruto: 5000, totalProventos: 5000, fgts: 0, empresa: 'diaria' },
+    ]
+  },
+  montagem: {
+    id: 'CC-MONT',
+    nome: 'Montagem em Campo',
+    funcionarios: [
+      { nome: 'Jeferson Bruno de Oliveira Costa', cargo: 'Montador Estrut Metal III', depto: 'Montagem de Campo', salarioBruto: 3591.01, totalProventos: 4231.01, fgts: 287.28, empresa: 'montex' },
+      { nome: 'Waldercy Miranda', cargo: 'Montador de Estrut Met II', depto: 'Montagem de Campo', salarioBruto: 3281.80, totalProventos: 3921.80, fgts: 262.54, empresa: 'montex' },
+      { nome: 'Washington de Oliveira', cargo: 'Encarregado de Campo II', depto: 'Montagem de Campo', salarioBruto: 4133.86, totalProventos: 4773.86, fgts: 330.70, empresa: 'montex' },
+      { nome: 'Eder Bruno Silva Ferreira', cargo: 'Montador I', depto: 'Montagem de Campo', salarioBruto: 2741.86, totalProventos: 3500.65, fgts: 219.34, empresa: 'montex' },
+      { nome: 'Gabriel Ferreira Santos', cargo: 'Montador I', depto: 'Montagem de Campo', salarioBruto: 2741.86, totalProventos: 3610.21, fgts: 219.34, empresa: 'montex' },
+      { nome: 'José Eduardo Lucas', cargo: 'Meio Oficial de Montador', depto: 'Montagem de Campo', salarioBruto: 2432.14, totalProventos: 3072.14, fgts: 194.57, empresa: 'montex' },
+      { nome: 'Juscélio Rodrigues', cargo: 'Montador Estrut Metal III', depto: 'Montagem de Campo', salarioBruto: 3591.01, totalProventos: 4371.97, fgts: 287.28, empresa: 'montex' },
+      { nome: 'Diego Alves da Silva', cargo: 'Montador I', depto: 'Montagem de Campo', salarioBruto: 2741.86, totalProventos: 3381.86, fgts: 219.34, empresa: 'montex' },
+      { nome: 'Wendel Gabriel Alves dos Reis', cargo: 'Meio Oficial de Montador', depto: 'Montagem de Campo', salarioBruto: 2432.14, totalProventos: 4141.72, fgts: 259.42, empresa: 'montex' },
+      { nome: 'João Batista Alves Rodrigues', cargo: 'Ajudante de Montagem', depto: 'Montagem de Campo', salarioBruto: 1837.63, totalProventos: 2264.30, fgts: 147.01, empresa: 'montex' },
+      { nome: 'Erick Welison Hosni de Paula', cargo: 'Meio Oficial de Montador', depto: 'Montagem de Campo', salarioBruto: 2432.01, totalProventos: 2931.78, fgts: 194.56, empresa: 'montex' },
+      { nome: 'Derlei Gobbi', cargo: 'Montador Estrut Metal III', depto: 'Montagem de Campo', salarioBruto: 3591.01, totalProventos: 3591.01, fgts: 287.28, empresa: 'montex' },
+      { nome: 'Arquiris Junior Rodrigues', cargo: 'Ajudante de Montagem', depto: 'Montagem de Campo', salarioBruto: 1837.63, totalProventos: 2157.63, fgts: 147.01, empresa: 'mr' },
+      { nome: 'Matheus André Celestino dos Santos', cargo: 'Ajudante de Montagem', depto: 'Montagem de Campo', salarioBruto: 1837.63, totalProventos: 2118.50, fgts: 147.01, empresa: 'mr' },
+    ]
+  },
+  aluminio: {
+    id: 'CC-ALUM',
+    nome: 'Alumínio (Esquadrias)',
+    funcionarios: [
+      { nome: 'João Ermelindo Soares', cargo: 'Serralheiro de Alumínio', depto: 'Fabricação', salarioBruto: 5137.71, totalProventos: 5777.71, fgts: 411.01, empresa: 'montex' },
+      { nome: 'Flávio da Cruz', cargo: 'Instalador Esquadrias Alumínio', depto: 'Fabricação', salarioBruto: 3480.70, totalProventos: 4120.70, fgts: 278.45, empresa: 'montex' },
+    ]
+  },
+  admProducao: {
+    id: 'CC-ADMPROD',
+    nome: 'Administrativo Produção',
+    funcionarios: [
+      { nome: 'Flávio de Jesus Santos', cargo: 'Líder de Produção', depto: 'Administrativo Produção', salarioBruto: 3587.32, totalProventos: 4644.23, fgts: 286.98, empresa: 'montex' },
+      { nome: 'David Barboza de Sousa', cargo: 'Coordenador de Produção', depto: 'Administrativo Produção', salarioBruto: 2700.00, totalProventos: 3340.00, fgts: 216.00, empresa: 'montex' },
+      { nome: 'Letícia Fonseca Soares', cargo: 'Técnico em Segurança do Trabalho', depto: 'Administrativo Produção', salarioBruto: 3783.60, totalProventos: 4423.60, fgts: 302.68, empresa: 'mr' },
+    ]
+  },
+  admGeral: {
+    id: 'CC-ADMGER',
+    nome: 'Administrativo Geral',
+    funcionarios: [
+      { nome: 'Tarcísio Vieira de Almeida', cargo: 'Almoxarife', depto: 'Administrativo Geral', salarioBruto: 1900.00, totalProventos: 2540.00, fgts: 152.00, empresa: 'montex' },
+      { nome: 'Cristiane Vieira', cargo: 'Auxiliar de Serviços Gerais', depto: 'Administrativo Geral', salarioBruto: 1837.63, totalProventos: 2896.85, fgts: 156.81, empresa: 'montex' },
+    ]
+  }
+};
+
+// Calcula custos de RH por centro
+function calcRHCentro(centro) {
+  const funcs = centro.funcionarios || [];
+  const totalSalarios = funcs.reduce((s, f) => s + (f.salarioBruto || 0), 0);
+  const totalProventos = funcs.reduce((s, f) => s + (f.totalProventos || 0), 0);
+  const totalFGTS = funcs.reduce((s, f) => s + (f.fgts || 0), 0);
+  // Encargos estimados (INSS patronal ~28.8% + RAT + Terceiros)
+  const encargosPatronais = totalSalarios * 0.288;
+  const custoTotalRH = totalProventos + totalFGTS + encargosPatronais;
+  return { totalSalarios, totalProventos, totalFGTS, encargosPatronais, custoTotalRH, qtdFuncionarios: funcs.length };
+}
+
+// ==========================================
+// REGRA DE CONTRATO: 50% MATERIAL / 50% RECEITA
+// ==========================================
+// Média de valor de contrato: 50% são despesas de material (faturado direto pelo fornecedor)
+// e 50% é vinculado à receita da empresa.
+const PERCENTUAL_MATERIAL_CONTRATO = 0.50;
+const PERCENTUAL_RECEITA_CONTRATO = 0.50;
 
 // Taxas de receita por etapa (R$/kg)
 const TAXA_ETAPA = {
@@ -19,27 +112,38 @@ const TAXA_ETAPA = {
   EXPEDIDO: 0
 };
 
-// Mapeamento categoria → centro de custo
+// Mapeamento categoria de despesa → centro de custo
+// Reestruturado para refletir novos centros
 const CATEGORIA_CENTRO = {
-  'Matéria Prima': [{ centro: 'CC-001', nome: 'Corte', peso: 1.0 }],
-  'Mão de Obra': [{ centro: 'CC-002', nome: 'Fabricação', peso: 0.5 }, { centro: 'CC-003', nome: 'Solda', peso: 0.5 }],
-  'Energia/Utilidades': [{ centro: 'CC-001', nome: 'Corte', peso: 0.6 }, { centro: 'CC-004', nome: 'Pintura', peso: 0.4 }],
-  'Manutenção': [{ centro: 'CC-002', nome: 'Fabricação', peso: 1.0 }],
-  'Transporte': [{ centro: 'CC-006', nome: 'Transporte/Logística', peso: 1.0 }],
-  'Administrativo': [{ centro: 'CC-005', nome: 'Administrativo', peso: 1.0 }],
-  'Impostos': [{ centro: 'CC-005', nome: 'Administrativo', peso: 1.0 }],
-  'consumiveis': [{ centro: 'CC-002', nome: 'Fabricação', peso: 0.5 }, { centro: 'CC-003', nome: 'Solda', peso: 0.5 }],
-  'fabricacao': [{ centro: 'CC-002', nome: 'Fabricação', peso: 1.0 }]
+  'Matéria Prima': [{ centro: 'CC-PROD', peso: 1.0 }],
+  'Mão de Obra': [{ centro: 'CC-PROD', peso: 0.5 }, { centro: 'CC-MONT', peso: 0.5 }],
+  'Energia/Utilidades': [{ centro: 'CC-PROD', peso: 0.8 }, { centro: 'CC-ADMGER', peso: 0.2 }],
+  'Manutenção': [{ centro: 'CC-PROD', peso: 0.7 }, { centro: 'CC-MONT', peso: 0.3 }],
+  'Transporte': [{ centro: 'CC-MONT', peso: 0.7 }, { centro: 'CC-PROD', peso: 0.3 }],
+  'Montagem Campo': [{ centro: 'CC-MONT', peso: 1.0 }],
+  'Hospedagem': [{ centro: 'CC-MONT', peso: 1.0 }],
+  'Alimentação Campo': [{ centro: 'CC-MONT', peso: 1.0 }],
+  'Combustível': [{ centro: 'CC-MONT', peso: 0.8 }, { centro: 'CC-PROD', peso: 0.2 }],
+  'Locação Equipamentos': [{ centro: 'CC-MONT', peso: 0.7 }, { centro: 'CC-PROD', peso: 0.3 }],
+  'Administrativo': [{ centro: 'CC-ADMGER', peso: 0.6 }, { centro: 'CC-ADMPROD', peso: 0.4 }],
+  'Impostos': [{ centro: 'CC-ADMGER', peso: 1.0 }],
+  'Alumínio': [{ centro: 'CC-ALUM', peso: 1.0 }],
+  'consumiveis': [{ centro: 'CC-PROD', peso: 1.0 }],
+  'fabricacao': [{ centro: 'CC-PROD', peso: 1.0 }]
 };
 
-// Centros de custo pré-configurados
+// Centros de custo reestruturados
 const CENTROS_CUSTO_CONFIG = [
-  { id: 'CC-001', nome: 'Corte', responsavel: 'Supervisor Corte', orcamentoBase: 0.25, categorias: ['Matéria Prima', 'Energia/Utilidades'], cor: '#3B82F6' },
-  { id: 'CC-002', nome: 'Fabricação', responsavel: 'Supervisor Fabricação', orcamentoBase: 0.22, categorias: ['Mão de Obra', 'Manutenção', 'consumiveis', 'fabricacao'], cor: '#10B981' },
-  { id: 'CC-003', nome: 'Solda', responsavel: 'Supervisor Solda', orcamentoBase: 0.18, categorias: ['Mão de Obra', 'consumiveis'], cor: '#F59E0B' },
-  { id: 'CC-004', nome: 'Pintura', responsavel: 'Supervisor Pintura', orcamentoBase: 0.10, categorias: ['Energia/Utilidades'], cor: '#8B5CF6' },
-  { id: 'CC-005', nome: 'Administrativo', responsavel: 'Gerente Admin', orcamentoBase: 0.15, categorias: ['Administrativo', 'Impostos'], cor: '#EF4444' },
-  { id: 'CC-006', nome: 'Transporte/Logística', responsavel: 'Coord. Logística', orcamentoBase: 0.10, categorias: ['Transporte'], cor: '#06B6D4' }
+  { id: 'CC-PROD', nome: 'Produção (Fábrica)', responsavel: 'Flávio de Jesus Santos', orcamentoBase: 0.30, cor: '#10B981', icon: 'factory',
+    descricao: 'Corte, Solda, Fabricação e Pintura - Exclui Alumínio e Montagem' },
+  { id: 'CC-MONT', nome: 'Montagem em Campo', responsavel: 'Washington de Oliveira', orcamentoBase: 0.30, cor: '#3B82F6', icon: 'hardhat',
+    descricao: 'Equipe de montagem em campo + despesas de hospedagem, alimentação, combustível' },
+  { id: 'CC-ALUM', nome: 'Alumínio (Esquadrias)', responsavel: 'João Ermelindo Soares', orcamentoBase: 0.10, cor: '#F59E0B', icon: 'grid',
+    descricao: 'Equipe de alumínio e esquadrias - Separado dos custos de produção' },
+  { id: 'CC-ADMPROD', nome: 'Adm. Produção', responsavel: 'David Barboza de Sousa', orcamentoBase: 0.15, cor: '#8B5CF6', icon: 'clipboard',
+    descricao: 'Liderança, coordenação e segurança do trabalho' },
+  { id: 'CC-ADMGER', nome: 'Adm. Geral', responsavel: 'Tarcísio Vieira', orcamentoBase: 0.15, cor: '#EF4444', icon: 'building',
+    descricao: 'Almoxarifado, serviços gerais, energia, impostos' },
 ];
 
 // Helpers
@@ -69,74 +173,55 @@ const CORES_CATEGORIA = {
   'Manutenção': '#EF4444',
   'Transporte': '#8B5CF6',
   'Administrativo': '#06B6D4',
-  'Impostos': '#F97316'
+  'Impostos': '#F97316',
+  'Montagem Campo': '#2563EB',
+  'Hospedagem': '#7C3AED',
+  'Alimentação Campo': '#DB2777',
+  'Combustível': '#EA580C',
+  'Locação Equipamentos': '#0891B2',
+  'Alumínio': '#D97706'
 };
 
-// Normalizar categorias de diferentes fontes
+// Normalizar categorias — agora detecta despesas de montagem em campo
 const normalizarCategoria = (cat, descricao = '') => {
   if (!cat) return 'Administrativo';
   const catLower = cat.toLowerCase();
   const descLower = (descricao || '').toLowerCase();
 
+  // Detectar despesas de MONTAGEM em campo
+  if (catLower.includes('montagem') || catLower.includes('campo') ||
+      descLower.includes('montagem') || descLower.includes('campo')) return 'Montagem Campo';
+  if (catLower.includes('hospedagem') || catLower.includes('hotel') || catLower.includes('pousada') ||
+      descLower.includes('hospedagem') || descLower.includes('hotel') || descLower.includes('diária hotel')) return 'Hospedagem';
+  if ((catLower.includes('alimenta') && (catLower.includes('campo') || descLower.includes('campo'))) ||
+      descLower.includes('marmitex') || descLower.includes('alimentação campo') || descLower.includes('refeição campo')) return 'Alimentação Campo';
+  if (catLower.includes('combust') || catLower.includes('diesel') || catLower.includes('gasolina') ||
+      descLower.includes('combustível') || descLower.includes('diesel') || descLower.includes('abastecimento')) return 'Combustível';
+  if (catLower.includes('locação') || catLower.includes('locacao') || catLower.includes('aluguel equip') ||
+      descLower.includes('guindaste') || descLower.includes('munck') || descLower.includes('plataforma')) return 'Locação Equipamentos';
+  // Detectar Alumínio
+  if (catLower.includes('alumín') || catLower.includes('alumin') || catLower.includes('esquadria') ||
+      descLower.includes('alumínio') || descLower.includes('esquadria')) return 'Alumínio';
+  // Categorias padrão
   if (catLower.includes('matéria') || catLower.includes('materia') || catLower === 'consumiveis') return 'Matéria Prima';
   if (catLower.includes('mão') || catLower.includes('mao') || catLower === 'mao_de_obra') return 'Mão de Obra';
   if (catLower.includes('energia') || catLower.includes('utilidade') || descLower.includes('cemig') || descLower.includes('copasa')) return 'Energia/Utilidades';
   if (catLower.includes('manuten')) return 'Manutenção';
-  if (catLower.includes('transport') || catLower.includes('combust') || catLower.includes('locação') || catLower.includes('locacao')) return 'Transporte';
+  if (catLower.includes('transport')) return 'Transporte';
   if (catLower.includes('imposto') || catLower.includes('tribut')) return 'Impostos';
   if (catLower === 'fabricacao') return 'Mão de Obra';
   return 'Administrativo';
 };
 
 /**
- * Central Hook for Financial Intelligence and Cost Analysis
+ * Hook Central de Inteligência Financeira - v3
  *
- * @description
- * Provides comprehensive financial calculations including:
- * - Cost analysis by category and cost center
- * - Production vs cost correlation
- * - Advanced forecasting with seasonality
- * - AI-powered suggestions for optimization
- * - KPIs and financial targets
- *
- * Used by Metas Financeiras, Análise de Custos, and BI modules.
- *
- * @param {Object} filtros - Filter options
- * @param {string} filtros.periodo - Time period ('geral', 'mensal', 'semanal', 'trimestral', 'anual')
- * @param {string} filtros.categoria - Filter by expense category
- * @param {string} filtros.centroCusto - Filter by cost center ID
- *
- * @returns {Object} Financial intelligence data object
- * @returns {Array} returns.despesas - Filtered expenses
- * @returns {Array} returns.despesasTotal - All expenses (unfiltered)
- * @returns {number} returns.custoTotal - Total cost (filtered period)
- * @returns {number} returns.custoTotalGeral - Total cost (all time)
- * @returns {number} returns.pesoTotalPecas - Total production weight in kg
- * @returns {number} returns.producaoMensal - Average monthly production
- * @returns {number} returns.receitaEstimada - Estimated revenue
- * @returns {Array} returns.evolucaoMensal - Monthly evolution with costs and revenue
- * @returns {Array} returns.evolucaoSemanal - Weekly evolution
- * @returns {Array} returns.custosPorCategoria - Costs breakdown by category with MoM variation
- * @returns {Array} returns.custosPorCentro - Costs by cost center with budget analysis
- * @returns {Array} returns.forecast3meses - 3-month forecast with seasonality
- * @returns {Object} returns.kpisGerais - Key performance indicators
- * @returns {Object} returns.metas - Financial targets and progress
- * @returns {Array} returns.sugestoes - AI-powered optimization suggestions
- *
- * @example
- * // In a financial dashboard
- * const { kpisGerais, custosPorCategoria, forecast3meses } = useFinancialIntelligence({
- *   periodo: 'mes_atual',
- *   categoria: 'Mão de Obra'
- * });
- *
- * return (
- *   <div>
- *     <KPICard label="Custo Total" value={kpisGerais.despesas} />
- *     <CategoriesChart data={custosPorCategoria} />
- *     <ForecastChart data={forecast3meses} />
- *   </div>
- * );
+ * Reestruturado com:
+ * - Centros de custos baseados em dados reais de RH
+ * - Separação Produção / Montagem / Alumínio
+ * - Regra 50% material faturado / 50% receita
+ * - Exclusão de equipe alumínio da produção
+ * - Identificação de gastos de montagem em campo
  */
 export function useFinancialIntelligence(filtros = {}) {
   const { lancamentosDespesas } = useLancamentos();
@@ -149,9 +234,6 @@ export function useFinancialIntelligence(filtros = {}) {
   return useMemo(() => {
     // ========================================
     // 1. PREPARAR DESPESAS (SOMENTE GERAIS - sem vínculo a obra)
-    // IMPORTANTE: Despesas vinculadas a obras ficam EXCLUSIVAMENTE
-    // no módulo Gestão Financeira Obra. Aqui só entram despesas
-    // gerais da empresa (obra_id = NULL).
     // ========================================
     const despesas = (lancamentosDespesas || [])
       .filter(l => l.tipo !== 'receita' && !l.obraId && !l.obra_id)
@@ -186,7 +268,6 @@ export function useFinancialIntelligence(filtros = {}) {
     } else if (periodo === 'anual') {
       despesasFiltradas = despesas.filter(d => new Date(d.data).getFullYear() === now.getFullYear());
     }
-    // 'geral' = sem filtro
 
     if (filtroCat) {
       despesasFiltradas = despesasFiltradas.filter(d => d.categoriaNorm === filtroCat);
@@ -199,15 +280,30 @@ export function useFinancialIntelligence(filtros = {}) {
     const custoTotalGeral = despesas.reduce((sum, d) => sum + d.valor, 0);
 
     // ========================================
-    // 4. PRODUÇÃO (de peças)
+    // 4. CUSTOS DE RH POR CENTRO
+    // ========================================
+    const rhProducao = calcRHCentro(RH_CENTROS.producao);
+    const rhMontagem = calcRHCentro(RH_CENTROS.montagem);
+    const rhAluminio = calcRHCentro(RH_CENTROS.aluminio);
+    const rhAdmProd = calcRHCentro(RH_CENTROS.admProducao);
+    const rhAdmGeral = calcRHCentro(RH_CENTROS.admGeral);
+
+    const custoTotalRH = rhProducao.custoTotalRH + rhMontagem.custoTotalRH + rhAluminio.custoTotalRH + rhAdmProd.custoTotalRH + rhAdmGeral.custoTotalRH;
+
+    const rhPorCentro = {
+      'CC-PROD': rhProducao,
+      'CC-MONT': rhMontagem,
+      'CC-ALUM': rhAluminio,
+      'CC-ADMPROD': rhAdmProd,
+      'CC-ADMGER': rhAdmGeral,
+    };
+
+    // ========================================
+    // 5. PRODUÇÃO (de peças) - EXCLUI alumínio
     // ========================================
     const pecasArr = pecas || [];
-    // IMPORTANTE: peso_total já é peso_unitario × quantidade no Supabase.
-    // NÃO multiplicar por quantidade novamente!
     const pesoTotalPecas = pecasArr.reduce((sum, p) => {
       const pesoTotal = parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0;
-      // Se pesoTotal > 0, usar direto (já inclui quantidade)
-      // Se não, usar pesoUnitario × quantidade como fallback
       if (pesoTotal > 0) return sum + pesoTotal;
       const pesoUnit = parseFloat(p.pesoUnitario) || parseFloat(p.pesoUnit) || 0;
       return sum + pesoUnit * (parseInt(p.quantidade) || 1);
@@ -224,15 +320,18 @@ export function useFinancialIntelligence(filtros = {}) {
       producaoPorEtapa[etapa].pecas += parseInt(p.quantidade) || 1;
     });
 
-    // Receita estimada (produção × taxa por etapa)
-    let receitaEstimada = 0;
+    // Receita estimada — aplicando regra 50/50
+    let receitaBrutaEstimada = 0;
     Object.entries(producaoPorEtapa).forEach(([etapa, dados]) => {
       const taxa = TAXA_ETAPA[etapa] || 0;
-      receitaEstimada += dados.kg * taxa;
+      receitaBrutaEstimada += dados.kg * taxa;
     });
+    // Regra: 50% do valor do contrato é material faturado direto, 50% é receita da empresa
+    const receitaEmpresa = receitaBrutaEstimada * PERCENTUAL_RECEITA_CONTRATO;
+    const materialFaturadoDireto = receitaBrutaEstimada * PERCENTUAL_MATERIAL_CONTRATO;
 
     // ========================================
-    // 5. EVOLUÇÃO MENSAL
+    // 6. EVOLUÇÃO MENSAL
     // ========================================
     const mesesMap = {};
     despesas.forEach(d => {
@@ -241,13 +340,10 @@ export function useFinancialIntelligence(filtros = {}) {
       mesesMap[d.mes].count++;
     });
 
-    // Distribuir produção por meses reais de produção (baseado nas peças, não nas despesas)
     const mesesOrdenados = Object.keys(mesesMap).sort();
-    const numMesesDespesas = mesesOrdenados.length || 1;
 
-    // Calcular meses de produção real baseado nas datas das peças
     const pecasDatas = pecasArr.map(p => p.createdAt || p.created_at).filter(Boolean);
-    let numMesesProducao = 2; // default: 2 meses conforme produção real
+    let numMesesProducao = 2;
     if (pecasDatas.length > 0) {
       const pecasMeses = new Set(pecasDatas.map(d => formatMesAno(d)));
       numMesesProducao = Math.max(pecasMeses.size, 1);
@@ -257,14 +353,17 @@ export function useFinancialIntelligence(filtros = {}) {
     const evolucaoMensal = mesesOrdenados.map(mes => {
       const custoMes = mesesMap[mes].custo;
       const receitaMes = producaoMensal * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA);
+      const receitaEmpresaMes = receitaMes * PERCENTUAL_RECEITA_CONTRATO;
       const custoPerKg = producaoMensal > 0 ? custoMes / producaoMensal : 0;
-      const margem = receitaMes > 0 ? ((receitaMes - custoMes) / receitaMes) * 100 : 0;
+      const margem = receitaEmpresaMes > 0 ? ((receitaEmpresaMes - custoMes) / receitaEmpresaMes) * 100 : 0;
 
       return {
         mes,
         mesLabel: getMesLabel(mes),
         custo: custoMes,
         receita: receitaMes,
+        receitaEmpresa: receitaEmpresaMes,
+        materialFaturado: receitaMes * PERCENTUAL_MATERIAL_CONTRATO,
         producaoKg: producaoMensal,
         custoPerKg,
         margem,
@@ -273,7 +372,7 @@ export function useFinancialIntelligence(filtros = {}) {
     });
 
     // ========================================
-    // 6. CUSTOS POR CATEGORIA
+    // 7. CUSTOS POR CATEGORIA
     // ========================================
     const catMap = {};
     despesasFiltradas.forEach(d => {
@@ -282,13 +381,12 @@ export function useFinancialIntelligence(filtros = {}) {
       catMap[d.categoriaNorm].count++;
     });
 
-    // Variação MoM por categoria
-    const catMapAnterior = {};
     const mesAnteriorKey = (() => {
       const d = new Date();
       d.setMonth(d.getMonth() - 1);
       return formatMesAno(d);
     })();
+    const catMapAnterior = {};
     despesas.filter(d => d.mes === mesAnteriorKey).forEach(d => {
       if (!catMapAnterior[d.categoriaNorm]) catMapAnterior[d.categoriaNorm] = 0;
       catMapAnterior[d.categoriaNorm] += d.valor;
@@ -311,17 +409,28 @@ export function useFinancialIntelligence(filtros = {}) {
       .sort((a, b) => b.valor - a.valor);
 
     // ========================================
-    // 7. CUSTOS POR CENTRO DE CUSTO
+    // 8. CUSTOS POR CENTRO DE CUSTO (com RH)
     // ========================================
     const centroMap = {};
     CENTROS_CUSTO_CONFIG.forEach(c => {
-      centroMap[c.id] = { ...c, gasto: 0, lancamentos: [] };
+      const rh = rhPorCentro[c.id] || { custoTotalRH: 0, qtdFuncionarios: 0, totalSalarios: 0, totalFGTS: 0, encargosPatronais: 0 };
+      centroMap[c.id] = {
+        ...c,
+        gasto: 0,
+        gastoRH: rh.custoTotalRH,
+        qtdFuncionarios: rh.qtdFuncionarios,
+        detalheRH: rh,
+        lancamentos: [],
+        // Categorias que alimentam este centro
+        categoriasVinculadas: Object.entries(CATEGORIA_CENTRO)
+          .filter(([_, centros]) => centros.some(cc => cc.centro === c.id))
+          .map(([cat]) => cat)
+      };
     });
 
+    // Distribuir despesas nos centros
     despesasFiltradas.forEach(d => {
-      // Priorizar a categoria normalizada para lookup no CATEGORIA_CENTRO
-      // As categorias do Supabase (mao_de_obra, fabricacao, etc) são normalizadas em categoriaNorm
-      const centros = CATEGORIA_CENTRO[d.categoriaNorm] || CATEGORIA_CENTRO[d.categoria] || [{ centro: 'CC-005', nome: 'Administrativo', peso: 1.0 }];
+      const centros = CATEGORIA_CENTRO[d.categoriaNorm] || CATEGORIA_CENTRO[d.categoria] || [{ centro: 'CC-ADMGER', peso: 1.0 }];
       centros.forEach(({ centro, peso }) => {
         if (centroMap[centro]) {
           centroMap[centro].gasto += d.valor * peso;
@@ -330,28 +439,47 @@ export function useFinancialIntelligence(filtros = {}) {
       });
     });
 
-    // Orçamento = % base × custo total geral
-    const orcamentoTotal = custoTotalGeral * 1.1; // 10% acima dos gastos reais como referência
+    // Orçamento = % base × (custo total geral + RH total)
+    const baseTotalOrcamento = (custoTotalGeral + custoTotalRH) * 1.1;
     const custosPorCentro = Object.values(centroMap).map(c => {
-      const orcamento = orcamentoTotal * c.orcamentoBase;
-      const utilizacao = orcamento > 0 ? (c.gasto / orcamento) * 100 : 0;
+      const orcamento = baseTotalOrcamento * c.orcamentoBase;
+      const gastoTotal = c.gasto + c.gastoRH;
+      const utilizacao = orcamento > 0 ? (gastoTotal / orcamento) * 100 : 0;
       return {
         id: c.id,
         nome: c.nome,
         responsavel: c.responsavel,
         cor: c.cor,
-        categorias: c.categorias,
+        descricao: c.descricao,
+        categoriasVinculadas: c.categoriasVinculadas,
         orcamento,
         gasto: c.gasto,
-        saldo: orcamento - c.gasto,
+        gastoRH: c.gastoRH,
+        gastoTotal,
+        qtdFuncionarios: c.qtdFuncionarios,
+        detalheRH: c.detalheRH,
+        saldo: orcamento - gastoTotal,
         utilizacao,
         status: utilizacao > 100 ? 'Excedido' : utilizacao > 90 ? 'Atenção' : 'Normal',
         lancamentos: c.lancamentos
       };
     });
 
+    // Filtrar por centro se solicitado
+    let custosPorCentroFiltrado = custosPorCentro;
+    if (filtroCentro) {
+      custosPorCentroFiltrado = custosPorCentro.filter(c => c.id === filtroCentro);
+    }
+
     // ========================================
-    // 8. PRODUÇÃO × CUSTO (correlação)
+    // 9. CUSTO PRODUÇÃO (SEM Alumínio, SEM Montagem)
+    // ========================================
+    const centroProducao = custosPorCentro.find(c => c.id === 'CC-PROD');
+    const custoProducaoTotal = centroProducao ? centroProducao.gastoTotal : 0;
+    const custoProducaoPerKg = pesoTotalPecas > 0 ? custoProducaoTotal / pesoTotalPecas : 0;
+
+    // ========================================
+    // 10. PRODUÇÃO × CUSTO
     // ========================================
     const producaoVsCusto = evolucaoMensal.map(e => ({
       mes: e.mesLabel,
@@ -362,35 +490,24 @@ export function useFinancialIntelligence(filtros = {}) {
 
     const custoPerKgGeral = pesoTotalPecas > 0 ? custoTotalGeral / pesoTotalPecas : 0;
 
-    // ===== FORECAST AVANÇADO COM SAZONALIDADE =====
+    // ========================================
+    // 11. FORECAST AVANÇADO
+    // ========================================
     const calcularForecastAvancado = (dados, mesesFuturos = 3) => {
       if (!dados || dados.length < 3) return [];
 
-      // Seasonal indices for metalworking industry (relative to average)
       const SAZONALIDADE = {
-        0: 0.85,  // Jan - férias, baixa produção
-        1: 0.90,  // Fev - retomada gradual
-        2: 1.00,  // Mar - normalização
-        3: 1.10,  // Abr - pico de atividade
-        4: 1.15,  // Mai - alta demanda
-        5: 1.10,  // Jun - alta demanda
-        6: 1.05,  // Jul - estável
-        7: 1.00,  // Ago - estável
-        8: 1.05,  // Set - retomada
-        9: 1.10,  // Out - pico secundário
-        10: 1.00, // Nov - desaceleração
-        11: 0.80, // Dez - férias coletivas
+        0: 0.85, 1: 0.90, 2: 1.00, 3: 1.10, 4: 1.15, 5: 1.10,
+        6: 1.05, 7: 1.00, 8: 1.05, 9: 1.10, 10: 1.00, 11: 0.80,
       };
 
-      // Weighted moving average (recent months weigh more)
       const n = Math.min(dados.length, 6);
       const recentData = dados.slice(-n);
-      const weights = recentData.map((_, i) => i + 1); // 1, 2, 3... (newer = heavier)
+      const weights = recentData.map((_, i) => i + 1);
       const totalWeight = weights.reduce((a, b) => a + b, 0);
       const weightedAvgCusto = recentData.reduce((sum, d, i) => sum + (d.custo || 0) * weights[i], 0) / totalWeight;
       const weightedAvgProducao = recentData.reduce((sum, d, i) => sum + (d.producaoKg || 0) * weights[i], 0) / totalWeight;
 
-      // Simple trend detection (linear regression on last 6 months)
       const values = recentData.map(d => d.custo || 0);
       const xMean = (n - 1) / 2;
       const yMean = values.reduce((a, b) => a + b, 0) / n;
@@ -402,7 +519,6 @@ export function useFinancialIntelligence(filtros = {}) {
       });
       slope = denominator !== 0 ? slope / denominator : 0;
 
-      // Generate forecast
       const lastMonth = dados.length > 0 ? new Date(dados[dados.length - 1].mes.split('-')[0], parseInt(dados[dados.length - 1].mes.split('-')[1]) - 1).getMonth() : new Date().getMonth();
 
       const forecast = [];
@@ -410,7 +526,6 @@ export function useFinancialIntelligence(filtros = {}) {
         const futureMonth = (lastMonth + i) % 12;
         const baseValue = weightedAvgCusto + slope * i;
         const seasonalValue = baseValue * (SAZONALIDADE[futureMonth] || 1.0);
-
         const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
 
         forecast.push({
@@ -418,58 +533,73 @@ export function useFinancialIntelligence(filtros = {}) {
           mesIndex: futureMonth,
           custoProjetado: Math.max(0, Math.round(seasonalValue * 100) / 100),
           producaoProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * 100) / 100),
-          receitaProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA) * 100) / 100),
+          receitaProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * (TAXA_ETAPA.CORTE + TAXA_ETAPA.FABRICACAO + TAXA_ETAPA.SOLDA + TAXA_ETAPA.PINTURA) * PERCENTUAL_RECEITA_CONTRATO * 100) / 100),
           tipo: 'forecast',
-          confianca: Math.max(0.5, 1 - (i * 0.15)), // Confidence decreases with distance
+          confianca: Math.max(0.5, 1 - (i * 0.15)),
           tendencia: slope > 0 ? 'alta' : slope < 0 ? 'baixa' : 'estável',
           sazonalidade: SAZONALIDADE[futureMonth] || 1.0,
           forecast: true
         });
       }
-
       return forecast;
     };
 
-    // ========================================
-    // 9. FORECAST (AVANÇADO COM SAZONALIDADE)
-    // ========================================
     const forecast3meses = calcularForecastAvancado(evolucaoMensal, 3);
 
     // ========================================
-    // 10. KPIs GERAIS
+    // 12. KPIs GERAIS
     // ========================================
-    const margemOperacional = receitaEstimada > 0 ? ((receitaEstimada - custoTotalGeral) / receitaEstimada) * 100 : 0;
-    const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
-
-    // Receitas GERAIS (somente lancamentos tipo 'receita' sem obra)
     const receitasGerais = (lancamentosDespesas || [])
       .filter(l => l.tipo === 'receita' && !l.obraId && !l.obra_id)
       .reduce((sum, l) => sum + (parseFloat(l.valor) || 0), 0);
 
-    // Faturamento = receitas gerais lançadas, ou estimativa baseada na produção
-    const faturamentoReal = receitasGerais > 0 ? receitasGerais : receitaEstimada;
+    const faturamentoReal = receitasGerais > 0 ? receitasGerais : receitaBrutaEstimada;
+    const receitaEmpresaReal = faturamentoReal * PERCENTUAL_RECEITA_CONTRATO;
+    const margemOperacional = receitaEmpresaReal > 0 ? ((receitaEmpresaReal - custoTotalGeral) / receitaEmpresaReal) * 100 : 0;
+    const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
 
     const kpisGerais = {
-      faturamento: faturamentoReal,
+      faturamentoBruto: faturamentoReal,
+      materialFaturadoDireto: faturamentoReal * PERCENTUAL_MATERIAL_CONTRATO,
+      receitaEmpresa: receitaEmpresaReal,
       despesas: custoTotalGeral,
-      saldo: faturamentoReal - custoTotalGeral,
+      despesasRH: custoTotalRH,
+      saldo: receitaEmpresaReal - custoTotalGeral - custoTotalRH,
       margem: margemOperacional,
       custoKg: custoPerKgGeral,
+      custoProducaoKg: custoProducaoPerKg,
       producaoKg: pesoTotalPecas,
       producaoMensal,
-      receitaEstimada,
+      receitaEstimada: receitaBrutaEstimada,
+      receitaEmpresaEstimada: receitaEmpresa,
       totalDespesas: despesas.length,
-      maiorCategoria
+      maiorCategoria,
+      totalFuncionarios: Object.values(RH_CENTROS).reduce((s, c) => s + c.funcionarios.length, 0),
+      percentualMaterial: PERCENTUAL_MATERIAL_CONTRATO * 100,
+      percentualReceita: PERCENTUAL_RECEITA_CONTRATO * 100,
     };
 
     // ========================================
-    // 11. METAS FINANCEIRAS
+    // 13. METAS FINANCEIRAS (reestruturadas)
     // ========================================
     const metas = {
-      faturamento: {
-        meta: faturamentoReal > 0 ? faturamentoReal * 1.1 : receitaEstimada * 1.1,
-        real: faturamentoReal,
-        progresso: faturamentoReal > 0 ? (faturamentoReal / (faturamentoReal * 1.1)) * 100 : 0
+      receitaEmpresa: {
+        meta: receitaEmpresaReal > 0 ? receitaEmpresaReal * 1.1 : receitaEmpresa * 1.1,
+        real: receitaEmpresaReal,
+        progresso: receitaEmpresaReal > 0 ? (receitaEmpresaReal / (receitaEmpresaReal * 1.1)) * 100 : 0,
+        descricao: '50% do valor de contrato (receita líquida da empresa)'
+      },
+      custoProducao: {
+        meta: custoProducaoTotal > 0 ? custoProducaoTotal * 0.95 : 0,
+        real: custoProducaoTotal,
+        progresso: custoProducaoTotal > 0 ? 100 : 0,
+        descricao: 'Custo fábrica (sem alumínio, sem montagem)'
+      },
+      custoMontagem: {
+        meta: 0,
+        real: custosPorCentro.find(c => c.id === 'CC-MONT')?.gastoTotal || 0,
+        progresso: 0,
+        descricao: 'Equipe + despesas de montagem em campo'
       },
       reducaoCustos: {
         meta: -5,
@@ -491,9 +621,14 @@ export function useFinancialIntelligence(filtros = {}) {
       }
     };
     metas.producao.progresso = metas.producao.meta > 0 ? (metas.producao.real / metas.producao.meta) * 100 : 0;
+    const centroMont = custosPorCentro.find(c => c.id === 'CC-MONT');
+    if (centroMont) {
+      metas.custoMontagem.meta = centroMont.orcamento;
+      metas.custoMontagem.progresso = metas.custoMontagem.meta > 0 ? (metas.custoMontagem.real / metas.custoMontagem.meta) * 100 : 0;
+    }
 
     // ========================================
-    // 12. ETAPAS PRODUÇÃO (para análise por estágio)
+    // 14. ETAPAS PRODUÇÃO
     // ========================================
     const etapasAnalise = Object.entries(producaoPorEtapa).map(([etapa, dados]) => {
       const taxa = TAXA_ETAPA[etapa] || 0;
@@ -504,12 +639,12 @@ export function useFinancialIntelligence(filtros = {}) {
         pecas: dados.pecas,
         valorGerado: dados.kg * taxa,
         taxa,
-        custoEstimadoKg: custoPerKgGeral
+        custoEstimadoKg: custoProducaoPerKg
       };
     });
 
     // ========================================
-    // 13. EVOLUÇÃO SEMANAL
+    // 15. EVOLUÇÃO SEMANAL
     // ========================================
     const semanalMap = {};
     despesas.forEach(d => {
@@ -527,12 +662,11 @@ export function useFinancialIntelligence(filtros = {}) {
       }));
 
     // ========================================
-    // 14. SUGESTÕES IA (motor de regras)
+    // 16. SUGESTÕES IA
     // ========================================
     const sugestoes = [];
     const agora = new Date();
 
-    // Regra 1: Custo/kg acima da média
     if (evolucaoMensal.length > 2) {
       const mediaCustoKg = evolucaoMensal.reduce((s, e) => s + e.custoPerKg, 0) / evolucaoMensal.length;
       const ultimoCustoKg = evolucaoMensal[evolucaoMensal.length - 1]?.custoPerKg || 0;
@@ -540,25 +674,24 @@ export function useFinancialIntelligence(filtros = {}) {
         sugestoes.push({
           id: `sug-custo-kg-${agora.getTime()}`,
           tipo: 'Alerta',
-          titulo: 'Custo por KG acima da média histórica',
-          descricao: `O custo atual por kg (R$ ${ultimoCustoKg.toFixed(2)}) está ${((ultimoCustoKg / mediaCustoKg - 1) * 100).toFixed(1)}% acima da média histórica (R$ ${mediaCustoKg.toFixed(2)}/kg). Investigar causas e oportunidades de redução.`,
+          titulo: 'Custo por KG acima da média (apenas Produção)',
+          descricao: `O custo atual por kg (R$ ${ultimoCustoKg.toFixed(2)}) está ${((ultimoCustoKg / mediaCustoKg - 1) * 100).toFixed(1)}% acima da média. Exclui alumínio e montagem.`,
           impacto: 'Alto',
           economia: (ultimoCustoKg - mediaCustoKg) * producaoMensal,
           confianca: 92,
-          categoria: 'Custos',
+          categoria: 'Produção',
           data: agora.toISOString(),
           status: 'nova'
         });
       }
     }
 
-    // Regra 2: Centros acima de 90%
     custosPorCentro.filter(c => c.utilizacao > 90).forEach(c => {
       sugestoes.push({
         id: `sug-centro-${c.id}-${agora.getTime()}`,
         tipo: 'Alerta',
-        titulo: `Centro ${c.nome} próximo do limite orçamentário`,
-        descricao: `O centro de custo ${c.nome} está com ${c.utilizacao.toFixed(1)}% de utilização do orçamento (R$ ${c.gasto.toFixed(0)} / R$ ${c.orcamento.toFixed(0)}). ${c.utilizacao > 100 ? 'ORÇAMENTO EXCEDIDO!' : 'Ação preventiva recomendada.'}`,
+        titulo: `${c.nome}: ${c.utilizacao.toFixed(0)}% do orçamento`,
+        descricao: `Centro ${c.nome} (${c.qtdFuncionarios} func.) gasta R$ ${c.gastoTotal.toFixed(0)} de R$ ${c.orcamento.toFixed(0)}. ${c.utilizacao > 100 ? 'EXCEDIDO!' : 'Atenção.'}`,
         impacto: c.utilizacao > 100 ? 'Crítico' : 'Alto',
         economia: 0,
         confianca: 95,
@@ -568,13 +701,12 @@ export function useFinancialIntelligence(filtros = {}) {
       });
     });
 
-    // Regra 3: Produção abaixo da meta
     if (metas.producao.progresso < 80 && metas.producao.meta > 0) {
       sugestoes.push({
         id: `sug-producao-${agora.getTime()}`,
         tipo: 'Alerta',
-        titulo: 'Produção mensal abaixo da meta',
-        descricao: `A produção mensal (${producaoMensal.toFixed(0)} kg) está ${(100 - metas.producao.progresso).toFixed(1)}% abaixo da meta (${metas.producao.meta.toFixed(0)} kg). Avaliar gargalos nas etapas de produção.`,
+        titulo: 'Produção abaixo da meta (sem alumínio)',
+        descricao: `Produção mensal (${producaoMensal.toFixed(0)} kg) está ${(100 - metas.producao.progresso).toFixed(1)}% abaixo da meta. Custos de alumínio e montagem não inclusos.`,
         impacto: 'Alto',
         economia: 0,
         confianca: 88,
@@ -584,176 +716,90 @@ export function useFinancialIntelligence(filtros = {}) {
       });
     }
 
-    // Regra 4: Categoria com crescimento > 20% MoM
-    custosPorCategoria.filter(c => c.variacao_mom > 20).forEach(cat => {
-      sugestoes.push({
-        id: `sug-cat-${cat.categoria}-${agora.getTime()}`,
-        tipo: 'Oportunidade',
-        titulo: `${cat.categoria}: crescimento de ${cat.variacao_mom.toFixed(1)}% no mês`,
-        descricao: `Os gastos com ${cat.categoria} cresceram ${cat.variacao_mom.toFixed(1)}% em relação ao mês anterior. Avaliar contratos e fornecedores para renegociação.`,
-        impacto: 'Médio',
-        economia: cat.valor * 0.1,
-        confianca: 78,
-        categoria: 'Custos',
-        data: agora.toISOString(),
-        status: 'nova'
-      });
-    });
-
-    // Regra 5: Margem abaixo da meta
-    if (margemOperacional < 25 && margemOperacional > 0) {
-      sugestoes.push({
-        id: `sug-margem-${agora.getTime()}`,
-        tipo: 'Otimização',
-        titulo: 'Margem operacional abaixo da meta',
-        descricao: `A margem operacional atual (${margemOperacional.toFixed(1)}%) está abaixo da meta de 25%. Potencial de melhoria via otimização de processos e renegociação de insumos.`,
-        impacto: 'Alto',
-        economia: custoTotalGeral * 0.05,
-        confianca: 85,
-        categoria: 'Margem',
-        data: agora.toISOString(),
-        status: 'nova'
-      });
-    }
-
-    // Regra 6: Eficiência por estágio
-    etapasAnalise.forEach(etapa => {
-      if (etapa.producaoKg > 0 && etapa.custoEstimadoKg > etapa.taxa * 0.7) {
-        sugestoes.push({
-          id: `sug-etapa-${etapa.etapa}-${agora.getTime()}`,
-          tipo: 'Otimização',
-          titulo: `Otimizar processo de ${etapa.nome}`,
-          descricao: `A etapa ${etapa.nome} processa ${etapa.producaoKg.toFixed(0)} kg com taxa de R$ ${etapa.taxa.toFixed(2)}/kg. Analisar eficiência operacional e tempos de setup.`,
-          impacto: 'Médio',
-          economia: etapa.producaoKg * 0.5,
-          confianca: 72,
-          categoria: 'Produção',
-          data: agora.toISOString(),
-          status: 'nova'
-        });
-      }
-    });
-
-    // Regra 7: Diversificação de fornecedores (baseada em concentração de categorias)
-    if (custosPorCategoria.length > 0 && custosPorCategoria[0].percentual > 40) {
-      sugestoes.push({
-        id: `sug-concentracao-${agora.getTime()}`,
-        tipo: 'Oportunidade',
-        titulo: 'Alta concentração em uma categoria de custo',
-        descricao: `${custosPorCategoria[0].categoria} representa ${custosPorCategoria[0].percentual.toFixed(1)}% dos custos totais. Diversificar fornecedores ou buscar alternativas pode reduzir riscos.`,
-        impacto: 'Médio',
-        economia: custosPorCategoria[0].valor * 0.05,
-        confianca: 70,
-        categoria: 'Estratégia',
-        data: agora.toISOString(),
-        status: 'nova'
-      });
-    }
-
     // ========================================
     // RETORNO
     // ========================================
     return {
-      // Dados brutos filtrados
       despesas: despesasFiltradas,
       despesasTotal: despesas,
 
-      // Totais
       custoTotal,
       custoTotalGeral,
       custoPerKgGeral,
+      custoTotalRH,
 
-      // Produção
       pesoTotalPecas,
       producaoMensal,
       producaoPorEtapa,
-      receitaEstimada,
+      receitaEstimada: receitaBrutaEstimada,
+      receitaEmpresa,
+      materialFaturadoDireto,
 
-      // Evoluções
       evolucaoMensal,
       evolucaoSemanal,
 
-      // Categorias e Centros
       custosPorCategoria,
-      custosPorCentro,
+      custosPorCentro: custosPorCentroFiltrado,
       centrosConfig: CENTROS_CUSTO_CONFIG,
+      rhPorCentro,
+      rhCentros: RH_CENTROS,
 
-      // Análise cruzada
       producaoVsCusto,
+      custoProducaoTotal,
+      custoProducaoPerKg,
 
-      // Forecast
       forecast3meses,
 
-      // KPIs
       kpisGerais,
       margemOperacional,
 
-      // Metas
       metas,
-
-      // Etapas
       etapasAnalise,
-
-      // Sugestões IA
       sugestoes,
 
-      // Helpers
+      // Regra contrato
+      percentualMaterial: PERCENTUAL_MATERIAL_CONTRATO,
+      percentualReceita: PERCENTUAL_RECEITA_CONTRATO,
+
       formatCurrency: (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v),
       formatPercent: (v) => `${(v || 0).toFixed(1)}%`
     };
   }, [lancamentosDespesas, obras, pecas, medicoes, periodo, filtroCat, filtroCentro]);
 }
 
-// Export forecast function for advanced seasonality-aware forecasting
+// Export constants and helpers
 const getForecastAvancado = (dados, mesesFuturos = 3) => {
   if (!dados || dados.length < 3) return [];
-
-  const SAZONALIDADE = {
-    0: 0.85, 1: 0.90, 2: 1.00, 3: 1.10, 4: 1.15, 5: 1.10,
-    6: 1.05, 7: 1.00, 8: 1.05, 9: 1.10, 10: 1.00, 11: 0.80,
-  };
-
+  const SAZONALIDADE = { 0: 0.85, 1: 0.90, 2: 1.00, 3: 1.10, 4: 1.15, 5: 1.10, 6: 1.05, 7: 1.00, 8: 1.05, 9: 1.10, 10: 1.00, 11: 0.80 };
   const n = Math.min(dados.length, 6);
   const recentData = dados.slice(-n);
   const weights = recentData.map((_, i) => i + 1);
   const totalWeight = weights.reduce((a, b) => a + b, 0);
   const weightedAvgCusto = recentData.reduce((sum, d, i) => sum + (d.custo || 0) * weights[i], 0) / totalWeight;
   const weightedAvgProducao = recentData.reduce((sum, d, i) => sum + (d.producaoKg || 0) * weights[i], 0) / totalWeight;
-
   const values = recentData.map(d => d.custo || 0);
   const xMean = (n - 1) / 2;
   const yMean = values.reduce((a, b) => a + b, 0) / n;
-  let slope = 0;
-  let denominator = 0;
-  values.forEach((y, x) => {
-    slope += (x - xMean) * (y - yMean);
-    denominator += (x - xMean) ** 2;
-  });
+  let slope = 0, denominator = 0;
+  values.forEach((y, x) => { slope += (x - xMean) * (y - yMean); denominator += (x - xMean) ** 2; });
   slope = denominator !== 0 ? slope / denominator : 0;
-
   const lastMonth = dados.length > 0 ? new Date(dados[dados.length - 1].mes.split('-')[0], parseInt(dados[dados.length - 1].mes.split('-')[1]) - 1).getMonth() : new Date().getMonth();
-
   const forecast = [];
   for (let i = 1; i <= mesesFuturos; i++) {
     const futureMonth = (lastMonth + i) % 12;
     const baseValue = weightedAvgCusto + slope * i;
     const seasonalValue = baseValue * (SAZONALIDADE[futureMonth] || 1.0);
-
     const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-
     forecast.push({
-      mes: monthNames[futureMonth],
-      mesIndex: futureMonth,
+      mes: monthNames[futureMonth], mesIndex: futureMonth,
       custoProjetado: Math.max(0, Math.round(seasonalValue * 100) / 100),
       producaoProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * 100) / 100),
-      tipo: 'forecast',
-      confianca: Math.max(0.5, 1 - (i * 0.15)),
+      tipo: 'forecast', confianca: Math.max(0.5, 1 - (i * 0.15)),
       tendencia: slope > 0 ? 'alta' : slope < 0 ? 'baixa' : 'estável',
       sazonalidade: SAZONALIDADE[futureMonth] || 1.0,
     });
   }
-
   return forecast;
 };
 
-export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado };
+export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado, RH_CENTROS, PERCENTUAL_MATERIAL_CONTRATO, PERCENTUAL_RECEITA_CONTRATO };
