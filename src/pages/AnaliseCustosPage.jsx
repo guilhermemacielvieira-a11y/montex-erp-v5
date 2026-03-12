@@ -407,7 +407,7 @@ export default function AnaliseCustosPage() {
             <Percent className="h-5 w-5 text-blue-400" />
             <span className="text-sm font-semibold text-blue-300">Análise Independente</span>
             <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-700">
-              Fábrica: 70t × R$5,50
+              Fábrica: 45t × R$5,50
             </Badge>
             <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-700">
               Montagem: 25t × R$3,00

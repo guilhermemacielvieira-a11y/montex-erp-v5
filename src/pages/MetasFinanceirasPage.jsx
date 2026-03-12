@@ -355,11 +355,11 @@ export default function MetasFinanceirasPage() {
         <KPICard
           title="Produção Mensal"
           value={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton`}
-          subtitle={`Meta: 70 ton/mês (R$ ${fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'}/kg)`}
+          subtitle={`Meta: 45 ton/mês (R$ ${fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'}/kg)`}
           icon={Award}
           color="from-violet-500 to-purple-500"
           trend={fi.kpisGerais.percentProducaoVsMeta - 100}
-          trendLabel="vs meta 70 ton"
+          trendLabel="vs meta 45 ton"
         />
         <KPICard
           title="Saldo Mensal"
@@ -386,7 +386,7 @@ export default function MetasFinanceirasPage() {
           <span className="text-sm font-semibold text-emerald-300">Análise Independente</span>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-700">
-            Fábrica: 70t × R$ {fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}/mês
+            Fábrica: 45t × R$ {fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}/mês
           </Badge>
           <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-700">
             Montagem: 25t × R$ {fi.kpisGerais.precoMontagemKg?.toFixed(2) || '3,00'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoMontagem)}/mês
@@ -442,7 +442,7 @@ export default function MetasFinanceirasPage() {
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
                     <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Fat. Produção (R$5,50)" />
-                    <Line type="monotone" dataKey="faturamentoMeta" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" name="Meta Total (R$460k)" dot={false} />
+                    <Line type="monotone" dataKey="faturamentoMeta" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" name="Meta Total (R$322k)" dot={false} />
                     <Bar dataKey="custo" fill="#ef4444" fillOpacity={0.7} name="Despesa Real" radius={[4, 4, 0, 0]} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -509,7 +509,7 @@ export default function MetasFinanceirasPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <MetaProgressCard
               titulo="Produção Fábrica (KG)"
-              descricao={fi.metas.producaoFabricaKg?.descricao || 'Meta: 70 ton/mês'}
+              descricao={fi.metas.producaoFabricaKg?.descricao || 'Meta: 45 ton/mês'}
               meta={fi.metas.producaoFabricaKg?.meta || 0}
               real={fi.metas.producaoFabricaKg?.real || 0}
               progresso={fi.metas.producaoFabricaKg?.progresso || 0}
@@ -519,7 +519,7 @@ export default function MetasFinanceirasPage() {
             />
             <MetaProgressCard
               titulo="Produção Fábrica (R$)"
-              descricao={fi.metas.producaoFabricaValor?.descricao || '70t × R$5,50'}
+              descricao={fi.metas.producaoFabricaValor?.descricao || '45t × R$5,50'}
               meta={fi.metas.producaoFabricaValor?.meta || 0}
               real={fi.metas.producaoFabricaValor?.real || 0}
               progresso={fi.metas.producaoFabricaValor?.progresso || 0}
