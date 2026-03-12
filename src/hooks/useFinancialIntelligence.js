@@ -378,11 +378,11 @@ export function useFinancialIntelligence(filtros = {}) {
       const pecasMeses = new Set(pecasDatas.map(d => formatMesAno(d)));
       numMesesProducao = Math.max(pecasMeses.size, 1);
     }
-    const producaoMensal = pesoTotalPecas / numMesesProducao;
+    const producaoMensal = (isNaN(pesoTotalPecas) || numMesesProducao === 0) ? 0 : pesoTotalPecas / numMesesProducao;
 
     // Faturamento desmembrado: Produção × R$8,50 + Montagem × R$4,00
     const numMeses = Math.max(mesesOrdenados.length, 1);
-    const faturamentoProducaoMensal = producaoMensal * PRECO_PRODUCAO_KG;
+    const faturamentoProducaoMensal = (isNaN(producaoMensal) ? 0 : producaoMensal) * PRECO_PRODUCAO_KG;
     const faturamentoMontagemMensal = 0; // TODO: integrar dados reais de montagem KG
     const faturamentoTotalMensal = faturamentoProducaoMensal + faturamentoMontagemMensal;
 
@@ -605,71 +605,91 @@ export function useFinancialIntelligence(filtros = {}) {
     // TOTAL: 95 ton/mês = R$ 695.000/mês
     // Despesa Média = média dos últimos 3 meses completos lançados
 
-    // Produção REAL (fábrica)
-    const producaoRealKg = pesoTotalPecas;
-    const faturamentoRealProducao = producaoRealKg * PRECO_PRODUCAO_KG;
-    // Montagem REAL (TODO: integrar dados reais)
-    const montagemRealKg = 0;
-    const faturamentoRealMontagem = montagemRealKg * PRECO_MONTAGEM_KG;
-    // Faturamento total real
-    const faturamentoRealTotal = faturamentoRealProducao + faturamentoRealMontagem;
+    // ===== TUDO EM BASE MENSAL =====
 
+    // Produção MENSAL (fábrica) — kg e R$
+    const producaoMensalKg = isNaN(producaoMensal) ? 0 : producaoMensal; // já é média mensal
+    const faturamentoProducaoMes = producaoMensalKg * PRECO_PRODUCAO_KG;
+    // Montagem MENSAL (campo) — kg e R$  (TODO: integrar dados reais)
+    const montagemMensalKg = 0;
+    const faturamentoMontagemMes = montagemMensalKg * PRECO_MONTAGEM_KG;
+    // Faturamento MENSAL total
+    const faturamentoTotalMes = faturamentoProducaoMes + faturamentoMontagemMes;
+
+    // Acumulado (para referência)
+    const faturamentoAcumProducao = pesoTotalPecas * PRECO_PRODUCAO_KG;
+    const faturamentoAcumMontagem = 0; // TODO
+    const faturamentoAcumTotal = faturamentoAcumProducao + faturamentoAcumMontagem;
+
+    // Metas mensais
     const faturamentoMetaMensal = FATURAMENTO_META_MENSAL;
-    const faturamentoMetaTotal = faturamentoMetaMensal * numMesesProducao;
 
     // Despesa mensal média = média últimos 3 meses COMPLETOS lançados no módulo Despesas
     const despesaMensalMedia = despesaMedia3Meses;
 
-    // % produção real vs meta
-    const percentProducaoVsMeta = META_PRODUCAO_MENSAL_KG > 0 ? (producaoMensal / META_PRODUCAO_MENSAL_KG) * 100 : 0;
-    const percentMontagemVsMeta = META_MONTAGEM_MENSAL_KG > 0 ? (montagemRealKg / META_MONTAGEM_MENSAL_KG) * 100 : 0;
+    // % produção real MENSAL vs meta MENSAL
+    const percentProducaoVsMeta = META_PRODUCAO_MENSAL_KG > 0 ? (producaoMensalKg / META_PRODUCAO_MENSAL_KG) * 100 : 0;
+    const percentMontagemVsMeta = META_MONTAGEM_MENSAL_KG > 0 ? (montagemMensalKg / META_MONTAGEM_MENSAL_KG) * 100 : 0;
+    // % faturamento vs meta
+    const percentFatProducaoVsMeta = META_FATURAMENTO_PRODUCAO > 0 ? (faturamentoProducaoMes / META_FATURAMENTO_PRODUCAO) * 100 : 0;
+    const percentFatMontagemVsMeta = META_FATURAMENTO_MONTAGEM > 0 ? (faturamentoMontagemMes / META_FATURAMENTO_MONTAGEM) * 100 : 0;
 
-    // Margem = (Faturamento total real - Despesa média 3 meses) / Faturamento
-    const margemOperacional = faturamentoTotalMensal > 0 ? ((faturamentoTotalMensal - despesaMensalMedia) / faturamentoTotalMensal) * 100 : 0;
+    // Margem MENSAL = (Faturamento mensal - Despesa média 3 meses) / Faturamento mensal
+    const margemOperacional = faturamentoTotalMes > 0 ? ((faturamentoTotalMes - despesaMensalMedia) / faturamentoTotalMes) * 100 : 0;
     const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
 
-    // Saldo = Faturamento mensal real - Despesa média mensal (3 meses)
-    const saldoOperacional = faturamentoTotalMensal - despesaMensalMedia;
+    // Saldo MENSAL = Faturamento mensal - Despesa média mensal (3 meses)
+    const saldoOperacional = faturamentoTotalMes - despesaMensalMedia;
 
     const kpisGerais = {
-      // Metas de produção (independentes)
-      metaProducaoMensalKg: META_PRODUCAO_MENSAL_KG,
-      metaMontagemMensalKg: META_MONTAGEM_MENSAL_KG,
-      metaTotalMensalKg: META_TOTAL_MENSAL_KG,
-      // Preços desmembrados
-      precoProducaoKg: PRECO_PRODUCAO_KG,
-      precoMontagemKg: PRECO_MONTAGEM_KG,
-      precoVendaKg: PRECO_VENDA_KG,
-      // Metas de faturamento (independentes)
-      metaFaturamentoProducao: META_FATURAMENTO_PRODUCAO,
-      metaFaturamentoMontagem: META_FATURAMENTO_MONTAGEM,
-      faturamentoMetaMensal,
-      faturamentoMetaTotal,
-      // Produção real (fábrica)
-      faturamentoRealProducao,
+      // ===== METAS MENSAIS (constantes) =====
+      metaProducaoMensalKg: META_PRODUCAO_MENSAL_KG,     // 70.000 kg
+      metaMontagemMensalKg: META_MONTAGEM_MENSAL_KG,     // 25.000 kg
+      metaTotalMensalKg: META_TOTAL_MENSAL_KG,           // 95.000 kg
+      metaFaturamentoProducao: META_FATURAMENTO_PRODUCAO, // R$ 595.000
+      metaFaturamentoMontagem: META_FATURAMENTO_MONTAGEM, // R$ 100.000
+      faturamentoMetaMensal,                              // R$ 695.000
+      precoProducaoKg: PRECO_PRODUCAO_KG,                 // R$ 8,50
+      precoMontagemKg: PRECO_MONTAGEM_KG,                 // R$ 4,00
+      precoVendaKg: PRECO_VENDA_KG,                       // R$ 12,50 (ref)
+
+      // ===== PRODUÇÃO MENSAL REAL =====
+      producaoMensalKg: producaoMensalKg,
+      faturamentoProducaoMes,
       percentProducaoVsMeta,
-      producaoKg: pesoTotalPecas,
-      producaoMensal,
-      // Montagem real (campo)
-      faturamentoRealMontagem,
+      percentFatProducaoVsMeta,
+
+      // ===== MONTAGEM MENSAL REAL =====
+      montagemMensalKg,
+      faturamentoMontagemMes,
       percentMontagemVsMeta,
-      montagemRealKg,
-      // Faturamento total
-      faturamentoRealTotal,
-      // Custos — Despesa média últimos 3 meses completos
-      despesas: custoTotalGeral,
+      percentFatMontagemVsMeta,
+
+      // ===== FATURAMENTO TOTAL MENSAL =====
+      faturamentoTotalMes,
+
+      // ===== ACUMULADO (referência) =====
+      producaoAcumKg: pesoTotalPecas,
+      faturamentoAcumProducao,
+      faturamentoAcumTotal,
+      numMesesProducao,
+
+      // ===== DESPESAS =====
+      despesaTotalAcum: custoTotalGeral,
       despesaMensalMedia,
       mesesBaseCalculo: ultimos3MesesCompletos.length,
       mesesBaseNomes: ultimos3MesesCompletos.map(m => getMesLabel(m)),
       despesasRH: custoTotalRH,
+
+      // ===== RESULTADO MENSAL =====
       saldo: saldoOperacional,
       margem: margemOperacional,
       custoKg: custoPerKgGeral,
       custoProducaoKg: custoProducaoPerKg,
-      // Obras (informativo)
+
+      // ===== INFO =====
       valorTotalContratos: valorTotalContratosAtivos,
       qtdObrasAtivas,
-      receitaEstimadaPorEtapa: receitaBrutaEstimadaPorEtapa,
       totalDespesas: despesas.length,
       maiorCategoria,
       totalFuncionarios: Object.values(RH_CENTROS).reduce((s, c) => s + c.funcionarios.length, 0),
