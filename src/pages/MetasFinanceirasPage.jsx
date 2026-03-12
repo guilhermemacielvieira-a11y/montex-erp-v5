@@ -329,7 +329,7 @@ export default function MetasFinanceirasPage() {
         <KPICard
           title="Fat. Produção /mês"
           value={fi.formatCurrency(fi.kpisGerais.faturamentoProducaoMes)}
-          subtitle={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton × R$ 8,50/kg`}
+          subtitle={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton × R$ ${fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'}/kg`}
           icon={Factory}
           color="from-emerald-500 to-green-500"
           trend={fi.kpisGerais.percentFatProducaoVsMeta - 100}
@@ -338,7 +338,7 @@ export default function MetasFinanceirasPage() {
         <KPICard
           title="Fat. Montagem /mês"
           value={fi.formatCurrency(fi.kpisGerais.faturamentoMontagemMes)}
-          subtitle={`${(fi.kpisGerais.montagemMensalKg / 1000).toFixed(1)} ton × R$ 4,00/kg`}
+          subtitle={`${(fi.kpisGerais.montagemMensalKg / 1000).toFixed(1)} ton × R$ ${fi.kpisGerais.precoMontagemKg?.toFixed(2) || '3,00'}/kg`}
           icon={HardHat}
           color="from-blue-500 to-cyan-500"
           trend={fi.kpisGerais.percentFatMontagemVsMeta - 100}
@@ -355,7 +355,7 @@ export default function MetasFinanceirasPage() {
         <KPICard
           title="Produção Mensal"
           value={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton`}
-          subtitle={`Meta: 70 ton/mês (R$ 8,50/kg)`}
+          subtitle={`Meta: 70 ton/mês (R$ ${fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'}/kg)`}
           icon={Award}
           color="from-violet-500 to-purple-500"
           trend={fi.kpisGerais.percentProducaoVsMeta - 100}
@@ -386,10 +386,10 @@ export default function MetasFinanceirasPage() {
           <span className="text-sm font-semibold text-emerald-300">Análise Independente</span>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-700">
-            Fábrica: 70t × R$ 8,50 = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}/mês
+            Fábrica: 70t × R$ {fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}/mês
           </Badge>
           <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-700">
-            Montagem: 25t × R$ 4,00 = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoMontagem)}/mês
+            Montagem: 25t × R$ {fi.kpisGerais.precoMontagemKg?.toFixed(2) || '3,00'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoMontagem)}/mês
           </Badge>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <span className="text-xs text-slate-400">
@@ -441,8 +441,8 @@ export default function MetasFinanceirasPage() {
                       formatter={(value) => fi.formatCurrency(value)}
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                    <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Fat. Produção (R$8,50)" />
-                    <Line type="monotone" dataKey="faturamentoMeta" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" name="Meta Total (R$695k)" dot={false} />
+                    <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Fat. Produção (R$5,50)" />
+                    <Line type="monotone" dataKey="faturamentoMeta" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" name="Meta Total (R$460k)" dot={false} />
                     <Bar dataKey="custo" fill="#ef4444" fillOpacity={0.7} name="Despesa Real" radius={[4, 4, 0, 0]} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -519,7 +519,7 @@ export default function MetasFinanceirasPage() {
             />
             <MetaProgressCard
               titulo="Produção Fábrica (R$)"
-              descricao={fi.metas.producaoFabricaValor?.descricao || '70t × R$8,50'}
+              descricao={fi.metas.producaoFabricaValor?.descricao || '70t × R$5,50'}
               meta={fi.metas.producaoFabricaValor?.meta || 0}
               real={fi.metas.producaoFabricaValor?.real || 0}
               progresso={fi.metas.producaoFabricaValor?.progresso || 0}
@@ -539,7 +539,7 @@ export default function MetasFinanceirasPage() {
             />
             <MetaProgressCard
               titulo="Montagem Campo (R$)"
-              descricao={fi.metas.montagemCampoValor?.descricao || '25t × R$4,00'}
+              descricao={fi.metas.montagemCampoValor?.descricao || '25t × R$3,00'}
               meta={fi.metas.montagemCampoValor?.meta || 0}
               real={fi.metas.montagemCampoValor?.real || 0}
               progresso={fi.metas.montagemCampoValor?.progresso || 0}
@@ -678,8 +678,8 @@ export default function MetasFinanceirasPage() {
                   <TableHeader>
                     <TableRow className="border-slate-700/50">
                       <TableHead className="text-slate-400">Mês</TableHead>
-                      <TableHead className="text-slate-400 text-right">Fat. Prod. (R$8,50)</TableHead>
-                      <TableHead className="text-slate-400 text-right">Fat. Mont. (R$4,00)</TableHead>
+                      <TableHead className="text-slate-400 text-right">Fat. Prod. (R$5,50)</TableHead>
+                      <TableHead className="text-slate-400 text-right">Fat. Mont. (R$3,00)</TableHead>
                       <TableHead className="text-slate-400 text-right">Despesa</TableHead>
                       <TableHead className="text-slate-400 text-right">Margem</TableHead>
                       <TableHead className="text-slate-400 text-right">Custo/kg</TableHead>
@@ -765,8 +765,8 @@ export default function MetasFinanceirasPage() {
                     formatter={(value) => fi.formatCurrency(value)}
                   />
                   <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                  <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorTendencia)" name="Fat. Produção (R$8,50)" />
-                  <Area type="monotone" dataKey="faturamentoMontagem" stroke="#3b82f6" strokeWidth={1} fill="none" name="Fat. Montagem (R$4,00)" />
+                  <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorTendencia)" name="Fat. Produção (R$5,50)" />
+                  <Area type="monotone" dataKey="faturamentoMontagem" stroke="#3b82f6" strokeWidth={1} fill="none" name="Fat. Montagem (R$3,00)" />
                   <Line type="monotone" dataKey="custo" stroke="#ef4444" strokeWidth={2} name="Despesa Real" dot={{ r: 3 }} />
                   <Line type="monotone" dataKey="faturamentoProjetado" stroke="#8b5cf6" strokeWidth={2} strokeDasharray="5 5" name="Fat. Projetado" dot={false} />
                   <Line type="monotone" dataKey="custoProjetado" stroke="#f97316" strokeWidth={2} strokeDasharray="5 5" name="Custo Projetado" dot={false} />

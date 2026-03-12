@@ -407,10 +407,10 @@ export default function AnaliseCustosPage() {
             <Percent className="h-5 w-5 text-blue-400" />
             <span className="text-sm font-semibold text-blue-300">Análise Independente</span>
             <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-700">
-              Fábrica: 70t × R$8,50
+              Fábrica: 70t × R$5,50
             </Badge>
             <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-700">
-              Montagem: 25t × R$4,00
+              Montagem: 25t × R$3,00
             </Badge>
           </div>
           <div className="flex gap-6 text-sm">
@@ -566,7 +566,7 @@ export default function AnaliseCustosPage() {
                       formatter={(value, name) => [formatCurrency(value), name]}
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                    <Area yAxisId="left" type="monotone" dataKey="faturamentoProducao" name="Fat. Produção (R$8,50/kg)" stroke="#10b981" fill="url(#colorRecEmpresa)" />
+                    <Area yAxisId="left" type="monotone" dataKey="faturamentoProducao" name="Fat. Produção (R$5,50/kg)" stroke="#10b981" fill="url(#colorRecEmpresa)" />
                     <Area yAxisId="left" type="monotone" dataKey="custo" name="Custo Total" stroke="#ef4444" fill="url(#colorCusto)" />
                     <Line yAxisId="right" type="monotone" dataKey="custoPerKg" name="Custo/KG" stroke="#3b82f6" strokeWidth={2} dot={false} />
                   </AreaChart>

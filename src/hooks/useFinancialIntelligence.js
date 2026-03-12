@@ -98,20 +98,20 @@ function calcRHCentro(centro) {
 // ==========================================
 // METAS DE PRODUÇÃO MENSAL (análise independente)
 // ==========================================
-// PRODUÇÃO FÁBRICA: 70 ton/mês × R$ 8,50/kg
+// PRODUÇÃO FÁBRICA: 70 ton/mês × R$ 5,50/kg
 const META_PRODUCAO_MENSAL_KG = 70000;   // 70 ton fábrica
-const PRECO_PRODUCAO_KG = 8.50;          // R$ 8,50/kg produção
-const META_FATURAMENTO_PRODUCAO = META_PRODUCAO_MENSAL_KG * PRECO_PRODUCAO_KG; // R$ 595.000/mês
+const PRECO_PRODUCAO_KG = 5.50;          // R$ 5,50/kg produção
+const META_FATURAMENTO_PRODUCAO = META_PRODUCAO_MENSAL_KG * PRECO_PRODUCAO_KG; // R$ 385.000/mês
 
-// MONTAGEM CAMPO: 25 ton/mês × R$ 4,00/kg
+// MONTAGEM CAMPO: 25 ton/mês × R$ 3,00/kg
 const META_MONTAGEM_MENSAL_KG = 25000;   // 25 ton montagem campo
-const PRECO_MONTAGEM_KG = 4.00;          // R$ 4,00/kg montagem
-const META_FATURAMENTO_MONTAGEM = META_MONTAGEM_MENSAL_KG * PRECO_MONTAGEM_KG; // R$ 100.000/mês
+const PRECO_MONTAGEM_KG = 3.00;          // R$ 3,00/kg montagem
+const META_FATURAMENTO_MONTAGEM = META_MONTAGEM_MENSAL_KG * PRECO_MONTAGEM_KG; // R$ 75.000/mês
 
 // TOTAIS
 const META_TOTAL_MENSAL_KG = META_PRODUCAO_MENSAL_KG + META_MONTAGEM_MENSAL_KG; // 95 ton total
-const PRECO_VENDA_KG = PRECO_PRODUCAO_KG + PRECO_MONTAGEM_KG; // R$ 12,50/kg total (referência)
-const FATURAMENTO_META_MENSAL = META_FATURAMENTO_PRODUCAO + META_FATURAMENTO_MONTAGEM; // R$ 695.000/mês
+const PRECO_VENDA_KG = PRECO_PRODUCAO_KG + PRECO_MONTAGEM_KG; // R$ 8,50/kg total (referência)
+const FATURAMENTO_META_MENSAL = META_FATURAMENTO_PRODUCAO + META_FATURAMENTO_MONTAGEM; // R$ 460.000/mês
 
 // Regra contrato (mantida para compatibilidade)
 const PERCENTUAL_MATERIAL_CONTRATO = 0.50;
