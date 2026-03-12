@@ -73,6 +73,7 @@ import { useMedicoes, useObras } from '../contexts/ERPContext';
 
 // ========== STORAGE INDEPENDENTE ==========
 const STORAGE_KEY = 'montex_receitas_gerais';
+const OVERRIDES_KEY = 'montex_receitas_overrides'; // edições locais em receitas de Obra
 
 // Categorias de receita
 const categoriasReceita = [
@@ -101,7 +102,7 @@ const formatCurrency = (value) => {
 
 const getStatusColor = (status) => {
   switch (status) {
-    case 'recebido': case 'pago': case 'confirmado': case 'faturado':
+    case 'recebido': case 'pago': case 'paga': case 'confirmado': case 'faturado':
       return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     case 'pendente': case 'pre_aprovado': case 'futuro':
       return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
@@ -117,6 +118,7 @@ const getStatusColor = (status) => {
 const getStatusText = (status) => {
   switch (status) {
     case 'recebido': case 'pago': case 'confirmado': case 'faturado': return 'Recebido';
+    case 'paga': return 'Paga';
     case 'pendente': return 'Pendente';
     case 'aprovado': return 'Aprovado';
     case 'pre_aprovado': return 'Pré-Aprovado';
@@ -175,19 +177,42 @@ export default function ReceitasPage() {
     return map;
   }, [obras]);
 
-  // Salvar receitas manuais no localStorage
+  // Salvar receitas manuais + overrides de Obra no localStorage
   const salvarReceitas = useCallback((lista) => {
     try {
+      // Receitas manuais
       const manuais = lista.filter(r => !r.origemObra);
       localStorage.setItem(STORAGE_KEY, JSON.stringify(manuais));
+      // Overrides: receitas de Obra que foram editadas localmente
+      const overrides = {};
+      lista.filter(r => r.origemObra && r._editadoLocal).forEach(r => {
+        overrides[r.id] = {
+          descricao: r.descricao,
+          cliente: r.cliente,
+          categoria: r.categoria,
+          valor: r.valor,
+          vencimento: r.vencimento,
+          formaPagto: r.formaPagto,
+          status: r.status,
+        };
+      });
+      localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
     } catch (e) {
       console.warn('Erro ao salvar receitas:', e);
     }
   }, []);
 
-  // Carregar receitas: localStorage (manuais) + MEDIÇÕES da Gestão Financeira Obra
+  // Carregar receitas: localStorage (manuais) + MEDIÇÕES da Gestão Financeira Obra + overrides
   useEffect(() => {
     const todasReceitas = [];
+
+    // 0. Carregar overrides de edições locais em receitas de Obra
+    let overrides = {};
+    try {
+      overrides = JSON.parse(localStorage.getItem(OVERRIDES_KEY) || '{}');
+    } catch (e) {
+      console.warn('Erro ao carregar overrides:', e);
+    }
 
     // 1. Receitas manuais do localStorage
     try {
@@ -205,7 +230,7 @@ export default function ReceitasPage() {
           const obraId = m.obraId || m.obra_id;
           const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
           const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
-          todasReceitas.push({
+          const baseReceita = {
             id: m.id,
             data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || new Date().toISOString().split('T')[0],
             descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
@@ -216,7 +241,7 @@ export default function ReceitasPage() {
             etapaLabel: etapaLabel,
             valor: m.valorBruto || m.valor_bruto || 0,
             valorLiquido: m.valorLiquido || m.valor_liquido || 0,
-            status: m.status === 'pago' || m.status === 'faturado' || m.status === 'confirmado' ? 'recebido' : (m.status || 'pendente'),
+            status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'paga' : (m.status || 'pendente'),
             formaPagto: '-',
             vencimento: m.dataMedicao || m.data_medicao || '-',
             setor: m.setor || '-',
@@ -224,7 +249,12 @@ export default function ReceitasPage() {
             origemObra: true,
             obraId: obraId,
             obraNome: obraNome,
-          });
+          };
+          // Aplicar overrides salvos (edições locais anteriores)
+          if (overrides[m.id]) {
+            Object.assign(baseReceita, overrides[m.id], { _editadoLocal: true });
+          }
+          todasReceitas.push(baseReceita);
         }
       });
     }
@@ -275,7 +305,7 @@ export default function ReceitasPage() {
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
       if (!meses[key]) meses[key] = { mes: label, key, recebido: 0, pendente: 0 };
-      if (['recebido', 'confirmado', 'pago', 'faturado'].includes(r.status)) {
+      if (['recebido', 'confirmado', 'pago', 'paga', 'faturado'].includes(r.status)) {
         meses[key].recebido += r.valor || 0;
       } else {
         meses[key].pendente += r.valor || 0;
@@ -286,7 +316,7 @@ export default function ReceitasPage() {
 
   // KPIs
   const kpis = useMemo(() => {
-    const totalRecebido = receitasPeriodo.filter(r => ['recebido', 'confirmado', 'pago', 'faturado'].includes(r.status)).reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalRecebido = receitasPeriodo.filter(r => ['recebido', 'confirmado', 'pago', 'paga', 'faturado'].includes(r.status)).reduce((sum, r) => sum + (r.valor || 0), 0);
     const totalPendente = receitasPeriodo.filter(r => r.status === 'pendente' || r.status === 'aprovado' || r.status === 'pre_aprovado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const totalAtrasado = receitasPeriodo.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const total = receitasPeriodo.reduce((sum, r) => sum + (r.valor || 0), 0);
@@ -299,7 +329,12 @@ export default function ReceitasPage() {
       if (searchTerm && !(r.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
           !(r.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
           !(r.obraNome || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
-      if (filtroStatus !== 'todos' && r.status !== filtroStatus) return false;
+      if (filtroStatus !== 'todos') {
+        const statusRecebidos = ['recebido', 'pago', 'paga', 'confirmado', 'faturado'];
+        if (filtroStatus === 'paga') {
+          if (!statusRecebidos.includes(r.status)) return false;
+        } else if (r.status !== filtroStatus) return false;
+      }
       if (filtroCategoria !== 'todos' && r.categoria !== filtroCategoria) return false;
       return true;
     });
@@ -348,6 +383,7 @@ export default function ReceitasPage() {
           vencimento: formData.vencimento || r.vencimento,
           formaPagto: formData.formaPagto || '-',
           status: formData.status || r.status,
+          _editadoLocal: r.origemObra ? true : r._editadoLocal, // marca para persistir override
         };
       });
       setReceitas(novaLista);
@@ -522,7 +558,7 @@ export default function ReceitasPage() {
                   </SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
                     <SelectItem value="pendente">Pendente</SelectItem>
-                    <SelectItem value="recebido">Recebido</SelectItem>
+                    <SelectItem value="paga">Paga/Recebido</SelectItem>
                     <SelectItem value="atrasado">Atrasado</SelectItem>
                   </SelectContent>
                 </Select>
@@ -726,7 +762,7 @@ export default function ReceitasPage() {
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700">
                 <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="recebido">Recebido</SelectItem>
+                <SelectItem value="paga">Paga/Recebido</SelectItem>
                 <SelectItem value="pendente">Pendente</SelectItem>
                 <SelectItem value="atrasado">Atrasado</SelectItem>
               </SelectContent>
