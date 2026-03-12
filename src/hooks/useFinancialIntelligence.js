@@ -103,6 +103,9 @@ function calcRHCentro(centro) {
 const PERCENTUAL_MATERIAL_CONTRATO = 0.50;
 const PERCENTUAL_RECEITA_CONTRATO = 0.50;
 
+// Preço de venda por kg (material faturado direto — sem R$19,50)
+const PRECO_VENDA_KG = 12.50;
+
 // Taxas de receita por etapa (R$/kg)
 const TAXA_ETAPA = {
   CORTE: 1.20,
@@ -367,9 +370,11 @@ export function useFinancialIntelligence(filtros = {}) {
     }
     const producaoMensal = pesoTotalPecas / numMesesProducao;
 
-    // Receita mensal baseada no valor de contrato ativo distribuído pelos meses
+    // Receita mensal baseada no valor de contrato ativo OU na produção × R$12,50/kg
     const numMeses = Math.max(mesesOrdenados.length, 1);
-    const receitaBrutaMensal = faturamentoBrutoContratos / numMeses;
+    const receitaBrutaMensal = faturamentoBrutoContratos > 0
+      ? faturamentoBrutoContratos / numMeses
+      : producaoMensal * PRECO_VENDA_KG;
 
     const evolucaoMensal = mesesOrdenados.map(mes => {
       const custoMes = mesesMap[mes].custo;
@@ -569,13 +574,20 @@ export function useFinancialIntelligence(filtros = {}) {
     const forecast3meses = calcularForecastAvancado(evolucaoMensal, 3);
 
     // ========================================
-    // 12. KPIs GERAIS (baseado em contratos ativos)
+    // 12. KPIs GERAIS (baseado em despesas + preço venda R$12,50/kg)
     // ========================================
-    // Faturamento = valor total dos contratos de obras ativas
-    const faturamentoReal = faturamentoBrutoContratos;
+    // IMPORTANTE: RH já está incluído nos lançamentos de despesas, NÃO somar novamente
+    // Receita = produção (kg) × preço de venda (R$ 12,50/kg)
+    const receitaBaseProducao = pesoTotalPecas * PRECO_VENDA_KG;
+    const receitaMensalBase = producaoMensal * PRECO_VENDA_KG;
+
+    // Faturamento = valor total dos contratos de obras ativas (se disponível) OU baseado na produção
+    const faturamentoReal = valorTotalContratosAtivos > 0 ? valorTotalContratosAtivos : receitaBaseProducao;
     const receitaEmpresaReal = faturamentoReal * PERCENTUAL_RECEITA_CONTRATO;
     const materialFaturadoDiretoReal = faturamentoReal * PERCENTUAL_MATERIAL_CONTRATO;
-    const margemOperacional = receitaEmpresaReal > 0 ? ((receitaEmpresaReal - custoTotalGeral - custoTotalRH) / receitaEmpresaReal) * 100 : 0;
+
+    // Margem: NÃO soma custoTotalRH pois já está nas despesas lançadas
+    const margemOperacional = receitaEmpresaReal > 0 ? ((receitaEmpresaReal - custoTotalGeral) / receitaEmpresaReal) * 100 : 0;
     const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
 
     const kpisGerais = {
@@ -585,16 +597,19 @@ export function useFinancialIntelligence(filtros = {}) {
       qtdObrasAtivas,
       materialFaturadoDireto: materialFaturadoDiretoReal,
       receitaEmpresa: receitaEmpresaReal,
-      // Custos
+      // Custos (RH já incluso nos lançamentos — não duplicar)
       despesas: custoTotalGeral,
-      despesasRH: custoTotalRH,
-      saldo: receitaEmpresaReal - custoTotalGeral - custoTotalRH,
+      despesasRH: custoTotalRH, // informativo apenas
+      saldo: receitaEmpresaReal - custoTotalGeral,
       margem: margemOperacional,
       custoKg: custoPerKgGeral,
       custoProducaoKg: custoProducaoPerKg,
-      // Produção
+      // Produção e preço
       producaoKg: pesoTotalPecas,
       producaoMensal,
+      precoVendaKg: PRECO_VENDA_KG,
+      receitaBaseProducao,
+      receitaMensalBase,
       receitaEstimadaPorEtapa: receitaBrutaEstimadaPorEtapa,
       totalDespesas: despesas.length,
       maiorCategoria,
@@ -828,4 +843,4 @@ const getForecastAvancado = (dados, mesesFuturos = 3) => {
   return forecast;
 };
 
-export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado, RH_CENTROS, PERCENTUAL_MATERIAL_CONTRATO, PERCENTUAL_RECEITA_CONTRATO };
+export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado, RH_CENTROS, PERCENTUAL_MATERIAL_CONTRATO, PERCENTUAL_RECEITA_CONTRATO, PRECO_VENDA_KG };

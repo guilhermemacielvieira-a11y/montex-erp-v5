@@ -257,7 +257,7 @@ export default function MetasFinanceirasPage() {
             </div>
             Metas Financeiras
           </h1>
-          <p className="text-slate-400 mt-1">Metas por centro de custo com regra contrato 50/50</p>
+          <p className="text-slate-400 mt-1">Análise de custos, metas de produção e rentabilidade</p>
         </div>
 
         <div className="flex items-center gap-3">
@@ -328,65 +328,73 @@ export default function MetasFinanceirasPage() {
         <KPICard
           title="Receita Empresa (50%)"
           value={fi.formatCurrency(fi.kpisGerais.receitaEmpresa)}
-          subtitle={`Faturamento bruto: ${fi.formatCurrency(fi.kpisGerais.faturamentoBruto)}`}
+          subtitle={`Base: ${(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton × R$ 12,50/kg`}
           icon={DollarSign}
           color="from-emerald-500 to-green-500"
         />
         <KPICard
-          title="Material Faturado (50%)"
-          value={fi.formatCurrency(fi.kpisGerais.materialFaturadoDireto)}
-          subtitle="Faturado direto pelo fornecedor"
-          icon={Percent}
-          color="from-cyan-500 to-blue-500"
-        />
-        <KPICard
-          title="Custo Produção"
-          value={fi.formatCurrency(fi.custoProducaoTotal)}
-          subtitle={`R$ ${(fi.custoProducaoPerKg || 0).toFixed(2)}/kg (fábrica)`}
+          title="Custo Total (Despesas)"
+          value={fi.formatCurrency(fi.kpisGerais.despesas)}
+          subtitle="RH já incluso nos lançamentos"
           icon={Factory}
           color="from-rose-500 to-pink-500"
           isNegativeTrendGood={true}
         />
         <KPICard
-          title="Custo Montagem"
-          value={fi.formatCurrency(fi.metas.custoMontagem?.real || 0)}
-          subtitle="Equipe campo + despesas"
-          icon={HardHat}
-          color="from-blue-500 to-indigo-500"
+          title="Custo/KG (Total)"
+          value={`R$ ${(fi.custoPerKgGeral || 0).toFixed(2)}`}
+          subtitle={`Produção: R$ ${(fi.custoProducaoPerKg || 0).toFixed(2)}/kg`}
+          icon={Percent}
+          color="from-cyan-500 to-blue-500"
+        />
+        <KPICard
+          title="Produção Mensal"
+          value={`${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton`}
+          subtitle={`Total: ${(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton | R$ 12,50/kg`}
+          icon={Award}
+          color="from-violet-500 to-purple-500"
+        />
+        <KPICard
+          title="Saldo Operacional"
+          value={fi.formatCurrency(fi.kpisGerais.saldo)}
+          subtitle="Receita 50% - Despesas"
+          icon={TrendingUp}
+          color={fi.kpisGerais.saldo >= 0 ? "from-emerald-500 to-green-500" : "from-red-500 to-rose-500"}
         />
         <KPICard
           title="Margem Operacional"
           value={fi.formatPercent(fi.margemOperacional)}
           subtitle="Meta: 25%"
-          icon={TrendingUp}
+          icon={Target}
           color="from-amber-500 to-orange-500"
           trend={fi.margemOperacional - 25}
           trendLabel="vs meta 25%"
         />
-        <KPICard
-          title="Produção"
-          value={`${(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton`}
-          subtitle={`${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton/mês | ${fi.kpisGerais.totalFuncionarios} func.`}
-          icon={Award}
-          color="from-violet-500 to-purple-500"
-        />
       </div>
 
-      {/* Regra 50/50 Banner */}
+      {/* Banner Preço de Venda */}
       <div className="bg-gradient-to-r from-blue-900/30 to-emerald-900/30 rounded-xl border border-blue-700/20 p-4">
         <div className="flex items-center gap-3 flex-wrap">
-          <Percent className="h-5 w-5 text-blue-400" />
-          <span className="text-sm font-semibold text-blue-300">Regra Contrato 50/50</span>
-          <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-700">
-            {fi.kpisGerais.qtdObrasAtivas || 0} obras ativas = {fi.formatCurrency(fi.kpisGerais.valorTotalContratos || 0)}
+          <DollarSign className="h-5 w-5 text-emerald-400" />
+          <span className="text-sm font-semibold text-emerald-300">Preço de Venda: R$ 12,50/kg</span>
+          <Badge variant="outline" className="text-[10px] text-amber-400 border-amber-700">
+            Material faturado direto pelo fornecedor
           </Badge>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <span className="text-xs text-slate-400">
-            50% Material: <span className="text-amber-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.materialFaturadoDireto)}</span>
+            Produção: <span className="text-cyan-400 font-semibold">{(fi.kpisGerais.producaoKg / 1000).toFixed(1)} ton</span>
           </span>
-          <span className="text-xs text-slate-400 mx-1">+</span>
+          <span className="text-xs text-slate-400 mx-1">×</span>
+          <span className="text-xs text-slate-400">
+            R$ 12,50 = <span className="text-emerald-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.receitaBaseProducao || 0)}</span>
+          </span>
+          <span className="text-xs text-slate-400 mx-1">|</span>
           <span className="text-xs text-slate-400">
             50% Receita: <span className="text-emerald-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.receitaEmpresa)}</span>
+          </span>
+          <span className="text-xs text-slate-400 mx-1">|</span>
+          <span className="text-xs text-orange-400 text-[10px]">
+            RH já incluso nas despesas lançadas
           </span>
         </div>
       </div>
