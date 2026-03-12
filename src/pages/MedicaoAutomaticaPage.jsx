@@ -16,7 +16,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
-import { useObras, useExpedicao } from '../contexts/ERPContext';
+import { useObras, useExpedicao, useMedicoes } from '../contexts/ERPContext';
 
 // Configurações de valores por kg (editáveis) - vinculado ao contrato
 const configInicial = {
@@ -32,6 +32,7 @@ const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
 export default function MedicaoAutomaticaPage() {
   const { obras, obraAtualData } = useObras();
   const { expedicoes } = useExpedicao();
+  const { medicoes: medicoesDB } = useMedicoes();
   const obrasAtivas = obras.filter(o => o.status !== 'cancelada');
 
   const [obraSelecionada, setObraSelecionada] = useState('todas');
@@ -132,7 +133,17 @@ export default function MedicaoAutomaticaPage() {
     return calcPesos(obraSel);
   }, [obraSelecionada, obrasAtivas]);
 
-  const valorMedicaoLiberada = dadosObraSelecionada.pesoProduzido * config.producao.valorKg;
+  // Total de medições já lançadas (valor bruto das medições no Supabase)
+  const totalMedicoesLancadas = useMemo(() => {
+    if (!medicoesDB || medicoesDB.length === 0) return 0;
+    const filtradas = obraSelecionada === 'todas'
+      ? medicoesDB
+      : medicoesDB.filter(m => (m.obraId || m.obra_id) === obraSelecionada);
+    return filtradas.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
+  }, [medicoesDB, obraSelecionada]);
+
+  // Medição Liberada = (peso produzido × R$/kg) - medições já lançadas
+  const valorMedicaoLiberada = Math.max(0, (dadosObraSelecionada.pesoProduzido * config.producao.valorKg) - totalMedicoesLancadas);
 
   const salvarConfig = () => {
     const valor = parseFloat(novoValorKg);
