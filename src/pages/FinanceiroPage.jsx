@@ -2,7 +2,7 @@
 // Consolida: Despesas Gerais (lancamentos sem obra) + Receitas (medições de obras)
 // Financeiro Fábrica - Visão unificada da saúde financeira da empresa
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   DollarSign,
   TrendingUp,
@@ -164,14 +164,22 @@ export default function FinanceiroPage() {
       }));
   }, [lancamentosDespesas]);
 
-  // ===== RECEITAS DAS MEDIÇÕES (todas as obras) =====
+  // ===== RECEITAS: MEDIÇÕES (Supabase) + MANUAIS (localStorage) + OVERRIDES =====
+  const RECEITAS_STORAGE_KEY = 'montex_receitas_gerais';
+  const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
+
+  // Receitas de medições (Supabase) com overrides do ReceitasPage
   const receitasMedicoes = useMemo(() => {
     if (!todasMedicoes || todasMedicoes.length === 0) return [];
+    // Carregar overrides de edições feitas no ReceitasPage
+    let overrides = {};
+    try { overrides = JSON.parse(localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '{}'); } catch (e) {}
+
     return todasMedicoes.map(m => {
       const obraId = m.obraId || m.obra_id;
       const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
       const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
-      return {
+      const baseReceita = {
         id: m.id,
         tipo: 'receita',
         data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
@@ -180,7 +188,7 @@ export default function FinanceiroPage() {
         categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
         valor: m.valorBruto || m.valor_bruto || 0,
         valorLiquido: m.valorLiquido || m.valor_liquido || 0,
-        status: ['pago', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
+        status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
         formaPagto: '-',
         vencimento: m.dataMedicao || m.data_medicao || '-',
         numero: m.numero,
@@ -191,8 +199,43 @@ export default function FinanceiroPage() {
         obraId,
         obraNome,
       };
+      // Aplicar overrides do ReceitasPage (edições locais)
+      if (overrides[m.id]) {
+        const ov = overrides[m.id];
+        if (ov.descricao) baseReceita.descricao = ov.descricao;
+        if (ov.valor !== undefined) baseReceita.valor = ov.valor;
+        if (ov.status) baseReceita.status = ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(ov.status) ? 'recebido' : ov.status;
+        if (ov.categoria) baseReceita.categoria = ov.categoria;
+        if (ov.cliente) baseReceita.fornecedor = ov.cliente;
+        if (ov.vencimento) baseReceita.vencimento = ov.vencimento;
+        if (ov.formaPagto && ov.formaPagto !== '-') baseReceita.formaPagto = ov.formaPagto;
+      }
+      return baseReceita;
     });
   }, [todasMedicoes, obrasMap]);
+
+  // Receitas manuais do localStorage (cadastradas no ReceitasPage)
+  const receitasManuais = useMemo(() => {
+    try {
+      const salvas = JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]');
+      return salvas.map(r => ({
+        id: r.id,
+        tipo: 'receita',
+        data: r.data || r.vencimento || '',
+        descricao: r.descricao || '-',
+        fornecedor: r.cliente || '-',
+        categoria: r.categoria || 'Outros',
+        valor: r.valor || 0,
+        status: ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente'),
+        formaPagto: r.formaPagto || '-',
+        vencimento: r.vencimento || '-',
+        origem: 'Receita Manual',
+        origemObra: false,
+      }));
+    } catch (e) {
+      return [];
+    }
+  }, []);
 
   // ===== OPÇÕES DE OBRAS PARA O SELETOR =====
   const opcoesObra = useMemo(() => {
@@ -209,21 +252,21 @@ export default function FinanceiroPage() {
   // ===== TODAS AS MOVIMENTAÇÕES CONSOLIDADAS (com filtro de obra) =====
   const todasMovimentacoes = useMemo(() => {
     let despesas = despesasGerais;
-    let receitas = receitasMedicoes;
+    let receitas = [...receitasMedicoes, ...receitasManuais];
 
     if (filtroObra === 'fabrica') {
-      // Somente despesas da fábrica (sem obraId)
-      receitas = [];
+      // Somente despesas da fábrica + receitas manuais (sem obraId)
+      receitas = receitasManuais;
     } else if (filtroObra !== 'geral') {
       // Filtra por obra específica
       despesas = []; // Despesas gerais não pertencem a nenhuma obra
       receitas = receitasMedicoes.filter(r => r.obraId === filtroObra);
     }
-    // 'geral' mostra tudo
+    // 'geral' mostra tudo (medições + manuais)
 
     return [...despesas, ...receitas]
       .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
-  }, [despesasGerais, receitasMedicoes, filtroObra]);
+  }, [despesasGerais, receitasMedicoes, receitasManuais, filtroObra]);
 
   // ===== FILTRO DE PERÍODO =====
   const filtrarPorPeriodo = useCallback((lista) => {
@@ -248,7 +291,7 @@ export default function FinanceiroPage() {
     const despesas = movimentacoesPeriodo.filter(m => m.tipo === 'despesa');
     const totalReceitas = receitas.reduce((s, m) => s + (m.valor || 0), 0);
     const totalDespesas = despesas.reduce((s, m) => s + (m.valor || 0), 0);
-    const receitasRecebidas = receitas.filter(m => ['recebido', 'pago', 'faturado', 'confirmado'].includes(m.status)).reduce((s, m) => s + (m.valor || 0), 0);
+    const receitasRecebidas = receitas.filter(m => ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(m.status)).reduce((s, m) => s + (m.valor || 0), 0);
     const receitasPendentes = receitas.filter(m => m.status === 'pendente' || m.status === 'aprovado').reduce((s, m) => s + (m.valor || 0), 0);
     const despesasPagas = despesas.filter(m => m.status === 'pago').reduce((s, m) => s + (m.valor || 0), 0);
     const despesasPendentes = despesas.filter(m => m.status === 'pendente').reduce((s, m) => s + (m.valor || 0), 0);
@@ -408,7 +451,7 @@ export default function FinanceiroPage() {
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{kpis.qtdTotal} lançamentos</span>
             <span className="text-slate-500 text-sm">|</span>
-            <span className="text-emerald-400 text-xs">{kpis.qtdReceitas} receitas (medições)</span>
+            <span className="text-emerald-400 text-xs">{kpis.qtdReceitas} receitas</span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-rose-400 text-xs">{kpis.qtdDespesas} despesas</span>
           </div>
@@ -755,11 +798,11 @@ export default function FinanceiroPage() {
                     </TableCell>
                     <TableCell>
                       <Badge className={cn("border text-xs",
-                        ['recebido', 'pago', 'faturado', 'confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                        ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
                         mov.status === 'atrasado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
                         'bg-amber-500/20 text-amber-400 border-amber-500/30'
                       )}>
-                        {['recebido', 'pago', 'faturado', 'confirmado'].includes(mov.status) ? 'Recebido' :
+                        {['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(mov.status) ? 'Recebido' :
                          mov.status === 'atrasado' ? 'Atrasado' : 'Pendente'}
                       </Badge>
                     </TableCell>
