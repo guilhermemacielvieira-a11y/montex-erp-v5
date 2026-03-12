@@ -615,7 +615,7 @@ export default function FinanceiroPage() {
               <div>
                 <p className="text-sm text-slate-400">Receitas</p>
                 <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpis.totalReceitas)}</p>
-                <p className="text-xs text-slate-500">{kpis.qtdReceitas} medições</p>
+                <p className="text-xs text-slate-500">{kpis.qtdReceitas} lançamentos</p>
               </div>
             </div>
           </CardContent>
