@@ -43,7 +43,8 @@ export default function MedicaoAutomaticaPage() {
   const [medicoes, setMedicoes] = useState([]);
   const [formMedicao, setFormMedicao] = useState({ peso: '', obra: '' });
 
-  const medicoesFiltradas = useMemo(() => {
+  // Medições locais (criadas nesta página)
+  const medicoesLocaisFiltradas = useMemo(() => {
     return medicoes.filter(m => {
       if (m.tipo !== 'producao') return false;
       if (obraSelecionada !== 'todas' && m.obraId !== obraSelecionada) return false;
@@ -51,11 +52,49 @@ export default function MedicaoAutomaticaPage() {
     });
   }, [medicoes, obraSelecionada]);
 
+  // Medições do Supabase (Gestão Financeira Obra) formatadas para a tabela
+  const medicoesDBFormatadas = useMemo(() => {
+    if (!medicoesDB || medicoesDB.length === 0) return [];
+    const obrasMap = {};
+    (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.name || o.id; });
+
+    return medicoesDB
+      .filter(m => obraSelecionada === 'todas' || (m.obraId || m.obra_id) === obraSelecionada)
+      .map(m => {
+        const obraId = m.obraId || m.obra_id;
+        return {
+          id: m.id,
+          tipo: 'producao',
+          obraId,
+          obra: m.obraNome || m.obra_nome || obrasMap[obraId] || '-',
+          periodo: m.dataMedicao || m.data_medicao
+            ? new Date(m.dataMedicao || m.data_medicao).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+            : '-',
+          pesoMedido: 0, // medições de obra não têm peso individual aqui
+          valorKg: config.producao.valorKg,
+          valorTotal: m.valorBruto || m.valor_bruto || 0,
+          status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'aprovada' : (m.status === 'rejeitada' ? 'rejeitada' : 'pendente'),
+          dataCriacao: m.dataMedicao || m.data_medicao || '',
+          origemDB: true,
+          descricao: m.descricao || `Medição #${m.numero || '?'}`,
+          numero: m.numero,
+        };
+      });
+  }, [medicoesDB, obraSelecionada, obras, config.producao.valorKg]);
+
+  // Combinar medições locais + DB (evitar duplicatas por ID)
+  const medicoesFiltradas = useMemo(() => {
+    const idsDB = new Set(medicoesDBFormatadas.map(m => m.id));
+    const locaisSemDup = medicoesLocaisFiltradas.filter(m => !idsDB.has(m.id));
+    return [...medicoesDBFormatadas, ...locaisSemDup]
+      .sort((a, b) => new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0));
+  }, [medicoesDBFormatadas, medicoesLocaisFiltradas]);
+
   const totais = useMemo(() => {
     const filtradas = medicoesFiltradas;
     return {
-      pesoTotal: filtradas.reduce((a, m) => a + m.pesoMedido, 0),
-      valorTotal: filtradas.reduce((a, m) => a + m.valorTotal, 0),
+      pesoTotal: filtradas.reduce((a, m) => a + (m.pesoMedido || 0), 0),
+      valorTotal: filtradas.reduce((a, m) => a + (m.valorTotal || 0), 0),
       qtdMedicoes: filtradas.length,
       aprovadas: filtradas.filter(m => m.status === 'aprovada').length,
       pendentes: filtradas.filter(m => m.status === 'pendente').length,
@@ -443,14 +482,17 @@ export default function MedicaoAutomaticaPage() {
               {medicoesFiltradas.length > 0 ? (
                 medicoesFiltradas.map((med, idx) => (
                   <motion.tr key={med.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }} className="border-b border-slate-700/50 hover:bg-slate-800/50">
-                    <td className="px-4 py-3"><p className="text-white font-medium">{med.obra}</p></td>
+                    <td className="px-4 py-3">
+                      <p className="text-white font-medium">{med.descricao || med.obra}</p>
+                      {med.origemDB && <p className="text-xs text-blue-400">{med.obra}</p>}
+                    </td>
                     <td className="px-4 py-3 text-slate-300">{med.periodo}</td>
                     <td className="px-4 py-3 text-right text-white font-mono">{formatPeso(med.pesoMedido)}</td>
                     <td className="px-4 py-3 text-right text-slate-300">{formatMoney(med.valorKg)}</td>
                     <td className="px-4 py-3 text-right text-emerald-400 font-bold">{formatMoney(med.valorTotal)}</td>
                     <td className="px-4 py-3 text-center">
-                      <span className={cn("px-2 py-1 rounded-full text-xs font-medium", med.status === 'aprovada' && "bg-emerald-500/20 text-emerald-400", med.status === 'pendente' && "bg-amber-500/20 text-amber-400", med.status === 'rejeitada' && "bg-red-500/20 text-red-400")}>
-                        {med.status === 'aprovada' ? 'Aprovada' : med.status === 'pendente' ? 'Pendente' : 'Rejeitada'}
+                      <span className={cn("px-2 py-1 rounded-full text-xs font-medium", med.status === 'aprovada' && "bg-emerald-500/20 text-emerald-400", med.status === 'pendente' && "bg-amber-500/20 text-amber-400", med.status === 'rejeitada' && "bg-red-500/20 text-red-400", med.status === 'paga' && "bg-emerald-500/20 text-emerald-400")}>
+                        {med.status === 'aprovada' ? 'Aprovada/Paga' : med.status === 'paga' ? 'Paga' : med.status === 'pendente' ? 'Pendente' : 'Rejeitada'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center">
