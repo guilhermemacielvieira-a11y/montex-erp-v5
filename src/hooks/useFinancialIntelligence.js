@@ -96,18 +96,22 @@ function calcRHCentro(centro) {
 }
 
 // ==========================================
-// METAS DE PRODUÇÃO MENSAL
+// METAS DE PRODUÇÃO MENSAL (análise independente)
 // ==========================================
-// Base: 70 ton/mês produção fábrica + 25 ton/mês montagem campo = 95 ton/mês total
+// PRODUÇÃO FÁBRICA: 70 ton/mês × R$ 8,50/kg
 const META_PRODUCAO_MENSAL_KG = 70000;   // 70 ton fábrica
+const PRECO_PRODUCAO_KG = 8.50;          // R$ 8,50/kg produção
+const META_FATURAMENTO_PRODUCAO = META_PRODUCAO_MENSAL_KG * PRECO_PRODUCAO_KG; // R$ 595.000/mês
+
+// MONTAGEM CAMPO: 25 ton/mês × R$ 4,00/kg
 const META_MONTAGEM_MENSAL_KG = 25000;   // 25 ton montagem campo
+const PRECO_MONTAGEM_KG = 4.00;          // R$ 4,00/kg montagem
+const META_FATURAMENTO_MONTAGEM = META_MONTAGEM_MENSAL_KG * PRECO_MONTAGEM_KG; // R$ 100.000/mês
+
+// TOTAIS
 const META_TOTAL_MENSAL_KG = META_PRODUCAO_MENSAL_KG + META_MONTAGEM_MENSAL_KG; // 95 ton total
-
-// Preço de venda por kg (material faturado direto)
-const PRECO_VENDA_KG = 12.50;
-
-// Faturamento mensal META = 95 ton × R$ 12,50/kg
-const FATURAMENTO_META_MENSAL = META_TOTAL_MENSAL_KG * PRECO_VENDA_KG;
+const PRECO_VENDA_KG = PRECO_PRODUCAO_KG + PRECO_MONTAGEM_KG; // R$ 12,50/kg total (referência)
+const FATURAMENTO_META_MENSAL = META_FATURAMENTO_PRODUCAO + META_FATURAMENTO_MONTAGEM; // R$ 695.000/mês
 
 // Regra contrato (mantida para compatibilidade)
 const PERCENTUAL_MATERIAL_CONTRATO = 0.50;
@@ -376,23 +380,41 @@ export function useFinancialIntelligence(filtros = {}) {
     }
     const producaoMensal = pesoTotalPecas / numMesesProducao;
 
-    // Faturamento baseado em PRODUÇÃO × R$ 12,50/kg (sem receita empresa)
+    // Faturamento desmembrado: Produção × R$8,50 + Montagem × R$4,00
     const numMeses = Math.max(mesesOrdenados.length, 1);
-    const faturamentoProducaoMensal = producaoMensal * PRECO_VENDA_KG;
-    const faturamentoMetaMensalCalc = FATURAMENTO_META_MENSAL;
+    const faturamentoProducaoMensal = producaoMensal * PRECO_PRODUCAO_KG;
+    const faturamentoMontagemMensal = 0; // TODO: integrar dados reais de montagem KG
+    const faturamentoTotalMensal = faturamentoProducaoMensal + faturamentoMontagemMensal;
+
+    // ========================================
+    // 6b. DESPESA MÉDIA MENSAL (últimos 3 meses COMPLETOS lançados)
+    // ========================================
+    const mesAtualKey = formatMesAno(new Date());
+    // Pegar apenas meses completos (excluir mês atual que pode estar incompleto)
+    const mesesCompletos = mesesOrdenados.filter(m => m < mesAtualKey);
+    const ultimos3MesesCompletos = mesesCompletos.slice(-3);
+    const despesaMedia3Meses = ultimos3MesesCompletos.length > 0
+      ? ultimos3MesesCompletos.reduce((sum, m) => sum + (mesesMap[m]?.custo || 0), 0) / ultimos3MesesCompletos.length
+      : (numMeses > 0 ? custoTotalGeral / numMeses : 0);
 
     const evolucaoMensal = mesesOrdenados.map(mes => {
       const custoMes = mesesMap[mes].custo;
-      const faturamentoProducao = faturamentoProducaoMensal;
+      const fatProducao = faturamentoProducaoMensal;
+      const fatMontagem = faturamentoMontagemMensal;
+      const fatTotal = fatProducao + fatMontagem;
       const custoPerKg = producaoMensal > 0 ? custoMes / producaoMensal : 0;
-      const margem = faturamentoProducao > 0 ? ((faturamentoProducao - custoMes) / faturamentoProducao) * 100 : 0;
+      const margem = fatTotal > 0 ? ((fatTotal - custoMes) / fatTotal) * 100 : 0;
 
       return {
         mes,
         mesLabel: getMesLabel(mes),
         custo: custoMes,
-        faturamentoProducao,
-        faturamentoMeta: faturamentoMetaMensalCalc,
+        faturamentoProducao: fatProducao,
+        faturamentoMontagem: fatMontagem,
+        faturamentoTotal: fatTotal,
+        faturamentoMeta: FATURAMENTO_META_MENSAL,
+        metaProducao: META_FATURAMENTO_PRODUCAO,
+        metaMontagem: META_FATURAMENTO_MONTAGEM,
         producaoKg: producaoMensal,
         custoPerKg,
         margem,
@@ -562,7 +584,7 @@ export function useFinancialIntelligence(filtros = {}) {
           mesIndex: futureMonth,
           custoProjetado: Math.max(0, Math.round(seasonalValue * 100) / 100),
           producaoProjetada: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * 100) / 100),
-          faturamentoProjetado: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * PRECO_VENDA_KG * 100) / 100),
+          faturamentoProjetado: Math.max(0, Math.round((weightedAvgProducao + slope * i / 2.5) * PRECO_PRODUCAO_KG * 100) / 100),
           tipo: 'forecast',
           confianca: Math.max(0.5, 1 - (i * 0.15)),
           tendencia: slope > 0 ? 'alta' : slope < 0 ? 'baixa' : 'estável',
@@ -576,53 +598,74 @@ export function useFinancialIntelligence(filtros = {}) {
     const forecast3meses = calcularForecastAvancado(evolucaoMensal, 3);
 
     // ========================================
-    // 12. KPIs GERAIS (baseado em PRODUÇÃO × DESPESA)
+    // 12. KPIs GERAIS (análise independente Produção × Montagem)
     // ========================================
-    // Base: 70 ton/mês produção + 25 ton/mês montagem = 95 ton/mês
-    // Faturamento META = 95 ton × R$ 12,50/kg = R$ 1.187.500/mês
-    // RH já está incluído nos lançamentos de despesas — NÃO duplicar
+    // PRODUÇÃO: 70 ton/mês × R$ 8,50/kg = R$ 595.000/mês
+    // MONTAGEM: 25 ton/mês × R$ 4,00/kg = R$ 100.000/mês
+    // TOTAL: 95 ton/mês = R$ 695.000/mês
+    // Despesa Média = média dos últimos 3 meses completos lançados
 
-    // Produção REAL
+    // Produção REAL (fábrica)
     const producaoRealKg = pesoTotalPecas;
-    const faturamentoRealProducao = producaoRealKg * PRECO_VENDA_KG;
+    const faturamentoRealProducao = producaoRealKg * PRECO_PRODUCAO_KG;
+    // Montagem REAL (TODO: integrar dados reais)
+    const montagemRealKg = 0;
+    const faturamentoRealMontagem = montagemRealKg * PRECO_MONTAGEM_KG;
+    // Faturamento total real
+    const faturamentoRealTotal = faturamentoRealProducao + faturamentoRealMontagem;
+
     const faturamentoMetaMensal = FATURAMENTO_META_MENSAL;
     const faturamentoMetaTotal = faturamentoMetaMensal * numMesesProducao;
 
-    // Despesa mensal média
-    const despesaMensalMedia = numMeses > 0 ? custoTotalGeral / numMeses : 0;
+    // Despesa mensal média = média últimos 3 meses COMPLETOS lançados no módulo Despesas
+    const despesaMensalMedia = despesaMedia3Meses;
 
     // % produção real vs meta
     const percentProducaoVsMeta = META_PRODUCAO_MENSAL_KG > 0 ? (producaoMensal / META_PRODUCAO_MENSAL_KG) * 100 : 0;
+    const percentMontagemVsMeta = META_MONTAGEM_MENSAL_KG > 0 ? (montagemRealKg / META_MONTAGEM_MENSAL_KG) * 100 : 0;
 
-    // Margem = (Faturamento real - Despesas) / Faturamento real
-    const margemOperacional = faturamentoRealProducao > 0 ? ((faturamentoRealProducao - custoTotalGeral) / faturamentoRealProducao) * 100 : 0;
+    // Margem = (Faturamento total real - Despesa média 3 meses) / Faturamento
+    const margemOperacional = faturamentoTotalMensal > 0 ? ((faturamentoTotalMensal - despesaMensalMedia) / faturamentoTotalMensal) * 100 : 0;
     const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
 
-    // Saldo = Faturamento real da produção - Despesas totais
-    const saldoOperacional = faturamentoRealProducao - custoTotalGeral;
+    // Saldo = Faturamento mensal real - Despesa média mensal (3 meses)
+    const saldoOperacional = faturamentoTotalMensal - despesaMensalMedia;
 
     const kpisGerais = {
-      // Metas de produção
+      // Metas de produção (independentes)
       metaProducaoMensalKg: META_PRODUCAO_MENSAL_KG,
       metaMontagemMensalKg: META_MONTAGEM_MENSAL_KG,
       metaTotalMensalKg: META_TOTAL_MENSAL_KG,
+      // Preços desmembrados
+      precoProducaoKg: PRECO_PRODUCAO_KG,
+      precoMontagemKg: PRECO_MONTAGEM_KG,
+      precoVendaKg: PRECO_VENDA_KG,
+      // Metas de faturamento (independentes)
+      metaFaturamentoProducao: META_FATURAMENTO_PRODUCAO,
+      metaFaturamentoMontagem: META_FATURAMENTO_MONTAGEM,
       faturamentoMetaMensal,
       faturamentoMetaTotal,
-      // Produção real
+      // Produção real (fábrica)
       faturamentoRealProducao,
       percentProducaoVsMeta,
-      // Custos (RH já incluso nos lançamentos)
+      producaoKg: pesoTotalPecas,
+      producaoMensal,
+      // Montagem real (campo)
+      faturamentoRealMontagem,
+      percentMontagemVsMeta,
+      montagemRealKg,
+      // Faturamento total
+      faturamentoRealTotal,
+      // Custos — Despesa média últimos 3 meses completos
       despesas: custoTotalGeral,
       despesaMensalMedia,
-      despesasRH: custoTotalRH, // informativo
+      mesesBaseCalculo: ultimos3MesesCompletos.length,
+      mesesBaseNomes: ultimos3MesesCompletos.map(m => getMesLabel(m)),
+      despesasRH: custoTotalRH,
       saldo: saldoOperacional,
       margem: margemOperacional,
       custoKg: custoPerKgGeral,
       custoProducaoKg: custoProducaoPerKg,
-      // Produção
-      producaoKg: pesoTotalPecas,
-      producaoMensal,
-      precoVendaKg: PRECO_VENDA_KG,
       // Obras (informativo)
       valorTotalContratos: valorTotalContratosAtivos,
       qtdObrasAtivas,
@@ -636,17 +679,40 @@ export function useFinancialIntelligence(filtros = {}) {
     // 13. METAS FINANCEIRAS (Produção × Despesa)
     // ========================================
     const metas = {
-      producaoFabrica: {
+      // PRODUÇÃO FÁBRICA — KG
+      producaoFabricaKg: {
         meta: META_PRODUCAO_MENSAL_KG,
         real: producaoMensal,
         progresso: META_PRODUCAO_MENSAL_KG > 0 ? (producaoMensal / META_PRODUCAO_MENSAL_KG) * 100 : 0,
-        descricao: 'Meta: 70 ton/mês de produção na fábrica'
+        descricao: `Meta: 70 ton/mês × R$ ${PRECO_PRODUCAO_KG.toFixed(2)}/kg`
       },
-      montagemCampo: {
+      // PRODUÇÃO FÁBRICA — FATURAMENTO
+      producaoFabricaValor: {
+        meta: META_FATURAMENTO_PRODUCAO,
+        real: faturamentoProducaoMensal,
+        progresso: META_FATURAMENTO_PRODUCAO > 0 ? (faturamentoProducaoMensal / META_FATURAMENTO_PRODUCAO) * 100 : 0,
+        descricao: `Meta: R$ ${(META_FATURAMENTO_PRODUCAO / 1000).toFixed(0)}k/mês (70t × R$8,50)`
+      },
+      // MONTAGEM CAMPO — KG
+      montagemCampoKg: {
         meta: META_MONTAGEM_MENSAL_KG,
         real: 0, // TODO: integrar dados reais de montagem
         progresso: 0,
-        descricao: 'Meta: 25 ton/mês de montagem em campo'
+        descricao: `Meta: 25 ton/mês × R$ ${PRECO_MONTAGEM_KG.toFixed(2)}/kg`
+      },
+      // MONTAGEM CAMPO — FATURAMENTO
+      montagemCampoValor: {
+        meta: META_FATURAMENTO_MONTAGEM,
+        real: faturamentoMontagemMensal,
+        progresso: META_FATURAMENTO_MONTAGEM > 0 ? (faturamentoMontagemMensal / META_FATURAMENTO_MONTAGEM) * 100 : 0,
+        descricao: `Meta: R$ ${(META_FATURAMENTO_MONTAGEM / 1000).toFixed(0)}k/mês (25t × R$4,00)`
+      },
+      // DESPESA MÉDIA (últimos 3 meses completos)
+      despesaMedia: {
+        meta: FATURAMENTO_META_MENSAL, // meta = não exceder faturamento meta
+        real: despesaMensalMedia,
+        progresso: FATURAMENTO_META_MENSAL > 0 ? (despesaMensalMedia / FATURAMENTO_META_MENSAL) * 100 : 0,
+        descricao: `Média últimos ${ultimos3MesesCompletos.length} meses: ${ultimos3MesesCompletos.map(m => getMesLabel(m)).join(', ')}`
       },
       custoProducao: {
         meta: custoProducaoTotal > 0 ? custoProducaoTotal * 0.95 : 0,
@@ -794,7 +860,11 @@ export function useFinancialIntelligence(filtros = {}) {
       qtdObrasAtivas,
       faturamentoBrutoContratos,
       faturamentoProducaoMensal,
+      faturamentoMontagemMensal,
+      faturamentoTotalMensal,
       faturamentoMetaMensal: FATURAMENTO_META_MENSAL,
+      despesaMedia3Meses,
+      ultimos3MesesCompletos,
 
       evolucaoMensal,
       evolucaoSemanal,
@@ -818,11 +888,15 @@ export function useFinancialIntelligence(filtros = {}) {
       etapasAnalise,
       sugestoes,
 
-      // Metas de produção
+      // Metas e preços (independentes)
       metaProducaoMensalKg: META_PRODUCAO_MENSAL_KG,
       metaMontagemMensalKg: META_MONTAGEM_MENSAL_KG,
       metaTotalMensalKg: META_TOTAL_MENSAL_KG,
+      precoProducaoKg: PRECO_PRODUCAO_KG,
+      precoMontagemKg: PRECO_MONTAGEM_KG,
       precoVendaKg: PRECO_VENDA_KG,
+      metaFaturamentoProducao: META_FATURAMENTO_PRODUCAO,
+      metaFaturamentoMontagem: META_FATURAMENTO_MONTAGEM,
 
       formatCurrency: (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v),
       formatPercent: (v) => `${(v || 0).toFixed(1)}%`
@@ -865,4 +939,4 @@ const getForecastAvancado = (dados, mesesFuturos = 3) => {
   return forecast;
 };
 
-export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado, RH_CENTROS, PRECO_VENDA_KG, META_PRODUCAO_MENSAL_KG, META_MONTAGEM_MENSAL_KG, META_TOTAL_MENSAL_KG, FATURAMENTO_META_MENSAL };
+export { CENTROS_CUSTO_CONFIG, TAXA_ETAPA, CORES_CATEGORIA, normalizarCategoria, getForecastAvancado, RH_CENTROS, PRECO_VENDA_KG, PRECO_PRODUCAO_KG, PRECO_MONTAGEM_KG, META_PRODUCAO_MENSAL_KG, META_MONTAGEM_MENSAL_KG, META_TOTAL_MENSAL_KG, META_FATURAMENTO_PRODUCAO, META_FATURAMENTO_MONTAGEM, FATURAMENTO_META_MENSAL };

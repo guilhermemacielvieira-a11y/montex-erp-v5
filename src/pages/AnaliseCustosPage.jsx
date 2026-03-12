@@ -376,9 +376,9 @@ export default function AnaliseCustosPage() {
           isNegativeTrendGood={true}
         />
         <KPICard
-          title="Faturamento Produção"
-          value={formatCurrency(kpisGerais?.faturamentoRealProducao || 0)}
-          subtitle={`Meta: ${formatCurrency(kpisGerais?.faturamentoMetaMensal || 0)}/mês`}
+          title="Despesa Média Mensal"
+          value={formatCurrency(kpisGerais?.despesaMensalMedia || 0)}
+          subtitle={`Base: últimos ${kpisGerais?.mesesBaseCalculo || 0} meses completos`}
           icon={Percent}
           color="from-cyan-500 to-blue-500"
         />
@@ -400,22 +400,25 @@ export default function AnaliseCustosPage() {
         />
       </div>
 
-      {/* Banner Produção × Despesa */}
+      {/* Banner Análise Independente */}
       <div className="bg-gradient-to-r from-blue-900/40 to-cyan-900/40 rounded-xl border border-blue-700/30 p-4">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Percent className="h-5 w-5 text-blue-400" />
-            <span className="text-sm font-semibold text-blue-300">Base: Produção × R$ 12,50/kg</span>
-            <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-700">
-              Meta: 70 ton fábrica + 25 ton montagem = 95 ton/mês
+            <span className="text-sm font-semibold text-blue-300">Análise Independente</span>
+            <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-700">
+              Fábrica: 70t × R$8,50
+            </Badge>
+            <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-700">
+              Montagem: 25t × R$4,00
             </Badge>
           </div>
           <div className="flex gap-6 text-sm">
             <span className="text-slate-300">
-              Faturamento Produção: <span className="font-bold text-emerald-400">{formatCurrency(kpisGerais?.faturamentoRealProducao || 0)}</span>
+              Fat. Produção: <span className="font-bold text-emerald-400">{formatCurrency(kpisGerais?.faturamentoRealProducao || 0)}</span>
             </span>
             <span className="text-slate-300">
-              Despesas: <span className="font-bold text-red-400">{formatCurrency(kpisGerais?.despesas || 0)}</span>
+              Desp. Média: <span className="font-bold text-red-400">{formatCurrency(kpisGerais?.despesaMensalMedia || 0)}/mês</span>
             </span>
             <span className="text-slate-300">
               Margem: <span className={cn("font-bold", (kpisGerais?.margem || 0) >= 0 ? "text-emerald-400" : "text-red-400")}>{formatPercent(kpisGerais?.margem || 0)}</span>
