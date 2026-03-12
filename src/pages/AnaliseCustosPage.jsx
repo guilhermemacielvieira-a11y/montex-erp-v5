@@ -376,9 +376,9 @@ export default function AnaliseCustosPage() {
           isNegativeTrendGood={true}
         />
         <KPICard
-          title="Receita Empresa (50%)"
-          value={formatCurrency(kpisGerais?.receitaEmpresa || 0)}
-          subtitle={`Faturamento bruto: ${formatCurrency(kpisGerais?.faturamentoBruto || 0)}`}
+          title="Faturamento Produção"
+          value={formatCurrency(kpisGerais?.faturamentoRealProducao || 0)}
+          subtitle={`Meta: ${formatCurrency(kpisGerais?.faturamentoMetaMensal || 0)}/mês`}
           icon={Percent}
           color="from-cyan-500 to-blue-500"
         />
@@ -400,22 +400,22 @@ export default function AnaliseCustosPage() {
         />
       </div>
 
-      {/* Regra 50/50 Banner */}
+      {/* Banner Produção × Despesa */}
       <div className="bg-gradient-to-r from-blue-900/40 to-cyan-900/40 rounded-xl border border-blue-700/30 p-4">
         <div className="flex items-center gap-4 flex-wrap">
           <div className="flex items-center gap-2">
             <Percent className="h-5 w-5 text-blue-400" />
-            <span className="text-sm font-semibold text-blue-300">Regra Contrato 50/50</span>
+            <span className="text-sm font-semibold text-blue-300">Base: Produção × R$ 12,50/kg</span>
             <Badge variant="outline" className="text-[10px] text-cyan-400 border-cyan-700">
-              {kpisGerais?.qtdObrasAtivas || 0} obras ativas = {formatCurrency(kpisGerais?.valorTotalContratos || 0)}
+              Meta: 70 ton fábrica + 25 ton montagem = 95 ton/mês
             </Badge>
           </div>
           <div className="flex gap-6 text-sm">
             <span className="text-slate-300">
-              Material Faturado Direto: <span className="font-bold text-amber-400">{formatCurrency(kpisGerais?.materialFaturadoDireto || 0)}</span> (50%)
+              Faturamento Produção: <span className="font-bold text-emerald-400">{formatCurrency(kpisGerais?.faturamentoRealProducao || 0)}</span>
             </span>
             <span className="text-slate-300">
-              Receita Empresa: <span className="font-bold text-emerald-400">{formatCurrency(kpisGerais?.receitaEmpresa || 0)}</span> (50%)
+              Despesas: <span className="font-bold text-red-400">{formatCurrency(kpisGerais?.despesas || 0)}</span>
             </span>
             <span className="text-slate-300">
               Margem: <span className={cn("font-bold", (kpisGerais?.margem || 0) >= 0 ? "text-emerald-400" : "text-red-400")}>{formatPercent(kpisGerais?.margem || 0)}</span>
@@ -563,7 +563,7 @@ export default function AnaliseCustosPage() {
                       formatter={(value, name) => [formatCurrency(value), name]}
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                    <Area yAxisId="left" type="monotone" dataKey="receitaEmpresa" name="Receita Empresa (50%)" stroke="#10b981" fill="url(#colorRecEmpresa)" />
+                    <Area yAxisId="left" type="monotone" dataKey="faturamentoProducao" name="Faturamento Produção" stroke="#10b981" fill="url(#colorRecEmpresa)" />
                     <Area yAxisId="left" type="monotone" dataKey="custo" name="Custo Total" stroke="#ef4444" fill="url(#colorCusto)" />
                     <Line yAxisId="right" type="monotone" dataKey="custoPerKg" name="Custo/KG" stroke="#3b82f6" strokeWidth={2} dot={false} />
                   </AreaChart>
