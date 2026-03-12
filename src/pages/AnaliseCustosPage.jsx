@@ -415,7 +415,7 @@ export default function AnaliseCustosPage() {
           </div>
           <div className="flex gap-6 text-sm">
             <span className="text-slate-300">
-              Fat. Produção: <span className="font-bold text-emerald-400">{formatCurrency(kpisGerais?.faturamentoRealProducao || 0)}</span>
+              Fat. Produção: <span className="font-bold text-emerald-400">{formatCurrency(kpisGerais?.faturamentoProducaoMes || 0)}</span>
             </span>
             <span className="text-slate-300">
               Desp. Média: <span className="font-bold text-red-400">{formatCurrency(kpisGerais?.despesaMensalMedia || 0)}/mês</span>
@@ -540,7 +540,7 @@ export default function AnaliseCustosPage() {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-emerald-400" />
-                Evolução dos Custos (Receita Empresa vs Custo vs Custo/KG)
+                Evolução dos Custos (Faturamento Produção vs Despesa vs Custo/KG)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -566,7 +566,7 @@ export default function AnaliseCustosPage() {
                       formatter={(value, name) => [formatCurrency(value), name]}
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                    <Area yAxisId="left" type="monotone" dataKey="faturamentoProducao" name="Faturamento Produção" stroke="#10b981" fill="url(#colorRecEmpresa)" />
+                    <Area yAxisId="left" type="monotone" dataKey="faturamentoProducao" name="Fat. Produção (R$8,50/kg)" stroke="#10b981" fill="url(#colorRecEmpresa)" />
                     <Area yAxisId="left" type="monotone" dataKey="custo" name="Custo Total" stroke="#ef4444" fill="url(#colorCusto)" />
                     <Line yAxisId="right" type="monotone" dataKey="custoPerKg" name="Custo/KG" stroke="#3b82f6" strokeWidth={2} dot={false} />
                   </AreaChart>

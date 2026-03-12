@@ -324,47 +324,47 @@ export default function MetasFinanceirasPage() {
         </div>
       </div>
 
-      {/* KPIs Principais - 6 cards */}
+      {/* KPIs Principais - 6 cards (TUDO MENSAL) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <KPICard
-          title="Faturamento Produção"
-          value={fi.formatCurrency(fi.kpisGerais.faturamentoRealProducao)}
-          subtitle={`${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton × R$ 8,50/kg`}
+          title="Fat. Produção /mês"
+          value={fi.formatCurrency(fi.kpisGerais.faturamentoProducaoMes)}
+          subtitle={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton × R$ 8,50/kg`}
           icon={Factory}
           color="from-emerald-500 to-green-500"
-          trend={fi.kpisGerais.percentProducaoVsMeta - 100}
-          trendLabel="vs meta 70 ton"
+          trend={fi.kpisGerais.percentFatProducaoVsMeta - 100}
+          trendLabel={`vs meta ${fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}`}
         />
         <KPICard
-          title="Faturamento Montagem"
-          value={fi.formatCurrency(fi.kpisGerais.faturamentoRealMontagem)}
-          subtitle={`${(fi.kpisGerais.montagemRealKg / 1000).toFixed(1)} ton × R$ 4,00/kg`}
+          title="Fat. Montagem /mês"
+          value={fi.formatCurrency(fi.kpisGerais.faturamentoMontagemMes)}
+          subtitle={`${(fi.kpisGerais.montagemMensalKg / 1000).toFixed(1)} ton × R$ 4,00/kg`}
           icon={HardHat}
           color="from-blue-500 to-cyan-500"
-          trend={fi.kpisGerais.percentMontagemVsMeta - 100}
-          trendLabel="vs meta 25 ton"
+          trend={fi.kpisGerais.percentFatMontagemVsMeta - 100}
+          trendLabel={`vs meta ${fi.formatCurrency(fi.kpisGerais.metaFaturamentoMontagem)}`}
         />
         <KPICard
-          title="Despesa Média Mensal"
+          title="Despesa Média /mês"
           value={fi.formatCurrency(fi.kpisGerais.despesaMensalMedia)}
-          subtitle={`Base: últimos ${fi.kpisGerais.mesesBaseCalculo || 0} meses completos`}
+          subtitle={`Últ. ${fi.kpisGerais.mesesBaseCalculo || 0} meses: ${fi.kpisGerais.mesesBaseNomes?.join(', ') || '—'}`}
           icon={DollarSign}
           color="from-rose-500 to-pink-500"
           isNegativeTrendGood={true}
         />
         <KPICard
           title="Produção Mensal"
-          value={`${(fi.kpisGerais.producaoMensal / 1000).toFixed(1)} ton`}
-          subtitle={`Meta: 70 ton (R$ 8,50/kg)`}
+          value={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton`}
+          subtitle={`Meta: 70 ton/mês (R$ 8,50/kg)`}
           icon={Award}
           color="from-violet-500 to-purple-500"
           trend={fi.kpisGerais.percentProducaoVsMeta - 100}
           trendLabel="vs meta 70 ton"
         />
         <KPICard
-          title="Saldo Operacional"
+          title="Saldo Mensal"
           value={fi.formatCurrency(fi.kpisGerais.saldo)}
-          subtitle="Faturamento - Desp. Média 3 meses"
+          subtitle="Faturamento - Desp. Média"
           icon={TrendingUp}
           color={fi.kpisGerais.saldo >= 0 ? "from-emerald-500 to-green-500" : "from-red-500 to-rose-500"}
         />
@@ -416,25 +416,21 @@ export default function MetasFinanceirasPage() {
         {/* Visão Geral */}
         <TabsContent value="visao-geral" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Evolução Faturamento Produção vs Custo */}
+            {/* Faturamento Produção vs Despesa Mensal */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-emerald-400" />
-                  Faturamento Produção vs Custo
+                  Faturamento vs Despesa (mensal)
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
-                  <AreaChart data={fi.evolucaoMensal || []}>
+                  <ComposedChart data={fi.evolucaoMensal || []}>
                     <defs>
                       <linearGradient id="colorRecMeta" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                      </linearGradient>
-                      <linearGradient id="colorCustoMeta" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -445,9 +441,10 @@ export default function MetasFinanceirasPage() {
                       formatter={(value) => fi.formatCurrency(value)}
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                    <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Faturamento Produção" />
-                    <Area type="monotone" dataKey="custo" stroke="#ef4444" strokeWidth={2} fill="url(#colorCustoMeta)" name="Custo Total" />
-                  </AreaChart>
+                    <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Fat. Produção (R$8,50)" />
+                    <Line type="monotone" dataKey="faturamentoMeta" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" name="Meta Total (R$695k)" dot={false} />
+                    <Bar dataKey="custo" fill="#ef4444" fillOpacity={0.7} name="Despesa Real" radius={[4, 4, 0, 0]} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </CardContent>
             </Card>
