@@ -301,11 +301,12 @@ export default function CommandCenterUltra() {
   const pesoExpedido = producao?.pesoExpedido || 0;
   const progressoGeralPeso = pesoTotal > 0 ? (pesoExpedido / pesoTotal) * 100 : 0;
 
-  // FINANCEIRO: Faturamento, Despesas, Saldo Contrato
-  const valorContrato = obraAtualData?.valorContrato || obraAtualData?.valor_contrato || 0;
+  // FINANCEIRO: Faturamento, Despesas, Saldo Contrato, Resultado
+  const valorContrato = obraAtualData?.valorContrato || obraAtualData?.valor_contrato || obraAtualData?.contrato_valor_total || 0;
   const faturamentoTotal = financeiro?.totalMedicoes || 0;
   const despesaTotal = financeiro?.totalDespesas || 0;
-  const saldoContrato = valorContrato - despesaTotal;
+  const saldoContrato = valorContrato - faturamentoTotal; // Quanto falta faturar do contrato
+  const resultadoFinanceiro = faturamentoTotal - despesaTotal; // Receita - Despesa = Resultado real
 
   const producaoStages = useMemo(() => [
     { label: 'Corte', value: corte?.cortando || 0, total: corte?.total || 0, color: '#F59E0B' },
@@ -416,16 +417,16 @@ export default function CommandCenterUltra() {
   // Gráfico comparativo financeiro
   const financeiroChart = useMemo(() => [
     { name: 'Contrato', valor: valorContrato, fill: '#3B82F6' },
-    { name: 'Faturado', valor: faturamentoTotal, fill: '#10B981' },
+    { name: 'Receita', valor: faturamentoTotal, fill: '#10B981' },
     { name: 'Despesas', valor: despesaTotal, fill: '#EF4444' },
-    { name: 'Saldo', valor: Math.max(saldoContrato, 0), fill: saldoContrato >= 0 ? '#8B5CF6' : '#EF4444' },
-  ], [valorContrato, faturamentoTotal, despesaTotal, saldoContrato]);
+    { name: 'Resultado', valor: Math.abs(resultadoFinanceiro), fill: resultadoFinanceiro >= 0 ? '#8B5CF6' : '#EF4444' },
+  ], [valorContrato, faturamentoTotal, despesaTotal, resultadoFinanceiro]);
 
   const alertas = useMemo(() => {
     const list = [];
     if ((estoque?.critico || 0) > 0) list.push({ type: 'critical', message: `${estoque.critico} itens em estoque crítico`, time: 'Agora' });
     if ((estoque?.baixo || 0) > 0) list.push({ type: 'warning', message: `${estoque.baixo} itens com estoque baixo`, time: 'Agora' });
-    if (saldoContrato < 0) list.push({ type: 'critical', message: `Saldo do contrato negativo: ${formatCurrencyFull(saldoContrato)}`, time: 'Financeiro' });
+    if (resultadoFinanceiro < -100000) list.push({ type: 'critical', message: `Resultado negativo: ${formatCurrency(resultadoFinanceiro)} (Receita - Despesa)`, time: 'Financeiro' });
     if ((financeiro?.despesasPendentes || 0) > 0) list.push({ type: 'warning', message: `${formatCurrency(financeiro.despesasPendentes)} em despesas pendentes`, time: 'Financeiro' });
     if ((corte?.aguardando || 0) > 5) list.push({ type: 'info', message: `${corte.aguardando} peças aguardando corte`, time: 'Produção' });
     if (list.length === 0) list.push({ type: 'info', message: 'Nenhum alerta ativo no momento', time: 'Sistema' });
@@ -474,11 +475,11 @@ export default function CommandCenterUltra() {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           <StatCard icon={Building2} label="Obra Ativa" value={obrasAtivas.length} color="#3B82F6"
             subtitle={obraAtualData?.nome || obraAtualData?.codigo || 'SUPER LUNA'} small />
-          <StatCard icon={Receipt} label="Faturamento Total" value={formatCurrency(faturamentoTotal)} color="#10B981"
+          <StatCard icon={Receipt} label="Receita (Medições)" value={formatCurrency(faturamentoTotal)} color="#10B981"
             subtitle={`${financeiro?.numMedicoes || 0} medições`} small />
           <StatCard icon={Wallet} label="Despesa Total" value={formatCurrency(despesaTotal)} color="#EF4444"
             subtitle={`${formatCurrency(financeiro?.despesasPendentes || 0)} pendentes`} small />
-          <StatCard icon={TrendingUp} label="Saldo Contrato" value={formatCurrency(saldoContrato)} color={saldoContrato >= 0 ? '#8B5CF6' : '#EF4444'}
+          <StatCard icon={TrendingUp} label="Resultado" value={formatCurrency(resultadoFinanceiro)} color={resultadoFinanceiro >= 0 ? '#10B981' : '#EF4444'}
             subtitle={`Contrato: ${formatCurrency(valorContrato)}`} small />
           <StatCard icon={Weight} label="Peso Total" value={formatWeight(pesoTotal)} color="#F59E0B"
             subtitle={`${formatWeight(pesoExpedido)} expedido`} small />
@@ -520,14 +521,18 @@ export default function CommandCenterUltra() {
                 </BarChart>
               </ResponsiveContainer>
 
-              <div className="grid grid-cols-2 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
+              <div className="grid grid-cols-3 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
                 <div className="p-2.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.04)', boxShadow: 'inset 0 1px 0 rgba(16,185,129,0.08)' }}>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Despesas Pagas</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Desp. Pagas</div>
                   <div className="text-sm font-bold text-emerald-400 mt-0.5">{formatCurrency(financeiro?.despesasPagas || 0)}</div>
                 </div>
                 <div className="p-2.5 rounded-lg" style={{ background: 'rgba(245,158,11,0.04)', boxShadow: 'inset 0 1px 0 rgba(245,158,11,0.08)' }}>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Pendentes</div>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Desp. Pendentes</div>
                   <div className="text-sm font-bold text-amber-400 mt-0.5">{formatCurrency(financeiro?.despesasPendentes || 0)}</div>
+                </div>
+                <div className="p-2.5 rounded-lg" style={{ background: resultadoFinanceiro >= 0 ? 'rgba(139,92,246,0.04)' : 'rgba(239,68,68,0.04)', boxShadow: resultadoFinanceiro >= 0 ? 'inset 0 1px 0 rgba(139,92,246,0.08)' : 'inset 0 1px 0 rgba(239,68,68,0.08)' }}>
+                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">A Faturar</div>
+                  <div className={`text-sm font-bold mt-0.5 ${saldoContrato >= 0 ? 'text-purple-400' : 'text-red-400'}`}>{formatCurrency(saldoContrato)}</div>
                 </div>
               </div>
             </div>
