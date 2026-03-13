@@ -7,13 +7,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   BarChart3, Factory, Hammer, Paintbrush, Truck, Weight,
   TrendingUp, TrendingDown, Activity, Filter, RefreshCw,
-  Layers, PieChart as PieIcon, Gauge,
+  Layers, PieChart as PieIcon, Gauge, DollarSign,
   ChevronDown, Maximize2, RotateCcw, Eye
 } from 'lucide-react';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar, ComposedChart
+  RadialBarChart, RadialBar, ComposedChart, AreaChart, Area
 } from 'recharts';
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
@@ -27,7 +27,7 @@ function Production3DChart({ data, width = 700, height = 400, title }) {
 
   useEffect(() => {
     if (!mountRef.current || !data?.length) return;
-    
+
     while (mountRef.current.firstChild) {
       mountRef.current.removeChild(mountRef.current.firstChild);
     }
@@ -66,8 +66,8 @@ function Production3DChart({ data, width = 700, height = 400, title }) {
 
     // Floor
     const floorGeo = new THREE.PlaneGeometry(30, 30);
-    const floorMat = new THREE.MeshStandardMaterial({ 
-      color: 0x0f172a, metalness: 0.3, roughness: 0.8 
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a, metalness: 0.3, roughness: 0.8
     });
     const floor = new THREE.Mesh(floorGeo, floorMat);
     floor.rotation.x = -Math.PI / 2;
@@ -99,8 +99,8 @@ function Production3DChart({ data, width = 700, height = 400, title }) {
 
       // Glow base
       const glowGeo = new THREE.PlaneGeometry(1.4, 1.4);
-      const glowMat = new THREE.MeshBasicMaterial({ 
-        color, transparent: true, opacity: 0.3, side: THREE.DoubleSide 
+      const glowMat = new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity: 0.3, side: THREE.DoubleSide
       });
       const glow = new THREE.Mesh(glowGeo, glowMat);
       glow.rotation.x = -Math.PI / 2;
@@ -118,8 +118,8 @@ function Production3DChart({ data, width = 700, height = 400, title }) {
       positions[i + 2] = (Math.random() - 0.5) * 30;
     }
     particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const particlesMat = new THREE.PointsMaterial({ 
-      color: 0x3b82f6, size: 0.05, transparent: true, opacity: 0.6 
+    const particlesMat = new THREE.PointsMaterial({
+      color: 0x3b82f6, size: 0.05, transparent: true, opacity: 0.6
     });
     const particles = new THREE.Points(particlesGeo, particlesMat);
     scene.add(particles);
@@ -174,6 +174,111 @@ function Production3DChart({ data, width = 700, height = 400, title }) {
   );
 }
 
+// ==================== 3D SPHERES COMPONENT ====================
+function Production3DSpheres({ data, width = 600, height = 350 }) {
+  const mountRef = useRef(null);
+  const animRef = useRef(null);
+
+  useEffect(() => {
+    if (!mountRef.current || !data?.length) return;
+    while (mountRef.current.firstChild) mountRef.current.removeChild(mountRef.current.firstChild);
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0f1e);
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
+    camera.position.set(0, 8, 18);
+    camera.lookAt(0, 0, 0);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    mountRef.current.appendChild(renderer.domElement);
+
+    const ambient = new THREE.AmbientLight(0x404060, 0.6);
+    scene.add(ambient);
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir.position.set(5, 10, 5);
+    scene.add(dir);
+    const point1 = new THREE.PointLight(0x10b981, 1.2, 40);
+    point1.position.set(-6, 6, 6);
+    scene.add(point1);
+    const point2 = new THREE.PointLight(0x3b82f6, 1.0, 40);
+    point2.position.set(6, 4, -6);
+    scene.add(point2);
+
+    // Grid floor
+    const grid = new THREE.GridHelper(20, 20, 0x1e3a5f, 0x0d1b2a);
+    grid.position.y = -3;
+    scene.add(grid);
+
+    const maxVal = Math.max(...data.map(d => d.pesoTotal || 0), 1);
+    const colors = [0x10b981, 0x3b82f6, 0xf59e0b, 0xef4444, 0x8b5cf6, 0xec4899, 0x06b6d4, 0xf97316];
+    const spheres = [];
+
+    data.slice(0, 8).forEach((item, i) => {
+      const radius = Math.max((item.pesoTotal / maxVal) * 2.5, 0.3);
+      const geo = new THREE.SphereGeometry(radius, 32, 32);
+      const color = colors[i % colors.length];
+      const mat = new THREE.MeshPhysicalMaterial({
+        color, metalness: 0.3, roughness: 0.2, clearcoat: 0.8,
+        emissive: color, emissiveIntensity: 0.1, transparent: true, opacity: 0.85
+      });
+      const sphere = new THREE.Mesh(geo, mat);
+      const angle = (i / Math.min(data.length, 8)) * Math.PI * 2;
+      const dist = 5;
+      sphere.position.set(Math.cos(angle) * dist, radius - 1, Math.sin(angle) * dist);
+      sphere.userData = { baseY: radius - 1, index: i };
+      scene.add(sphere);
+      spheres.push(sphere);
+
+      // Ring around sphere
+      const ringGeo = new THREE.TorusGeometry(radius + 0.3, 0.05, 8, 32);
+      const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.copy(sphere.position);
+      ring.rotation.x = Math.PI / 2;
+      scene.add(ring);
+    });
+
+    // Particles
+    const pGeo = new THREE.BufferGeometry();
+    const pCount = 150;
+    const pos = new Float32Array(pCount * 3);
+    for (let i = 0; i < pCount * 3; i += 3) {
+      pos[i] = (Math.random() - 0.5) * 25;
+      pos[i+1] = Math.random() * 12;
+      pos[i+2] = (Math.random() - 0.5) * 25;
+    }
+    pGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    const pMat = new THREE.PointsMaterial({ color: 0x8b5cf6, size: 0.04, transparent: true, opacity: 0.5 });
+    const particles = new THREE.Points(pGeo, pMat);
+    scene.add(particles);
+
+    let time = 0;
+    const animate = () => {
+      animRef.current = requestAnimationFrame(animate);
+      time += 0.016;
+      spheres.forEach((s, i) => {
+        s.position.y = s.userData.baseY + Math.sin(time * 1.5 + i * 0.8) * 0.3;
+        s.rotation.y += 0.005;
+      });
+      scene.rotation.y += 0.002;
+      particles.rotation.y -= 0.001;
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
+        mountRef.current.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+    };
+  }, [data, width, height]);
+
+  return <div ref={mountRef} className="rounded-xl overflow-hidden border border-slate-700/30" />;
+}
+
 // ==================== GAUGE COMPONENT ====================
 function GaugeChart({ value, max, label, color, icon: Icon }) {
   const percentage = Math.min((value / max) * 100, 100);
@@ -186,7 +291,7 @@ function GaugeChart({ value, max, label, color, icon: Icon }) {
     <div className="flex flex-col items-center">
       <div className="relative w-32 h-20">
         <ResponsiveContainer width="100%" height={80}>
-          <RadialBarChart cx="50%" cy="100%" innerRadius="60%" outerRadius="100%" 
+          <RadialBarChart cx="50%" cy="100%" innerRadius="60%" outerRadius="100%"
             startAngle={180} endAngle={0} data={[gaugeData[0]]}>
             <RadialBar background={{ fill: '#1e293b' }} dataKey="value" cornerRadius={5}
               fill={color} />
@@ -236,6 +341,9 @@ function KPICard({ title, value, unit, icon: Icon, color, trend, subtitle, delay
 
 // ==================== COLORS ====================
 const CHART_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#e11d48', '#14b8a6', '#a855f7', '#f43f5e', '#0ea5e9', '#eab308', '#d946ef'];
+
+// ==================== FORMAT CURRENCY ====================
+const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 // ==================== MAIN PAGE ====================
 export default function AnaliseProducaoPage() {
@@ -312,23 +420,23 @@ export default function AnaliseProducaoPage() {
   const kpis = useMemo(() => {
     const pf = pecasFiltradas;
     const pesoTotal = pf.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-    
-    const fabricadas = pf.filter(p => 
-      p.etapa === 'solda' || p.etapa === 'pintura' || p.etapa === 'expedido' || 
+
+    const fabricadas = pf.filter(p =>
+      p.etapa === 'solda' || p.etapa === 'pintura' || p.etapa === 'expedido' ||
       p.status === 'concluido' || p.data_fim_fabricacao
     );
     const pesoFabricado = fabricadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-    
-    const soldadas = pf.filter(p => 
+
+    const soldadas = pf.filter(p =>
       p.etapa === 'pintura' || p.etapa === 'expedido' || p.data_fim_solda
     );
     const pesoSoldado = soldadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-    
-    const pintadas = pf.filter(p => 
+
+    const pintadas = pf.filter(p =>
       p.etapa === 'expedido' || p.data_fim_pintura
     );
     const pesoPintado = pintadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-    
+
     const expedidas = pf.filter(p => p.etapa === 'expedido');
     const pesoExpedidoTotal = expedidas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
 
@@ -395,9 +503,46 @@ export default function AnaliseProducaoPage() {
     { name: 'Aguardando Envio', value: kpis.pesoEnviado, fill: '#3b82f6' },
   ].filter(d => d.value > 0), [kpis]);
 
+  // Financial Valuation Data
+  const VALORES_ETAPA = { corte: 1.20, fabricacao: 2.50, solda: 3.00, pintura: 1.80, expedicao: 0.50 };
+
+  const dadosFinanceiros = useMemo(() => {
+    const valorFab = kpis.pesoFabricado * VALORES_ETAPA.fabricacao;
+    const valorSolda = kpis.pesoSoldado * VALORES_ETAPA.solda;
+    const valorPintura = kpis.pesoPintado * VALORES_ETAPA.pintura;
+    const valorExpedicao = kpis.pesoEnviado * VALORES_ETAPA.expedicao;
+    const valorTotal = valorFab + valorSolda + valorPintura + valorExpedicao;
+    return {
+      valorFab, valorSolda, valorPintura, valorExpedicao, valorTotal,
+      barData: [
+        { etapa: 'Fabricação', valor: valorFab, kg: kpis.pesoFabricado, cor: '#10b981' },
+        { etapa: 'Solda', valor: valorSolda, kg: kpis.pesoSoldado, cor: '#3b82f6' },
+        { etapa: 'Pintura', valor: valorPintura, kg: kpis.pesoPintado, cor: '#f59e0b' },
+        { etapa: 'Expedição', valor: valorExpedicao, kg: kpis.pesoEnviado, cor: '#06b6d4' },
+      ],
+      radialData: [
+        { name: 'Fabricação', value: kpis.percFabricado, fill: '#10b981' },
+        { name: 'Solda', value: kpis.percSoldado, fill: '#3b82f6' },
+        { name: 'Pintura', value: kpis.percPintado, fill: '#f59e0b' },
+        { name: 'Expedição', value: kpis.percEnviado, fill: '#06b6d4' },
+      ]
+    };
+  }, [kpis]);
+
+  // Production waterfall data
+  const waterfallData = useMemo(() => [
+    { name: 'Total Obra', value: kpis.pesoTotal, fill: '#6366f1', total: kpis.pesoTotal },
+    { name: 'Não Fabricado', value: -kpis.pesoNaoFabricado, fill: '#ef4444', total: kpis.pesoFabricado },
+    { name: 'Fabricado', value: kpis.pesoFabricado, fill: '#10b981', total: kpis.pesoFabricado },
+    { name: 'Soldado', value: kpis.pesoSoldado, fill: '#3b82f6', total: kpis.pesoSoldado },
+    { name: 'Pintado', value: kpis.pesoPintado, fill: '#f59e0b', total: kpis.pesoPintado },
+    { name: 'Pronto Envio', value: kpis.pesoEnviado, fill: '#06b6d4', total: kpis.pesoEnviado },
+  ], [kpis]);
+
   // Tabs
   const tabs = [
     { id: 'visao-geral', label: 'Visao Geral', icon: BarChart3 },
+    { id: 'financeiro', label: 'Financeiro', icon: DollarSign },
     { id: 'categorias', label: 'Categorias', icon: Layers },
     { id: '3d', label: 'Grafico 3D', icon: Maximize2 },
   ];
@@ -487,12 +632,12 @@ export default function AnaliseProducaoPage() {
       </motion.div>
 
       {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-700/50 pb-2">
+      <div className="flex gap-2 border-b border-slate-700/50 pb-2 overflow-x-auto">
         {tabs.map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-all ${
-              activeTab === tab.id 
-                ? 'bg-slate-800 text-emerald-400 border border-slate-700/50 border-b-transparent' 
+            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-all whitespace-nowrap ${
+              activeTab === tab.id
+                ? 'bg-slate-800 text-emerald-400 border border-slate-700/50 border-b-transparent'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
             }`}>
             <tab.icon size={16} /> {tab.label}
@@ -504,7 +649,7 @@ export default function AnaliseProducaoPage() {
       <AnimatePresence mode="wait">
         {activeTab === 'visao-geral' && (
           <motion.div key="visao" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            className="grid grid-cols-1 lg:grid-cols-2 gap-6 space-y-6">
             {/* Status Distribution Pie */}
             <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
@@ -570,6 +715,107 @@ export default function AnaliseProducaoPage() {
                 </BarChart>
               </ResponsiveContainer>
             </div>
+
+            {/* 3D + Progress Row */}
+            <div className="lg:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Mini 3D Chart */}
+              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
+                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                  <Maximize2 size={18} className="text-emerald-400" /> Producao 3D
+                </h3>
+                <Production3DChart data={data3D} width={450} height={300} />
+              </div>
+              {/* Radial Progress */}
+              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
+                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
+                  <Gauge size={18} className="text-purple-400" /> Progresso por Etapa
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <RadialBarChart cx="50%" cy="50%" innerRadius="20%" outerRadius="90%"
+                    data={dadosFinanceiros.radialData} startAngle={180} endAngle={-180}>
+                    <RadialBar background={{ fill: '#1e293b' }} dataKey="value" cornerRadius={5} label={{ fill: '#fff', fontSize: 11, position: 'insideStart' }} />
+                    <Legend iconSize={10} wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }} />
+                    <Tooltip formatter={(val) => `${parseFloat(val).toFixed(1)}%`}
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
+                  </RadialBarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {activeTab === 'financeiro' && (
+          <motion.div key="fin" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
+            {/* Financial KPI Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <KPICard title="Valor Fabricacao" value={dadosFinanceiros.valorFab} unit="BRL" icon={Factory} color="#10b981" subtitle={`${kpis.pesoFabricado.toFixed(0)} kg`} delay={0} />
+              <KPICard title="Valor Solda" value={dadosFinanceiros.valorSolda} unit="BRL" icon={Hammer} color="#3b82f6" subtitle={`${kpis.pesoSoldado.toFixed(0)} kg`} delay={0.05} />
+              <KPICard title="Valor Pintura" value={dadosFinanceiros.valorPintura} unit="BRL" icon={Paintbrush} color="#f59e0b" subtitle={`${kpis.pesoPintado.toFixed(0)} kg`} delay={0.1} />
+              <KPICard title="Valor Expedicao" value={dadosFinanceiros.valorExpedicao} unit="BRL" icon={Truck} color="#06b6d4" subtitle={`${kpis.pesoEnviado.toFixed(0)} kg`} delay={0.15} />
+            </div>
+
+            {/* Financial Value Bar Chart */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
+                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                  <BarChart3 size={18} className="text-green-400" /> Valor por Etapa (R$)
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={dadosFinanceiros.barData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                    <XAxis dataKey="etapa" stroke="#64748b" />
+                    <YAxis stroke="#64748b" />
+                    <Tooltip formatter={(val) => formatCurrency(val)}
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
+                    <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Financial Distribution Pie */}
+              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
+                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                  <PieIcon size={18} className="text-yellow-400" /> Distribuicao de Valor
+                </h3>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie data={dadosFinanceiros.barData} cx="50%" cy="50%" innerRadius={60} outerRadius={110}
+                      paddingAngle={2} dataKey="valor" label={({ etapa, percent }) => `${etapa} ${(percent * 100).toFixed(1)}%`}>
+                      {dadosFinanceiros.barData.map((entry, i) => <Cell key={i} fill={entry.cor} />)}
+                    </Pie>
+                    <Tooltip formatter={(val) => formatCurrency(val)}
+                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            {/* Total Financial Value Summary */}
+            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-6">
+              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                <DollarSign size={20} className="text-emerald-400" /> Resumo Financeiro Total
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+                  <div>
+                    <p className="text-slate-400 text-sm">Valor Total Produzido</p>
+                    <p className="text-2xl font-bold text-emerald-400 mt-1">{formatCurrency(dadosFinanceiros.valorTotal)}</p>
+                  </div>
+                  <div className="text-emerald-400/20 text-4xl">
+                    <DollarSign />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
+                  <div>
+                    <p className="text-slate-400 text-sm">Peso Total Processado</p>
+                    <p className="text-2xl font-bold text-blue-400 mt-1">{kpis.pesoTotal.toLocaleString('pt-BR')} kg</p>
+                  </div>
+                  <div className="text-blue-400/20 text-4xl">
+                    <Weight />
+                  </div>
+                </div>
+              </div>
+            </div>
           </motion.div>
         )}
 
@@ -595,6 +841,22 @@ export default function AnaliseProducaoPage() {
                   <Bar dataKey="enviado" name="Aguardando Envio" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                 </ComposedChart>
               </ResponsiveContainer>
+            </div>
+
+            {/* 3D Category Spheres */}
+            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
+              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
+                <Maximize2 size={18} className="text-purple-400" /> Visualizacao 3D por Categoria
+              </h3>
+              <Production3DSpheres data={dadosPorCategoria.slice(0, 8)} width={Math.min(window.innerWidth - 100, 1000)} height={400} />
+              <div className="mt-3 flex flex-wrap gap-2 justify-center">
+                {dadosPorCategoria.slice(0, 8).map((d, i) => (
+                  <span key={i} className="px-2 py-1 bg-slate-800/50 rounded text-xs text-slate-300 border border-slate-700/30">
+                    <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: CHART_COLORS[i] }} />
+                    {d.tipo}: {d.pesoTotal.toLocaleString('pt-BR', {maximumFractionDigits:0})} kg
+                  </span>
+                ))}
+              </div>
             </div>
 
             {/* Category Table */}
