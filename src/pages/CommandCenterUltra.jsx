@@ -227,23 +227,21 @@ const AlertItem = ({ type, message, time }) => {
 };
 
 const formatCurrency = (v) => {
-  if (v === 0 || !v) return 'R$ 0';
-  if (v < 0) return `-R$ ${formatCurrencyAbs(Math.abs(v))}`;
-  return `R$ ${formatCurrencyAbs(v)}`;
-};
-const formatCurrencyAbs = (v) => {
-  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(0)}k`;
-  return v.toFixed(0);
-};
-const formatCurrencyFull = (v) => {
   if (!v && v !== 0) return 'R$ 0,00';
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+};
+const formatCurrencyFull = formatCurrency;
+const formatCurrencyCompact = (v) => {
+  if (v === 0 || !v) return 'R$ 0';
+  if (v < 0) return `-R$ ${Math.abs(v) >= 1e6 ? (Math.abs(v)/1e6).toFixed(1)+'M' : Math.abs(v) >= 1e3 ? (Math.abs(v)/1e3).toFixed(0)+'k' : Math.abs(v).toFixed(0)}`;
+  if (v >= 1e6) return `R$ ${(v / 1e6).toFixed(1)}M`;
+  if (v >= 1e3) return `R$ ${(v / 1e3).toFixed(0)}k`;
+  return `R$ ${v.toFixed(0)}`;
 };
 
 const formatWeight = (kg) => {
-  if (!kg) return '0t';
-  return `${(kg / 1000).toFixed(1)}t`;
+  if (!kg) return '0 kg';
+  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(kg) + ' kg';
 };
 
 const CustomTooltip = ({ active, payload, label }) => {
@@ -511,7 +509,7 @@ export default function CommandCenterUltra() {
                     ))}
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.2)" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={v => formatCurrency(v)} axisLine={{ stroke: 'rgba(51,65,85,0.3)' }} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={v => formatCurrencyCompact(v)} axisLine={{ stroke: 'rgba(51,65,85,0.3)' }} />
                   <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#E2E8F0', fontWeight: 600 }} width={70} axisLine={false} tickLine={false} />
                   <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(59,130,246,0.05)' }} />
                   <Bar dataKey="valor" radius={[0, 6, 6, 0]} barSize={28}>
