@@ -70,7 +70,7 @@ export default function MedicaoAutomaticaPage() {
           periodo: m.dataMedicao || m.data_medicao
             ? new Date(m.dataMedicao || m.data_medicao).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
             : '-',
-          pesoMedido: 0, // medições de obra não têm peso individual aqui
+          pesoMedido: m.pesoMedido || m.peso_medido || m.peso || ((m.valorBruto || m.valor_bruto || 0) / config.producao.valorKg),
           valorKg: config.producao.valorKg,
           valorTotal: m.valorBruto || m.valor_bruto || 0,
           status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'aprovada' : (m.status === 'rejeitada' ? 'rejeitada' : 'pendente'),
