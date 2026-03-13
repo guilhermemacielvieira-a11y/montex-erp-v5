@@ -219,7 +219,7 @@ export const PAGES = {
 }
 
 export const pagesConfig = {
-    mainPage: "DashboardPremium",
+    mainPage: "CommandCenterUltra",
     Pages: PAGES,
     Layout: __Layout,
 };
