@@ -309,7 +309,7 @@ export function useCommandCenter(obraId) {
       let qLanc = supabase.from('lancamentos_despesas').select('valor, tipo, status, categoria, data_emissao, obra_id');
       if (!isAll) qLanc = qLanc.eq('obra_id', obraId);
       const { data: lancamentos } = await qLanc;
-      let qMed = supabase.from('medicoes').select('valor_total, status, tipo, data_medicao');
+      let qMed = supabase.from('medicoes').select('valor_total, valor_bruto, valor_liquido, status, tipo, data_medicao');
       if (!isAll) qMed = qMed.eq('obra_id', obraId);
       const { data: medicoes } = await qMed;
 
@@ -319,8 +319,9 @@ export function useCommandCenter(obraId) {
       const totalDespesas = lancs.reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
       const despesasPagas = lancs.filter(l => l.status === 'pago').reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
       const despesasPendentes = lancs.filter(l => l.status === 'pendente' || l.status === 'aprovado').reduce((s, l) => s + (parseFloat(l.valor) || 0), 0);
-      const totalMedicoes = meds.reduce((s, m) => s + (parseFloat(m.valor_total) || 0), 0);
-      const medicoesAprovadas = meds.filter(m => m.status === 'aprovada' || m.status === 'faturada' || m.status === 'paga').reduce((s, m) => s + (parseFloat(m.valor_total) || 0), 0);
+      // Usar valor_bruto como fonte principal (valor_total pode estar zerado em medições de produção)
+      const totalMedicoes = meds.reduce((s, m) => s + (parseFloat(m.valor_bruto) || parseFloat(m.valor_total) || 0), 0);
+      const medicoesAprovadas = meds.filter(m => m.status === 'aprovada' || m.status === 'faturada' || m.status === 'paga').reduce((s, m) => s + (parseFloat(m.valor_bruto) || parseFloat(m.valor_total) || 0), 0);
 
       const porCategoria = {};
       lancs.forEach(l => {
