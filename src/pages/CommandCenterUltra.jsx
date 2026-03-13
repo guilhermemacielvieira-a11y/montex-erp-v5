@@ -1,13 +1,15 @@
 // MONTEX ERP Premium - Command Center Ultra v3
 // Dashboard executivo com financeiro, produção por setor e funcionário
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, RadialBarChart, RadialBar, Legend } from 'recharts';
+import * as THREE from 'three';
 import {
   Minus, ArrowUp, ArrowDown, AlertTriangle, Bell, CheckCircle,
   Cpu, RefreshCw, Clock, Building2, Weight, Package, DollarSign,
   Factory, Layers, Target, Truck, Gauge, Users, Zap, Bolt,
-  TrendingUp, Wallet, Receipt, FileText, Calendar, Filter, User
+  TrendingUp, Wallet, Receipt, FileText, Calendar, Filter, User,
+  Eye, RotateCcw
 } from 'lucide-react';
 import { kpisIndustriais, recursosHumanos, energiaMetricas
 } from '../data/commandCenterData';
@@ -266,6 +268,175 @@ const CustomTooltip = ({ active, payload, label }) => {
     </div>
   );
 };
+
+// ==================== 3D CHART COMPONENT ====================
+function Production3DChart({ data, width = 700, height = 350, title }) {
+  const mountRef = useRef(null);
+  const animRef = useRef(null);
+  const [isRotating, setIsRotating] = useState(true);
+
+  useEffect(() => {
+    if (!mountRef.current || !data?.length) return;
+
+    while (mountRef.current.firstChild) {
+      mountRef.current.removeChild(mountRef.current.firstChild);
+    }
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a0f1e);
+    scene.fog = new THREE.FogExp2(0x0a0f1e, 0.015);
+
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    camera.position.set(12, 10, 16);
+    camera.lookAt(0, 2, 0);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    mountRef.current.appendChild(renderer.domElement);
+
+    // Lights
+    const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    dirLight.position.set(10, 15, 10);
+    dirLight.castShadow = true;
+    scene.add(dirLight);
+    const pointLight1 = new THREE.PointLight(0x10b981, 1.5, 50);
+    pointLight1.position.set(-8, 8, 8);
+    scene.add(pointLight1);
+    const pointLight2 = new THREE.PointLight(0x3b82f6, 1.2, 50);
+    pointLight2.position.set(8, 6, -8);
+    scene.add(pointLight2);
+    const pointLight3 = new THREE.PointLight(0xf59e0b, 0.8, 40);
+    pointLight3.position.set(0, 12, 0);
+    scene.add(pointLight3);
+
+    // Floor
+    const floorGeo = new THREE.PlaneGeometry(30, 30);
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: 0x0f172a, metalness: 0.3, roughness: 0.8
+    });
+    const floor = new THREE.Mesh(floorGeo, floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // Grid
+    const gridHelper = new THREE.GridHelper(25, 25, 0x1e3a5f, 0x0d1b2a);
+    scene.add(gridHelper);
+
+    const maxValue = Math.max(...data.map(d => d.value || 0), 1);
+    const colorMap = {
+      '#F59E0B': 0xf59e0b,
+      '#3B82F6': 0x3b82f6,
+      '#8B5CF6': 0x8b5cf6,
+      '#06B6D4': 0x06b6d4,
+      '#10B981': 0x10b981,
+    };
+    const bars = [];
+
+    data.forEach((item, i) => {
+      const targetH = Math.max((item.value / maxValue) * 8, 0.2);
+      const barGeo = new THREE.BoxGeometry(1.2, 0.01, 1.2);
+      const hexColor = colorMap[item.color] || 0x3b82f6;
+      const barMat = new THREE.MeshPhysicalMaterial({
+        color: hexColor, metalness: 0.4, roughness: 0.2, clearcoat: 0.5,
+        emissive: hexColor, emissiveIntensity: 0.15
+      });
+      const bar = new THREE.Mesh(barGeo, barMat);
+      bar.position.set((i - (data.length - 1) / 2) * 2, 0.005, 0);
+      bar.castShadow = true;
+      bar.userData = { targetH, currentH: 0.01, index: i };
+      scene.add(bar);
+      bars.push(bar);
+
+      // Glow base
+      const glowGeo = new THREE.PlaneGeometry(1.4, 1.4);
+      const glowMat = new THREE.MeshBasicMaterial({
+        color: hexColor, transparent: true, opacity: 0.3, side: THREE.DoubleSide
+      });
+      const glow = new THREE.Mesh(glowGeo, glowMat);
+      glow.rotation.x = -Math.PI / 2;
+      glow.position.set(bar.position.x, 0.01, 0);
+      scene.add(glow);
+    });
+
+    // Particles
+    const particlesGeo = new THREE.BufferGeometry();
+    const particleCount = 200;
+    const positions = new Float32Array(particleCount * 3);
+    for (let i = 0; i < particleCount * 3; i += 3) {
+      positions[i] = (Math.random() - 0.5) * 30;
+      positions[i + 1] = Math.random() * 15;
+      positions[i + 2] = (Math.random() - 0.5) * 30;
+    }
+    particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    const particlesMat = new THREE.PointsMaterial({
+      color: 0x3b82f6, size: 0.05, transparent: true, opacity: 0.6
+    });
+    const particles = new THREE.Points(particlesGeo, particlesMat);
+    scene.add(particles);
+
+    let time = 0;
+    const animate = () => {
+      animRef.current = requestAnimationFrame(animate);
+      time += 0.016;
+
+      // Animate bars growing
+      bars.forEach(bar => {
+        const ud = bar.userData;
+        if (ud.currentH < ud.targetH) {
+          ud.currentH = Math.min(ud.currentH + ud.targetH * 0.03, ud.targetH);
+          bar.geometry.dispose();
+          bar.geometry = new THREE.BoxGeometry(1.2, ud.currentH, 1.2);
+          bar.position.y = ud.currentH / 2;
+        }
+        // Subtle pulse
+        const pulse = 1 + Math.sin(time * 2 + ud.index) * 0.02;
+        bar.scale.x = pulse;
+        bar.scale.z = pulse;
+      });
+
+      // Rotate scene
+      if (isRotating) scene.rotation.y += 0.002;
+      particles.rotation.y += 0.001;
+
+      renderer.render(scene, camera);
+    };
+    animate();
+
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
+        mountRef.current.removeChild(renderer.domElement);
+      }
+      renderer.dispose();
+    };
+  }, [data, width, height, isRotating]);
+
+  return (
+    <div className="relative">
+      <div ref={mountRef} className="rounded-xl overflow-hidden border" style={{ borderColor: colors.border, height: height }} />
+      <div className="absolute top-3 right-3 flex gap-2">
+        <button onClick={() => setIsRotating(!isRotating)}
+          className="p-2 rounded-lg border transition-all"
+          style={{
+            background: 'rgba(30,41,59,0.8)',
+            borderColor: 'rgba(100,116,139,0.5)',
+            color: 'rgba(148,163,184,1)',
+          }}
+          onMouseEnter={(e) => { e.target.style.color = 'white'; e.target.style.background = 'rgba(51,65,85,0.8)'; }}
+          onMouseLeave={(e) => { e.target.style.color = 'rgba(148,163,184,1)'; e.target.style.background = 'rgba(30,41,59,0.8)'; }}
+        >
+          {isRotating ? <Eye size={14} /> : <RotateCcw size={14} />}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ============ MAIN COMPONENT ============
 
@@ -1091,6 +1262,103 @@ export default function CommandCenterUltra() {
               ))}
             </div>
           </SectionCard>
+        </div>
+
+        {/* ROW 6: 3D PRODUCTION CHART + FINANCIAL COMPOSITION */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+
+          {/* 3D PRODUCTION PIPELINE CHART */}
+          <SectionCard title="Produção 3D - Pipeline" icon={Factory}>
+            <div className="flex flex-col gap-4">
+              <Production3DChart
+                data={producaoStages}
+                width="100%"
+                height={350}
+                title="Produção por Estágio"
+              />
+              <div className="grid grid-cols-5 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
+                {producaoStages.map((stage, i) => (
+                  <div key={i} className="text-center">
+                    <div className="text-[11px] text-slate-400 font-medium">{stage.label}</div>
+                    <div className="text-sm font-bold mt-1" style={{ color: stage.color }}>
+                      {stage.value}
+                    </div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">
+                      de {stage.total}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* ENHANCED FINANCIAL COMPOSITION CHART */}
+          <SectionCard title="Composição Financeira" icon={DollarSign}>
+            <div className="space-y-4">
+              {(() => {
+                const totalContrato = valorContrato || 1;
+                const percFaturado = (faturamentoTotal / totalContrato) * 100;
+                const percGasto = (despesaTotal / totalContrato) * 100;
+                const margem = ((valorContrato - faturamentoTotal - despesaTotal) / totalContrato) * 100;
+
+                const financialData = [
+                  { name: '% do Contrato Faturado', value: Math.min(percFaturado, 100), fill: '#10B981' },
+                  { name: '% do Contrato Gasto', value: Math.min(percGasto, 100), fill: '#EF4444' },
+                  { name: 'Margem %', value: Math.max(margem, 0), fill: '#8B5CF6' },
+                ];
+
+                return (
+                  <>
+                    <div className="relative" style={{ height: 180 }}>
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadialBarChart cx="50%" cy="50%" innerRadius="30%" outerRadius="80%"
+                          data={financialData} startAngle={90} endAngle={450}>
+                          <RadialBar background={{ fill: 'rgba(51,65,85,0.2)' }} dataKey="value"
+                            cornerRadius={8} />
+                          <Legend
+                            layout="vertical" verticalAlign="middle" align="right"
+                            wrapperStyle={{ paddingLeft: '10px' }}
+                            formatter={(value) => <span style={{ fontSize: '11px', color: '#cbd5e1' }}>{value}</span>}
+                          />
+                        </RadialBarChart>
+                      </ResponsiveContainer>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
+                      <div className="text-center">
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Faturado</div>
+                        <div className="text-sm font-bold text-emerald-400 mt-1">
+                          {percFaturado.toFixed(1)}%
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">
+                          {formatCurrencyCompact(faturamentoTotal)}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Gasto</div>
+                        <div className="text-sm font-bold text-red-400 mt-1">
+                          {percGasto.toFixed(1)}%
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">
+                          {formatCurrencyCompact(despesaTotal)}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Margem</div>
+                        <div className={`text-sm font-bold mt-1 ${resultadoFinanceiro >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
+                          {margem.toFixed(1)}%
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-1">
+                          {formatCurrencyCompact(resultadoFinanceiro)}
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </SectionCard>
+
         </div>
       </main>
 
