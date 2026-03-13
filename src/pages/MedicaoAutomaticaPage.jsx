@@ -354,14 +354,15 @@ export default function MedicaoAutomaticaPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         {[
           { label: 'Peso Produzido (Pintado)', value: formatPeso(dadosObraSelecionada.pesoProduzido), icon: Weight, cor: 'emerald' },
           { label: 'Medição Liberada', value: formatMoney(valorMedicaoLiberada), icon: DollarSign, cor: 'green' },
           { label: 'Em Processo', value: formatPeso(dadosObraSelecionada.pesoEmProcesso), icon: Layers, cor: 'amber' },
           { label: 'Peso Medido', value: formatPeso(totais.pesoTotal), icon: Target, cor: 'purple' },
           { label: 'Medições Aprovadas', value: totais.aprovadas, icon: CheckCircle2, cor: 'emerald' },
-          { label: 'Previsão Próxima Medição', value: formatPeso(Math.max(0, dadosObraSelecionada.pesoEmProcesso - totais.pesoTotal)), icon: Clock, cor: 'cyan' },
+          { label: 'Previsão Próxima Medição', value: formatPeso(dadosObraSelecionada.previsaoProximaMedicao), icon: Clock, cor: 'cyan' },
+          { label: 'Medição Prevista (R$)', value: formatMoney(dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg), icon: DollarSign, cor: 'orange' },
         ].map((kpi, idx) => (
           <motion.div key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
             <div className="flex items-center justify-between">
