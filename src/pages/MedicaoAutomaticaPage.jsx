@@ -173,12 +173,21 @@ export default function MedicaoAutomaticaPage() {
   }, [obraSelecionada, obrasAtivas]);
 
   // Total de medições já lançadas (valor bruto das medições no Supabase)
+  // EXCLUI adiantamentos / entradas de contrato — apenas medições de produção são subtraídas
   const totalMedicoesLancadas = useMemo(() => {
     if (!medicoesDB || medicoesDB.length === 0) return 0;
     const filtradas = obraSelecionada === 'todas'
       ? medicoesDB
       : medicoesDB.filter(m => (m.obraId || m.obra_id) === obraSelecionada);
-    return filtradas.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
+
+    // Filtra apenas medições de produção (exclui entradas de contrato / adiantamentos)
+    const apenasMedicoes = filtradas.filter(m => {
+      const desc = (m.descricao || m.description || '').toLowerCase();
+      const isAdiantamento = desc.includes('entrada') || desc.includes('contrato') || desc.includes('adiantamento') || desc.includes('aporte');
+      return !isAdiantamento;
+    });
+
+    return apenasMedicoes.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
   }, [medicoesDB, obraSelecionada]);
 
   // Medição Liberada = (peso produzido × R$/kg) - medições já lançadas
