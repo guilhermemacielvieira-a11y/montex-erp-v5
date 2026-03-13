@@ -119,6 +119,16 @@ export default function MedicaoAutomaticaPage() {
     return expedicoesComRomaneio.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
   }, [expedicoes, obraSelecionada]);
 
+  // Peso efetivamente ENTREGUE na obra (apenas expedições com status ENTREGUE)
+  const pesoEntregueReal = useMemo(() => {
+    if (!expedicoes || expedicoes.length === 0) return 0;
+    const entregues = expedicoes.filter(e =>
+      e.status === 'ENTREGUE' &&
+      (obraSelecionada === 'todas' || e.obra_id === obraSelecionada)
+    );
+    return entregues.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
+  }, [expedicoes, obraSelecionada]);
+
   const dadosObraSelecionada = useMemo(() => {
     const calcPesos = (obra) => {
       if (!obra) return {
@@ -190,8 +200,12 @@ export default function MedicaoAutomaticaPage() {
     return apenasMedicoes.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
   }, [medicoesDB, obraSelecionada]);
 
-  // Medição Liberada = (peso produzido × R$/kg) - medições já lançadas
-  const valorMedicaoLiberada = Math.max(0, (dadosObraSelecionada.pesoProduzido * config.producao.valorKg) - totalMedicoesLancadas);
+  // Medição Liberada = (peso ENTREGUE na obra × R$/kg) - medições já lançadas
+  // Apenas o peso efetivamente entregue é elegível para medição (abate o que não foi entregue)
+  const pesoBaseParaMedicao = pesoEntregueReal > 0 ? pesoEntregueReal : dadosObraSelecionada.pesoExpedido;
+  const valorMedicaoLiberada = Math.max(0, (pesoBaseParaMedicao * config.producao.valorKg) - totalMedicoesLancadas);
+  // Peso produzido mas ainda não entregue (não elegível para medição)
+  const pesoProduzidoNaoEntregue = Math.max(0, dadosObraSelecionada.pesoProduzido - pesoBaseParaMedicao);
 
   const salvarConfig = () => {
     const valor = parseFloat(novoValorKg);
@@ -265,7 +279,7 @@ export default function MedicaoAutomaticaPage() {
             <Target className="h-7 w-7 text-emerald-500" />
             Medição Automática - Produção
           </h1>
-          <p className="text-slate-400 mt-1">Cálculo automático por valor de KG produzido (pintado)</p>
+          <p className="text-slate-400 mt-1">Cálculo automático por valor de KG entregue na obra (abate entregas já realizadas)</p>
         </div>
         <div className="flex gap-3">
           <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
@@ -356,12 +370,12 @@ export default function MedicaoAutomaticaPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         {[
-          { label: 'Peso Produzido (Pintado)', value: formatPeso(dadosObraSelecionada.pesoProduzido), icon: Weight, cor: 'emerald' },
+          { label: 'Peso Entregue', value: formatPeso(pesoBaseParaMedicao), icon: Truck, cor: 'emerald' },
           { label: 'Medição Liberada', value: formatMoney(valorMedicaoLiberada), icon: DollarSign, cor: 'green' },
-          { label: 'Em Processo', value: formatPeso(dadosObraSelecionada.pesoEmProcesso), icon: Layers, cor: 'amber' },
-          { label: 'Peso Medido', value: formatPeso(totais.pesoTotal), icon: Target, cor: 'purple' },
+          { label: 'Produzido s/ Entrega', value: formatPeso(pesoProduzidoNaoEntregue), icon: Weight, cor: 'amber' },
+          { label: 'Já Medido (R$)', value: formatMoney(totalMedicoesLancadas), icon: Target, cor: 'purple' },
           { label: 'Medições Aprovadas', value: totais.aprovadas, icon: CheckCircle2, cor: 'emerald' },
-          { label: 'Previsão Próxima Medição', value: formatPeso(dadosObraSelecionada.previsaoProximaMedicao), icon: Clock, cor: 'cyan' },
+          { label: 'Em Processo', value: formatPeso(dadosObraSelecionada.pesoEmProcesso), icon: Layers, cor: 'cyan' },
           { label: 'Medição Prevista (R$)', value: formatMoney((dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg) + valorMedicaoLiberada), icon: DollarSign, cor: 'orange' },
         ].map((kpi, idx) => (
           <motion.div key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
