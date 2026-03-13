@@ -241,6 +241,8 @@ const CHART_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 export default function AnaliseProducaoPage() {
   const { obraAtual } = useObras();
   const [pecas, setPecas] = useState([]);
+  const [idsEntregues, setIdsEntregues] = useState(new Set());
+  const [pesoEntregue, setPesoEntregue] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [activeTab, setActiveTab] = useState('visao-geral');
@@ -248,16 +250,43 @@ export default function AnaliseProducaoPage() {
 
   // Fetch data from Supabase (filtrado por obra selecionada)
   useEffect(() => {
-    if (!obraAtual) { setPecas([]); setLoading(false); return; }
+    if (!obraAtual) { setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setLoading(false); return; }
     const fetchData = async () => {
       try {
         setLoading(true);
+        // Buscar peças de produção
         const { data, error } = await supabase
           .from('pecas_producao')
           .select('*')
           .eq('obra_id', obraAtual);
         if (error) throw error;
         setPecas(data || []);
+
+        // Buscar expedições ENTREGUE para identificar peças já entregues em obra
+        try {
+          const { data: exps } = await supabase
+            .from('expedicoes')
+            .select('id, status, pecas, peso_total')
+            .eq('obra_id', obraAtual)
+            .eq('status', 'ENTREGUE');
+          const entregues = exps || [];
+          const ids = new Set();
+          let pesoEnt = 0;
+          entregues.forEach(exp => {
+            pesoEnt += parseFloat(exp.peso_total) || 0;
+            const pecasExp = typeof exp.pecas === 'string' ? JSON.parse(exp.pecas) : (exp.pecas || []);
+            if (Array.isArray(pecasExp)) {
+              pecasExp.forEach(pe => {
+                const pecaId = typeof pe === 'object' ? (pe.id || pe.pecaId) : pe;
+                if (pecaId) ids.add(pecaId);
+              });
+            }
+          });
+          setIdsEntregues(ids);
+          setPesoEntregue(pesoEnt);
+        } catch (expErr) {
+          console.warn('Erro ao buscar expedições:', expErr);
+        }
       } catch (err) {
         console.error('Erro ao carregar pecas:', err);
       } finally {
@@ -301,22 +330,29 @@ export default function AnaliseProducaoPage() {
     const pesoPintado = pintadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
     
     const expedidas = pf.filter(p => p.etapa === 'expedido');
-    const pesoEnviado = expedidas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-    
+    const pesoExpedidoTotal = expedidas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
+
+    // Separar: peças expedidas que já foram entregues vs aguardando embarque
+    const expedAguardando = expedidas.filter(p => !idsEntregues.has(p.id));
+    const pesoAguardandoEnvio = expedAguardando.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
+    const pesoJaEntregue = pesoEntregue > 0 ? pesoEntregue : (pesoExpedidoTotal - pesoAguardandoEnvio);
+
     const pesoNaoFabricado = pesoTotal - pesoFabricado;
     const pesoProduzido = pesoFabricado;
 
     return {
-      pesoTotal, pesoFabricado, pesoNaoFabricado, pesoSoldado, 
-      pesoPintado, pesoEnviado, pesoProduzido,
+      pesoTotal, pesoFabricado, pesoNaoFabricado, pesoSoldado,
+      pesoPintado, pesoEnviado: pesoAguardandoEnvio, pesoExpedidoTotal, pesoJaEntregue, pesoProduzido,
       percFabricado: pesoTotal > 0 ? (pesoFabricado / pesoTotal) * 100 : 0,
       percSoldado: pesoTotal > 0 ? (pesoSoldado / pesoTotal) * 100 : 0,
       percPintado: pesoTotal > 0 ? (pesoPintado / pesoTotal) * 100 : 0,
-      percEnviado: pesoTotal > 0 ? (pesoEnviado / pesoTotal) * 100 : 0,
+      percEnviado: pesoTotal > 0 ? (pesoAguardandoEnvio / pesoTotal) * 100 : 0,
+      percEntregue: pesoTotal > 0 ? (pesoJaEntregue / pesoTotal) * 100 : 0,
       totalPecas: pf.length,
       pecasConcluidas: pf.filter(p => p.status === 'concluido').length,
+      pecasAguardandoEnvio: expedAguardando.length,
     };
-  }, [pecasFiltradas]);
+  }, [pecasFiltradas, idsEntregues, pesoEntregue]);
 
   // Data for 3D chart
   const data3D = useMemo(() => [
@@ -432,7 +468,7 @@ export default function AnaliseProducaoPage() {
         <KPICard title="Pintado" value={kpis.pesoPintado} unit="kg" icon={Paintbrush} color="#f59e0b" trend={kpis.percPintado} subtitle={`${kpis.percPintado.toFixed(1)}% pintado`} delay={0.15} />
         <KPICard title="Produzido" value={kpis.pesoProduzido} unit="kg" icon={Activity} color="#8b5cf6" delay={0.2} subtitle="Peso produzido total" />
         <KPICard title="Nao Fabricado" value={kpis.pesoNaoFabricado} unit="kg" icon={TrendingDown} color="#ef4444" delay={0.25} subtitle={`${(100 - kpis.percFabricado).toFixed(1)}% pendente`} />
-        <KPICard title="Aguardando Envio" value={kpis.pesoEnviado} unit="kg" icon={Truck} color="#06b6d4" trend={kpis.percEnviado} subtitle={`${kpis.percEnviado.toFixed(1)}% enviado`} delay={0.3} />
+        <KPICard title="Aguardando Envio" value={kpis.pesoEnviado} unit="kg" icon={Truck} color="#06b6d4" trend={kpis.percEnviado} subtitle={`${kpis.pecasAguardandoEnvio} peças na fila · ${kpis.pesoJaEntregue.toLocaleString('pt-BR', {maximumFractionDigits:0})} kg entregue`} delay={0.3} />
       </div>
 
       {/* Gauge Charts */}
