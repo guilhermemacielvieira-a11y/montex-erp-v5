@@ -362,7 +362,7 @@ export default function MedicaoAutomaticaPage() {
           { label: 'Peso Medido', value: formatPeso(totais.pesoTotal), icon: Target, cor: 'purple' },
           { label: 'Medições Aprovadas', value: totais.aprovadas, icon: CheckCircle2, cor: 'emerald' },
           { label: 'Previsão Próxima Medição', value: formatPeso(dadosObraSelecionada.previsaoProximaMedicao), icon: Clock, cor: 'cyan' },
-          { label: 'Medição Prevista (R$)', value: formatMoney(dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg), icon: DollarSign, cor: 'orange' },
+          { label: 'Medição Prevista (R$)', value: formatMoney((dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg) + valorMedicaoLiberada), icon: DollarSign, cor: 'orange' },
         ].map((kpi, idx) => (
           <motion.div key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
             <div className="flex items-center justify-between">
