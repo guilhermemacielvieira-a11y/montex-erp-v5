@@ -200,12 +200,12 @@ export default function MedicaoAutomaticaPage() {
     return apenasMedicoes.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
   }, [medicoesDB, obraSelecionada]);
 
-  // Medição Liberada = (peso ENTREGUE na obra × R$/kg) - medições já lançadas
-  // Apenas o peso efetivamente entregue é elegível para medição (abate o que não foi entregue)
-  const pesoBaseParaMedicao = pesoEntregueReal > 0 ? pesoEntregueReal : dadosObraSelecionada.pesoExpedido;
-  const valorMedicaoLiberada = Math.max(0, (pesoBaseParaMedicao * config.producao.valorKg) - totalMedicoesLancadas);
-  // Peso produzido mas ainda não entregue (não elegível para medição)
-  const pesoProduzidoNaoEntregue = Math.max(0, dadosObraSelecionada.pesoProduzido - pesoBaseParaMedicao);
+  // Peso efetivamente entregue na obra
+  const pesoBaseEntregue = pesoEntregueReal > 0 ? pesoEntregueReal : dadosObraSelecionada.pesoExpedido;
+  // Peso produzido mas ainda não entregue
+  const pesoProduzidoNaoEntregue = Math.max(0, dadosObraSelecionada.pesoProduzido - pesoBaseEntregue);
+  // Medição Liberada = Produzido sem Entrega × R$/kg
+  const valorMedicaoLiberada = pesoProduzidoNaoEntregue * config.producao.valorKg;
 
   const salvarConfig = () => {
     const valor = parseFloat(novoValorKg);
@@ -370,7 +370,7 @@ export default function MedicaoAutomaticaPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         {[
-          { label: 'Peso Entregue', value: formatPeso(pesoBaseParaMedicao), icon: Truck, cor: 'emerald' },
+          { label: 'Peso Entregue', value: formatPeso(pesoBaseEntregue), icon: Truck, cor: 'emerald' },
           { label: 'Medição Liberada', value: formatMoney(valorMedicaoLiberada), icon: DollarSign, cor: 'green' },
           { label: 'Produzido s/ Entrega', value: formatPeso(pesoProduzidoNaoEntregue), icon: Weight, cor: 'amber' },
           { label: 'Já Medido (R$)', value: formatMoney(totalMedicoesLancadas), icon: Target, cor: 'purple' },
