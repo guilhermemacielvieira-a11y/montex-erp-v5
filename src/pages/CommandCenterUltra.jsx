@@ -306,7 +306,7 @@ export default function CommandCenterUltra() {
   const faturamentoTotal = financeiro?.totalMedicoes || 0;
   const despesaTotal = financeiro?.totalDespesas || 0;
   const saldoContrato = valorContrato - faturamentoTotal; // Quanto falta faturar do contrato
-  const resultadoFinanceiro = faturamentoTotal - despesaTotal; // Receita - Despesa = Resultado real
+  const resultadoFinanceiro = valorContrato - faturamentoTotal - despesaTotal; // Contrato - Receita - Despesa = Saldo real
 
   const producaoStages = useMemo(() => [
     { label: 'Corte', value: corte?.cortando || 0, total: corte?.total || 0, color: '#F59E0B' },
