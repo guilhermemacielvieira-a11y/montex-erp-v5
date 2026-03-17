@@ -42,6 +42,7 @@ import {
   TrendingDown,
   Scale,
   Gauge,
+  Factory,
 } from 'lucide-react';
 import {
   CATEGORIAS_SERVICO,
@@ -61,6 +62,7 @@ import {
   calcularPrazoEstimado,
 } from '../data/precosDatabase';
 import { useOrcamentos } from '../contexts/ERPContext';
+import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -1266,7 +1268,7 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
 };
 
 // Step 7: Análise Interna — Custo Médio Mensal × Valor da Obra (Produção + Montagem)
-const StepAnaliseInterna = ({ setores, calculations, unitCosts }) => {
+const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
   // === CUSTOS DE REFERÊNCIA MENSAL (base empresa) ===
   const META_PRODUCAO_MENSAL_KG = 45000;   // 45 ton fábrica/mês
   const META_MONTAGEM_MENSAL_KG = 25000;   // 25 ton montagem/mês
@@ -1540,6 +1542,224 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts }) => {
           </tbody>
         </table>
       </div>
+
+      {/* === COMPARATIVO COM DADOS REAIS (Custos Mensais × Produção) === */}
+      {fi && fi.kpisGerais && (
+        <div className="space-y-6">
+          <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-xl p-6 text-white">
+            <div className="flex items-center gap-3 mb-2">
+              <Factory className="h-6 w-6" />
+              <h2 className="text-xl font-bold">Comparativo com Dados Reais — Custos Mensais × Produção</h2>
+            </div>
+            <p className="text-emerald-200 text-sm">Base: produção mensal real × R$/kg (não despesas × receita)</p>
+          </div>
+
+          {/* Cards Comparativos: Peso × Custo | Metas Financeiras | Cenário Geral */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Peso × Custo */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Scale className="h-5 w-5 text-blue-600" />
+                Peso × Custo
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Custo/kg simulado</span>
+                  <span className="font-bold text-gray-900">{formatCurrency(analise.custoKg)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Custo/kg real (produção)</span>
+                  <span className="font-bold text-gray-900">{formatCurrency(fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Diferença</span>
+                  {(() => {
+                    const custoRealKg = fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0;
+                    const diff = analise.custoKg > 0 && custoRealKg > 0 ? ((analise.custoKg - custoRealKg) / custoRealKg * 100) : 0;
+                    return (
+                      <span className={`flex items-center gap-1 text-sm font-semibold ${diff <= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {diff <= 0 ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                        {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
+                      </span>
+                    );
+                  })()}
+                </div>
+                <p className="text-xs text-gray-400 mt-2 border-t pt-2">Custo real baseado em produção mensal (custos/kg), não em despesas totais</p>
+              </div>
+            </div>
+
+            {/* Metas Financeiras */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Target className="h-5 w-5 text-green-600" />
+                Metas Financeiras
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Margem simulada</span>
+                  <span className="font-bold text-gray-900">{(calculations.margemPct || 0).toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Meta mínima</span>
+                  <span className="text-amber-600 font-medium">15%</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Margem operacional real</span>
+                  <span className={`font-bold ${(fi.margemOperacional || 0) >= 15 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(fi.margemOperacional || 0).toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Preço venda/kg vs ref.</span>
+                  {(() => {
+                    const precoRef = fi.kpisGerais.precoProducaoKg || 5.50;
+                    const diff = analise.precoVendaKg > 0 ? ((analise.precoVendaKg - precoRef) / precoRef * 100) : 0;
+                    return (
+                      <span className={`flex items-center gap-1 text-sm font-semibold ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {diff >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
+                        {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
+                      </span>
+                    );
+                  })()}
+                </div>
+                {(fi.margemOperacional || 0) < 15 && (
+                  <p className="text-xs text-amber-600 mt-2 border-t pt-2 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Margem de {(fi.margemOperacional || 0).toFixed(1)}% está abaixo da meta de 15%. Aumente preço ou reduza custos.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Cenário Geral */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
+                <Zap className="h-5 w-5 text-violet-600" />
+                Cenário Geral (Produção)
+              </h3>
+              <div className="space-y-3">
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Fat. Produção /mês</span>
+                  <span className="font-bold text-emerald-700">{formatCurrency(fi.kpisGerais.faturamentoProducaoMes || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Despesa média /mês</span>
+                  <span className="font-bold text-red-600">{formatCurrency(fi.kpisGerais.despesaMensalMedia || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Produção mensal</span>
+                  <span className="font-bold text-blue-700">{((fi.kpisGerais.producaoMensalKg || 0) / 1000).toFixed(1)} ton</span>
+                </div>
+                <div className="flex justify-between items-center">
+                  <span className="text-sm text-gray-600">Saldo mensal</span>
+                  {(() => {
+                    const saldo = fi.kpisGerais.saldo || 0;
+                    return (
+                      <span className={`font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                        {formatCurrency(saldo)}
+                      </span>
+                    );
+                  })()}
+                </div>
+                {(fi.kpisGerais.saldo || 0) < 0 && (
+                  <p className="text-xs text-red-600 mt-2 border-t pt-2 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    Operação no vermelho. Deficit de {formatCurrency(Math.abs(fi.kpisGerais.saldo || 0))}.
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Tabela Simulação vs Real vs Meta (baseado em produção, não despesas) */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 border-b bg-gray-50">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <BarChart3 className="h-5 w-5 text-indigo-600" />
+                Comparativo: Simulação × Real (Produção) × Meta
+              </h3>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b bg-gray-50/50">
+                  <th className="px-6 py-3 text-left font-semibold text-gray-600">Indicador</th>
+                  <th className="px-6 py-3 text-right font-semibold text-blue-600">Simulação</th>
+                  <th className="px-6 py-3 text-right font-semibold text-emerald-600">Real (Produção)</th>
+                  <th className="px-6 py-3 text-right font-semibold text-amber-600">Meta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  {
+                    label: 'Custo por KG',
+                    sim: analise.custoKg,
+                    real: fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0,
+                    meta: CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG,
+                    format: (v) => formatCurrency(v),
+                    metaLabel: `R$ ${(CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG).toFixed(2)}`,
+                  },
+                  {
+                    label: 'Preço Venda / KG',
+                    sim: analise.precoVendaKg,
+                    real: fi.kpisGerais.precoProducaoKg || 5.50,
+                    meta: null,
+                    format: (v) => formatCurrency(v),
+                    metaLabel: `R$ ${(fi.kpisGerais.precoProducaoKg || 5.50).toFixed(2)}`,
+                  },
+                  {
+                    label: 'Margem (%)',
+                    sim: calculations.margemPct || 0,
+                    real: fi.margemOperacional || 0,
+                    meta: 15,
+                    format: (v) => `${v.toFixed(1)}%`,
+                    metaLabel: '15% mín.',
+                  },
+                  {
+                    label: 'Peso Total',
+                    sim: analise.pesoTotal,
+                    real: (fi.kpisGerais.producaoMensalKg || 0),
+                    meta: null,
+                    format: (v) => `${formatNumber(v)} kg`,
+                    metaLabel: '-',
+                    isInfo: true,
+                  },
+                  {
+                    label: 'Fat. Produção /mês',
+                    sim: analise.valorProposta,
+                    real: fi.kpisGerais.faturamentoProducaoMes || 0,
+                    meta: fi.kpisGerais.metaFaturamentoProducao || 0,
+                    format: (v) => formatCurrency(v),
+                    metaLabel: formatCurrency(fi.kpisGerais.metaFaturamentoProducao || 0),
+                  },
+                  {
+                    label: 'Saldo Mensal',
+                    sim: analise.valorProposta > 0 ? analise.valorProposta - (analise.custoTotal) : 0,
+                    real: fi.kpisGerais.saldo || 0,
+                    meta: 0,
+                    format: (v) => formatCurrency(v),
+                    metaLabel: '> 0',
+                    isResult: true,
+                  },
+                ].map((row, idx) => {
+                  const realOk = row.isResult ? row.real >= 0 : (row.meta ? (row.label.includes('Margem') ? row.real >= row.meta : row.real <= row.meta * 1.15) : true);
+                  return (
+                    <tr key={idx} className={`border-b last:border-b-0 ${row.isResult ? 'bg-gray-50 font-semibold' : 'hover:bg-gray-50'}`}>
+                      <td className="px-6 py-3 text-gray-700 font-medium">{row.label}</td>
+                      <td className="px-6 py-3 text-right font-mono text-blue-700">{row.format(row.sim)}</td>
+                      <td className="px-6 py-3 text-right">
+                        <span className={`font-mono font-semibold ${row.isResult ? (row.real >= 0 ? 'text-green-700' : 'text-red-700') : 'text-emerald-700'}`}>
+                          {row.format(row.real)}
+                        </span>
+                      </td>
+                      <td className="px-6 py-3 text-right text-amber-600">{row.metaLabel}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Composição de Custos da Obra - Pizza + Resumo */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -1886,6 +2106,8 @@ export default function SimuladorOrcamento() {
     naoIncluso: 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.',
   });
 
+  const fi = useFinancialIntelligence();
+
   const steps = [
     { label: 'Dados do Projeto', icon: Building2 },
     { label: 'Custos Unitários', icon: DollarSign },
@@ -1960,7 +2182,7 @@ export default function SimuladorOrcamento() {
       case 4:
         return <StepCronogramaEscopo cronograma={cronograma} setCronograma={setCronograma} escopo={escopo} setEscopo={setEscopo} setores={setores} />;
       case 5:
-        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} />;
+        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} />;
       case 6:
         return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} />;
       default:
