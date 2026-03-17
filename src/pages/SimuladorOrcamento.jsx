@@ -1448,10 +1448,12 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
 
   // === CASHFLOW — recalcula quando mesesPagamento muda ===
   const cashflowData = useMemo(() => {
-    const pctEntrada  = paymentConditions?.assinatura ?? 10;  // % de entrada
-    const valEntrada  = analise.valorServicos * (pctEntrada / 100);
-    const valSaldo    = analise.valorServicos - valEntrada;
-    const parcelaMes  = mesesPagamento > 0 ? valSaldo / mesesPagamento : valSaldo;
+    const pctEntrada = paymentConditions?.assinatura ?? 10;
+    // Entrada = % do VALOR TOTAL da proposta (precoFinal com material)
+    const valEntrada = (calculations.precoFinal || analise.valorTotal || 0) * (pctEntrada / 100);
+    // Saldo = valor de mão de obra (serviços sem material) MENOS a entrada já recebida
+    const valSaldo   = Math.max(0, analise.valorServicos - valEntrada);
+    const parcelaMes = mesesPagamento > 0 ? valSaldo / mesesPagamento : valSaldo;
     // exibir pelo menos 6 linhas, ou até mesesPagamento+1
     const totalLinhas = Math.max(6, mesesPagamento + 1);
     const rows = [];
@@ -1468,7 +1470,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
     const totalRecebido = rows.slice(0, mesesPagamento).reduce((s, r) => s + r.receita, 0);
     const valorRestante = analise.valorServicos - totalRecebido;
     return { rows, valEntrada, valSaldo, parcelaMes, pctEntrada, totalRecebido, valorRestante };
-  }, [analise.valorServicos, mesesPagamento, despesaMediaMensal, paymentConditions]);
+  }, [analise.valorServicos, analise.valorTotal, calculations.precoFinal, mesesPagamento, despesaMediaMensal, paymentConditions]);
 
   // Count-up animation
   useEffect(() => {
