@@ -37,26 +37,8 @@ import {
   FileDown,
   File,
   Eye,
-  GripVertical,
-  Maximize2,
+  CheckSquare,
 } from 'lucide-react';
-import {
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  LineChart,
-  Line,
-  AreaChart,
-  Area,
-} from 'recharts';
 import {
   CATEGORIAS_SERVICO,
   TIPOS_ESTRUTURA,
@@ -76,92 +58,168 @@ import {
 } from '../data/precosDatabase';
 import { useOrcamentos } from '../contexts/ERPContext';
 
-// ============================================================================
-// CONSTANTS & HELPERS
-// ============================================================================
-
-const PIPELINE_STAGES = [
-  { id: 'lead', label: 'Lead', color: 'bg-slate-700', border: 'border-slate-600' },
-  { id: 'orcamento', label: 'Orçamento', color: 'bg-blue-900', border: 'border-blue-700' },
-  { id: 'proposta', label: 'Proposta', color: 'bg-purple-900', border: 'border-purple-700' },
-  { id: 'negociacao', label: 'Negociação', color: 'bg-amber-900', border: 'border-amber-700' },
-  { id: 'fechamento', label: 'Fechamento', color: 'bg-green-900', border: 'border-green-700' },
-  { id: 'obra', label: 'Obra', color: 'bg-emerald-900', border: 'border-emerald-700' },
-];
-
+// Color palette for charts
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1'];
 
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
 const formatCurrency = (value) => {
-  if (!value) return 'R$ 0,00';
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 };
 
 const formatNumber = (value) => {
-  if (!value) return '0,00';
   return value.toLocaleString('pt-BR', { maximumFractionDigits: 2, minimumFractionDigits: 2 });
 };
 
+const generateProposalNumber = () => {
+  const year = new Date().getFullYear();
+  const month = String(new Date().getMonth() + 1).padStart(2, '0');
+  const random = String(Math.floor(Math.random() * 9999)).padStart(4, '0');
+  return `${random}/${month}.${year}`;
+};
+
 // ============================================================================
-// BUDGET STEPS COMPONENTS (reused from original)
+// COMPONENTS
 // ============================================================================
 
-const StepInfo = ({ project, setProject }) => {
+// Step 1: Dados do Projeto
+const StepDadosProjeto = ({ project, setProject }) => {
+  useEffect(() => {
+    if (!project.numeroPropostas) {
+      setProject({ ...project, numeroPropostas: generateProposalNumber() });
+    }
+    if (!project.dataEmissao) {
+      setProject({ ...project, dataEmissao: new Date().toISOString().split('T')[0] });
+    }
+    if (!project.dataValidade) {
+      const validadeDate = new Date();
+      validadeDate.setDate(validadeDate.getDate() + 30);
+      setProject({ ...project, dataValidade: validadeDate.toISOString().split('T')[0] });
+    }
+  }, []);
+
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-1">Nome do Projeto *</label>
-          <input
-            type="text"
-            value={project.nome}
-            onChange={(e) => setProject({ ...project, nome: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="Ex: Galpão Industrial XYZ"
-          />
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-lg shadow p-6">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-blue-600" />
+            Dados do Projeto
+          </h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Número da Proposta</label>
+              <input
+                type="text"
+                value={project.numeroPropostas || ''}
+                onChange={(e) => setProject({ ...project, numeroPropostas: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Autogenerado"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data de Emissão</label>
+                <input
+                  type="date"
+                  value={project.dataEmissao || ''}
+                  onChange={(e) => setProject({ ...project, dataEmissao: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data de Validade</label>
+                <input
+                  type="date"
+                  value={project.dataValidade || ''}
+                  onChange={(e) => setProject({ ...project, dataValidade: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome do Projeto *</label>
+              <input
+                type="text"
+                value={project.nome}
+                onChange={(e) => setProject({ ...project, nome: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Ex: Galpão Industrial XYZ"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cliente *</label>
+              <input
+                type="text"
+                value={project.cliente}
+                onChange={(e) => setProject({ ...project, cliente: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="Ex: Empresa ABC Ltda"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Estrutura</label>
+              <select
+                value={project.tipo}
+                onChange={(e) => setProject({ ...project, tipo: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="">Selecione...</option>
+                {Object.entries(TIPOS_ESTRUTURA).map(([key, value]) => (
+                  <option key={key} value={key}>{value.nome}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Região</label>
+              <select
+                value={project.regiao}
+                onChange={(e) => setProject({ ...project, regiao: e.target.value })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              >
+                <option value="sudeste">Sudeste</option>
+                <option value="sul">Sul</option>
+                <option value="nordeste">Nordeste</option>
+                <option value="centrooeste">Centro-Oeste</option>
+                <option value="norte">Norte</option>
+              </select>
+            </div>
+          </div>
         </div>
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-1">Cliente *</label>
-          <input
-            type="text"
-            value={project.cliente}
-            onChange={(e) => setProject({ ...project, cliente: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            placeholder="Ex: Empresa ABC Ltda"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-1">Tipo de Estrutura</label>
-          <select
-            value={project.tipo}
-            onChange={(e) => setProject({ ...project, tipo: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Selecione...</option>
-            {Object.entries(TIPOS_ESTRUTURA).map(([key, value]) => (
-              <option key={key} value={key}>{value.nome}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-sm font-semibold text-slate-300 mb-1">Região</label>
-          <select
-            value={project.regiao}
-            onChange={(e) => setProject({ ...project, regiao: e.target.value })}
-            className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="sudeste">Sudeste</option>
-            <option value="sul">Sul</option>
-            <option value="nordeste">Nordeste</option>
-            <option value="centrooeste">Centro-Oeste</option>
-            <option value="norte">Norte</option>
-          </select>
+
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-lg shadow p-6 border border-blue-200">
+          <h3 className="text-lg font-semibold mb-4 text-blue-900 flex items-center gap-2">
+            <Info className="h-5 w-5" />
+            Dicas
+          </h3>
+          <ul className="space-y-2 text-sm text-blue-800">
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>O número da proposta é auto-gerado automaticamente</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>A validade padrão é de 30 dias a partir da data de emissão</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>Todos os dados podem ser editados em qualquer momento</span>
+            </li>
+            <li className="flex gap-2">
+              <span className="text-blue-600 font-bold">•</span>
+              <span>O tipo e região afetam os preços sugeridos</span>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
   );
 };
 
-const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
+// Step 2: Custos Unitários
+const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
   const updateCost = (section, field, value) => {
     setUnitCosts(prev => ({
       ...prev,
@@ -171,24 +229,34 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
 
   const updateCoverageType = (tipo) => {
     let newCosts = { ...unitCosts.cobertura, tipo };
+
     const tipoMap = {
       'galvanizada_050': { material: 75.00, montagem: 18.00 },
       'galvanizada_043': { material: 65.00, montagem: 18.00 },
       'sanduiche_pir_30': { material: 135.00, montagem: 20.00 },
       'steeldeck_mf75': { material: 115.00, montagem: 25.00 }
     };
-    if (tipoMap[tipo]) newCosts = { ...newCosts, ...tipoMap[tipo] };
+
+    if (tipoMap[tipo]) {
+      newCosts = { ...newCosts, ...tipoMap[tipo] };
+    }
+
     setUnitCosts(prev => ({ ...prev, cobertura: newCosts }));
   };
 
   const updateClosureType = (tipo) => {
     let newCosts = { ...unitCosts.fechamento, tipo };
+
     const tipoMap = {
       'pir_30mm': { material: 125.00, montagem: 15.00 },
       'thermcold_70': { material: 155.00, montagem: 18.00 },
       'galvanizado': { material: 80.00, montagem: 12.00 }
     };
-    if (tipoMap[tipo]) newCosts = { ...newCosts, ...tipoMap[tipo] };
+
+    if (tipoMap[tipo]) {
+      newCosts = { ...newCosts, ...tipoMap[tipo] };
+    }
+
     setUnitCosts(prev => ({ ...prev, fechamento: newCosts }));
   };
 
@@ -219,73 +287,94 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
 
   const estruturaKg = calcPesoReal(setores);
   const coberturaM2 = calcTotalArea('M2');
+  const fechamentoM2 = calcTotalArea('M2');
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Estrutura Metálica */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border-l-4 border-l-blue-500">
-          <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-            <Layers className="h-4 w-4" />
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-blue-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Layers className="h-5 w-5 text-blue-600" />
             Estrutura Metálica
-          </h4>
-          {estruturaKg > 0 && (
-            <div className="bg-blue-500/20 p-2 rounded mb-3 text-blue-200 text-xs font-medium">
-              Total: {formatNumber(estruturaKg)} kg
-            </div>
-          )}
-          <div className="space-y-2 text-sm">
+          </h3>
+          <div className="space-y-3 text-sm">
+            {estruturaKg > 0 && (
+              <div className="bg-blue-50 p-2 rounded text-blue-800 font-medium">
+                Total: {formatNumber(estruturaKg)} kg
+              </div>
+            )}
             <div>
-              <label className="text-slate-400 text-xs">Material (R$/kg)</label>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/kg)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.estrutura.material}
                 onChange={(e) => updateCost('estrutura', 'material', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-slate-400 text-xs">Fabricação (R$/kg)</label>
+              <label className="block font-medium text-gray-700 mb-1">Fabricação (R$/kg)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.estrutura.fabricacao}
                 onChange={(e) => updateCost('estrutura', 'fabricacao', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
             <div>
-              <label className="text-slate-400 text-xs">Pintura (R$/kg)</label>
+              <label className="block font-medium text-gray-700 mb-1">Pintura (R$/kg)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.estrutura.pintura}
                 onChange={(e) => updateCost('estrutura', 'pintura', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Transporte (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.transporte}
+                onChange={(e) => updateCost('estrutura', 'transporte', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.montagem}
+                onChange={(e) => updateCost('estrutura', 'montagem', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
           </div>
         </div>
 
-        {/* Cobertura */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border-l-4 border-l-orange-500">
-          <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-            <Package className="h-4 w-4" />
+        {/* Cobertura - Telha */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-orange-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Package className="h-5 w-5 text-orange-600" />
             Cobertura - Telha
-          </h4>
-          {coberturaM2 > 0 && (
-            <div className="bg-orange-500/20 p-2 rounded mb-3 text-orange-200 text-xs font-medium">
-              Total: {formatNumber(coberturaM2)} m²
-            </div>
-          )}
-          <div className="space-y-2 text-sm">
+          </h3>
+          <div className="space-y-3 text-sm">
+            {coberturaM2 > 0 && (
+              <div className="bg-orange-50 p-2 rounded text-orange-800 font-medium">
+                Total: {formatNumber(coberturaM2)} m²
+              </div>
+            )}
             <div>
-              <label className="text-slate-400 text-xs">Tipo</label>
+              <label className="block font-medium text-gray-700 mb-1">Tipo</label>
               <select
                 value={unitCosts.cobertura.tipo}
                 onChange={(e) => updateCoverageType(e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               >
                 <option value="galvanizada_050">Galvanizada 0.50mm</option>
                 <option value="galvanizada_043">Galvanizada 0.43mm</option>
@@ -294,65 +383,140 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
               </select>
             </div>
             <div>
-              <label className="text-slate-400 text-xs">Material (R$/m²)</label>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/m²)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.cobertura.material}
                 onChange={(e) => updateCost('cobertura', 'material', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
             </div>
             <div>
-              <label className="text-slate-400 text-xs">Montagem (R$/m²)</label>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/m²)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.cobertura.montagem}
                 onChange={(e) => updateCost('cobertura', 'montagem', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
             </div>
           </div>
         </div>
 
         {/* Fechamento */}
-        <div className="bg-slate-700/30 rounded-lg p-4 border-l-4 border-l-purple-500">
-          <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-            <Shield className="h-4 w-4" />
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-red-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Shield className="h-5 w-5 text-red-600" />
             Fechamento
-          </h4>
-          <div className="space-y-2 text-sm">
+          </h3>
+          <div className="space-y-3 text-sm">
+            {fechamentoM2 > 0 && (
+              <div className="bg-red-50 p-2 rounded text-red-800 font-medium">
+                Total: {formatNumber(fechamentoM2)} m²
+              </div>
+            )}
             <div>
-              <label className="text-slate-400 text-xs">Tipo</label>
+              <label className="block font-medium text-gray-700 mb-1">Tipo</label>
               <select
                 value={unitCosts.fechamento.tipo}
                 onChange={(e) => updateClosureType(e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
               >
                 <option value="pir_30mm">PIR 30mm</option>
-                <option value="thermcold_70">ThermCold 70mm</option>
+                <option value="thermcold_70">Thermcold 70mm</option>
                 <option value="galvanizado">Galvanizado</option>
               </select>
             </div>
             <div>
-              <label className="text-slate-400 text-xs">Material (R$/m²)</label>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/m²)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.fechamento.material}
                 onChange={(e) => updateCost('fechamento', 'material', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
               />
             </div>
             <div>
-              <label className="text-slate-400 text-xs">Montagem (R$/m²)</label>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/m²)</label>
               <input
                 type="number"
                 step="0.01"
                 value={unitCosts.fechamento.montagem}
                 onChange={(e) => updateCost('fechamento', 'montagem', e.target.value)}
-                className="w-full px-2 py-1 bg-slate-600/50 border border-slate-600 rounded text-white text-xs"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Steel Deck */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-purple-600">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Zap className="h-5 w-5 text-purple-600" />
+            Steel Deck
+          </h3>
+          <div className="space-y-3 text-sm">
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Material (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.steelDeck.material}
+                onChange={(e) => updateCost('steelDeck', 'material', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Montagem (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.steelDeck.montagem}
+                onChange={(e) => updateCost('steelDeck', 'montagem', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Complementos */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-green-600 lg:col-span-2">
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Target className="h-5 w-5 text-green-600" />
+            Complementos
+          </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm">
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Calha (R$/ml)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.complementos.calha}
+                onChange={(e) => updateCost('complementos', 'calha', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Rufos (R$/ml)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.complementos.rufos}
+                onChange={(e) => updateCost('complementos', 'rufos', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Platibanda (R$/m²)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.complementos.platibanda}
+                onChange={(e) => updateCost('complementos', 'platibanda', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
               />
             </div>
           </div>
@@ -362,602 +526,978 @@ const StepCustos = ({ unitCosts, setUnitCosts, setores }) => {
   );
 };
 
-const StepSetores = ({ setores, setSetores }) => {
-  const addSetor = () => {
-    setSetores([...setores, { nome: `Setor ${setores.length + 1}`, itens: [] }]);
+// Pre-defined items derived from Step 2 unit costs
+const getPreDefinedItems = (unitCosts) => [
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Material', unidade: 'KG', precoMaterial: unitCosts.estrutura.material, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Fabricação', unidade: 'KG', precoMaterial: unitCosts.estrutura.fabricacao, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Pintura', unidade: 'KG', precoMaterial: unitCosts.estrutura.pintura, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Transporte', unidade: 'KG', precoMaterial: unitCosts.estrutura.transporte, precoInstalacao: 0, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Montagem', unidade: 'KG', precoMaterial: 0, precoInstalacao: unitCosts.estrutura.montagem, color: 'blue' },
+  { categoria: 'Cobertura', descricao: 'Cobertura - Material', unidade: 'M2', precoMaterial: unitCosts.cobertura.material, precoInstalacao: 0, color: 'orange' },
+  { categoria: 'Cobertura', descricao: 'Cobertura - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.cobertura.montagem, color: 'orange' },
+  { categoria: 'Fechamento', descricao: 'Fechamento - Material', unidade: 'M2', precoMaterial: unitCosts.fechamento.material, precoInstalacao: 0, color: 'red' },
+  { categoria: 'Fechamento', descricao: 'Fechamento - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.fechamento.montagem, color: 'red' },
+  { categoria: 'Steel Deck', descricao: 'Steel Deck - Material', unidade: 'M2', precoMaterial: unitCosts.steelDeck.material, precoInstalacao: 0, color: 'purple' },
+  { categoria: 'Steel Deck', descricao: 'Steel Deck - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.steelDeck.montagem, color: 'purple' },
+  { categoria: 'Complementos', descricao: 'Calha', unidade: 'ML', precoMaterial: unitCosts.complementos.calha, precoInstalacao: 0, color: 'green' },
+  { categoria: 'Complementos', descricao: 'Rufos', unidade: 'ML', precoMaterial: unitCosts.complementos.rufos, precoInstalacao: 0, color: 'green' },
+  { categoria: 'Complementos', descricao: 'Platibanda', unidade: 'M2', precoMaterial: unitCosts.complementos.platibanda, precoInstalacao: 0, color: 'green' },
+];
+
+const CATEGORY_COLORS = {
+  blue: { bg: 'bg-blue-50', border: 'border-blue-200', text: 'text-blue-700', badge: 'bg-blue-100 text-blue-800' },
+  orange: { bg: 'bg-orange-50', border: 'border-orange-200', text: 'text-orange-700', badge: 'bg-orange-100 text-orange-800' },
+  red: { bg: 'bg-red-50', border: 'border-red-200', text: 'text-red-700', badge: 'bg-red-100 text-red-800' },
+  purple: { bg: 'bg-purple-50', border: 'border-purple-200', text: 'text-purple-700', badge: 'bg-purple-100 text-purple-800' },
+  green: { bg: 'bg-green-50', border: 'border-green-200', text: 'text-green-700', badge: 'bg-green-100 text-green-800' },
+};
+
+// SetorCard component for Step 3
+const SetorCard = ({ setor, index, onUpdate, onDelete, onAddItem, unitCosts }) => {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [newTitle, setNewTitle] = useState(setor.nome);
+  const [showItemSelector, setShowItemSelector] = useState(false);
+  const [showCustomForm, setShowCustomForm] = useState(false);
+  const [newItem, setNewItem] = useState({ descricao: '', quantidade: 0, unidade: 'KG', preco: 0 });
+  const [editingItemIdx, setEditingItemIdx] = useState(null);
+
+  const preDefinedItems = getPreDefinedItems(unitCosts);
+
+  const handleTitleSave = () => {
+    onUpdate(index, { ...setor, nome: newTitle });
+    setEditingTitle(false);
   };
 
-  const removeSetor = (index) => {
+  const handleAddPreDefined = (predefined) => {
+    const totalPreco = predefined.precoMaterial + predefined.precoInstalacao;
+    const item = {
+      descricao: predefined.descricao,
+      unidade: predefined.unidade,
+      quantidade: 0,
+      preco: totalPreco,
+      precoMaterial: predefined.precoMaterial,
+      precoInstalacao: predefined.precoInstalacao,
+      categoria: predefined.categoria,
+    };
+    onAddItem(index, item);
+    setShowItemSelector(false);
+  };
+
+  const handleAddCustom = () => {
+    if (newItem.descricao && newItem.quantidade >= 0) {
+      onAddItem(index, { ...newItem, quantidade: parseFloat(newItem.quantidade), preco: parseFloat(newItem.preco), precoMaterial: parseFloat(newItem.preco), precoInstalacao: 0 });
+      setNewItem({ descricao: '', quantidade: 0, unidade: 'KG', preco: 0 });
+      setShowCustomForm(false);
+    }
+  };
+
+  const handleRemoveItem = (itemIndex) => {
+    const updatedItens = setor.itens.filter((_, i) => i !== itemIndex);
+    onUpdate(index, { ...setor, itens: updatedItens });
+  };
+
+  const handleEditItem = (itemIndex, field, value) => {
+    const updatedItens = [...setor.itens];
+    const numVal = parseFloat(value) || 0;
+    if (field === 'quantidade') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], quantidade: numVal };
+    } else if (field === 'precoMaterial') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], precoMaterial: numVal, preco: numVal + (updatedItens[itemIndex].precoInstalacao || 0) };
+    } else if (field === 'precoInstalacao') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], precoInstalacao: numVal, preco: (updatedItens[itemIndex].precoMaterial || 0) + numVal };
+    } else if (field === 'preco') {
+      updatedItens[itemIndex] = { ...updatedItens[itemIndex], preco: numVal };
+    }
+    onUpdate(index, { ...setor, itens: updatedItens });
+  };
+
+  const total = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
+  const totalMaterial = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoMaterial || item.preco || 0)), 0);
+  const totalInstalacao = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoInstalacao || 0)), 0);
+
+  const categorizedItems = preDefinedItems.reduce((acc, item) => {
+    if (!acc[item.categoria]) acc[item.categoria] = { items: [], color: item.color };
+    acc[item.categoria].items.push(item);
+    return acc;
+  }, {});
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -20 }}
+      className="bg-white rounded-lg shadow-lg p-6 border-t-4 border-blue-600"
+    >
+      <div className="flex justify-between items-start mb-4">
+        {editingTitle ? (
+          <div className="flex gap-2 flex-1">
+            <input
+              type="text"
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleTitleSave}
+              className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+            >
+              Salvar
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-bold text-gray-900">{setor.nome}</h3>
+            <button
+              onClick={() => setEditingTitle(true)}
+              className="p-1 text-gray-500 hover:text-blue-600"
+            >
+              <Edit3 className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+        <button
+          onClick={() => onDelete(index)}
+          className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+        >
+          <Trash2 className="h-5 w-5" />
+        </button>
+      </div>
+
+      {setor.itens.length > 0 ? (
+        <div className="overflow-x-auto mb-4">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-100 border-b">
+              <tr>
+                <th className="text-left p-2 font-semibold">Descrição</th>
+                <th className="text-center p-2 font-semibold">Qtd</th>
+                <th className="text-center p-2 font-semibold">Un</th>
+                <th className="text-right p-2 font-semibold">Material</th>
+                <th className="text-right p-2 font-semibold">Instalação</th>
+                <th className="text-right p-2 font-semibold">Total</th>
+                <th className="text-center p-2 font-semibold">Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              {setor.itens.map((item, idx) => (
+                <tr key={idx} className="border-b hover:bg-gray-50">
+                  <td className="p-2">
+                    <span className="font-medium">{item.descricao}</span>
+                    {item.categoria && (
+                      <span className="ml-2 text-xs px-1.5 py-0.5 rounded bg-gray-100 text-gray-500">{item.categoria}</span>
+                    )}
+                  </td>
+                  <td className="text-center p-1">
+                    {editingItemIdx === idx ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.quantidade}
+                        onChange={(e) => handleEditItem(idx, 'quantidade', e.target.value)}
+                        className="w-20 px-1 py-1 text-center border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => setEditingItemIdx(idx)}
+                      >
+                        {formatNumber(item.quantidade)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-center p-2 text-gray-600">{item.unidade}</td>
+                  <td className="text-right p-1">
+                    {editingItemIdx === idx ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.precoMaterial || 0}
+                        onChange={(e) => handleEditItem(idx, 'precoMaterial', e.target.value)}
+                        className="w-24 px-1 py-1 text-right border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => setEditingItemIdx(idx)}
+                      >
+                        {formatCurrency(item.precoMaterial || 0)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-right p-1">
+                    {editingItemIdx === idx ? (
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={item.precoInstalacao || 0}
+                        onChange={(e) => handleEditItem(idx, 'precoInstalacao', e.target.value)}
+                        className="w-24 px-1 py-1 text-right border border-blue-300 rounded text-sm focus:ring-1 focus:ring-blue-500"
+                      />
+                    ) : (
+                      <span
+                        className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                        onClick={() => setEditingItemIdx(idx)}
+                      >
+                        {formatCurrency(item.precoInstalacao || 0)}
+                      </span>
+                    )}
+                  </td>
+                  <td className="text-right p-2 font-semibold">{formatCurrency(item.quantidade * item.preco)}</td>
+                  <td className="text-center p-2 flex gap-1 justify-center">
+                    {editingItemIdx === idx ? (
+                      <button
+                        onClick={() => setEditingItemIdx(null)}
+                        className="p-1 text-green-600 hover:bg-green-50 rounded"
+                        title="Confirmar"
+                      >
+                        <CheckCircle2 className="h-4 w-4" />
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setEditingItemIdx(idx)}
+                        className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                        title="Editar"
+                      >
+                        <Edit3 className="h-4 w-4" />
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleRemoveItem(idx)}
+                      className="p-1 text-red-600 hover:bg-red-50 rounded"
+                      title="Remover"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="text-center text-gray-500 py-4">Nenhum item adicionado</div>
+      )}
+
+      <div className="flex justify-between items-center mb-4 pt-4 border-t">
+        <div className="flex gap-6">
+          <span className="text-sm text-gray-600">Material: <span className="font-semibold text-gray-900">{formatCurrency(totalMaterial)}</span></span>
+          <span className="text-sm text-gray-600">Instalação: <span className="font-semibold text-gray-900">{formatCurrency(totalInstalacao)}</span></span>
+        </div>
+        <div>
+          <span className="font-semibold text-gray-900">Total: </span>
+          <span className="text-lg font-bold text-blue-600">{formatCurrency(total)}</span>
+        </div>
+      </div>
+
+      {showItemSelector ? (
+        <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+          <div className="flex justify-between items-center mb-2">
+            <h4 className="font-semibold text-gray-800 text-sm">Selecione o item (valores do Step 2)</h4>
+            <button onClick={() => setShowItemSelector(false)} className="p-1 text-gray-500 hover:text-gray-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          {Object.entries(categorizedItems).map(([cat, { items, color }]) => {
+            const colors = CATEGORY_COLORS[color] || CATEGORY_COLORS.blue;
+            return (
+              <div key={cat} className="mb-2">
+                <div className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${colors.badge} mb-1`}>{cat}</div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                  {items.map((item, iIdx) => (
+                    <button
+                      key={iIdx}
+                      onClick={() => handleAddPreDefined(item)}
+                      className={`text-left p-2 rounded border ${colors.border} ${colors.bg} hover:shadow-md transition-shadow text-sm`}
+                    >
+                      <div className="font-medium text-gray-900">{item.descricao}</div>
+                      <div className="flex gap-3 mt-1 text-xs text-gray-600">
+                        {item.precoMaterial > 0 && <span>Material: {formatCurrency(item.precoMaterial)}/{item.unidade.toLowerCase()}</span>}
+                        {item.precoInstalacao > 0 && <span>Instalação: {formatCurrency(item.precoInstalacao)}/{item.unidade.toLowerCase()}</span>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <button
+            onClick={() => { setShowItemSelector(false); setShowCustomForm(true); }}
+            className="w-full mt-2 px-3 py-2 border border-dashed border-gray-400 text-gray-600 rounded-lg hover:bg-gray-100 text-sm font-medium"
+          >
+            + Item Personalizado
+          </button>
+        </div>
+      ) : showCustomForm ? (
+        <div className="bg-gray-50 p-4 rounded-lg space-y-3">
+          <h4 className="font-semibold text-gray-800 text-sm mb-2">Item Personalizado</h4>
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              placeholder="Descrição"
+              value={newItem.descricao}
+              onChange={(e) => setNewItem({ ...newItem, descricao: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <select
+              value={newItem.unidade}
+              onChange={(e) => setNewItem({ ...newItem, unidade: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="KG">KG</option>
+              <option value="M2">M²</option>
+              <option value="ML">ML</option>
+              <option value="UN">UN</option>
+              <option value="VB">VB</option>
+            </select>
+            <input
+              type="number"
+              placeholder="Quantidade"
+              step="0.01"
+              value={newItem.quantidade}
+              onChange={(e) => setNewItem({ ...newItem, quantidade: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <input
+              type="number"
+              placeholder="Preço unitário"
+              step="0.01"
+              value={newItem.preco}
+              onChange={(e) => setNewItem({ ...newItem, preco: e.target.value })}
+              className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleAddCustom}
+              className="flex-1 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            >
+              Adicionar Item
+            </button>
+            <button
+              onClick={() => setShowCustomForm(false)}
+              className="px-3 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setShowItemSelector(true)}
+          className="w-full px-4 py-2 border-2 border-dashed border-blue-600 text-blue-600 rounded-lg hover:bg-blue-50 font-medium flex items-center justify-center gap-2"
+        >
+          <Plus className="h-4 w-4" />
+          Adicionar Item
+        </button>
+      )}
+    </motion.div>
+  );
+};
+
+// Step 3: Setores e Itens
+const StepSetoresItens = ({ setores, setSetores, unitCosts }) => {
+  const [showNewSetor, setShowNewSetor] = useState(false);
+  const [newSetorName, setNewSetorName] = useState('');
+
+  const handleAddSetor = () => {
+    if (newSetorName.trim()) {
+      setSetores([...setores, { nome: newSetorName, itens: [] }]);
+      setNewSetorName('');
+      setShowNewSetor(false);
+    }
+  };
+
+  const handleUpdateSetor = (index, updatedSetor) => {
+    const updated = [...setores];
+    updated[index] = updatedSetor;
+    setSetores(updated);
+  };
+
+  const handleDeleteSetor = (index) => {
     setSetores(setores.filter((_, i) => i !== index));
   };
 
-  const addItem = (setorIndex) => {
-    const newSetores = [...setores];
-    newSetores[setorIndex].itens.push({
-      descricao: '',
-      quantidade: 0,
-      unidade: 'KG',
-      precoUnitario: 0,
-    });
-    setSetores(newSetores);
-  };
-
-  const updateItem = (setorIndex, itemIndex, field, value) => {
-    const newSetores = [...setores];
-    newSetores[setorIndex].itens[itemIndex][field] = field === 'quantidade' || field === 'precoUnitario' ? parseFloat(value) || 0 : value;
-    setSetores(newSetores);
-  };
-
-  const removeItem = (setorIndex, itemIndex) => {
-    const newSetores = [...setores];
-    newSetores[setorIndex].itens.splice(itemIndex, 1);
-    setSetores(newSetores);
+  const handleAddItem = (setorIndex, item) => {
+    const updated = [...setores];
+    updated[setorIndex].itens.push(item);
+    setSetores(updated);
   };
 
   return (
-    <div className="space-y-4">
-      {setores.map((setor, setorIndex) => (
-        <div key={setorIndex} className="bg-slate-700/30 rounded-lg p-4">
-          <div className="flex justify-between items-center mb-3">
-            <input
-              type="text"
-              value={setor.nome}
-              onChange={(e) => {
-                const newSetores = [...setores];
-                newSetores[setorIndex].nome = e.target.value;
-                setSetores(newSetores);
-              }}
-              className="bg-slate-600/50 border border-slate-600 rounded px-3 py-1 text-white font-semibold flex-1"
-            />
-            <button
-              onClick={() => removeSetor(setorIndex)}
-              className="ml-2 p-1 text-red-400 hover:bg-red-500/20 rounded"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="space-y-2">
-            {setor.itens.map((item, itemIndex) => (
-              <div key={itemIndex} className="flex gap-2 text-sm">
-                <input
-                  type="text"
-                  value={item.descricao}
-                  onChange={(e) => updateItem(setorIndex, itemIndex, 'descricao', e.target.value)}
-                  placeholder="Descrição"
-                  className="flex-1 bg-slate-600/50 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                />
-                <input
-                  type="number"
-                  value={item.quantidade}
-                  onChange={(e) => updateItem(setorIndex, itemIndex, 'quantidade', e.target.value)}
-                  placeholder="Qtd"
-                  className="w-16 bg-slate-600/50 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                />
-                <select
-                  value={item.unidade}
-                  onChange={(e) => updateItem(setorIndex, itemIndex, 'unidade', e.target.value)}
-                  className="w-20 bg-slate-600/50 border border-slate-600 rounded px-2 py-1 text-white text-xs"
-                >
-                  <option value="KG">KG</option>
-                  <option value="M2">M²</option>
-                  <option value="UN">UN</option>
-                </select>
-                <button
-                  onClick={() => removeItem(setorIndex, itemIndex)}
-                  className="p-1 text-red-400 hover:bg-red-500/20 rounded"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-            ))}
-          </div>
-
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="flex justify-between items-center">
+        <h2 className="text-2xl font-bold text-gray-900">Setores e Itens</h2>
+        {!showNewSetor && (
           <button
-            onClick={() => addItem(setorIndex)}
-            className="mt-2 w-full py-1 text-sm text-blue-400 hover:bg-blue-500/10 rounded border border-blue-500/30"
-          >
-            + Adicionar Item
-          </button>
-        </div>
-      ))}
-
-      <button
-        onClick={addSetor}
-        className="w-full py-2 text-sm font-semibold text-white bg-blue-600/30 hover:bg-blue-600/50 rounded border border-blue-500 rounded"
-      >
-        + Novo Setor
-      </button>
-    </div>
-  );
-};
-
-const StepBDI = ({ bdi, setBdi, unitCosts, setores }) => {
-  const pesoTotal = useMemo(() => {
-    let total = 0;
-    setores.forEach(s => {
-      const gruposPorBase = {};
-      (s.itens || []).forEach(item => {
-        if (item.unidade === 'KG') {
-          const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
-          if (!gruposPorBase[base] || item.quantidade > gruposPorBase[base]) {
-            gruposPorBase[base] = item.quantidade;
-          }
-        }
-      });
-      total += Object.values(gruposPorBase).reduce((sum, qty) => sum + qty, 0);
-    });
-    return total;
-  }, [setores]);
-
-  const custoMaterial = pesoTotal * unitCosts.estrutura.material;
-  const custoFabricacao = pesoTotal * unitCosts.estrutura.fabricacao;
-  const custoTransporte = pesoTotal * unitCosts.estrutura.transporte;
-
-  const custoBase = custoMaterial + custoFabricacao + custoTransporte;
-  const totalComBDI = custoBase * (1 + bdi.taxa / 100);
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-slate-700/30 rounded-lg p-4">
-        <h4 className="text-sm font-semibold text-slate-200 mb-3">Análise de Custos</h4>
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div className="bg-slate-600/20 p-3 rounded">
-            <div className="text-slate-400 text-xs">Custo Material</div>
-            <div className="text-lg font-bold text-blue-400">{formatCurrency(custoMaterial)}</div>
-          </div>
-          <div className="bg-slate-600/20 p-3 rounded">
-            <div className="text-slate-400 text-xs">Custo Fabricação</div>
-            <div className="text-lg font-bold text-blue-400">{formatCurrency(custoFabricacao)}</div>
-          </div>
-          <div className="bg-slate-600/20 p-3 rounded">
-            <div className="text-slate-400 text-xs">Custo Transporte</div>
-            <div className="text-lg font-bold text-blue-400">{formatCurrency(custoTransporte)}</div>
-          </div>
-          <div className="bg-slate-600/20 p-3 rounded">
-            <div className="text-slate-400 text-xs">Custo Base Total</div>
-            <div className="text-lg font-bold text-slate-200">{formatCurrency(custoBase)}</div>
-          </div>
-        </div>
-      </div>
-
-      <div className="bg-slate-700/30 rounded-lg p-4">
-        <h4 className="text-sm font-semibold text-slate-200 mb-3 flex items-center gap-2">
-          <Percent className="h-4 w-4" />
-          BDI (Benefício, Despesas Indiretas)
-        </h4>
-        <div className="space-y-3">
-          <div>
-            <label className="text-slate-400 text-sm">Taxa BDI (%)</label>
-            <input
-              type="number"
-              step="0.1"
-              value={bdi.taxa}
-              onChange={(e) => setBdi({ ...bdi, taxa: parseFloat(e.target.value) || 0 })}
-              className="w-full px-3 py-2 bg-slate-600/50 border border-slate-600 rounded text-white"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-green-500/20 p-3 rounded">
-              <div className="text-slate-400 text-xs">Total com BDI</div>
-              <div className="text-lg font-bold text-green-400">{formatCurrency(totalComBDI)}</div>
-            </div>
-            <div className="bg-green-500/20 p-3 rounded">
-              <div className="text-slate-400 text-xs">Margem BDI</div>
-              <div className="text-lg font-bold text-green-400">{formatCurrency(totalComBDI - custoBase)}</div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const StepAnalise = ({ unitCosts, setores, bdi }) => {
-  const pesoTotal = useMemo(() => {
-    let total = 0;
-    setores.forEach(s => {
-      const gruposPorBase = {};
-      (s.itens || []).forEach(item => {
-        if (item.unidade === 'KG') {
-          const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
-          if (!gruposPorBase[base] || item.quantidade > gruposPorBase[base]) {
-            gruposPorBase[base] = item.quantidade;
-          }
-        }
-      });
-      total += Object.values(gruposPorBase).reduce((sum, qty) => sum + qty, 0);
-    });
-    return total;
-  }, [setores]);
-
-  const custoTotal = pesoTotal * (unitCosts.estrutura.material + unitCosts.estrutura.fabricacao + unitCosts.estrutura.transporte);
-  const precoFinal = custoTotal * (1 + bdi.taxa / 100);
-
-  return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <div className="bg-slate-700/30 rounded-lg p-4 text-center">
-          <div className="text-slate-400 text-xs mb-1">Peso Total</div>
-          <div className="text-2xl font-bold text-blue-400">{formatNumber(pesoTotal)}</div>
-          <div className="text-slate-500 text-xs mt-1">KG</div>
-        </div>
-        <div className="bg-slate-700/30 rounded-lg p-4 text-center">
-          <div className="text-slate-400 text-xs mb-1">Custo Total</div>
-          <div className="text-lg font-bold text-slate-200">{formatCurrency(custoTotal)}</div>
-        </div>
-        <div className="bg-slate-700/30 rounded-lg p-4 text-center">
-          <div className="text-slate-400 text-xs mb-1">BDI ({bdi.taxa}%)</div>
-          <div className="text-lg font-bold text-green-400">{formatCurrency(precoFinal - custoTotal)}</div>
-        </div>
-        <div className="bg-green-600/20 rounded-lg p-4 text-center">
-          <div className="text-slate-300 text-xs mb-1 font-semibold">PREÇO FINAL</div>
-          <div className="text-2xl font-bold text-green-400">{formatCurrency(precoFinal)}</div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// DEAL CARD COMPONENT
-// ============================================================================
-
-const DealCard = ({ deal, onClick }) => {
-  const stageInfo = PIPELINE_STAGES.find(s => s.id === deal.status) || PIPELINE_STAGES[0];
-  const value = deal.preco_final || deal.valor || 0;
-  const probability = deal.probability || (deal.status === 'lead' ? 30 : 60);
-
-  return (
-    <motion.div
-      layout
-      layoutId={deal.id}
-      onClick={onClick}
-      className={`${stageInfo.color} border ${stageInfo.border} rounded-lg p-4 cursor-move hover:shadow-lg transition-shadow`}
-      whileHover={{ y: -2 }}
-    >
-      <div className="flex justify-between items-start mb-2">
-        <h3 className="font-semibold text-white text-sm line-clamp-2">{deal.nome || deal.nome_projeto}</h3>
-        <span className="text-xs bg-white/20 text-white px-2 py-1 rounded">{probability}%</span>
-      </div>
-      <div className="text-slate-300 text-xs mb-2">{deal.cliente}</div>
-      <div className="text-lg font-bold text-white mb-2">{formatCurrency(value)}</div>
-      <div className="flex justify-between items-center text-xs text-slate-400">
-        <span className="flex items-center gap-1">
-          <Calendar className="h-3 w-3" />
-          {new Date(deal.data_criacao || new Date()).toLocaleDateString('pt-BR')}
-        </span>
-        <span className="text-blue-300">→</span>
-      </div>
-    </motion.div>
-  );
-};
-
-// ============================================================================
-// KPI DASHBOARD
-// ============================================================================
-
-const KPIDashboard = ({ deals }) => {
-  const totalPipeline = useMemo(() => {
-    return deals.reduce((sum, d) => sum + (d.preco_final || d.valor || 0), 0);
-  }, [deals]);
-
-  const closedDeals = useMemo(() => {
-    return deals.filter(d => d.status === 'obra').length;
-  }, [deals]);
-
-  const totalClosed = useMemo(() => {
-    return deals
-      .filter(d => d.status === 'obra')
-      .reduce((sum, d) => sum + (d.preco_final || d.valor || 0), 0);
-  }, [deals]);
-
-  const conversionRate = deals.length > 0 ? Math.round((closedDeals / deals.length) * 100) : 0;
-  const averageTicket = deals.length > 0 ? totalPipeline / deals.length : 0;
-
-  return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-slate-400 text-sm">Pipeline Total</div>
-            <div className="text-2xl font-bold text-blue-400 mt-1">{formatCurrency(totalPipeline)}</div>
-          </div>
-          <DollarSign className="h-8 w-8 text-blue-500/30" />
-        </div>
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-slate-400 text-sm">Taxa Conversão</div>
-            <div className="text-2xl font-bold text-green-400 mt-1">{conversionRate}%</div>
-          </div>
-          <TrendingUp className="h-8 w-8 text-green-500/30" />
-        </div>
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-slate-400 text-sm">Ticket Médio</div>
-            <div className="text-2xl font-bold text-purple-400 mt-1">{formatCurrency(averageTicket)}</div>
-          </div>
-          <Target className="h-8 w-8 text-purple-500/30" />
-        </div>
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-slate-800/50 border border-slate-700 rounded-lg p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-slate-400 text-sm">Deals Ativos</div>
-            <div className="text-2xl font-bold text-amber-400 mt-1">{deals.length}</div>
-          </div>
-          <Building2 className="h-8 w-8 text-amber-500/30" />
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
-// ============================================================================
-// DEAL DETAIL VIEW
-// ============================================================================
-
-const DealDetailView = ({ deal, onClose, onSave, onMoveStage }) => {
-  const [activeTab, setActiveTab] = useState('info');
-  const [project, setProject] = useState(deal.projeto_dados || {
-    nome: deal.nome_projeto || '',
-    cliente: deal.cliente || '',
-    tipo: '',
-    regiao: 'sudeste',
-  });
-
-  const [unitCosts, setUnitCosts] = useState(deal.custos_unitarios || {
-    estrutura: { material: 19.50, fabricacao: 5.50, pintura: 1.40, transporte: 1.00, montagem: 3.50 },
-    cobertura: { tipo: 'galvanizada_050', material: 75.00, montagem: 18.00 },
-    fechamento: { tipo: 'pir_30mm', material: 125.00, montagem: 15.00 },
-    steelDeck: { material: 115.00, montagem: 25.00 },
-    complementos: { calha: 120.00, rufos: 55.00, platibanda: 80.00 },
-  });
-
-  const [setores, setSetores] = useState(deal.setores || []);
-  const [bdi, setBdi] = useState(deal.bdi || { taxa: 30 });
-  const [probability, setProbability] = useState(deal.probability || 50);
-  const [expectedCloseDate, setExpectedCloseDate] = useState(deal.expected_close_date || '');
-  const [notes, setNotes] = useState(deal.notes || '');
-
-  const currentStage = PIPELINE_STAGES.find(s => s.id === deal.status);
-  const nextStage = PIPELINE_STAGES[PIPELINE_STAGES.findIndex(s => s.id === deal.status) + 1];
-
-  const handleSave = () => {
-    const updatedDeal = {
-      ...deal,
-      projeto_dados: project,
-      custos_unitarios: unitCosts,
-      setores,
-      bdi,
-      probability,
-      expected_close_date: expectedCloseDate,
-      notes,
-    };
-    onSave(updatedDeal);
-  };
-
-  const tabs = [
-    { id: 'info', label: 'Info' },
-    { id: 'custos', label: 'Custos' },
-    { id: 'setores', label: 'Setores' },
-    { id: 'bdi', label: 'BDI' },
-    { id: 'analise', label: 'Análise' },
-  ];
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 overflow-auto"
-    >
-      <div className="bg-slate-900 border border-slate-700 rounded-lg max-w-4xl w-full my-8">
-        <div className="border-b border-slate-700 p-6 flex justify-between items-start">
-          <div>
-            <h2 className="text-2xl font-bold text-white">{deal.nome_projeto}</h2>
-            <p className="text-slate-400 mt-1">{deal.cliente}</p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-700/50 rounded-lg text-slate-400 hover:text-white"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
-
-        {/* Tabs */}
-        <div className="border-b border-slate-700 px-6 flex gap-4">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`py-4 text-sm font-medium border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-blue-500 text-blue-400'
-                  : 'border-transparent text-slate-400 hover:text-slate-300'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Content */}
-        <div className="p-6 max-h-96 overflow-y-auto">
-          {activeTab === 'info' && <StepInfo project={project} setProject={setProject} />}
-          {activeTab === 'custos' && <StepCustos unitCosts={unitCosts} setUnitCosts={setUnitCosts} setores={setores} />}
-          {activeTab === 'setores' && <StepSetores setores={setores} setSetores={setSetores} />}
-          {activeTab === 'bdi' && <StepBDI bdi={bdi} setBdi={setBdi} unitCosts={unitCosts} setores={setores} />}
-          {activeTab === 'analise' && <StepAnalise unitCosts={unitCosts} setores={setores} bdi={bdi} />}
-        </div>
-
-        {/* Metadata */}
-        <div className="border-t border-slate-700 p-6 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-slate-300 mb-1">Probabilidade (%)</label>
-              <input
-                type="number"
-                min="0"
-                max="100"
-                value={probability}
-                onChange={(e) => setProbability(parseInt(e.target.value) || 0)}
-                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-white"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-slate-300 mb-1">Data Prevista de Fechamento</label>
-              <input
-                type="date"
-                value={expectedCloseDate}
-                onChange={(e) => setExpectedCloseDate(e.target.value)}
-                className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-white"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-1">Notas</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-white h-20 resize-none"
-              placeholder="Adicionar notas sobre o deal..."
-            />
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="border-t border-slate-700 p-6 flex gap-3 justify-between">
-          <div className="flex gap-3">
-            <button
-              onClick={handleSave}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
-            >
-              <Save className="h-4 w-4" />
-              Salvar
-            </button>
-            {nextStage && (
-              <button
-                onClick={() => onMoveStage(deal.id, nextStage.id)}
-                className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium"
-              >
-                <ArrowUpRight className="h-4 w-4" />
-                Próximo: {nextStage.label}
-              </button>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium"
-          >
-            Fechar
-          </button>
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-// ============================================================================
-// NEW DEAL FORM
-// ============================================================================
-
-const NewDealForm = ({ onClose, onCreate }) => {
-  const [formData, setFormData] = useState({
-    nome_projeto: '',
-    cliente: '',
-    valor: 0,
-  });
-
-  const handleCreate = () => {
-    if (!formData.nome_projeto || !formData.cliente) {
-      toast.error('Preencha nome do projeto e cliente');
-      return;
-    }
-    onCreate({
-      ...formData,
-      status: 'lead',
-      probability: 30,
-      data_criacao: new Date().toISOString(),
-    });
-  };
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4"
-    >
-      <div className="bg-slate-900 border border-slate-700 rounded-lg max-w-lg w-full">
-        <div className="border-b border-slate-700 p-6 flex justify-between items-center">
-          <h2 className="text-2xl font-bold text-white">Novo Lead</h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-slate-700/50 rounded-lg text-slate-400 hover:text-white"
-          >
-            <X className="h-6 w-6" />
-          </button>
-        </div>
-
-        <div className="p-6 space-y-4">
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-1">Nome do Projeto *</label>
-            <input
-              type="text"
-              value={formData.nome_projeto}
-              onChange={(e) => setFormData({ ...formData, nome_projeto: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-white placeholder-slate-500"
-              placeholder="Ex: Galpão Industrial XYZ"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-1">Cliente *</label>
-            <input
-              type="text"
-              value={formData.cliente}
-              onChange={(e) => setFormData({ ...formData, cliente: e.target.value })}
-              className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-white placeholder-slate-500"
-              placeholder="Ex: Empresa ABC Ltda"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-semibold text-slate-300 mb-1">Valor Estimado (R$)</label>
-            <input
-              type="number"
-              value={formData.valor}
-              onChange={(e) => setFormData({ ...formData, valor: parseFloat(e.target.value) || 0 })}
-              className="w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded text-white"
-              placeholder="0,00"
-            />
-          </div>
-        </div>
-
-        <div className="border-t border-slate-700 p-6 flex gap-3 justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg font-medium"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium"
+            onClick={() => setShowNewSetor(true)}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
           >
             <Plus className="h-4 w-4" />
-            Criar Lead
+            Novo Setor
           </button>
+        )}
+      </div>
+
+      {showNewSetor && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex gap-3">
+            <input
+              type="text"
+              placeholder="Nome do setor (ex: SUPERMERCADO, COBERTURA, FECHAMENTO)"
+              value={newSetorName}
+              onChange={(e) => setNewSetorName(e.target.value)}
+              className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            />
+            <button
+              onClick={handleAddSetor}
+              className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium"
+            >
+              Criar
+            </button>
+            <button
+              onClick={() => setShowNewSetor(false)}
+              className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-100"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+
+      <AnimatePresence>
+        <div className="space-y-4">
+          {setores.map((setor, idx) => (
+            <SetorCard
+              key={idx}
+              setor={setor}
+              index={idx}
+              onUpdate={handleUpdateSetor}
+              onDelete={handleDeleteSetor}
+              onAddItem={handleAddItem}
+              unitCosts={unitCosts}
+            />
+          ))}
+        </div>
+      </AnimatePresence>
+
+      {setores.length === 0 && (
+        <div className="bg-blue-50 border-l-4 border-blue-600 p-4 rounded">
+          <p className="text-blue-900">Nenhum setor criado. Crie um para começar a adicionar itens.</p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Step 4: BDI e Investimento
+const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, paymentConditions, setPaymentConditions }) => {
+  const [margemPct, setMargemPct] = useState(18);
+  const [impostosPct, setImpostosPct] = useState(12);
+
+  const totalValue = calculations.precoFinal || 0;
+
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* BDI Configuration */}
+        <div className="bg-white rounded-lg shadow p-6 border-l-4 border-l-blue-600">
+          <h3 className="text-lg font-semibold mb-4">Margem e Impostos</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Margem de Lucro (%)</label>
+              <input
+                type="number"
+                step="0.5"
+                value={margemPct}
+                onChange={(e) => setMargemPct(parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-600 mt-1">Sugeridos: Mínima 12%, Padrão 18%, Alta 25%</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Impostos (%)</label>
+              <input
+                type="number"
+                step="0.5"
+                value={impostosPct}
+                onChange={(e) => setImpostosPct(parseFloat(e.target.value))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
+              />
+              <p className="text-xs text-gray-600 mt-1">Padrão: ~12% (ISS, PIS, COFINS)</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Composição do Investimento */}
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg shadow p-6 border border-green-200">
+          <h3 className="text-lg font-semibold mb-4 text-green-900">Composição do Investimento</h3>
+          <div className="space-y-2 text-sm">
+            <div className="flex justify-between">
+              <span className="text-gray-700">Material (s/ margem):</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoMaterial || 0)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-700">Instalação (Fab/Pint/Transp/Mont):</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoInstalacao || 0)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-700">Margem (+{margemPct}%) s/ instalação:</span>
+              <span className="font-semibold text-green-600">{formatCurrency((calculations.custoInstalacao || 0) * (margemPct / 100))}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-gray-700">Impostos ({impostosPct}%) s/ instalação:</span>
+              <span className="font-semibold text-orange-600">{formatCurrency(((calculations.custoInstalacao || 0) * (1 + margemPct / 100)) * (impostosPct / 100))}</span>
+            </div>
+            <div className="border-t pt-2 flex justify-between font-bold text-base">
+              <span>VALOR TOTAL:</span>
+              <span className="text-green-700">{formatCurrency(calculations.precoFinal || 0)}</span>
+            </div>
+          </div>
         </div>
       </div>
-    </motion.div>
+
+      {/* Condições de Pagamento */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <DollarSign className="h-5 w-5 text-blue-600" />
+          Condições de Pagamento
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Na Assinatura (%)</label>
+            <input
+              type="number"
+              step="1"
+              value={paymentConditions.assinatura}
+              onChange={(e) => setPaymentConditions({ ...paymentConditions, assinatura: parseFloat(e.target.value) || 0 })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
+            />
+            <div className="text-sm font-semibold text-blue-900">
+              {formatCurrency((totalValue * paymentConditions.assinatura) / 100)}
+            </div>
+          </div>
+
+          <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Aprovação do Projeto (%)</label>
+            <input
+              type="number"
+              step="1"
+              value={paymentConditions.aprovacao}
+              onChange={(e) => setPaymentConditions({ ...paymentConditions, aprovacao: parseFloat(e.target.value) || 0 })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 mb-2"
+            />
+            <div className="text-sm font-semibold text-orange-900">
+              {formatCurrency((totalValue * paymentConditions.aprovacao) / 100)}
+            </div>
+          </div>
+
+          <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Medições Mensais (%)</label>
+            <input
+              type="number"
+              step="1"
+              value={paymentConditions.medicoes}
+              onChange={(e) => setPaymentConditions({ ...paymentConditions, medicoes: parseFloat(e.target.value) || 0 })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 mb-2"
+            />
+            <div className="text-sm font-semibold text-green-900">
+              {formatCurrency((totalValue * paymentConditions.medicoes) / 100)}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 p-3 bg-gray-50 rounded border border-gray-200">
+          <p className="text-sm text-gray-700">
+            Total distribuído: <span className="font-bold">{paymentConditions.assinatura + paymentConditions.aprovacao + paymentConditions.medicoes}%</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Step 5: Cronograma e Escopo
+const StepCronogramaEscopo = ({ cronograma, setCronograma, escopo, setEscopo, setores }) => {
+  const totalPeso = setores.reduce((sum, s) => {
+    const gruposPorBase = {};
+    (s.itens || []).forEach(item => {
+      if (item.unidade === 'KG') {
+        const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+        if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+          gruposPorBase[base] = item.quantidade || 0;
+        }
+      }
+    });
+    return sum + Object.values(gruposPorBase).reduce((s, q) => s + q, 0);
+  }, 0);
+
+  // Calcular cronograma estimado baseado no peso
+  const calcularDias = (peso) => {
+    if (peso < 10000) return 15;
+    if (peso < 50000) return 30;
+    if (peso < 100000) return 45;
+    return 60;
+  };
+
+  const diasFabricacao = calcularDias(totalPeso);
+
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      {/* Cronograma */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <Clock className="h-5 w-5 text-blue-600" />
+          Cronograma Estimado
+        </h3>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Projeto (dias)</label>
+              <input
+                type="number"
+                value={cronograma.projeto}
+                onChange={(e) => setCronograma({ ...cronograma, projeto: parseInt(e.target.value) || 0 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fabricação (dias)</label>
+              <input
+                type="number"
+                value={cronograma.fabricacao}
+                onChange={(e) => setCronograma({ ...cronograma, fabricacao: parseInt(e.target.value) || 0 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                placeholder={String(diasFabricacao)}
+              />
+              <p className="text-xs text-gray-500 mt-1">Sugerido: {diasFabricacao} dias</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Montagem (dias)</label>
+              <input
+                type="number"
+                value={cronograma.montagem}
+                onChange={(e) => setCronograma({ ...cronograma, montagem: parseInt(e.target.value) || 0 })}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <div className="bg-blue-50 p-3 rounded border border-blue-200">
+            <p className="text-sm text-blue-900">
+              <strong>Prazo Total: {cronograma.projeto + cronograma.fabricacao + cronograma.montagem} dias</strong>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Escopo de Fornecimento */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <CheckSquare className="h-5 w-5 text-green-600" />
+          Escopo de Fornecimento
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">INCLUSO</label>
+            <textarea
+              value={escopo.incluso}
+              onChange={(e) => setEscopo({ ...escopo, incluso: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 h-32 text-sm"
+              placeholder="Lista de itens inclusos"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">NÃO INCLUSO</label>
+            <textarea
+              value={escopo.naoIncluso}
+              onChange={(e) => setEscopo({ ...escopo, naoIncluso: e.target.value })}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 h-32 text-sm"
+              placeholder="Lista de itens não inclusos"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Obrigações do Contratante */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <FileText className="h-5 w-5 text-orange-600" />
+          Obrigações do Contratante
+        </h3>
+        <textarea
+          value={cronograma.obrigacoes}
+          onChange={(e) => setCronograma({ ...cronograma, obrigacoes: e.target.value })}
+          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 h-32 text-sm"
+          placeholder="Lista de obrigações do contratante"
+        />
+      </div>
+    </div>
+  );
+};
+
+// KPI Card
+const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) => {
+  const colorClasses = {
+    blue: 'bg-blue-50 border-blue-200 text-blue-600',
+    green: 'bg-green-50 border-green-200 text-green-600',
+    orange: 'bg-orange-50 border-orange-200 text-orange-600',
+    red: 'bg-red-50 border-red-200 text-red-600',
+    purple: 'bg-purple-50 border-purple-200 text-purple-600',
+  };
+
+  return (
+    <div className={`rounded-lg border-l-4 p-6 ${colorClasses[color]}`}>
+      <div className="flex justify-between items-start">
+        <div>
+          <p className="text-sm font-medium text-gray-600">{title}</p>
+          <p className="text-2xl font-bold mt-2">{value}</p>
+          {subtitle && <p className="text-xs text-gray-500 mt-1">{subtitle}</p>}
+        </div>
+        <Icon className="h-8 w-8 opacity-20" />
+      </div>
+    </div>
+  );
+};
+
+// Step 6: Prévia da Proposta
+const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF }) => {
+  const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
+
+  const totalPeso = setores.reduce((sum, s) => {
+    const gruposPorBase = {};
+    (s.itens || []).forEach(item => {
+      if (item.unidade === 'KG') {
+        const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
+        if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
+          gruposPorBase[base] = item.quantidade || 0;
+        }
+      }
+    });
+    return sum + Object.values(gruposPorBase).reduce((s, q) => s + q, 0);
+  }, 0);
+
+  const precoMedio = totalPeso > 0 ? calculations.precoFinal / totalPeso : 0;
+
+  return (
+    <div className="max-w-full px-4 lg:px-8 space-y-6">
+      {/* KPI Summary */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <KPICard title="Peso Total" value={formatNumber(totalPeso) + ' kg'} icon={Weight} color="blue" />
+        <KPICard title="Número de Itens" value={totalItens} icon={Package} color="orange" />
+        <KPICard title="Preço Médio/kg" value={formatCurrency(precoMedio)} icon={TrendingUp} color="green" />
+        <KPICard title="Valor Total" value={formatCurrency(calculations.precoFinal)} icon={DollarSign} color="purple" />
+      </div>
+
+      {/* Proposta Preview */}
+      <div className="bg-white rounded-lg shadow p-8 border-t-4 border-blue-600">
+        <div className="space-y-6">
+          {/* Header */}
+          <div className="border-b pb-4">
+            <h1 className="text-3xl font-bold text-gray-900">PROPOSTA COMERCIAL</h1>
+            <p className="text-xl text-gray-600">Nº {project.numeroPropostas}</p>
+            <div className="flex gap-6 mt-2 text-sm text-gray-600">
+              <span><strong>Emissão:</strong> {new Date(project.dataEmissao).toLocaleDateString('pt-BR')}</span>
+              <span><strong>Validade:</strong> {new Date(project.dataValidade).toLocaleDateString('pt-BR')}</span>
+            </div>
+          </div>
+
+          {/* Dados do Projeto */}
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">DADOS DO PROJETO</h3>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div><strong>Projeto:</strong> {project.nome}</div>
+              <div><strong>Cliente:</strong> {project.cliente}</div>
+              <div><strong>Tipo:</strong> {TIPOS_ESTRUTURA[project.tipo]?.nome || project.tipo}</div>
+              <div><strong>Região:</strong> {project.regiao}</div>
+            </div>
+          </div>
+
+          {/* Custos Unitários */}
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">CUSTOS UNITÁRIOS DE REFERÊNCIA</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border p-2 text-left font-semibold">Categoria</th>
+                    <th className="border p-2 text-right font-semibold">Valor</th>
+                    <th className="border p-2 text-left font-semibold">Unidade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b">
+                    <td className="border p-2">Estrutura - Material</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.estrutura.material)}</td>
+                    <td className="border p-2">kg</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="border p-2">Estrutura - Fabricação</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.estrutura.fabricacao)}</td>
+                    <td className="border p-2">kg</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="border p-2">Cobertura - Material</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.cobertura.material)}</td>
+                    <td className="border p-2">m²</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="border p-2">Fechamento - Material</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.fechamento.material)}</td>
+                    <td className="border p-2">m²</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Orçamento Detalhado */}
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">ORÇAMENTO DETALHADO POR SETOR ({setores.length} SETORES | {totalItens} ITENS)</h3>
+            <div className="space-y-4">
+              {setores.map((setor, idx) => {
+                const setorTotal = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
+                const setorMaterial = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoMaterial || 0)), 0);
+
+                return (
+                  <div key={idx} className="border rounded-lg p-3">
+                    <h4 className="font-bold text-gray-900 mb-2">ETAPA {idx + 1} ({setor.nome})</h4>
+                    <div className="overflow-x-auto mb-3">
+                      <table className="w-full text-xs">
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="border p-1 text-left">DESCRIÇÃO</th>
+                            <th className="border p-1 text-center">UN</th>
+                            <th className="border p-1 text-center">QUANTIDADE</th>
+                            <th className="border p-1 text-right">PREÇO UNIT.</th>
+                            <th className="border p-1 text-right">TOTAL</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {setor.itens.map((item, iIdx) => (
+                            <tr key={iIdx} className="border-b">
+                              <td className="border p-1">{item.descricao}</td>
+                              <td className="border p-1 text-center">{item.unidade}</td>
+                              <td className="border p-1 text-center">{formatNumber(item.quantidade)}</td>
+                              <td className="border p-1 text-right">{formatCurrency(item.preco)}</td>
+                              <td className="border p-1 text-right font-semibold">{formatCurrency(item.quantidade * item.preco)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <div className="flex gap-6 text-xs font-semibold">
+                      <span>Subtotal: {formatCurrency(setorTotal)}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Resumo do Orçamento */}
+          <div className="bg-gray-50 p-4 rounded-lg border">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">RESUMO DO ORÇAMENTO</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <KPICard title="Peso Total" value={formatNumber(totalPeso) + ' kg'} icon={Weight} color="blue" />
+              <KPICard title="Itens" value={String(totalItens)} icon={Package} color="orange" />
+              <KPICard title="Preço Médio/kg" value={formatCurrency(precoMedio)} icon={TrendingUp} color="green" />
+              <KPICard title="Valor Final" value={formatCurrency(calculations.precoFinal)} icon={DollarSign} color="purple" />
+            </div>
+            <div className="border-t pt-3 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Material (s/ margem/impostos):</span>
+                <span className="font-semibold">{formatCurrency(calculations.custoMaterial || 0)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Instalação (Fab/Pint/Transp/Mont):</span>
+                <span className="font-semibold">{formatCurrency(calculations.custoInstalacao || 0)}</span>
+              </div>
+              <div className="flex justify-between border-t pt-2 font-bold">
+                <span>VALOR TOTAL DA PROPOSTA:</span>
+                <span className="text-green-700">{formatCurrency(calculations.precoFinal || 0)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Condições de Pagamento */}
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">CONDIÇÕES DE PAGAMENTO</h3>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-blue-50 p-3 rounded border border-blue-200 text-center">
+                <div className="text-xs font-semibold text-blue-900">Na Assinatura</div>
+                <div className="text-lg font-bold text-blue-700">{paymentConditions.assinatura}%</div>
+                <div className="text-xs text-blue-600">{formatCurrency((calculations.precoFinal * paymentConditions.assinatura) / 100)}</div>
+              </div>
+              <div className="bg-orange-50 p-3 rounded border border-orange-200 text-center">
+                <div className="text-xs font-semibold text-orange-900">Aprovação Projeto</div>
+                <div className="text-lg font-bold text-orange-700">{paymentConditions.aprovacao}%</div>
+                <div className="text-xs text-orange-600">{formatCurrency((calculations.precoFinal * paymentConditions.aprovacao) / 100)}</div>
+              </div>
+              <div className="bg-green-50 p-3 rounded border border-green-200 text-center">
+                <div className="text-xs font-semibold text-green-900">Medições Mensais</div>
+                <div className="text-lg font-bold text-green-700">{paymentConditions.medicoes}%</div>
+                <div className="text-xs text-green-600">{formatCurrency((calculations.precoFinal * paymentConditions.medicoes) / 100)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Cronograma */}
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">CRONOGRAMA ESTIMADO ({cronograma.projeto + cronograma.fabricacao + cronograma.montagem} DIAS)</h3>
+            <div className="flex gap-4 items-center">
+              <div className="text-center flex-1">
+                <div className="bg-blue-100 p-2 rounded mb-1 font-semibold text-sm">Projeto</div>
+                <div className="text-gray-600 text-xs">{cronograma.projeto}d</div>
+              </div>
+              <div className="text-gray-400">→</div>
+              <div className="text-center flex-1">
+                <div className="bg-orange-100 p-2 rounded mb-1 font-semibold text-sm">Fabricação</div>
+                <div className="text-gray-600 text-xs">{cronograma.fabricacao}d</div>
+              </div>
+              <div className="text-gray-400">→</div>
+              <div className="text-center flex-1">
+                <div className="bg-green-100 p-2 rounded mb-1 font-semibold text-sm">Montagem</div>
+                <div className="text-gray-600 text-xs">{cronograma.montagem}d</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Escopo */}
+          <div className="grid grid-cols-2 gap-6">
+            <div>
+              <h4 className="font-bold text-gray-900 mb-2 text-sm">INCLUSO:</h4>
+              <p className="text-sm whitespace-pre-wrap text-gray-700">{escopo.incluso}</p>
+            </div>
+            <div>
+              <h4 className="font-bold text-gray-900 mb-2 text-sm">NÃO INCLUSO:</h4>
+              <p className="text-sm whitespace-pre-wrap text-gray-700">{escopo.naoIncluso}</p>
+            </div>
+          </div>
+
+          {/* Obrigações */}
+          <div>
+            <h4 className="font-bold text-gray-900 mb-2">OBRIGAÇÕES DO CONTRATANTE:</h4>
+            <p className="text-sm whitespace-pre-wrap text-gray-700">{cronograma.obrigacoes}</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Buttons */}
+      <div className="flex gap-4 justify-end">
+        <button
+          onClick={onSave}
+          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2"
+        >
+          <Save className="h-4 w-4" />
+          Salvar Orçamento
+        </button>
+        <button
+          onClick={onGeneratePDF}
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
+        >
+          <Download className="h-4 w-4" />
+          Gerar Proposta PDF
+        </button>
+      </div>
+    </div>
   );
 };
 
@@ -966,196 +1506,210 @@ const NewDealForm = ({ onClose, onCreate }) => {
 // ============================================================================
 
 export default function SimuladorOrcamento() {
-  const { orcamentos: orcamentosContext, addOrcamento, deleteOrcamento } = useOrcamentos();
-  const [deals, setDeals] = useState([]);
-  const [selectedDeal, setSelectedDeal] = useState(null);
-  const [showNewDealForm, setShowNewDealForm] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStage, setFilterStage] = useState(null);
+  const { saveOrcamento } = useOrcamentos();
+  const [currentStep, setCurrentStep] = useState(0);
+  const [project, setProject] = useState({
+    nome: '',
+    cliente: '',
+    tipo: '',
+    regiao: 'sudeste',
+    numeroPropostas: '',
+    dataEmissao: '',
+    dataValidade: '',
+  });
+  const [unitCosts, setUnitCosts] = useState({
+    estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20 },
+    cobertura: { tipo: 'galvanizada_050', material: 75, montagem: 18 },
+    fechamento: { tipo: 'pir_30mm', material: 125, montagem: 15 },
+    steelDeck: { material: 100, montagem: 20 },
+    complementos: { calha: 25, rufos: 20, platibanda: 45 },
+  });
+  const [setores, setSetores] = useState([]);
+  const [calculations, setCalculations] = useState({
+    custoMaterial: 0,
+    custoInstalacao: 0,
+    margemPct: 18,
+    impostosPct: 12,
+    precoFinal: 0,
+  });
+  const [paymentConditions, setPaymentConditions] = useState({
+    assinatura: 10,
+    aprovacao: 5,
+    medicoes: 85,
+  });
+  const [cronograma, setCronograma] = useState({
+    projeto: 10,
+    fabricacao: 30,
+    montagem: 15,
+    obrigacoes: 'Disponibilizar acesso ao local da obra; Fornecer ponto de energia elétrica e água; Garantir fundações conforme projeto fornecido pela Montex; Aprovar o projeto executivo em até 10 dias úteis; Efetuar os pagamentos nas datas acordadas.',
+  });
+  const [escopo, setEscopo] = useState({
+    incluso: 'Projeto executivo de estrutura metálica; Fabricação completa em fábrica; Tratamento superficial e pintura; Transporte até a obra; Montagem completa com equipamentos; Acompanhamento técnico durante execução; Garantia de 5 anos contra defeitos de fabricação.',
+    naoIncluso: 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.',
+  });
 
-  // Sync with context
+  const steps = [
+    { label: 'Dados do Projeto', icon: Building2 },
+    { label: 'Custos Unitários', icon: DollarSign },
+    { label: 'Setores e Itens', icon: Layers },
+    { label: 'BDI e Investimento', icon: TrendingUp },
+    { label: 'Cronograma e Escopo', icon: Calendar },
+    { label: 'Prévia da Proposta', icon: Eye },
+  ];
+
+  // Recalculate totals whenever setores change
   useEffect(() => {
-    if (Array.isArray(orcamentosContext)) {
-      setDeals(orcamentosContext);
+    let totalMaterial = 0;
+    let totalInstalacao = 0;
+
+    setores.forEach(setor => {
+      setor.itens.forEach(item => {
+        const qty = item.quantidade || 0;
+        totalMaterial += qty * (item.precoMaterial || 0);
+        totalInstalacao += qty * (item.precoInstalacao || 0);
+      });
+    });
+
+    const margemValor = totalInstalacao * (calculations.margemPct / 100);
+    const impostoValor = (totalInstalacao + margemValor) * (calculations.impostosPct / 100);
+    const precoFinal = totalMaterial + totalInstalacao + margemValor + impostoValor;
+
+    setCalculations({
+      ...calculations,
+      custoMaterial: totalMaterial,
+      custoInstalacao: totalInstalacao,
+      precoFinal: precoFinal,
+    });
+  }, [setores]);
+
+  const handleSaveOrcamento = () => {
+    if (!project.nome || !project.cliente) {
+      toast.error('Preencha os dados do projeto primeiro');
+      return;
     }
-  }, [orcamentosContext]);
 
-  const filteredDeals = useMemo(() => {
-    return deals.filter(deal => {
-      const matchesSearch = (deal.nome_projeto + deal.cliente).toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesStage = !filterStage || deal.status === filterStage;
-      return matchesSearch && matchesStage;
-    });
-  }, [deals, searchTerm, filterStage]);
-
-  const dealsByStage = useMemo(() => {
-    const grouped = {};
-    PIPELINE_STAGES.forEach(stage => {
-      grouped[stage.id] = filteredDeals.filter(d => d.status === stage.id);
-    });
-    return grouped;
-  }, [filteredDeals]);
-
-  const handleSaveDeal = useCallback((updatedDeal) => {
-    setDeals(deals.map(d => d.id === updatedDeal.id ? updatedDeal : d));
-    toast.success('Deal salvo com sucesso');
-    setSelectedDeal(null);
-  }, [deals]);
-
-  const handleMoveDeal = useCallback((dealId, newStage) => {
-    setDeals(deals.map(d => d.id === dealId ? { ...d, status: newStage } : d));
-    toast.success(`Deal movido para ${PIPELINE_STAGES.find(s => s.id === newStage)?.label}`);
-    setSelectedDeal(null);
-  }, [deals]);
-
-  const handleCreateDeal = useCallback((newDealData) => {
-    const newDeal = {
-      id: Date.now().toString(),
-      ...newDealData,
-      data_criacao: new Date().toISOString(),
-      projeto_dados: { nome: '', cliente: '', tipo: '', regiao: 'sudeste' },
-      custos_unitarios: {
-        estrutura: { material: 19.50, fabricacao: 5.50, pintura: 1.40, transporte: 1.00, montagem: 3.50 },
-        cobertura: { tipo: 'galvanizada_050', material: 75.00, montagem: 18.00 },
-        fechamento: { tipo: 'pir_30mm', material: 125.00, montagem: 15.00 },
-        steelDeck: { material: 115.00, montagem: 25.00 },
-        complementos: { calha: 120.00, rufos: 55.00, platibanda: 80.00 },
-      },
-      setores: [],
-      bdi: { taxa: 30 },
-      probability: 30,
+    const orcamento = {
+      id: Date.now(),
+      ...project,
+      unitCosts,
+      setores,
+      calculations,
+      paymentConditions,
+      cronograma,
+      escopo,
+      dataResposta: new Date().toISOString(),
     };
-    setDeals([...deals, newDeal]);
-    addOrcamento(newDeal);
-    toast.success('Novo lead criado');
-    setShowNewDealForm(false);
-  }, [deals, addOrcamento]);
+
+    saveOrcamento(orcamento);
+    toast.success('Orçamento salvo com sucesso!');
+  };
+
+  const handleGeneratePDF = () => {
+    toast.success('Funcionalidade de gerar PDF será implementada em breve!');
+  };
+
+  const renderStep = () => {
+    switch (currentStep) {
+      case 0:
+        return <StepDadosProjeto project={project} setProject={setProject} />;
+      case 1:
+        return <StepCustosUnitarios unitCosts={unitCosts} setUnitCosts={setUnitCosts} setores={setores} />;
+      case 2:
+        return <StepSetoresItens setores={setores} setSetores={setSetores} unitCosts={unitCosts} />;
+      case 3:
+        return <StepBDIInvestimento project={project} calculations={calculations} setCalculations={setCalculations} setores={setores} paymentConditions={paymentConditions} setPaymentConditions={setPaymentConditions} />;
+      case 4:
+        return <StepCronogramaEscopo cronograma={cronograma} setCronograma={setCronograma} escopo={escopo} setEscopo={setEscopo} setores={setores} />;
+      case 5:
+        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} />;
+      default:
+        return null;
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-slate-950 p-6">
-      <div className="max-w-full mx-auto">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <div className="flex justify-between items-center mb-6">
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
+        <div className="max-w-full px-4 lg:px-8 py-6">
+          <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-4xl font-bold text-white flex items-center gap-3">
-                <BarChart3 className="h-10 w-10 text-blue-500" />
-                Pipeline Comercial
-              </h1>
-              <p className="text-slate-400 mt-1">Gerencie seu funil de vendas</p>
+              <h1 className="text-3xl font-bold text-gray-900">Simulador de Orçamento</h1>
+              <p className="text-gray-600 mt-1">Construtor de Propostas Comerciais</p>
             </div>
-            <button
-              onClick={() => setShowNewDealForm(true)}
-              className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold"
-            >
-              <Plus className="h-5 w-5" />
-              Novo Lead
-            </button>
+            <div className="text-right">
+              <p className="text-sm text-gray-600">Etapa {currentStep + 1} de {steps.length}</p>
+              <p className="text-lg font-semibold text-gray-900">{steps[currentStep].label}</p>
+            </div>
           </div>
 
-          {/* KPIs */}
-          <KPIDashboard deals={deals} />
+          {/* Progress bar */}
+          <div className="flex gap-2">
+            {steps.map((step, idx) => {
+              const Icon = step.icon;
+              const isActive = idx === currentStep;
+              const isCompleted = idx < currentStep;
 
-          {/* Filters */}
-          <div className="flex gap-4 mb-6">
-            <div className="flex-1 relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-500" />
-              <input
-                type="text"
-                placeholder="Buscar por projeto ou cliente..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-white placeholder-slate-500"
-              />
-            </div>
-            <div className="flex gap-2 overflow-x-auto">
-              <button
-                onClick={() => setFilterStage(null)}
-                className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                  filterStage === null
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700/50'
-                }`}
-              >
-                Todos
-              </button>
-              {PIPELINE_STAGES.map(stage => (
-                <button
-                  key={stage.id}
-                  onClick={() => setFilterStage(stage.id)}
-                  className={`px-4 py-2 rounded-lg font-medium whitespace-nowrap transition-colors ${
-                    filterStage === stage.id
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-slate-800/50 text-slate-300 hover:bg-slate-700/50'
+              return (
+                <motion.button
+                  key={idx}
+                  onClick={() => setCurrentStep(idx)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+                    isActive
+                      ? 'bg-blue-600 text-white shadow-lg'
+                      : isCompleted
+                      ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                      : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
                   }`}
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
                 >
-                  {stage.label}
-                </button>
-              ))}
-            </div>
+                  <Icon className="h-4 w-4" />
+                  <span className="text-sm hidden md:inline">{step.label}</span>
+                </motion.button>
+              );
+            })}
           </div>
-        </motion.div>
-
-        {/* Kanban Board */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-          {PIPELINE_STAGES.map(stage => (
-            <div key={stage.id} className="flex flex-col">
-              {/* Column Header */}
-              <div className={`${stage.color} rounded-t-lg p-4 border ${stage.border}`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-white text-sm">{stage.label}</h3>
-                  <span className="text-xs bg-white/20 px-2 py-1 rounded text-white font-bold">
-                    {dealsByStage[stage.id]?.length || 0}
-                  </span>
-                </div>
-                <div className="text-xs text-white/70 mt-1">
-                  {formatCurrency(dealsByStage[stage.id]?.reduce((sum, d) => sum + (d.preco_final || d.valor || 0), 0) || 0)}
-                </div>
-              </div>
-
-              {/* Cards Container */}
-              <div className="flex-1 bg-slate-800/20 border border-t-0 border-slate-700 rounded-b-lg p-4 space-y-3 overflow-y-auto min-h-96">
-                <AnimatePresence>
-                  {dealsByStage[stage.id]?.map(deal => (
-                    <DealCard
-                      key={deal.id}
-                      deal={deal}
-                      onClick={() => setSelectedDeal(deal)}
-                    />
-                  ))}
-                </AnimatePresence>
-                {dealsByStage[stage.id]?.length === 0 && (
-                  <div className="h-full flex items-center justify-center text-slate-500 text-sm">
-                    Nenhum deal
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
         </div>
       </div>
 
-      {/* Modals */}
-      <AnimatePresence>
-        {showNewDealForm && (
-          <NewDealForm
-            onClose={() => setShowNewDealForm(false)}
-            onCreate={handleCreateDeal}
-          />
-        )}
-        {selectedDeal && (
-          <DealDetailView
-            deal={selectedDeal}
-            onClose={() => setSelectedDeal(null)}
-            onSave={handleSaveDeal}
-            onMoveStage={handleMoveDeal}
-          />
-        )}
-      </AnimatePresence>
+      {/* Content */}
+      <div className="py-8">
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ duration: 0.3 }}
+          >
+            {renderStep()}
+          </motion.div>
+        </AnimatePresence>
+      </div>
+
+      {/* Footer Navigation */}
+      <div className="bg-white border-t border-gray-200 sticky bottom-0 z-40">
+        <div className="max-w-full px-4 lg:px-8 py-4 flex justify-between">
+          <button
+            onClick={() => setCurrentStep(Math.max(0, currentStep - 1))}
+            disabled={currentStep === 0}
+            className="px-6 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            <ChevronLeft className="h-4 w-4" />
+            Anterior
+          </button>
+
+          <button
+            onClick={() => setCurrentStep(Math.min(steps.length - 1, currentStep + 1))}
+            disabled={currentStep === steps.length - 1}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+          >
+            Próximo
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
