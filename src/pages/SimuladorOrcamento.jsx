@@ -42,7 +42,6 @@ import {
   TrendingDown,
   Scale,
   Gauge,
-  Factory,
 } from 'lucide-react';
 import {
   CATEGORIAS_SERVICO,
@@ -62,9 +61,6 @@ import {
   calcularPrazoEstimado,
 } from '../data/precosDatabase';
 import { useOrcamentos } from '../contexts/ERPContext';
-import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
-import { openPropostaHTML, generatePropostaPDF, generatePropostaDOCX } from '../utils/propostaPDFGenerator';
-import { useNavigate } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -278,9 +274,6 @@ const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
       const gruposPorBase = {};
       (s.itens || []).forEach(item => {
         if (item.unidade === 'KG') {
-          const desc = (item.descricao || '').toLowerCase();
-          // Não contar itens de projeto no peso (custo intelectual, não peso físico)
-          if (desc.includes('projeto')) return;
           const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
           if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
             gruposPorBase[base] = item.quantidade || 0;
@@ -368,17 +361,6 @@ const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
                 onChange={(e) => updateCost('estrutura', 'montagem', e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
-            </div>
-            <div>
-              <label className="block font-medium text-gray-700 mb-1">Projeto (R$/kg)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={unitCosts.estrutura.projeto || 0.50}
-                onChange={(e) => updateCost('estrutura', 'projeto', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-              />
-              <p className="text-xs text-gray-500 mt-1">Classificado como instalação — peso não duplicado</p>
             </div>
           </div>
         </div>
@@ -559,7 +541,6 @@ const getPreDefinedItems = (unitCosts) => [
   { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Pintura', unidade: 'KG', precoMaterial: unitCosts.estrutura.pintura, precoInstalacao: 0, color: 'blue' },
   { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Transporte', unidade: 'KG', precoMaterial: unitCosts.estrutura.transporte, precoInstalacao: 0, color: 'blue' },
   { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Montagem', unidade: 'KG', precoMaterial: 0, precoInstalacao: unitCosts.estrutura.montagem, color: 'blue' },
-  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Projeto', unidade: 'KG', precoMaterial: 0, precoInstalacao: unitCosts.estrutura.projeto || 0.50, color: 'blue' },
   { categoria: 'Cobertura', descricao: 'Cobertura - Material', unidade: 'M2', precoMaterial: unitCosts.cobertura.material, precoInstalacao: 0, color: 'orange' },
   { categoria: 'Cobertura', descricao: 'Cobertura - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.cobertura.montagem, color: 'orange' },
   { categoria: 'Fechamento', descricao: 'Fechamento - Material', unidade: 'M2', precoMaterial: unitCosts.fechamento.material, precoInstalacao: 0, color: 'red' },
@@ -1018,25 +999,10 @@ const StepSetoresItens = ({ setores, setSetores, unitCosts }) => {
 
 // Step 4: BDI e Investimento
 const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, paymentConditions, setPaymentConditions }) => {
-  const margemPct = calculations.margemPct || 18;
-  const impostosPct = calculations.impostosPct || 12;
+  const [margemPct, setMargemPct] = useState(18);
+  const [impostosPct, setImpostosPct] = useState(12);
 
-  const handleMargemChange = (value) => {
-    const newMargem = parseFloat(value) || 0;
-    setCalculations(prev => ({ ...prev, margemPct: newMargem }));
-  };
-
-  const handleImpostosChange = (value) => {
-    const newImpostos = parseFloat(value) || 0;
-    setCalculations(prev => ({ ...prev, impostosPct: newImpostos }));
-  };
-
-  // Calculate composition values dynamically
-  const custoMaterial = calculations.custoMaterial || 0;
-  const custoInstalacao = calculations.custoInstalacao || 0;
-  const margemValor = custoInstalacao * (margemPct / 100);
-  const impostosValor = (custoInstalacao + margemValor) * (impostosPct / 100);
-  const valorTotal = custoMaterial + custoInstalacao + margemValor + impostosValor;
+  const totalValue = calculations.precoFinal || 0;
 
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
@@ -1051,7 +1017,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
                 type="number"
                 step="0.5"
                 value={margemPct}
-                onChange={(e) => handleMargemChange(e.target.value)}
+                onChange={(e) => setMargemPct(parseFloat(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-gray-600 mt-1">Sugeridos: Mínima 12%, Padrão 18%, Alta 25%</p>
@@ -1062,7 +1028,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
                 type="number"
                 step="0.5"
                 value={impostosPct}
-                onChange={(e) => handleImpostosChange(e.target.value)}
+                onChange={(e) => setImpostosPct(parseFloat(e.target.value))}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
               <p className="text-xs text-gray-600 mt-1">Padrão: ~12% (ISS, PIS, COFINS)</p>
@@ -1076,23 +1042,23 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-700">Material (s/ margem):</span>
-              <span className="font-semibold">{formatCurrency(custoMaterial)}</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoMaterial || 0)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700">Instalação (Fab/Pint/Transp/Mont):</span>
-              <span className="font-semibold">{formatCurrency(custoInstalacao)}</span>
+              <span className="font-semibold">{formatCurrency(calculations.custoInstalacao || 0)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700">Margem (+{margemPct}%) s/ instalação:</span>
-              <span className="font-semibold text-green-600">{formatCurrency(margemValor)}</span>
+              <span className="font-semibold text-green-600">{formatCurrency((calculations.custoInstalacao || 0) * (margemPct / 100))}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700">Impostos ({impostosPct}%) s/ instalação:</span>
-              <span className="font-semibold text-orange-600">{formatCurrency(impostosValor)}</span>
+              <span className="font-semibold text-orange-600">{formatCurrency(((calculations.custoInstalacao || 0) * (1 + margemPct / 100)) * (impostosPct / 100))}</span>
             </div>
             <div className="border-t pt-2 flex justify-between font-bold text-base">
               <span>VALOR TOTAL:</span>
-              <span className="text-green-700">{formatCurrency(valorTotal)}</span>
+              <span className="text-green-700">{formatCurrency(calculations.precoFinal || 0)}</span>
             </div>
           </div>
         </div>
@@ -1115,7 +1081,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
             />
             <div className="text-sm font-semibold text-blue-900">
-              {formatCurrency((valorTotal * paymentConditions.assinatura) / 100)}
+              {formatCurrency((totalValue * paymentConditions.assinatura) / 100)}
             </div>
           </div>
 
@@ -1129,7 +1095,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 mb-2"
             />
             <div className="text-sm font-semibold text-orange-900">
-              {formatCurrency((valorTotal * paymentConditions.aprovacao) / 100)}
+              {formatCurrency((totalValue * paymentConditions.aprovacao) / 100)}
             </div>
           </div>
 
@@ -1143,7 +1109,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 mb-2"
             />
             <div className="text-sm font-semibold text-green-900">
-              {formatCurrency((valorTotal * paymentConditions.medicoes) / 100)}
+              {formatCurrency((totalValue * paymentConditions.medicoes) / 100)}
             </div>
           </div>
         </div>
@@ -1163,8 +1129,6 @@ const StepCronogramaEscopo = ({ cronograma, setCronograma, escopo, setEscopo, se
     const gruposPorBase = {};
     (s.itens || []).forEach(item => {
       if (item.unidade === 'KG') {
-        const desc = (item.descricao || '').toLowerCase();
-        if (desc.includes('projeto')) return;
         const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
         if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
           gruposPorBase[base] = item.quantidade || 0;
@@ -1301,44 +1265,37 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
   );
 };
 
-// Step 7: Análise Interna — Custo Médio Mensal × Valor da Obra (Produção + Montagem)
-const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }) => {
-  // === CUSTOS DE REFERÊNCIA MENSAL (base empresa) ===
-  const META_PRODUCAO_MENSAL_KG = 45000;   // 45 ton fábrica/mês
-  const META_MONTAGEM_MENSAL_KG = 25000;   // 25 ton montagem/mês
+// Step 7: Análise Interna — Profissional com Métricas Avançadas
+const StepAnaliseInterna = ({ setores, calculations, unitCosts }) => {
+  const META_PRODUCAO_MENSAL_KG = 45000;
+  const META_MONTAGEM_MENSAL_KG = 25000;
   const CUSTO_MEDIO_FABRICACAO_KG = 5.50;
   const CUSTO_MEDIO_PINTURA_KG = 1.40;
   const CUSTO_MEDIO_TRANSPORTE_KG = 1.00;
   const CUSTO_MEDIO_MONTAGEM_KG = 3.00;
-  const CUSTO_PRODUCAO_KG = CUSTO_MEDIO_FABRICACAO_KG + CUSTO_MEDIO_PINTURA_KG + CUSTO_MEDIO_TRANSPORTE_KG; // 7.90
-  const CUSTO_MENSAL_PRODUCAO = META_PRODUCAO_MENSAL_KG * CUSTO_PRODUCAO_KG; // R$ 355.500
-  const CUSTO_MENSAL_MONTAGEM = META_MONTAGEM_MENSAL_KG * CUSTO_MEDIO_MONTAGEM_KG; // R$ 75.000
-  const CUSTO_MENSAL_TOTAL = CUSTO_MENSAL_PRODUCAO + CUSTO_MENSAL_MONTAGEM; // R$ 430.500
+  const CUSTO_PRODUCAO_KG = 7.90;
 
-  // === DADOS DA SIMULAÇÃO (do orçamento em construção) ===
+  const [activeTab, setActiveTab] = useState('overview');
+  const [animatedValues, setAnimatedValues] = useState({});
+
   const analise = useMemo(() => {
-    let pesoTotal = 0;
-    let custoFabricacao = 0, custoPintura = 0, custoTransporte = 0, custoMontagem = 0, custoProjeto = 0, custoMaterial = 0;
-    let areaTotal = 0;
+    let pesoTotal = 0, custoFabricacao = 0, custoPintura = 0, custoTransporte = 0;
+    let custoMontagem = 0, custoMaterial = 0, areaTotal = 0;
 
     (setores || []).forEach(s => {
       const gruposPorBase = {};
       (s.itens || []).forEach(item => {
         const qty = item.quantidade || 0;
         const desc = (item.descricao || '').toLowerCase();
-        const totalItem = qty * ((item.precoMaterial || 0) + (item.precoInstalacao || 0));
+        const precoItem = item.preco || 0;
 
-        // Classificar custos por tipo baseado na descrição do item
-        if (desc.includes('fabricação') || desc.includes('fabricacao')) custoFabricacao += totalItem;
-        else if (desc.includes('pintura')) custoPintura += totalItem;
-        else if (desc.includes('transporte')) custoTransporte += totalItem;
-        else if (desc.includes('montagem')) custoMontagem += totalItem;
-        else if (desc.includes('projeto')) custoProjeto += totalItem; // instalação
-        else custoMaterial += totalItem; // material e outros
+        if (desc.includes('fabricação') || desc.includes('fabricacao')) custoFabricacao += qty * precoItem;
+        else if (desc.includes('pintura')) custoPintura += qty * precoItem;
+        else if (desc.includes('transporte')) custoTransporte += qty * precoItem;
+        else if (desc.includes('montagem')) custoMontagem += qty * precoItem;
+        else custoMaterial += qty * precoItem;
 
         if (item.unidade === 'KG') {
-          // Não contar itens de projeto no peso
-          if (desc.includes('projeto')) return;
           const base = (item.descricao || '').split(' - ')[0].trim() || 'item';
           if (!gruposPorBase[base] || qty > gruposPorBase[base]) gruposPorBase[base] = qty;
         }
@@ -1348,47 +1305,64 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     });
 
     const custoProducao = custoFabricacao + custoPintura + custoTransporte;
-    // Análise Interna: sem material (faturado direto pro cliente)
-    const custoInstalacao = custoProducao + custoMontagem + custoProjeto;
-    const custoTotal = custoInstalacao; // apenas produção + montagem
+    const custoTotal = custoMaterial + custoProducao + custoMontagem;
+    const custoInstalacao = custoProducao + custoMontagem;
     const margemVal = custoInstalacao * ((calculations.margemPct || 18) / 100);
     const impostosVal = (custoInstalacao + margemVal) * ((calculations.impostosPct || 12) / 100);
-    const valorProposta = custoInstalacao + margemVal + impostosVal; // sem material
+    const valorProposta = custoTotal + margemVal + impostosVal;
 
-    // Quantos meses de produção — usa prazo editado na proposta (cronograma)
-    const diasFabricacao = (cronograma && cronograma.fabricacao) || 30;
-    const diasMontagem = (cronograma && cronograma.montagem) || 15;
-    const mesesProducao = diasFabricacao / 30; // converte dias para meses
-    const mesesMontagem = diasMontagem / 30;
-
-    // Custo mensal médio que essa obra vai gerar
+    const mesesProducao = pesoTotal > 0 ? pesoTotal / META_PRODUCAO_MENSAL_KG : 0;
+    const mesesMontagem = pesoTotal > 0 ? pesoTotal / META_MONTAGEM_MENSAL_KG : 0;
     const custoMensalProducaoObra = mesesProducao > 0 ? custoProducao / mesesProducao : 0;
     const custoMensalMontagemObra = mesesMontagem > 0 ? custoMontagem / mesesMontagem : 0;
 
-    // R$/kg simulado vs referência
     const fabricacaoKg = pesoTotal > 0 ? custoFabricacao / pesoTotal : 0;
     const pinturaKg = pesoTotal > 0 ? custoPintura / pesoTotal : 0;
     const transporteKg = pesoTotal > 0 ? custoTransporte / pesoTotal : 0;
     const montagemKg = pesoTotal > 0 ? custoMontagem / pesoTotal : 0;
     const producaoKg = pesoTotal > 0 ? custoProducao / pesoTotal : 0;
 
+    // Cálculos financeiros
+    const margemPct = custoInstalacao > 0 ? (margemVal / custoInstalacao) * 100 : 0;
+    const roiPct = valorProposta > 0 ? ((valorProposta - custoTotal) / custoTotal) * 100 : 0;
+    const breakEven = mesesProducao > 0 ? (custoTotal / (valorProposta / mesesProducao)) : 0;
+
     return {
-      pesoTotal, areaTotal, custoTotal, valorProposta,
-      custoMaterial, custoFabricacao, custoPintura, custoTransporte, custoMontagem, custoProjeto,
-      custoProducao, custoInstalacao, margemVal, impostosVal,
-      mesesProducao, mesesMontagem,
-      custoMensalProducaoObra, custoMensalMontagemObra,
-      fabricacaoKg, pinturaKg, transporteKg, montagemKg, producaoKg,
-      custoKg: pesoTotal > 0 ? custoInstalacao / pesoTotal : 0,  // s/ material
-      precoVendaKg: pesoTotal > 0 ? (custoInstalacao + margemVal + impostosVal) / pesoTotal : 0,  // s/ material
+      pesoTotal, areaTotal, custoTotal, valorProposta, custoMaterial, custoFabricacao,
+      custoPintura, custoTransporte, custoMontagem, custoProducao, custoInstalacao,
+      margemVal, impostosVal, mesesProducao, mesesMontagem, custoMensalProducaoObra,
+      custoMensalMontagemObra, fabricacaoKg, pinturaKg, transporteKg, montagemKg,
+      producaoKg, custoKg: pesoTotal > 0 ? custoTotal / pesoTotal : 0,
+      precoVendaKg: pesoTotal > 0 ? valorProposta / pesoTotal : 0,
+      margemPct, roiPct, breakEven,
     };
-  }, [setores, calculations, cronograma]);
+  }, [setores, calculations]);
 
-  // Ocupação da capacidade mensal (%)
-  const ocupacaoProducao = CUSTO_MENSAL_PRODUCAO > 0 ? (analise.custoMensalProducaoObra / CUSTO_MENSAL_PRODUCAO) * 100 : 0;
-  const ocupacaoMontagem = CUSTO_MENSAL_MONTAGEM > 0 ? (analise.custoMensalMontagemObra / CUSTO_MENSAL_MONTAGEM) * 100 : 0;
+  // Animação de números
+  useEffect(() => {
+    const keys = ['valorProposta', 'margemVal', 'roiPct', 'precoVendaKg'];
+    keys.forEach(key => {
+      let progress = 0;
+      const target = analise[key];
+      const animate = () => {
+        progress += 0.05;
+        if (progress < 1) {
+          setAnimatedValues(prev => ({
+            ...prev,
+            [key]: target * progress,
+          }));
+          requestAnimationFrame(animate);
+        } else {
+          setAnimatedValues(prev => ({ ...prev, [key]: target }));
+        }
+      };
+      animate();
+    });
+  }, [analise]);
 
-  // Dados gráfico barras - Custo/kg: Simulado vs Referência
+  const ocupacaoProducao = (analise.custoMensalProducaoObra / (META_PRODUCAO_MENSAL_KG * CUSTO_PRODUCAO_KG)) * 100;
+  const ocupacaoMontagem = (analise.custoMensalMontagemObra / (META_MONTAGEM_MENSAL_KG * CUSTO_MEDIO_MONTAGEM_KG)) * 100;
+
   const custoKgData = [
     { name: 'Fabricação', simulado: analise.fabricacaoKg, referencia: CUSTO_MEDIO_FABRICACAO_KG },
     { name: 'Pintura', simulado: analise.pinturaKg, referencia: CUSTO_MEDIO_PINTURA_KG },
@@ -1396,477 +1370,516 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     { name: 'Montagem', simulado: analise.montagemKg, referencia: CUSTO_MEDIO_MONTAGEM_KG },
   ];
 
-  // Dados gráfico pizza - Composição do custo da obra (s/ material — faturado direto)
   const composicaoPie = [
+    { name: 'Material', value: analise.custoMaterial, color: '#3b82f6' },
     { name: 'Fabricação', value: analise.custoFabricacao, color: '#8b5cf6' },
     { name: 'Pintura', value: analise.custoPintura, color: '#f59e0b' },
     { name: 'Transporte', value: analise.custoTransporte, color: '#06b6d4' },
     { name: 'Montagem', value: analise.custoMontagem, color: '#10b981' },
-    { name: 'Projeto', value: analise.custoProjeto, color: '#6366f1' },
   ].filter(d => d.value > 0);
 
-  const ProgressBar = ({ label, value, max, color, format }) => {
-    const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
-    return (
-      <div>
-        <div className="flex justify-between text-sm mb-1">
-          <span className="text-gray-600">{label}</span>
-          <span className="font-semibold">{format ? format(value) : `${pct.toFixed(0)}%`}</span>
-        </div>
-        <div className="w-full bg-gray-200 rounded-full h-2.5">
-          <div className={`h-2.5 rounded-full ${color}`} style={{ width: `${pct}%` }} />
-        </div>
+  const monthlyData = Array.from({ length: Math.ceil(analise.mesesProducao) }, (_, i) => ({
+    mes: `Mês ${i + 1}`,
+    producao: analise.custoMensalProducaoObra,
+    montagem: analise.custoMensalMontagemObra,
+  }));
+
+  const TabButton = ({ id, label, icon: Icon }) => (
+    <button
+      onClick={() => setActiveTab(id)}
+      className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${
+        activeTab === id
+          ? 'bg-indigo-600 text-white shadow-md'
+          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+      }`}
+    >
+      <Icon className="h-4 w-4" />
+      {label}
+    </button>
+  );
+
+  const KPICard = ({ icon: Icon, label, value, subtext, color }) => (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      className={`bg-white rounded-lg border-l-4 ${color} p-5 shadow-sm`}
+    >
+      <div className="flex justify-between items-start mb-2">
+        <p className="text-xs font-semibold text-gray-500 uppercase">{label}</p>
+        <Icon className="h-5 w-5 opacity-20" />
       </div>
-    );
-  };
+      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      {subtext && <p className="text-xs text-gray-400 mt-1">{subtext}</p>}
+    </motion.div>
+  );
+
+  const insights = [
+    {
+      type: analise.margemPct >= 18 ? 'success' : 'warning',
+      icon: analise.margemPct >= 18 ? CheckCircle2 : AlertCircle,
+      text: `Margem de ${analise.margemPct.toFixed(1)}% — ${analise.margemPct >= 18 ? 'Dentro da meta' : 'Abaixo da meta'}`,
+    },
+    {
+      type: Math.min(100, ocupacaoProducao) > 80 ? 'warning' : 'success',
+      icon: Math.min(100, ocupacaoProducao) > 80 ? AlertCircle : CheckCircle2,
+      text: `Produção com ${Math.min(100, ocupacaoProducao).toFixed(0)}% de ocupação — ${Math.min(100, ocupacaoProducao) > 80 ? 'Capacidade alta' : 'Capacidade adequada'}`,
+    },
+    {
+      type: analise.precoVendaKg > analise.custoKg * 1.3 ? 'success' : 'warning',
+      icon: analise.precoVendaKg > analise.custoKg * 1.3 ? CheckCircle2 : AlertCircle,
+      text: `Markup de ${((analise.precoVendaKg / analise.custoKg - 1) * 100).toFixed(0)}% — ${analise.precoVendaKg > analise.custoKg * 1.3 ? 'Excelente' : 'Revisar preço'}`,
+    },
+  ];
 
   return (
-    <div className="max-w-full px-4 lg:px-8 space-y-6">
-      {/* Header */}
-      <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-xl p-6 text-white">
+    <div className="space-y-6">
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-xl p-6 text-white shadow-lg">
         <div className="flex items-center gap-3 mb-2">
           <Activity className="h-6 w-6" />
-          <h2 className="text-xl font-bold">Análise Interna — Produção × Montagem</h2>
+          <h2 className="text-2xl font-bold">Análise Interna Avançada</h2>
         </div>
-        <p className="text-indigo-200 text-sm">Custo médio mensal × valor da obra | Fabricação, Pintura, Transporte (Produção) + Montagem em Campo</p>
+        <p className="text-indigo-200 text-sm">Métricas profissionais de custo, rentabilidade, scheduling e análise de cenários</p>
       </div>
 
-      {/* KPIs Principais */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        {[
-          { label: 'Peso Total Obra', value: `${formatNumber(analise.pesoTotal / 1000)} ton`, sub: `${formatNumber(analise.pesoTotal)} kg`, color: 'border-blue-500', icon: Weight },
-          { label: 'Custo Produção', value: formatCurrency(analise.custoProducao), sub: `Fab + Pint + Transp`, color: 'border-purple-500', icon: Settings },
-          { label: 'Custo Montagem', value: formatCurrency(analise.custoMontagem), sub: 'Montagem em campo', color: 'border-emerald-500', icon: Target },
-          { label: 'Valor Proposta (s/ mat.)', value: formatCurrency(analise.valorProposta), sub: `Produção + margem ${calculations.margemPct || 18}% + impostos`, color: 'border-green-500', icon: DollarSign },
-          { label: 'Preço Venda/kg', value: formatCurrency(analise.precoVendaKg), sub: `Custo: ${formatCurrency(analise.custoKg)}/kg (s/ material)`, color: 'border-amber-500', icon: TrendingUp },
-        ].map((kpi, idx) => (
-          <div key={idx} className={`bg-white rounded-xl shadow-sm border-l-4 ${kpi.color} p-4`}>
-            <div className="flex items-center justify-between mb-1">
-              <p className="text-xs text-gray-500 font-medium">{kpi.label}</p>
-              <kpi.icon className="h-4 w-4 text-gray-300" />
-            </div>
-            <p className="text-lg font-bold text-gray-900">{kpi.value}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{kpi.sub}</p>
-          </div>
-        ))}
+      {/* Insights Inteligentes */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {insights.map((insight, idx) => {
+          const Icon = insight.icon;
+          return (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className={`p-4 rounded-lg border-l-4 ${
+                insight.type === 'success'
+                  ? 'bg-green-50 border-green-500'
+                  : 'bg-amber-50 border-amber-500'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Icon
+                  className={`h-5 w-5 ${
+                    insight.type === 'success' ? 'text-green-600' : 'text-amber-600'
+                  }`}
+                />
+                <p
+                  className={`text-sm font-medium ${
+                    insight.type === 'success' ? 'text-green-800' : 'text-amber-800'
+                  }`}
+                >
+                  {insight.text}
+                </p>
+              </div>
+            </motion.div>
+          );
+        })}
       </div>
 
-      {/* Capacidade Mensal e Meses de Produção */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Ocupação da Capacidade */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-            <Gauge className="h-5 w-5 text-indigo-600" />
-            Ocupação da Capacidade Mensal
-          </h3>
-          <p className="text-xs text-gray-400 mb-4">Custo mensal da obra conforme prazo da proposta (Fabricação: {cronograma?.fabricacao || 30}d / Montagem: {cronograma?.montagem || 15}d)</p>
-          <div className="space-y-5">
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600 font-medium">Produção (Fab+Pint+Transp)</span>
-                <div className="text-right">
-                  <span className="font-bold text-gray-900">{formatCurrency(analise.custoMensalProducaoObra)}</span>
-                  <span className="text-gray-400 text-xs ml-1">/ {formatCurrency(CUSTO_MENSAL_PRODUCAO)} mês</span>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="h-3 rounded-full bg-purple-500" style={{ width: `${Math.min(100, ocupacaoProducao)}%` }} />
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>{analise.mesesProducao.toFixed(1)} meses ({cronograma?.fabricacao || 30} dias)</span>
-                <span>{ocupacaoProducao.toFixed(0)}% da capacidade/mês</span>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-1">
-                <span className="text-gray-600 font-medium">Montagem em Campo</span>
-                <div className="text-right">
-                  <span className="font-bold text-gray-900">{formatCurrency(analise.custoMensalMontagemObra)}</span>
-                  <span className="text-gray-400 text-xs ml-1">/ {formatCurrency(CUSTO_MENSAL_MONTAGEM)} mês</span>
-                </div>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div className="h-3 rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ocupacaoMontagem)}%` }} />
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>{analise.mesesMontagem.toFixed(1)} meses ({cronograma?.montagem || 15} dias)</span>
-                <span>{ocupacaoMontagem.toFixed(0)}% da capacidade/mês</span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
-            <p className="text-xs text-indigo-700">
-              <strong>Capacidade mensal:</strong> Produção {formatNumber(META_PRODUCAO_MENSAL_KG / 1000)} ton/mês ({formatCurrency(CUSTO_MENSAL_PRODUCAO)}) | Montagem {formatNumber(META_MONTAGEM_MENSAL_KG / 1000)} ton/mês ({formatCurrency(CUSTO_MENSAL_MONTAGEM)})
-            </p>
-          </div>
-        </div>
-
-        {/* Custo/kg Comparativo */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-indigo-600" />
-            R$/kg: Simulado vs Referência
-          </h3>
-          <p className="text-xs text-gray-400 mb-4">Comparativo do custo por kg em cada etapa</p>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={custoKgData} barGap={4}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <YAxis tickFormatter={(v) => `R$ ${v.toFixed(2)}`} tick={{ fontSize: 10, fill: '#9ca3af' }} />
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar name="Simulado" dataKey="simulado" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              <Bar name="Referência" dataKey="referencia" fill="#d1d5db" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+      {/* Abas Interativas */}
+      <div className="flex gap-2 flex-wrap bg-white p-4 rounded-lg shadow-sm">
+        <TabButton id="overview" label="Visão Geral" icon={BarChart3} />
+        <TabButton id="producao" label="Produção" icon={Settings} />
+        <TabButton id="montagem" label="Montagem" icon={Target} />
+        <TabButton id="financeiro" label="Rentabilidade" icon={DollarSign} />
+        <TabButton id="cronograma" label="Cronograma" icon={Calendar} />
       </div>
 
-      {/* Tabela Custos Unitários: Simulado vs Referência */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b bg-gray-50">
-          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-            <Scale className="h-5 w-5 text-indigo-600" />
-            Custo por KG — Simulado vs Referência Mensal
-          </h3>
-        </div>
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b bg-gray-50/50">
-              <th className="px-6 py-3 text-left font-semibold text-gray-600">Etapa</th>
-              <th className="px-6 py-3 text-right font-semibold text-blue-600">R$/kg Simulado</th>
-              <th className="px-6 py-3 text-right font-semibold text-gray-500">R$/kg Referência</th>
-              <th className="px-6 py-3 text-right font-semibold text-gray-600">Diferença</th>
-              <th className="px-6 py-3 text-right font-semibold text-gray-600">Custo Total Obra</th>
-              <th className="px-6 py-3 text-center font-semibold text-gray-600">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {[
-              { etapa: 'Fabricação', simKg: analise.fabricacaoKg, refKg: CUSTO_MEDIO_FABRICACAO_KG, total: analise.custoFabricacao, tipo: 'producao' },
-              { etapa: 'Pintura', simKg: analise.pinturaKg, refKg: CUSTO_MEDIO_PINTURA_KG, total: analise.custoPintura, tipo: 'producao' },
-              { etapa: 'Transporte', simKg: analise.transporteKg, refKg: CUSTO_MEDIO_TRANSPORTE_KG, total: analise.custoTransporte, tipo: 'producao' },
-              { etapa: 'SUBTOTAL PRODUÇÃO', simKg: analise.producaoKg, refKg: CUSTO_PRODUCAO_KG, total: analise.custoProducao, tipo: 'subtotal' },
-              { etapa: 'Montagem Campo', simKg: analise.montagemKg, refKg: CUSTO_MEDIO_MONTAGEM_KG, total: analise.custoMontagem, tipo: 'montagem' },
-              { etapa: 'TOTAL PRODUÇÃO + MONTAGEM', simKg: analise.producaoKg + analise.montagemKg, refKg: CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG, total: analise.custoProducao + analise.custoMontagem, tipo: 'total' },
-            ].map((row, idx) => {
-              const diff = row.refKg > 0 ? ((row.simKg - row.refKg) / row.refKg) * 100 : 0;
-              const isSubtotal = row.tipo === 'subtotal' || row.tipo === 'total';
-              const isOk = row.simKg <= row.refKg * 1.15 || row.simKg === 0;
-              return (
-                <tr key={idx} className={`border-b last:border-b-0 ${isSubtotal ? 'bg-gray-50 font-semibold' : 'hover:bg-gray-50'}`}>
-                  <td className={`px-6 py-3 ${isSubtotal ? 'text-gray-900 font-bold' : 'text-gray-700'} ${row.tipo === 'montagem' ? 'text-emerald-700' : ''}`}>
-                    {row.tipo === 'producao' && <span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-2" />}
-                    {row.tipo === 'montagem' && <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-2" />}
-                    {row.etapa}
-                  </td>
-                  <td className="px-6 py-3 text-right font-mono text-blue-700">{formatCurrency(row.simKg)}</td>
-                  <td className="px-6 py-3 text-right font-mono text-gray-500">{formatCurrency(row.refKg)}</td>
-                  <td className={`px-6 py-3 text-right font-mono ${diff > 15 ? 'text-red-600' : diff < -5 ? 'text-green-600' : 'text-gray-600'}`}>
-                    {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
-                  </td>
-                  <td className="px-6 py-3 text-right font-semibold text-gray-800">{formatCurrency(row.total)}</td>
-                  <td className="px-6 py-3 text-center">
-                    {!isSubtotal && (
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${isOk ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {isOk ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                        {isOk ? 'OK' : 'Acima'}
-                      </span>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-
-      {/* === COMPARATIVO COM DADOS REAIS (Custos Mensais × Produção) === */}
-      {fi && fi.kpisGerais && (
-        <div className="space-y-6">
-          <div className="bg-gradient-to-r from-emerald-600 to-teal-700 rounded-xl p-6 text-white">
-            <div className="flex items-center gap-3 mb-2">
-              <Factory className="h-6 w-6" />
-              <h2 className="text-xl font-bold">Comparativo com Dados Reais — Custos Mensais × Produção</h2>
-            </div>
-            <p className="text-emerald-200 text-sm">Base: produção mensal real × R$/kg (não despesas × receita)</p>
+      {/* TAB: VISÃO GERAL */}
+      {activeTab === 'overview' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              icon={Weight}
+              label="Peso Total"
+              value={`${formatNumber(analise.pesoTotal / 1000)} ton`}
+              subtext={`${formatNumber(analise.pesoTotal)} kg`}
+              color="border-blue-500"
+            />
+            <KPICard
+              icon={DollarSign}
+              label="Valor Proposta"
+              value={formatCurrency(animatedValues.valorProposta || analise.valorProposta)}
+              subtext="Com margem e impostos"
+              color="border-green-500"
+            />
+            <KPICard
+              icon={TrendingUp}
+              label="ROI"
+              value={`${(animatedValues.roiPct || analise.roiPct).toFixed(1)}%`}
+              subtext="Retorno sobre investimento"
+              color="border-purple-500"
+            />
+            <KPICard
+              icon={Percent}
+              label="Margem Líquida"
+              value={`${analise.margemPct.toFixed(1)}%`}
+              subtext="Sobre custo de instalação"
+              color="border-amber-500"
+            />
           </div>
 
-          {/* Cards Comparativos: Peso × Custo | Metas Financeiras | Cenário Geral */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Peso × Custo */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
               <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Scale className="h-5 w-5 text-blue-600" />
-                Peso × Custo
+                <PieChartIcon className="h-5 w-5 text-indigo-600" />
+                Composição de Custos
               </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Custo/kg simulado (s/ mat.)</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(analise.custoKg)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Custo/kg real (produção)</span>
-                  <span className="font-bold text-gray-900">{formatCurrency(fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Diferença</span>
-                  {(() => {
-                    const custoRealKg = fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0;
-                    const diff = analise.custoKg > 0 && custoRealKg > 0 ? ((analise.custoKg - custoRealKg) / custoRealKg * 100) : 0;
-                    return (
-                      <span className={`flex items-center gap-1 text-sm font-semibold ${diff <= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {diff <= 0 ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                        {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
-                      </span>
-                    );
-                  })()}
-                </div>
-                <p className="text-xs text-gray-400 mt-2 border-t pt-2">Custo/kg s/ material — apenas produção (fab+pint+transp) + montagem</p>
-              </div>
+              <ResponsiveContainer width="100%" height={300}>
+                <PieChart>
+                  <Pie
+                    data={composicaoPie}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={50}
+                    outerRadius={100}
+                    paddingAngle={2}
+                    dataKey="value"
+                    label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  >
+                    {composicaoPie.map((entry, idx) => (
+                      <Cell key={idx} fill={entry.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip formatter={(v) => formatCurrency(v)} />
+                </PieChart>
+              </ResponsiveContainer>
             </div>
 
-            {/* Metas Financeiras */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Target className="h-5 w-5 text-green-600" />
-                Metas Financeiras
+            <div className="bg-gradient-to-br from-indigo-50 to-purple-50 rounded-lg border border-indigo-200 p-6 space-y-3">
+              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+                <FileText className="h-5 w-5 text-indigo-600" />
+                Resumo Executivo
               </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Margem simulada</span>
-                  <span className="font-bold text-gray-900">{(calculations.margemPct || 0).toFixed(1)}%</span>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Custo Total (sem margem):</span>
+                  <span className="font-bold">{formatCurrency(analise.custoTotal)}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Meta mínima</span>
-                  <span className="text-amber-600 font-medium">15%</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Margem operacional real</span>
-                  <span className={`font-bold ${(fi.margemOperacional || 0) >= 15 ? 'text-green-600' : 'text-red-600'}`}>
-                    {(fi.margemOperacional || 0).toFixed(1)}%
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Margem ({calculations.margemPct || 18}%):</span>
+                  <span className="font-bold text-green-600">
+                    {formatCurrency(animatedValues.margemVal || analise.margemVal)}
                   </span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Preço venda/kg vs ref.</span>
-                  {(() => {
-                    const precoRef = fi.kpisGerais.precoProducaoKg || 5.50;
-                    const diff = analise.precoVendaKg > 0 ? ((analise.precoVendaKg - precoRef) / precoRef * 100) : 0;
-                    return (
-                      <span className={`flex items-center gap-1 text-sm font-semibold ${diff >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {diff >= 0 ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-                        {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
-                      </span>
-                    );
-                  })()}
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Impostos ({calculations.impostosPct || 12}%):</span>
+                  <span className="font-bold text-amber-600">{formatCurrency(analise.impostosVal)}</span>
                 </div>
-                {(fi.margemOperacional || 0) < 15 && (
-                  <p className="text-xs text-amber-600 mt-2 border-t pt-2 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Margem de {(fi.margemOperacional || 0).toFixed(1)}% está abaixo da meta de 15%. Aumente preço ou reduza custos.
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Cenário Geral */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-                <Zap className="h-5 w-5 text-violet-600" />
-                Cenário Geral (Produção)
-              </h3>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Fat. Produção /mês</span>
-                  <span className="font-bold text-emerald-700">{formatCurrency(fi.kpisGerais.faturamentoProducaoMes || 0)}</span>
+                <div className="border-t pt-2 flex justify-between text-base">
+                  <span className="font-bold text-gray-800">Valor Final:</span>
+                  <span className="font-bold text-indigo-700 text-lg">
+                    {formatCurrency(analise.valorProposta)}
+                  </span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Despesa média /mês</span>
-                  <span className="font-bold text-red-600">{formatCurrency(fi.kpisGerais.despesaMensalMedia || 0)}</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Produção mensal</span>
-                  <span className="font-bold text-blue-700">{((fi.kpisGerais.producaoMensalKg || 0) / 1000).toFixed(1)} ton</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Saldo mensal</span>
-                  {(() => {
-                    const saldo = fi.kpisGerais.saldo || 0;
-                    return (
-                      <span className={`font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-700'}`}>
-                        {formatCurrency(saldo)}
-                      </span>
-                    );
-                  })()}
-                </div>
-                {(fi.kpisGerais.saldo || 0) < 0 && (
-                  <p className="text-xs text-red-600 mt-2 border-t pt-2 flex items-center gap-1">
-                    <AlertCircle className="h-3 w-3" />
-                    Operação no vermelho. Deficit de {formatCurrency(Math.abs(fi.kpisGerais.saldo || 0))}.
-                  </p>
-                )}
               </div>
             </div>
           </div>
+        </motion.div>
+      )}
 
-          {/* Tabela Simulação vs Real vs Meta (baseado em produção, não despesas) */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-4 border-b bg-gray-50">
-              <h3 className="font-semibold text-gray-800 flex items-center gap-2">
-                <BarChart3 className="h-5 w-5 text-indigo-600" />
-                Comparativo: Simulação × Real (Produção) × Meta
-              </h3>
+      {/* TAB: PRODUÇÃO */}
+      {activeTab === 'producao' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              icon={Settings}
+              label="Custo Produção"
+              value={formatCurrency(analise.custoProducao)}
+              subtext="Fab + Pint + Transp"
+              color="border-purple-500"
+            />
+            <KPICard
+              icon={Clock}
+              label="Meses Produção"
+              value={analise.mesesProducao.toFixed(1)}
+              subtext={`${(analise.mesesProducao * 4).toFixed(0)} semanas`}
+              color="border-blue-500"
+            />
+            <KPICard
+              icon={Gauge}
+              label="Ocupação Mensal"
+              value={`${Math.min(100, ocupacaoProducao).toFixed(0)}%`}
+              subtext="Da capacidade fabril"
+              color="border-amber-500"
+            />
+            <KPICard
+              icon={TrendingUp}
+              label="R$/kg Produção"
+              value={formatCurrency(analise.producaoKg)}
+              subtext={`Ref: ${formatCurrency(CUSTO_PRODUCAO_KG)}/kg`}
+              color="border-emerald-500"
+            />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">Custo/kg: Simulado vs Referência</h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={custoKgData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip formatter={(v) => formatCurrency(v)} />
+                <Legend />
+                <Bar name="Simulado" dataKey="simulado" fill="#3b82f6" />
+                <Bar name="Referência" dataKey="referencia" fill="#d1d5db" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+            <div className="px-6 py-4 bg-gray-50 border-b">
+              <h3 className="font-semibold text-gray-800">Etapas de Produção</h3>
             </div>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b bg-gray-50/50">
-                  <th className="px-6 py-3 text-left font-semibold text-gray-600">Indicador</th>
-                  <th className="px-6 py-3 text-right font-semibold text-blue-600">Simulação</th>
-                  <th className="px-6 py-3 text-right font-semibold text-emerald-600">Real (Produção)</th>
-                  <th className="px-6 py-3 text-right font-semibold text-amber-600">Meta</th>
+                <tr className="border-b bg-gray-50">
+                  <th className="px-6 py-3 text-left font-semibold">Etapa</th>
+                  <th className="px-6 py-3 text-right font-semibold">R$/kg Simulado</th>
+                  <th className="px-6 py-3 text-right font-semibold">R$/kg Ref</th>
+                  <th className="px-6 py-3 text-right font-semibold">Diferença</th>
+                  <th className="px-6 py-3 text-right font-semibold">Custo Total</th>
                 </tr>
               </thead>
               <tbody>
                 {[
-                  {
-                    label: 'Custo por KG (s/ material)',
-                    sim: analise.custoKg,
-                    real: fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0,
-                    meta: CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG,
-                    format: (v) => formatCurrency(v),
-                    metaLabel: `R$ ${(CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG).toFixed(2)}`,
-                  },
-                  {
-                    label: 'Preço Venda / KG (s/ material)',
-                    sim: analise.precoVendaKg,
-                    real: fi.kpisGerais.precoProducaoKg || 5.50,
-                    meta: null,
-                    format: (v) => formatCurrency(v),
-                    metaLabel: `R$ ${(fi.kpisGerais.precoProducaoKg || 5.50).toFixed(2)}`,
-                  },
-                  {
-                    label: 'Margem (%)',
-                    sim: calculations.margemPct || 0,
-                    real: fi.margemOperacional || 0,
-                    meta: 15,
-                    format: (v) => `${v.toFixed(1)}%`,
-                    metaLabel: '15% mín.',
-                  },
-                  {
-                    label: 'Peso Total',
-                    sim: analise.pesoTotal,
-                    real: (fi.kpisGerais.producaoMensalKg || 0),
-                    meta: null,
-                    format: (v) => `${formatNumber(v)} kg`,
-                    metaLabel: '-',
-                    isInfo: true,
-                  },
-                  {
-                    label: 'Fat. Produção /mês',
-                    sim: analise.valorProposta,
-                    real: fi.kpisGerais.faturamentoProducaoMes || 0,
-                    meta: fi.kpisGerais.metaFaturamentoProducao || 0,
-                    format: (v) => formatCurrency(v),
-                    metaLabel: formatCurrency(fi.kpisGerais.metaFaturamentoProducao || 0),
-                  },
-                  {
-                    label: 'Saldo Mensal',
-                    sim: analise.valorProposta > 0 ? analise.valorProposta - (analise.custoTotal) : 0,
-                    real: fi.kpisGerais.saldo || 0,
-                    meta: 0,
-                    format: (v) => formatCurrency(v),
-                    metaLabel: '> 0',
-                    isResult: true,
-                  },
+                  { etapa: 'Fabricação', sim: analise.fabricacaoKg, ref: CUSTO_MEDIO_FABRICACAO_KG, total: analise.custoFabricacao },
+                  { etapa: 'Pintura', sim: analise.pinturaKg, ref: CUSTO_MEDIO_PINTURA_KG, total: analise.custoPintura },
+                  { etapa: 'Transporte', sim: analise.transporteKg, ref: CUSTO_MEDIO_TRANSPORTE_KG, total: analise.custoTransporte },
                 ].map((row, idx) => {
-                  const realOk = row.isResult ? row.real >= 0 : (row.meta ? (row.label.includes('Margem') ? row.real >= row.meta : row.real <= row.meta * 1.15) : true);
+                  const diff = ((row.sim - row.ref) / row.ref) * 100;
                   return (
-                    <tr key={idx} className={`border-b last:border-b-0 ${row.isResult ? 'bg-gray-50 font-semibold' : 'hover:bg-gray-50'}`}>
-                      <td className="px-6 py-3 text-gray-700 font-medium">{row.label}</td>
-                      <td className="px-6 py-3 text-right font-mono text-blue-700">{row.format(row.sim)}</td>
-                      <td className="px-6 py-3 text-right">
-                        <span className={`font-mono font-semibold ${row.isResult ? (row.real >= 0 ? 'text-green-700' : 'text-red-700') : 'text-emerald-700'}`}>
-                          {row.format(row.real)}
-                        </span>
+                    <tr key={idx} className="border-b hover:bg-gray-50">
+                      <td className="px-6 py-3">{row.etapa}</td>
+                      <td className="px-6 py-3 text-right font-mono text-blue-600">{formatCurrency(row.sim)}</td>
+                      <td className="px-6 py-3 text-right font-mono text-gray-500">{formatCurrency(row.ref)}</td>
+                      <td className={`px-6 py-3 text-right font-mono ${diff > 15 ? 'text-red-600' : 'text-green-600'}`}>
+                        {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
                       </td>
-                      <td className="px-6 py-3 text-right text-amber-600">{row.metaLabel}</td>
+                      <td className="px-6 py-3 text-right font-semibold">{formatCurrency(row.total)}</td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
-        </div>
+        </motion.div>
       )}
 
-      {/* Composição de Custos da Obra - Pizza + Resumo */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <PieChartIcon className="h-5 w-5 text-indigo-600" />
-            Composição do Custo (s/ Material)
-          </h3>
-          <ResponsiveContainer width="100%" height={280}>
-            <PieChart>
-              <Pie data={composicaoPie} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
-                {composicaoPie.map((entry, idx) => (
-                  <Cell key={idx} fill={entry.color} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v) => formatCurrency(v)} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
+      {/* TAB: MONTAGEM */}
+      {activeTab === 'montagem' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              icon={Target}
+              label="Custo Montagem"
+              value={formatCurrency(analise.custoMontagem)}
+              subtext="Montagem em campo"
+              color="border-emerald-500"
+            />
+            <KPICard
+              icon={Clock}
+              label="Meses Montagem"
+              value={analise.mesesMontagem.toFixed(1)}
+              subtext={`${(analise.mesesMontagem * 4).toFixed(0)} semanas`}
+              color="border-blue-500"
+            />
+            <KPICard
+              icon={Gauge}
+              label="Ocupação Mensal"
+              value={`${Math.min(100, ocupacaoMontagem).toFixed(0)}%`}
+              subtext="Da capacidade de montagem"
+              color="border-amber-500"
+            />
+            <KPICard
+              icon={TrendingUp}
+              label="R$/kg Montagem"
+              value={formatCurrency(analise.montagemKg)}
+              subtext={`Ref: ${formatCurrency(CUSTO_MEDIO_MONTAGEM_KG)}/kg`}
+              color="border-purple-500"
+            />
+          </div>
 
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <FileText className="h-5 w-5 text-indigo-600" />
-            Resumo da Análise
-          </h3>
-          <div className="space-y-4">
-            <ProgressBar label="Produção (Fab+Pint+Transp)" value={analise.custoProducao} max={analise.custoTotal} color="bg-purple-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
-            <ProgressBar label="Montagem em Campo" value={analise.custoMontagem} max={analise.custoTotal} color="bg-emerald-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
-            {analise.custoMaterial > 0 && (
-              <div className="p-2 bg-gray-50 rounded border border-gray-200">
-                <p className="text-xs text-gray-500">Material: {formatCurrency(analise.custoMaterial)} — <em>faturado direto ao cliente, não entra na análise</em></p>
-              </div>
-            )}
-            <div className="border-t pt-3 mt-3 space-y-2">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Margem ({calculations.margemPct || 18}%) s/ instalação</span>
-                <span className="font-bold text-green-600">{formatCurrency(analise.margemVal)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">Impostos ({calculations.impostosPct || 12}%) s/ instalação</span>
-                <span className="font-bold text-amber-600">{formatCurrency(analise.impostosVal)}</span>
-              </div>
-              <div className="flex justify-between text-base border-t pt-2">
-                <span className="font-bold text-gray-800">VALOR TOTAL (s/ material)</span>
-                <span className="font-bold text-green-700 text-lg">{formatCurrency(analise.valorProposta)}</span>
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">Custo Mensal de Montagem</h3>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="mes" />
+                <YAxis />
+                <Tooltip formatter={(v) => formatCurrency(v)} />
+                <Legend />
+                <Bar dataKey="montagem" fill="#10b981" name="Custo Montagem" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </motion.div>
+      )}
+
+      {/* TAB: RENTABILIDADE */}
+      {activeTab === 'financeiro' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <KPICard
+              icon={TrendingUp}
+              label="ROI"
+              value={`${(animatedValues.roiPct || analise.roiPct).toFixed(1)}%`}
+              subtext="Retorno sobre investimento"
+              color="border-green-500"
+            />
+            <KPICard
+              icon={Percent}
+              label="Margem Líquida"
+              value={`${analise.margemPct.toFixed(1)}%`}
+              subtext="Lucro / Custo Total"
+              color="border-purple-500"
+            />
+            <KPICard
+              icon={Zap}
+              label="Break-even"
+              value={`${analise.breakEven.toFixed(1)} meses`}
+              subtext="Para recuperar investimento"
+              color="border-amber-500"
+            />
+            <KPICard
+              icon={DollarSign}
+              label="Lucro Bruto"
+              value={formatCurrency(analise.valorProposta - analise.custoTotal)}
+              subtext="Antes de custos operacionais"
+              color="border-blue-500"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-4">Análise de Sensibilidade</h3>
+              <div className="space-y-3 text-sm">
+                <div>
+                  <p className="text-gray-600 mb-2">Custo atual: {formatCurrency(analise.custoKg)}/kg</p>
+                  <div className="space-y-1">
+                    {[5, 10, 15, 20].map(pct => {
+                      const newCost = analise.custoKg * (1 + pct / 100);
+                      const newMargin = ((analise.precoVendaKg - newCost) / newCost) * 100;
+                      return (
+                        <div key={pct} className="flex justify-between p-2 bg-gray-50 rounded">
+                          <span className="text-gray-600">+{pct}% custo:</span>
+                          <span className={newMargin >= 18 ? 'text-green-600' : 'text-red-600'}>
+                            {newMargin.toFixed(1)}% margem
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 mt-3">
-              <p className="text-xs text-indigo-700">
-                <strong>Essa obra ocupa</strong> {analise.mesesProducao.toFixed(1)} meses de produção na fábrica e {analise.mesesMontagem.toFixed(1)} meses de montagem em campo, gerando custo médio mensal de {formatCurrency(analise.custoMensalProducaoObra + analise.custoMensalMontagemObra)} (produção + montagem).
+
+            <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg border border-green-200 p-6">
+              <h3 className="font-semibold text-gray-800 mb-3">Resumo Financeiro</h3>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span>Custo Material:</span>
+                  <span className="font-semibold">{formatCurrency(analise.custoMaterial)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Custo Produção:</span>
+                  <span className="font-semibold">{formatCurrency(analise.custoProducao)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Custo Montagem:</span>
+                  <span className="font-semibold">{formatCurrency(analise.custoMontagem)}</span>
+                </div>
+                <div className="border-t border-green-300 pt-2 flex justify-between">
+                  <span className="font-bold">Custo Total:</span>
+                  <span className="font-bold text-green-700">{formatCurrency(analise.custoTotal)}</span>
+                </div>
+                <div className="flex justify-between text-green-700">
+                  <span className="font-semibold">Margem:</span>
+                  <span className="font-bold">+{formatCurrency(analise.margemVal)}</span>
+                </div>
+                <div className="flex justify-between text-amber-700">
+                  <span className="font-semibold">Impostos:</span>
+                  <span className="font-bold">+{formatCurrency(analise.impostosVal)}</span>
+                </div>
+                <div className="border-t border-green-300 pt-2 flex justify-between bg-white rounded p-2">
+                  <span className="font-bold">Valor Proposta:</span>
+                  <span className="font-bold text-green-700">{formatCurrency(analise.valorProposta)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
+
+      {/* TAB: CRONOGRAMA */}
+      {activeTab === 'cronograma' && (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+            <KPICard
+              icon={Calendar}
+              label="Duração Total"
+              value={`${(Math.max(analise.mesesProducao, analise.mesesMontagem)).toFixed(1)} meses`}
+              subtext="Produção + Montagem paralela"
+              color="border-indigo-500"
+            />
+            <KPICard
+              icon={Settings}
+              label="Produção"
+              value={`${analise.mesesProducao.toFixed(1)} meses`}
+              subtext={`${(analise.mesesProducao * 4).toFixed(0)} semanas na fábrica`}
+              color="border-purple-500"
+            />
+            <KPICard
+              icon={Target}
+              label="Montagem"
+              value={`${analise.mesesMontagem.toFixed(1)} meses`}
+              subtext={`${(analise.mesesMontagem * 4).toFixed(0)} semanas em campo`}
+              color="border-emerald-500"
+            />
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-4">Distribuição de Custos por Mês</h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <BarChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="mes" />
+                <YAxis />
+                <Tooltip formatter={(v) => formatCurrency(v)} />
+                <Legend />
+                <Bar dataKey="producao" fill="#8b5cf6" name="Produção" />
+                <Bar dataKey="montagem" fill="#10b981" name="Montagem" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
+          <div className="bg-indigo-50 rounded-lg border border-indigo-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <Info className="h-5 w-5 text-indigo-600" />
+              Timeline de Execução
+            </h3>
+            <div className="space-y-2 text-sm text-gray-700">
+              <p>
+                A obra será executada em aproximadamente <strong>{Math.max(analise.mesesProducao, analise.mesesMontagem).toFixed(1)} meses</strong>, com a produção em fábrica ocorrendo simultaneamente à montagem em campo.
+              </p>
+              <p>
+                Custo médio mensal: <strong>{formatCurrency(analise.custoMensalProducaoObra + analise.custoMensalMontagemObra)}</strong> (produção + montagem).
               </p>
             </div>
           </div>
-        </div>
-      </div>
+        </motion.div>
+      )}
     </div>
   );
 };
 
 // Step 6: Prévia da Proposta
-const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF, onGenerateHTML, onGenerateDOCX }) => {
+const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF }) => {
   const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
 
   const totalPeso = setores.reduce((sum, s) => {
     const gruposPorBase = {};
     (s.itens || []).forEach(item => {
       if (item.unidade === 'KG') {
-        const desc = (item.descricao || '').toLowerCase();
-        if (desc.includes('projeto')) return;
         const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
         if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
           gruposPorBase[base] = item.quantidade || 0;
@@ -1878,19 +1891,13 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
 
   const precoMedio = totalPeso > 0 ? calculations.precoFinal / totalPeso : 0;
 
-  const totalArea = setores.reduce((sum, s) => {
-    return sum + (s.itens || []).reduce((is, item) => is + ((item.unidade === 'M2') ? (item.quantidade || 0) : 0), 0);
-  }, 0);
-  const precoM2 = totalArea > 0 ? calculations.precoFinal / totalArea : 0;
-
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
       {/* KPI Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard title="Peso Total" value={formatNumber(totalPeso) + ' kg'} icon={Weight} color="blue" />
-        <KPICard title="Área Total" value={formatNumber(totalArea) + ' m²'} icon={Layers} color="orange" subtitle={totalArea > 0 ? `${formatCurrency(precoM2)}/m²` : ''} />
-        <KPICard title="Preço/kg" value={formatCurrency(precoMedio)} icon={TrendingUp} color="green" />
-        <KPICard title="Preço/m²" value={totalArea > 0 ? formatCurrency(precoM2) : 'N/A'} icon={Target} color="red" />
+        <KPICard title="Número de Itens" value={totalItens} icon={Package} color="orange" />
+        <KPICard title="Preço Médio/kg" value={formatCurrency(precoMedio)} icon={TrendingUp} color="green" />
         <KPICard title="Valor Total" value={formatCurrency(calculations.precoFinal)} icon={DollarSign} color="purple" />
       </div>
 
@@ -1915,6 +1922,44 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
               <div><strong>Cliente:</strong> {project.cliente}</div>
               <div><strong>Tipo:</strong> {TIPOS_ESTRUTURA[project.tipo]?.nome || project.tipo}</div>
               <div><strong>Região:</strong> {project.regiao}</div>
+            </div>
+          </div>
+
+          {/* Custos Unitários */}
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 mb-3">CUSTOS UNITÁRIOS DE REFERÊNCIA</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border-collapse">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th className="border p-2 text-left font-semibold">Categoria</th>
+                    <th className="border p-2 text-right font-semibold">Valor</th>
+                    <th className="border p-2 text-left font-semibold">Unidade</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b">
+                    <td className="border p-2">Estrutura - Material</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.estrutura.material)}</td>
+                    <td className="border p-2">kg</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="border p-2">Estrutura - Fabricação</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.estrutura.fabricacao)}</td>
+                    <td className="border p-2">kg</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="border p-2">Cobertura - Material</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.cobertura.material)}</td>
+                    <td className="border p-2">m²</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="border p-2">Fechamento - Material</td>
+                    <td className="border p-2 text-right">{formatCurrency(unitCosts.fechamento.material)}</td>
+                    <td className="border p-2">m²</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
 
@@ -2051,248 +2096,21 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
       </div>
 
       {/* Buttons */}
-      <div className="flex flex-wrap gap-3 justify-end">
+      <div className="flex gap-4 justify-end">
         <button
           onClick={onSave}
-          className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2 shadow-md"
+          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2"
         >
           <Save className="h-4 w-4" />
           Salvar Orçamento
         </button>
         <button
-          onClick={onGenerateHTML}
-          className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-2 shadow-md"
-        >
-          <Eye className="h-4 w-4" />
-          Visualizar HTML
-        </button>
-        <button
           onClick={onGeneratePDF}
-          className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2 shadow-md"
+          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
         >
-          <FileDown className="h-4 w-4" />
-          Gerar PDF
+          <Download className="h-4 w-4" />
+          Gerar Proposta PDF
         </button>
-        <button
-          onClick={onGenerateDOCX}
-          className="px-5 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium flex items-center gap-2 shadow-md"
-        >
-          <File className="h-4 w-4" />
-          Gerar DOCX
-        </button>
-      </div>
-    </div>
-  );
-};
-
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-// ============================================================================
-// SAVED SIMULATIONS LIST
-// ============================================================================
-
-const statusLabels = {
-  rascunho: { label: 'Rascunho', bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/30' },
-  pendente: { label: 'Pendente', bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' },
-  aprovado: { label: 'Aprovado', bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30' },
-  reprovado: { label: 'Reprovado', bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' },
-};
-
-const SimulacoesList = ({ orcamentos, onNew, onLoad, onDelete }) => {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filterStatus, setFilterStatus] = useState('todos');
-
-  const filtered = useMemo(() => {
-    return (orcamentos || []).filter(orc => {
-      const matchSearch = !searchTerm ||
-        (orc.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (orc.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-        (orc.numero || '').toLowerCase().includes(searchTerm.toLowerCase());
-      const matchStatus = filterStatus === 'todos' || orc.status === filterStatus;
-      return matchSearch && matchStatus;
-    });
-  }, [orcamentos, searchTerm, filterStatus]);
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8">
-        {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Simulador de Orçamento</h1>
-            <p className="text-gray-600 mt-1">Gerencie suas simulações e propostas comerciais</p>
-          </div>
-          <motion.button
-            onClick={onNew}
-            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center gap-2 shadow-lg shadow-blue-600/25"
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-          >
-            <Plus className="h-5 w-5" />
-            Nova Simulação
-          </motion.button>
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-          {[
-            { label: 'Total de Simulações', value: (orcamentos || []).length, icon: FileText, color: 'blue' },
-            { label: 'Rascunhos', value: (orcamentos || []).filter(o => o.status === 'rascunho').length, icon: Edit3, color: 'yellow' },
-            { label: 'Aprovados', value: (orcamentos || []).filter(o => o.status === 'aprovado').length, icon: CheckCircle2, color: 'green' },
-            { label: 'Valor Total', value: formatCurrency((orcamentos || []).reduce((sum, o) => sum + (o.valor_total || o.valor || 0), 0)), icon: DollarSign, color: 'purple', isText: true },
-          ].map((stat, idx) => {
-            const Icon = stat.icon;
-            return (
-              <div key={idx} className="bg-white rounded-xl border border-gray-200 p-5">
-                <div className="flex items-center gap-3">
-                  <div className={`p-2 rounded-lg bg-${stat.color}-100`}>
-                    <Icon className={`h-5 w-5 text-${stat.color}-600`} />
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-500">{stat.label}</p>
-                    <p className="text-xl font-bold text-gray-900">{stat.isText ? stat.value : stat.value}</p>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Search & Filters */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-wrap items-center gap-4">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Buscar por nome, cliente ou número..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-            />
-          </div>
-          <div className="flex gap-2">
-            {['todos', 'rascunho', 'pendente', 'aprovado', 'reprovado'].map(status => (
-              <button
-                key={status}
-                onClick={() => setFilterStatus(status)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                  filterStatus === status
-                    ? 'bg-blue-600 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {status === 'todos' ? 'Todos' : (statusLabels[status]?.label || status)}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* List */}
-        {filtered.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
-            <FileText className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-            <h3 className="text-xl font-semibold text-gray-600 mb-2">
-              {(orcamentos || []).length === 0 ? 'Nenhuma simulação criada' : 'Nenhum resultado encontrado'}
-            </h3>
-            <p className="text-gray-400 mb-6">
-              {(orcamentos || []).length === 0
-                ? 'Crie sua primeira simulação de orçamento para começar'
-                : 'Tente alterar os filtros de busca'
-              }
-            </p>
-            {(orcamentos || []).length === 0 && (
-              <button
-                onClick={onNew}
-                className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold inline-flex items-center gap-2"
-              >
-                <Plus className="h-5 w-5" />
-                Criar Primeira Simulação
-              </button>
-            )}
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filtered.map((orc, idx) => {
-              const st = statusLabels[orc.status] || statusLabels.rascunho;
-              const valorTotal = orc.valor_total || orc.valor || 0;
-              const dataCreated = orc.dataResposta || orc.created_at || orc.data_criacao;
-              return (
-                <motion.div
-                  key={orc.id || idx}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: idx * 0.05 }}
-                  className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-gray-900">{orc.nome || 'Sem nome'}</h3>
-                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${st.bg} ${st.text} border ${st.border}`}>
-                          {st.label}
-                        </span>
-                        {orc.numero && (
-                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono">
-                            #{orc.numero}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-6 text-sm text-gray-500">
-                        <span className="flex items-center gap-1">
-                          <Building2 className="h-3.5 w-3.5" />
-                          {orc.cliente || 'Cliente não informado'}
-                        </span>
-                        {orc.tipo && (
-                          <span className="flex items-center gap-1">
-                            <Package className="h-3.5 w-3.5" />
-                            {orc.tipo}
-                          </span>
-                        )}
-                        {orc.regiao && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-3.5 w-3.5" />
-                            {orc.regiao}
-                          </span>
-                        )}
-                        {dataCreated && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3.5 w-3.5" />
-                            {new Date(dataCreated).toLocaleDateString('pt-BR')}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <div className="text-right mr-4">
-                        <p className="text-xs text-gray-400">Valor Total</p>
-                        <p className="text-lg font-bold text-green-600">{formatCurrency(valorTotal)}</p>
-                      </div>
-                      <button
-                        onClick={() => onLoad(orc)}
-                        className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium text-sm flex items-center gap-1.5 transition-colors"
-                      >
-                        <Eye className="h-4 w-4" />
-                        Abrir
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (window.confirm(`Excluir simulação "${orc.nome}"?`)) {
-                            onDelete(orc.id);
-                          }
-                        }}
-                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -2303,9 +2121,7 @@ const SimulacoesList = ({ orcamentos, onNew, onLoad, onDelete }) => {
 // ============================================================================
 
 export default function SimuladorOrcamento() {
-  const { orcamentos, addOrcamento, deleteOrcamento, updateOrcamento } = useOrcamentos();
-  const [showList, setShowList] = useState(true);
-  const [editingId, setEditingId] = useState(null);
+  const { saveOrcamento } = useOrcamentos();
   const [currentStep, setCurrentStep] = useState(0);
   const [project, setProject] = useState({
     nome: '',
@@ -2317,7 +2133,7 @@ export default function SimuladorOrcamento() {
     dataValidade: '',
   });
   const [unitCosts, setUnitCosts] = useState({
-    estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20, projeto: 0.50 },
+    estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20 },
     cobertura: { tipo: 'galvanizada_050', material: 75, montagem: 18 },
     fechamento: { tipo: 'pir_30mm', material: 125, montagem: 15 },
     steelDeck: { material: 100, montagem: 20 },
@@ -2347,66 +2163,6 @@ export default function SimuladorOrcamento() {
     naoIncluso: 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.',
   });
 
-  const fi = useFinancialIntelligence();
-
-  // Load saved simulation into wizard
-  const handleLoadSimulation = useCallback((orc) => {
-    setProject({
-      nome: orc.nome || '',
-      cliente: orc.cliente || '',
-      tipo: orc.tipo || '',
-      regiao: orc.regiao || 'sudeste',
-      numeroPropostas: orc.numeroPropostas || orc.numero || '',
-      dataEmissao: orc.dataEmissao || '',
-      dataValidade: orc.dataValidade || orc.validade || '',
-    });
-    if (orc.unitCosts) setUnitCosts(orc.unitCosts);
-    if (orc.setores && orc.setores.length > 0) setSetores(orc.setores);
-    if (orc.calculations) setCalculations(prev => ({ ...prev, ...orc.calculations }));
-    if (orc.paymentConditions) setPaymentConditions(orc.paymentConditions);
-    if (orc.cronograma) setCronograma(orc.cronograma);
-    if (orc.escopo) setEscopo(orc.escopo);
-    setEditingId(orc.id);
-    setCurrentStep(0);
-    setShowList(false);
-  }, []);
-
-  // Start new simulation
-  const handleNewSimulation = useCallback(() => {
-    setProject({ nome: '', cliente: '', tipo: '', regiao: 'sudeste', numeroPropostas: '', dataEmissao: '', dataValidade: '' });
-    setUnitCosts({
-      estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20, projeto: 0.50 },
-      cobertura: { tipo: 'galvanizada_050', material: 75, montagem: 18 },
-      fechamento: { tipo: 'pir_30mm', material: 125, montagem: 15 },
-      steelDeck: { material: 100, montagem: 20 },
-      complementos: { calha: 25, rufos: 20, platibanda: 45 },
-    });
-    setSetores([]);
-    setCalculations({ custoMaterial: 0, custoInstalacao: 0, margemPct: 18, impostosPct: 12, precoFinal: 0 });
-    setPaymentConditions({ assinatura: 10, aprovacao: 5, medicoes: 85 });
-    setCronograma({ projeto: 10, fabricacao: 30, montagem: 15, obrigacoes: 'Disponibilizar acesso ao local da obra; Fornecer ponto de energia elétrica e água; Garantir fundações conforme projeto fornecido pela Montex; Aprovar o projeto executivo em até 10 dias úteis; Efetuar os pagamentos nas datas acordadas.' });
-    setEscopo({ incluso: 'Projeto executivo de estrutura metálica; Fabricação completa em fábrica; Tratamento superficial e pintura; Transporte até a obra; Montagem completa com equipamentos; Acompanhamento técnico durante execução; Garantia de 5 anos contra defeitos de fabricação.', naoIncluso: 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.' });
-    setEditingId(null);
-    setCurrentStep(0);
-    setShowList(false);
-  }, []);
-
-  // Back to list
-  const handleBackToList = useCallback(() => {
-    setShowList(true);
-    setEditingId(null);
-  }, []);
-
-  // Delete simulation
-  const handleDeleteSimulation = useCallback(async (id) => {
-    try {
-      await deleteOrcamento(id);
-      toast.success('Simulação excluída com sucesso');
-    } catch (err) {
-      toast.error('Erro ao excluir: ' + (err.message || 'erro desconhecido'));
-    }
-  }, [deleteOrcamento]);
-
   const steps = [
     { label: 'Dados do Projeto', icon: Building2 },
     { label: 'Custos Unitários', icon: DollarSign },
@@ -2417,7 +2173,7 @@ export default function SimuladorOrcamento() {
     { label: 'Prévia da Proposta', icon: Eye },
   ];
 
-  // Recalculate totals whenever setores, margem, or impostos change
+  // Recalculate totals whenever setores change
   useEffect(() => {
     let totalMaterial = 0;
     let totalInstalacao = 0;
@@ -2430,105 +2186,42 @@ export default function SimuladorOrcamento() {
       });
     });
 
-    const currentMargem = calculations.margemPct || 18;
-    const currentImpostos = calculations.impostosPct || 12;
-    const margemValor = totalInstalacao * (currentMargem / 100);
-    const impostoValor = (totalInstalacao + margemValor) * (currentImpostos / 100);
+    const margemValor = totalInstalacao * (calculations.margemPct / 100);
+    const impostoValor = (totalInstalacao + margemValor) * (calculations.impostosPct / 100);
     const precoFinal = totalMaterial + totalInstalacao + margemValor + impostoValor;
 
-    setCalculations(prev => ({
-      ...prev,
+    setCalculations({
+      ...calculations,
       custoMaterial: totalMaterial,
       custoInstalacao: totalInstalacao,
       precoFinal: precoFinal,
-    }));
-  }, [setores, calculations.margemPct, calculations.impostosPct]);
+    });
+  }, [setores]);
 
-  const handleSaveOrcamento = async () => {
+  const handleSaveOrcamento = () => {
     if (!project.nome || !project.cliente) {
       toast.error('Preencha os dados do projeto primeiro');
       return;
     }
 
-    const prazoDias = (cronograma.projeto || 0) + (cronograma.fabricacao || 0) + (cronograma.montagem || 0);
-    const orcamentoData = {
-      numero: project.numeroPropostas || `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getFullYear()).slice(-2)}`,
-      nome: project.nome,
-      cliente: project.cliente,
-      tipo: project.tipo,
-      regiao: project.regiao,
-      status: 'rascunho',
+    const orcamento = {
+      id: Date.now(),
+      ...project,
       unitCosts,
       setores,
       calculations,
       paymentConditions,
       cronograma,
       escopo,
-      numeroPropostas: project.numeroPropostas,
-      dataEmissao: project.dataEmissao,
-      dataValidade: project.dataValidade,
-      valor_total: calculations.precoFinal || 0,
-      validade: project.dataValidade || new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10),
-      prazo_entrega: `${prazoDias} dias`,
-      condicoes_pagamento: `Assinatura: ${paymentConditions.assinatura}%, Aprovação: ${paymentConditions.aprovacao}%, Medições: ${paymentConditions.medicoes}%`,
       dataResposta: new Date().toISOString(),
     };
 
-    try {
-      if (editingId) {
-        // Update existing simulation
-        await updateOrcamento(editingId, orcamentoData);
-        toast.success('Simulação atualizada com sucesso!');
-      } else {
-        // Create new simulation
-        const orcamentoId = `ORC-${Date.now()}`;
-        await addOrcamento({ id: orcamentoId, ...orcamentoData });
-        setEditingId(orcamentoId);
-        toast.success('Orçamento salvo com sucesso!');
-      }
-    } catch (err) {
-      console.error('Erro ao salvar orçamento:', err);
-      toast.error('Erro ao salvar: ' + (err.message || 'erro desconhecido'));
-    }
-  };
-
-  const getPropostaData = () => ({
-    project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo,
-  });
-
-  const handleGenerateHTML = () => {
-    if (!project.nome || !project.cliente) { toast.error('Preencha os dados do projeto primeiro'); return; }
-    if (!setores.length) { toast.error('Adicione pelo menos um setor com itens'); return; }
-    openPropostaHTML(getPropostaData());
-    toast.success('Proposta HTML aberta em nova aba');
+    saveOrcamento(orcamento);
+    toast.success('Orçamento salvo com sucesso!');
   };
 
   const handleGeneratePDF = () => {
-    if (!project.nome || !project.cliente) { toast.error('Preencha os dados do projeto primeiro'); return; }
-    if (!setores.length) { toast.error('Adicione pelo menos um setor com itens'); return; }
-    generatePropostaPDF(getPropostaData());
-    toast.success('Use Ctrl+P ou Cmd+P para salvar como PDF');
-  };
-
-  const handleGenerateDOCX = async () => {
-    if (!project.nome || !project.cliente) { toast.error('Preencha os dados do projeto primeiro'); return; }
-    if (!setores.length) { toast.error('Adicione pelo menos um setor com itens'); return; }
-    try {
-      toast.loading('Gerando DOCX...', { id: 'docx' });
-      const blob = await generatePropostaDOCX(getPropostaData());
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Proposta_${project.nome.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.doc`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      toast.success('DOCX gerado com sucesso!', { id: 'docx' });
-    } catch (err) {
-      console.error('Erro ao gerar DOCX:', err);
-      toast.error('Erro ao gerar DOCX: ' + err.message, { id: 'docx' });
-    }
+    toast.success('Funcionalidade de gerar PDF será implementada em breve!');
   };
 
   const renderStep = () => {
@@ -2544,25 +2237,13 @@ export default function SimuladorOrcamento() {
       case 4:
         return <StepCronogramaEscopo cronograma={cronograma} setCronograma={setCronograma} escopo={escopo} setEscopo={setEscopo} setores={setores} />;
       case 5:
-        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} cronograma={cronograma} />;
+        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} />;
       case 6:
-        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} onGenerateHTML={handleGenerateHTML} onGenerateDOCX={handleGenerateDOCX} />;
+        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} />;
       default:
         return null;
     }
   };
-
-  // Show list view
-  if (showList) {
-    return (
-      <SimulacoesList
-        orcamentos={orcamentos}
-        onNew={handleNewSimulation}
-        onLoad={handleLoadSimulation}
-        onDelete={handleDeleteSimulation}
-      />
-    );
-  }
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -2570,22 +2251,9 @@ export default function SimuladorOrcamento() {
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-full px-4 lg:px-8 py-6">
           <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={handleBackToList}
-                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                title="Voltar à lista"
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <div>
-                <h1 className="text-3xl font-bold text-gray-900">
-                  {editingId ? 'Editar Simulação' : 'Nova Simulação'}
-                </h1>
-                <p className="text-gray-600 mt-1">
-                  {editingId ? `Editando: ${project.nome || 'Sem nome'}` : 'Construtor de Propostas Comerciais'}
-                </p>
-              </div>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">Simulador de Orçamento</h1>
+              <p className="text-gray-600 mt-1">Construtor de Propostas Comerciais</p>
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-600">Etapa {currentStep + 1} de {steps.length}</p>
