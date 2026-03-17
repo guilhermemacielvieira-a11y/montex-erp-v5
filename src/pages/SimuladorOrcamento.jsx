@@ -369,6 +369,17 @@ const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
             </div>
+            <div>
+              <label className="block font-medium text-gray-700 mb-1">Projeto (R$/kg)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={unitCosts.estrutura.projeto || 0.50}
+                onChange={(e) => updateCost('estrutura', 'projeto', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-500 mt-1">Classificado como instalação — peso não duplicado</p>
+            </div>
           </div>
         </div>
 
@@ -548,6 +559,7 @@ const getPreDefinedItems = (unitCosts) => [
   { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Pintura', unidade: 'KG', precoMaterial: unitCosts.estrutura.pintura, precoInstalacao: 0, color: 'blue' },
   { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Transporte', unidade: 'KG', precoMaterial: unitCosts.estrutura.transporte, precoInstalacao: 0, color: 'blue' },
   { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Montagem', unidade: 'KG', precoMaterial: 0, precoInstalacao: unitCosts.estrutura.montagem, color: 'blue' },
+  { categoria: 'Estrutura Metálica', descricao: 'Estrutura Metálica - Projeto', unidade: 'KG', precoMaterial: 0, precoInstalacao: unitCosts.estrutura.projeto || 0.50, color: 'blue' },
   { categoria: 'Cobertura', descricao: 'Cobertura - Material', unidade: 'M2', precoMaterial: unitCosts.cobertura.material, precoInstalacao: 0, color: 'orange' },
   { categoria: 'Cobertura', descricao: 'Cobertura - Montagem', unidade: 'M2', precoMaterial: 0, precoInstalacao: unitCosts.cobertura.montagem, color: 'orange' },
   { categoria: 'Fechamento', descricao: 'Fechamento - Material', unidade: 'M2', precoMaterial: unitCosts.fechamento.material, precoInstalacao: 0, color: 'red' },
@@ -1306,7 +1318,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
   // === DADOS DA SIMULAÇÃO (do orçamento em construção) ===
   const analise = useMemo(() => {
     let pesoTotal = 0;
-    let custoFabricacao = 0, custoPintura = 0, custoTransporte = 0, custoMontagem = 0, custoMaterial = 0;
+    let custoFabricacao = 0, custoPintura = 0, custoTransporte = 0, custoMontagem = 0, custoProjeto = 0, custoMaterial = 0;
     let areaTotal = 0;
 
     (setores || []).forEach(s => {
@@ -1321,6 +1333,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
         else if (desc.includes('pintura')) custoPintura += totalItem;
         else if (desc.includes('transporte')) custoTransporte += totalItem;
         else if (desc.includes('montagem')) custoMontagem += totalItem;
+        else if (desc.includes('projeto')) custoProjeto += totalItem; // instalação
         else custoMaterial += totalItem; // material e outros
 
         if (item.unidade === 'KG') {
@@ -1336,7 +1349,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
 
     const custoProducao = custoFabricacao + custoPintura + custoTransporte;
     // Análise Interna: sem material (faturado direto pro cliente)
-    const custoInstalacao = custoProducao + custoMontagem;
+    const custoInstalacao = custoProducao + custoMontagem + custoProjeto;
     const custoTotal = custoInstalacao; // apenas produção + montagem
     const margemVal = custoInstalacao * ((calculations.margemPct || 18) / 100);
     const impostosVal = (custoInstalacao + margemVal) * ((calculations.impostosPct || 12) / 100);
@@ -1361,7 +1374,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
 
     return {
       pesoTotal, areaTotal, custoTotal, valorProposta,
-      custoMaterial, custoFabricacao, custoPintura, custoTransporte, custoMontagem,
+      custoMaterial, custoFabricacao, custoPintura, custoTransporte, custoMontagem, custoProjeto,
       custoProducao, custoInstalacao, margemVal, impostosVal,
       mesesProducao, mesesMontagem,
       custoMensalProducaoObra, custoMensalMontagemObra,
@@ -1389,6 +1402,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     { name: 'Pintura', value: analise.custoPintura, color: '#f59e0b' },
     { name: 'Transporte', value: analise.custoTransporte, color: '#06b6d4' },
     { name: 'Montagem', value: analise.custoMontagem, color: '#10b981' },
+    { name: 'Projeto', value: analise.custoProjeto, color: '#6366f1' },
   ].filter(d => d.value > 0);
 
   const ProgressBar = ({ label, value, max, color, format }) => {
@@ -2321,7 +2335,7 @@ export default function SimuladorOrcamento() {
     dataValidade: '',
   });
   const [unitCosts, setUnitCosts] = useState({
-    estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20 },
+    estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20, projeto: 0.50 },
     cobertura: { tipo: 'galvanizada_050', material: 75, montagem: 18 },
     fechamento: { tipo: 'pir_30mm', material: 125, montagem: 15 },
     steelDeck: { material: 100, montagem: 20 },
@@ -2379,7 +2393,7 @@ export default function SimuladorOrcamento() {
   const handleNewSimulation = useCallback(() => {
     setProject({ nome: '', cliente: '', tipo: '', regiao: 'sudeste', numeroPropostas: '', dataEmissao: '', dataValidade: '' });
     setUnitCosts({
-      estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20 },
+      estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20, projeto: 0.50 },
       cobertura: { tipo: 'galvanizada_050', material: 75, montagem: 18 },
       fechamento: { tipo: 'pir_30mm', material: 125, montagem: 15 },
       steelDeck: { material: 100, montagem: 20 },
