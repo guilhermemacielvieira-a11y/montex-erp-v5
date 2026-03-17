@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
+import { generatePropostaDOCX } from '../utils/generatePropostaDOCX';
 import {
   ChevronRight,
   ChevronLeft,
@@ -1873,7 +1874,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts }) => {
 };
 
 // Step 6: Prévia da Proposta
-const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF }) => {
+const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF, gerandoDocx, templateCarregado }) => {
   const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
 
   const totalPeso = setores.reduce((sum, s) => {
@@ -2104,13 +2105,21 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
           <Save className="h-4 w-4" />
           Salvar Orçamento
         </button>
-        <button
-          onClick={onGeneratePDF}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
-        >
-          <Download className="h-4 w-4" />
-          Gerar Proposta PDF
-        </button>
+        <div className="flex flex-col items-end gap-1">
+          {templateCarregado && (
+            <span className="text-xs text-green-600 font-medium flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" /> Modelo 2026 carregado
+            </span>
+          )}
+          <button
+            onClick={onGeneratePDF}
+            disabled={gerandoDocx}
+            className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <FileDown className="h-4 w-4" />
+            {gerandoDocx ? 'Gerando DOCX...' : 'Gerar Proposta DOCX'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2120,9 +2129,46 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
 // MAIN COMPONENT
 // ============================================================================
 
+// ─── Carrega template 2026 do Supabase (entity_store) ────────────────────────
+async function fetchTemplate2026() {
+  try {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+    const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+    if (!supabaseUrl || !anonKey) return null;
+
+    const res = await fetch(
+      `${supabaseUrl}/rest/v1/entity_store?entity_type=eq.proposta_template_2026&order=id.desc&limit=1`,
+      {
+        headers: {
+          apikey: anonKey,
+          Authorization: `Bearer ${anonKey}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    const rows = await res.json();
+    if (rows && rows.length > 0) return rows[0].data || null;
+  } catch (e) {
+    console.warn('Template 2026 não carregado:', e);
+  }
+  return null;
+}
+
 export default function SimuladorOrcamento() {
   const { saveOrcamento } = useOrcamentos();
   const [currentStep, setCurrentStep] = useState(0);
+  const [template2026, setTemplate2026] = useState(null);
+  const [gerandoDocx, setGerandoDocx] = useState(false);
+
+  // Carrega o template na montagem do componente
+  useEffect(() => {
+    fetchTemplate2026().then(t => {
+      if (t) {
+        setTemplate2026(t);
+        console.log('✅ Modelo Proposta 2026 carregado do Supabase');
+      }
+    });
+  }, []);
   const [project, setProject] = useState({
     nome: '',
     cliente: '',
@@ -2220,8 +2266,35 @@ export default function SimuladorOrcamento() {
     toast.success('Orçamento salvo com sucesso!');
   };
 
-  const handleGeneratePDF = () => {
-    toast.success('Funcionalidade de gerar PDF será implementada em breve!');
+  const handleGenerateDOCX = async () => {
+    if (!project.nome || !project.cliente) {
+      toast.error('Preencha os dados do projeto (nome e cliente) antes de gerar a proposta.');
+      return;
+    }
+    if (setores.length === 0) {
+      toast.error('Adicione pelo menos um setor com itens antes de gerar a proposta.');
+      return;
+    }
+
+    setGerandoDocx(true);
+    try {
+      const filename = await generatePropostaDOCX({
+        project,
+        setores,
+        calculations,
+        unitCosts,
+        paymentConditions,
+        cronograma,
+        escopo,
+        template: template2026,
+      });
+      toast.success(`✅ Proposta gerada: ${filename}`);
+    } catch (err) {
+      console.error('Erro ao gerar DOCX:', err);
+      toast.error('Erro ao gerar proposta. Verifique os dados e tente novamente.');
+    } finally {
+      setGerandoDocx(false);
+    }
   };
 
   const renderStep = () => {
@@ -2239,7 +2312,7 @@ export default function SimuladorOrcamento() {
       case 5:
         return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} />;
       case 6:
-        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} />;
+        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGenerateDOCX} gerandoDocx={gerandoDocx} templateCarregado={!!template2026} />;
       default:
         return null;
     }
