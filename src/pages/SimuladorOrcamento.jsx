@@ -1335,13 +1335,12 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     });
 
     const custoProducao = custoFabricacao + custoPintura + custoTransporte;
-    const custoTotal = custoMaterial + custoProducao + custoMontagem;
-
-    // Margem e impostos
+    // Análise Interna: sem material (faturado direto pro cliente)
     const custoInstalacao = custoProducao + custoMontagem;
+    const custoTotal = custoInstalacao; // apenas produção + montagem
     const margemVal = custoInstalacao * ((calculations.margemPct || 18) / 100);
     const impostosVal = (custoInstalacao + margemVal) * ((calculations.impostosPct || 12) / 100);
-    const valorProposta = custoTotal + margemVal + impostosVal;
+    const valorProposta = custoInstalacao + margemVal + impostosVal; // sem material
 
     // Quantos meses de produção — usa prazo editado na proposta (cronograma)
     const diasFabricacao = (cronograma && cronograma.fabricacao) || 30;
@@ -1384,9 +1383,8 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     { name: 'Montagem', simulado: analise.montagemKg, referencia: CUSTO_MEDIO_MONTAGEM_KG },
   ];
 
-  // Dados gráfico pizza - Composição do custo da obra
+  // Dados gráfico pizza - Composição do custo da obra (s/ material — faturado direto)
   const composicaoPie = [
-    { name: 'Material', value: analise.custoMaterial, color: '#3b82f6' },
     { name: 'Fabricação', value: analise.custoFabricacao, color: '#8b5cf6' },
     { name: 'Pintura', value: analise.custoPintura, color: '#f59e0b' },
     { name: 'Transporte', value: analise.custoTransporte, color: '#06b6d4' },
@@ -1425,7 +1423,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
           { label: 'Peso Total Obra', value: `${formatNumber(analise.pesoTotal / 1000)} ton`, sub: `${formatNumber(analise.pesoTotal)} kg`, color: 'border-blue-500', icon: Weight },
           { label: 'Custo Produção', value: formatCurrency(analise.custoProducao), sub: `Fab + Pint + Transp`, color: 'border-purple-500', icon: Settings },
           { label: 'Custo Montagem', value: formatCurrency(analise.custoMontagem), sub: 'Montagem em campo', color: 'border-emerald-500', icon: Target },
-          { label: 'Valor Proposta', value: formatCurrency(analise.valorProposta), sub: `c/ margem ${calculations.margemPct || 18}% + impostos`, color: 'border-green-500', icon: DollarSign },
+          { label: 'Valor Proposta (s/ mat.)', value: formatCurrency(analise.valorProposta), sub: `Produção + margem ${calculations.margemPct || 18}% + impostos`, color: 'border-green-500', icon: DollarSign },
           { label: 'Preço Venda/kg', value: formatCurrency(analise.precoVendaKg), sub: `Custo: ${formatCurrency(analise.custoKg)}/kg (s/ material)`, color: 'border-amber-500', icon: TrendingUp },
         ].map((kpi, idx) => (
           <div key={idx} className={`bg-white rounded-xl shadow-sm border-l-4 ${kpi.color} p-4`}>
@@ -1792,7 +1790,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
           <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
             <PieChartIcon className="h-5 w-5 text-indigo-600" />
-            Composição do Custo da Obra
+            Composição do Custo (s/ Material)
           </h3>
           <ResponsiveContainer width="100%" height={280}>
             <PieChart>
@@ -1814,7 +1812,11 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
           <div className="space-y-4">
             <ProgressBar label="Produção (Fab+Pint+Transp)" value={analise.custoProducao} max={analise.custoTotal} color="bg-purple-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
             <ProgressBar label="Montagem em Campo" value={analise.custoMontagem} max={analise.custoTotal} color="bg-emerald-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
-            <ProgressBar label="Material" value={analise.custoMaterial} max={analise.custoTotal} color="bg-blue-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
+            {analise.custoMaterial > 0 && (
+              <div className="p-2 bg-gray-50 rounded border border-gray-200">
+                <p className="text-xs text-gray-500">Material: {formatCurrency(analise.custoMaterial)} — <em>faturado direto ao cliente, não entra na análise</em></p>
+              </div>
+            )}
             <div className="border-t pt-3 mt-3 space-y-2">
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">Margem ({calculations.margemPct || 18}%) s/ instalação</span>
@@ -1825,7 +1827,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
                 <span className="font-bold text-amber-600">{formatCurrency(analise.impostosVal)}</span>
               </div>
               <div className="flex justify-between text-base border-t pt-2">
-                <span className="font-bold text-gray-800">VALOR TOTAL PROPOSTA</span>
+                <span className="font-bold text-gray-800">VALOR TOTAL (s/ material)</span>
                 <span className="font-bold text-green-700 text-lg">{formatCurrency(analise.valorProposta)}</span>
               </div>
             </div>
