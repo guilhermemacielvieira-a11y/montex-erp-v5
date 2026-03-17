@@ -2155,10 +2155,12 @@ async function fetchTemplate2026() {
 }
 
 export default function SimuladorOrcamento() {
-  const { saveOrcamento } = useOrcamentos();
+  const { orcamentos, addOrcamento } = useOrcamentos();
   const [currentStep, setCurrentStep] = useState(0);
   const [template2026, setTemplate2026] = useState(null);
   const [gerandoDocx, setGerandoDocx] = useState(false);
+  const [showCarregarModal, setShowCarregarModal] = useState(false);
+  const [filtroPropostas, setFiltroPropostas] = useState('');
 
   // Carrega o template na montagem do componente
   useEffect(() => {
@@ -2244,14 +2246,20 @@ export default function SimuladorOrcamento() {
     });
   }, [setores]);
 
-  const handleSaveOrcamento = () => {
+  const handleSaveOrcamento = async () => {
     if (!project.nome || !project.cliente) {
       toast.error('Preencha os dados do projeto primeiro');
       return;
     }
 
     const orcamento = {
-      id: Date.now(),
+      id: `orc-${Date.now()}`,
+      numero: project.numeroPropostas,
+      cliente: project.cliente,
+      status: 'rascunho',
+      valor_total: calculations.precoFinal || 0,
+      validade: project.dataValidade,
+      prazoEntrega: (cronograma.projeto || 0) + (cronograma.fabricacao || 0) + (cronograma.montagem || 0),
       ...project,
       unitCosts,
       setores,
@@ -2262,8 +2270,60 @@ export default function SimuladorOrcamento() {
       dataResposta: new Date().toISOString(),
     };
 
-    saveOrcamento(orcamento);
-    toast.success('Orçamento salvo com sucesso!');
+    try {
+      await addOrcamento(orcamento);
+      toast.success('✅ Orçamento salvo com sucesso!');
+    } catch (e) {
+      toast.error('Erro ao salvar orçamento.');
+    }
+  };
+
+  // Carrega uma proposta anterior no simulador
+  const handleCarregarProposta = (orc) => {
+    // Dados do projeto
+    setProject({
+      nome: orc.nome || orc.projeto || '',
+      cliente: orc.cliente || orc.clienteNome || '',
+      tipo: orc.tipo || '',
+      regiao: orc.regiao || 'sudeste',
+      numeroPropostas: orc.numeroPropostas || orc.numero || '',
+      dataEmissao: orc.dataEmissao || '',
+      dataValidade: orc.dataValidade || orc.validade || '',
+    });
+
+    // Setores e itens
+    if (orc.setores && Array.isArray(orc.setores)) {
+      setSetores(orc.setores);
+    }
+
+    // Custos unitários
+    if (orc.custosUnitarios || orc.unitCosts) {
+      setUnitCosts(orc.custosUnitarios || orc.unitCosts);
+    }
+
+    // Cálculos / BDI
+    if (orc.calculations) {
+      setCalculations(orc.calculations);
+    }
+
+    // Condições de pagamento
+    if (orc.paymentConditions) {
+      setPaymentConditions(orc.paymentConditions);
+    }
+
+    // Cronograma
+    if (orc.cronograma) {
+      setCronograma(orc.cronograma);
+    }
+
+    // Escopo
+    if (orc.escopo) {
+      setEscopo(orc.escopo);
+    }
+
+    setShowCarregarModal(false);
+    setCurrentStep(0);
+    toast.success(`✅ Proposta "${orc.nome || orc.cliente}" carregada!`);
   };
 
   const handleGenerateDOCX = async () => {
@@ -2318,8 +2378,138 @@ export default function SimuladorOrcamento() {
     }
   };
 
+  // Propostas salvas filtradas para o modal
+  const propostasFiltradas = (orcamentos || []).filter(o => {
+    if (!filtroPropostas.trim()) return true;
+    const q = filtroPropostas.toLowerCase();
+    return (
+      (o.nome || '').toLowerCase().includes(q) ||
+      (o.cliente || o.clienteNome || '').toLowerCase().includes(q) ||
+      (o.numero || o.numeroPropostas || '').toLowerCase().includes(q)
+    );
+  });
+
+  const fmtMoney = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const fmtDateShort = (s) => { try { return s ? new Date(s).toLocaleDateString('pt-BR') : '–'; } catch { return s || '–'; } };
+
   return (
     <div className="min-h-screen bg-gray-50">
+
+      {/* ── Modal: Carregar Proposta Anterior ─────────────────────────── */}
+      <AnimatePresence>
+        {showCarregarModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+            onClick={(e) => { if (e.target === e.currentTarget) setShowCarregarModal(false); }}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[80vh] flex flex-col"
+            >
+              {/* Header do modal */}
+              <div className="flex items-center justify-between p-6 border-b">
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <FileText className="h-5 w-5 text-blue-600" />
+                    Carregar Proposta Anterior
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-1">
+                    {propostasFiltradas.length} proposta{propostasFiltradas.length !== 1 ? 's' : ''} encontrada{propostasFiltradas.length !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowCarregarModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="h-5 w-5 text-gray-500" />
+                </button>
+              </div>
+
+              {/* Busca */}
+              <div className="p-4 border-b">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                  <input
+                    type="text"
+                    placeholder="Buscar por projeto, cliente ou número..."
+                    value={filtroPropostas}
+                    onChange={e => setFiltroPropostas(e.target.value)}
+                    className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Lista de propostas */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-2">
+                {propostasFiltradas.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <FileText className="h-12 w-12 mx-auto mb-3 opacity-30" />
+                    <p className="font-medium">Nenhuma proposta encontrada</p>
+                    <p className="text-sm mt-1">Salve uma proposta primeiro na etapa "Prévia da Proposta"</p>
+                  </div>
+                ) : (
+                  propostasFiltradas.map((orc, idx) => {
+                    const nome = orc.nome || orc.projeto || '(sem nome)';
+                    const cliente = orc.cliente || orc.clienteNome || '–';
+                    const numero = orc.numero || orc.numeroPropostas || '–';
+                    const valor = orc.valor_total || orc.valorTotal || orc.calculations?.precoFinal || 0;
+                    const data = orc.dataResposta || orc.dataCriacao || orc.data_criacao;
+                    const setoresCount = (orc.setores || []).length;
+                    const itensCount = (orc.setores || []).reduce((s, sec) => s + (sec.itens || []).length, 0);
+
+                    return (
+                      <motion.div
+                        key={orc.id || idx}
+                        whileHover={{ scale: 1.01 }}
+                        className="border border-gray-200 rounded-xl p-4 hover:border-blue-400 hover:bg-blue-50/30 cursor-pointer transition-all group"
+                        onClick={() => handleCarregarProposta(orc)}
+                      >
+                        <div className="flex items-start justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className="font-semibold text-gray-900 truncate">{nome}</span>
+                              <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+                                Nº {numero}
+                              </span>
+                            </div>
+                            <p className="text-sm text-gray-600 mb-2">
+                              <span className="font-medium">Cliente:</span> {cliente}
+                            </p>
+                            <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <Layers className="h-3 w-3" />
+                                {setoresCount} setor{setoresCount !== 1 ? 'es' : ''} / {itensCount} item{itensCount !== 1 ? 'ns' : ''}
+                              </span>
+                              {data && (
+                                <span className="flex items-center gap-1">
+                                  <Calendar className="h-3 w-3" />
+                                  {fmtDateShort(data)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right ml-4 flex-shrink-0">
+                            <div className="text-lg font-bold text-green-700">{fmtMoney(valor)}</div>
+                            <button className="mt-2 text-xs text-blue-600 group-hover:text-blue-800 font-medium flex items-center gap-1 ml-auto">
+                              Carregar <ChevronRight className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </div>
+                      </motion.div>
+                    );
+                  })
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-full px-4 lg:px-8 py-6">
@@ -2328,9 +2518,24 @@ export default function SimuladorOrcamento() {
               <h1 className="text-3xl font-bold text-gray-900">Simulador de Orçamento</h1>
               <p className="text-gray-600 mt-1">Construtor de Propostas Comerciais</p>
             </div>
-            <div className="text-right">
-              <p className="text-sm text-gray-600">Etapa {currentStep + 1} de {steps.length}</p>
-              <p className="text-lg font-semibold text-gray-900">{steps[currentStep].label}</p>
+            <div className="flex items-center gap-3">
+              {/* Botão Carregar Proposta */}
+              <button
+                onClick={() => setShowCarregarModal(true)}
+                className="px-4 py-2 border border-blue-300 text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg font-medium flex items-center gap-2 text-sm transition-colors"
+              >
+                <FileText className="h-4 w-4" />
+                Carregar Proposta
+                {orcamentos && orcamentos.length > 0 && (
+                  <span className="bg-blue-600 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                    {orcamentos.length}
+                  </span>
+                )}
+              </button>
+              <div className="text-right">
+                <p className="text-sm text-gray-600">Etapa {currentStep + 1} de {steps.length}</p>
+                <p className="text-lg font-semibold text-gray-900">{steps[currentStep].label}</p>
+              </div>
             </div>
           </div>
 
