@@ -1449,25 +1449,42 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
   // === CASHFLOW — recalcula quando mesesPagamento muda ===
   const cashflowData = useMemo(() => {
     const pctEntrada = paymentConditions?.assinatura ?? 10;
-    // Entrada = % do VALOR TOTAL da proposta (precoFinal com material)
+    // Entrada à Vista = % do VALOR TOTAL da proposta (precoFinal com material)
     const valEntrada = (calculations.precoFinal || analise.valorTotal || 0) * (pctEntrada / 100);
-    // Saldo = valor de mão de obra (serviços sem material) MENOS a entrada já recebida
+    // Saldo = mão de obra (serviços) MENOS a entrada
     const valSaldo   = Math.max(0, analise.valorServicos - valEntrada);
     const parcelaMes = mesesPagamento > 0 ? valSaldo / mesesPagamento : valSaldo;
-    // exibir pelo menos 6 linhas, ou até mesesPagamento+1
-    const totalLinhas = Math.max(6, mesesPagamento + 1);
+
+    // Linha 0: Entrada à Vista (recebe valEntrada, mas também tem despesa mensal)
+    // Linhas 1..N: Mês 1, Mês 2, ..., Mês N (cada uma recebe parcelaMes)
     const rows = [];
-    for (let m = 1; m <= totalLinhas; m++) {
-      let receitaMes = 0;
-      if (m === 1) receitaMes += valEntrada;              // entrada no mês 1
-      if (m >= 1 && m <= mesesPagamento) receitaMes += parcelaMes;  // parcela mensal
-      const despMes   = despesaMediaMensal;
-      const saldo     = receitaMes - despMes;
-      const recAcum   = rows.length > 0 ? rows[rows.length - 1].recAcum  + receitaMes : receitaMes;
-      const despAcum  = rows.length > 0 ? rows[rows.length - 1].despAcum + despMes    : despMes;
-      rows.push({ mes: `Mês ${m}`, receita: receitaMes, despesa: despMes, saldo, recAcum, despAcum, saldoAcum: recAcum - despAcum });
+
+    // Entrada à vista
+    const despEntrada = despesaMediaMensal;
+    rows.push({
+      mes: 'Entrada à Vista', tipo: 'entrada',
+      receita: valEntrada, despesa: despEntrada,
+      saldo: valEntrada - despEntrada,
+      recAcum: valEntrada, despAcum: despEntrada,
+      saldoAcum: valEntrada - despEntrada,
+    });
+
+    // Parcelas mensais: Mês 1, Mês 2, ...
+    for (let m = 1; m <= mesesPagamento; m++) {
+      const receitaMes = parcelaMes;
+      const despMes    = despesaMediaMensal;
+      const prev       = rows[rows.length - 1];
+      const recAcum    = prev.recAcum  + receitaMes;
+      const despAcum   = prev.despAcum + despMes;
+      rows.push({
+        mes: `Mês ${m}`, tipo: 'parcela',
+        receita: receitaMes, despesa: despMes,
+        saldo: receitaMes - despMes,
+        recAcum, despAcum, saldoAcum: recAcum - despAcum,
+      });
     }
-    const totalRecebido = rows.slice(0, mesesPagamento).reduce((s, r) => s + r.receita, 0);
+
+    const totalRecebido = rows.reduce((s, r) => s + r.receita, 0);
     const valorRestante = analise.valorServicos - totalRecebido;
     return { rows, valEntrada, valSaldo, parcelaMes, pctEntrada, totalRecebido, valorRestante };
   }, [analise.valorServicos, analise.valorTotal, calculations.precoFinal, mesesPagamento, despesaMediaMensal, paymentConditions]);
@@ -1915,10 +1932,10 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b flex items-center justify-between">
               <h3 className="font-semibold text-gray-700 text-sm">
-                Detalhamento Mensal — Receita × Despesa × Saldo Acumulado ({cashflowData.rows.length} meses)
+                Detalhamento — Entrada à Vista + {mesesPagamento} parcelas mensais
               </h3>
               <span className="text-xs text-indigo-600 font-semibold">
-                Total serviços: {fmtC(analise.valorServicos)}
+                Serviços: {fmtC(analise.valorServicos)}
               </span>
             </div>
             <table className="w-full text-sm">
@@ -1926,7 +1943,6 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
                 <tr className="border-b bg-gray-50/50">
                   <th className="px-4 py-2.5 text-left text-gray-500 font-semibold">Período</th>
                   <th className="px-4 py-2.5 text-right text-green-600 font-semibold">Receita</th>
-                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold text-xs">Composição</th>
                   <th className="px-4 py-2.5 text-right text-red-600 font-semibold">Despesa</th>
                   <th className="px-4 py-2.5 text-right text-blue-600 font-semibold">Saldo Mês</th>
                   <th className="px-4 py-2.5 text-right text-indigo-600 font-semibold">Saldo Acum.</th>
@@ -1934,44 +1950,35 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
                 </tr>
               </thead>
               <tbody>
-                {cashflowData.rows.map((m, i) => {
-                  const isEntrada = i === 0;
-                  const isParcela = i < mesesPagamento;
-                  return (
-                    <tr key={i} className={`border-b last:border-0 ${isParcela ? 'bg-blue-50/20' : 'bg-gray-50/30'} hover:bg-gray-50`}>
-                      <td className="px-4 py-2.5 font-semibold text-gray-800">
-                        <div className="flex items-center gap-1.5">
-                          {m.mes}
-                          {isEntrada && <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">entrada</span>}
-                          {isParcela && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">parcela {i + 1}/{mesesPagamento}</span>}
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-green-700 font-mono font-semibold">{m.receita > 0 ? fmtC(m.receita) : '—'}</td>
-                      <td className="px-4 py-2.5 text-right text-xs text-gray-400">
-                        {isEntrada && isParcela ? `${fmtC(cashflowData.valEntrada)} + ${fmtC(cashflowData.parcelaMes)}`
-                          : isEntrada ? `${cashflowData.pctEntrada}% entrada`
-                          : isParcela ? `parcela ${i + 1}/${mesesPagamento}`
-                          : '—'}
-                      </td>
-                      <td className="px-4 py-2.5 text-right text-red-600 font-mono">{fmtC(m.despesa)}</td>
-                      <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {m.saldo >= 0 ? '+' : ''}{fmtC(m.saldo)}
-                      </td>
-                      <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldoAcum >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
-                        {m.saldoAcum >= 0 ? '+' : ''}{fmtC(m.saldoAcum)}
-                      </td>
-                      <td className="px-4 py-2.5 text-center">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${m.saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {m.saldo >= 0 ? '✅' : '⚠️'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {cashflowData.rows.map((row, i) => (
+                  <tr key={i} className={`border-b last:border-0 ${row.tipo === 'entrada' ? 'bg-indigo-50/40' : 'bg-white'} hover:bg-gray-50`}>
+                    <td className="px-4 py-2.5 font-semibold text-gray-800">
+                      <div className="flex items-center gap-1.5">
+                        {row.mes}
+                        {row.tipo === 'entrada'
+                          ? <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">{cashflowData.pctEntrada}% do total</span>
+                          : <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded-full">parcela {i}/{mesesPagamento}</span>
+                        }
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-green-700 font-mono font-semibold">{fmtC(row.receita)}</td>
+                    <td className="px-4 py-2.5 text-right text-red-600 font-mono">{fmtC(row.despesa)}</td>
+                    <td className={`px-4 py-2.5 text-right font-mono font-bold ${row.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {row.saldo >= 0 ? '+' : ''}{fmtC(row.saldo)}
+                    </td>
+                    <td className={`px-4 py-2.5 text-right font-mono font-bold ${row.saldoAcum >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                      {row.saldoAcum >= 0 ? '+' : ''}{fmtC(row.saldoAcum)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${row.saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {row.saldo >= 0 ? '✅' : '⚠️'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
                 <tr className="bg-indigo-50 font-bold border-t-2 border-indigo-200">
-                  <td className="px-4 py-3 text-indigo-800">TOTAL {cashflowData.rows.length} MESES</td>
+                  <td className="px-4 py-3 text-indigo-800">TOTAL</td>
                   <td className="px-4 py-3 text-right text-green-700 font-mono">{fmtC(cashflowData.rows.reduce((s, r) => s + r.receita, 0))}</td>
-                  <td className="px-4 py-3" />
                   <td className="px-4 py-3 text-right text-red-600 font-mono">{fmtC(cashflowData.rows.reduce((s, r) => s + r.despesa, 0))}</td>
                   <td className="px-4 py-3 text-right font-mono text-indigo-800" colSpan={2}>{fmtC(cashflowData.rows[cashflowData.rows.length - 1]?.saldoAcum ?? 0)}</td>
                   <td className="px-4 py-3 text-center">
