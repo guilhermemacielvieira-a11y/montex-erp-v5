@@ -6,19 +6,19 @@
  * Importação de LISTA DE CONJUNTOS
  */
 
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { exportToExcel } from '@/utils/exportUtils';
 import {
   Package, Wrench, Zap, Paintbrush, Truck,
   ChevronDown, Search, Plus, Eye, Edit,
-  Building2, ArrowRight, TrendingUp,
+  Building2, ArrowRight, ArrowLeft, TrendingUp,
   Layers, BarChart3,
   Download, FileSpreadsheet, X as XIcon,
   Database, Play, LayoutGrid, Table2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  AlertTriangle, CheckCircle2, FileText
+  AlertTriangle, CheckCircle2, FileText, Scissors
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -124,6 +124,12 @@ export default function KanbanProducaoIntegrado() {
   const [modalFuncionarioProd, setModalFuncionarioProd] = useState(false);
   const [conjuntoPendente, setConjuntoPendente] = useState(null);
   const [statusPendenteProd, setStatusPendenteProd] = useState(null);
+
+  // Estado para modal de quantidade parcial (split)
+  const [modalQtdAberto, setModalQtdAberto] = useState(false);
+  const [qtdMover, setQtdMover] = useState(1);
+  const [conjuntoQtdPendente, setConjuntoQtdPendente] = useState(null);
+  const [statusQtdDestino, setStatusQtdDestino] = useState(null);
 
   // Estado para forçar re-render quando corte muda
   const [corteVersion, setCorteVersion] = useState(0);
@@ -348,11 +354,53 @@ export default function KanbanProducaoIntegrado() {
   // ========================================
 
   // Abre modal para selecionar funcionário antes de mover
+  // Se peça tem qtd > 1, abre modal de quantidade primeiro
   const moverConjunto = (conjuntoId, novoStatus) => {
     const conjunto = producaoFabrica.find(c => c.id === conjuntoId);
-    setConjuntoPendente(conjunto || { id: conjuntoId });
-    setStatusPendenteProd(novoStatus);
+    if (!conjunto) return;
+    const qtd = parseInt(conjunto.quantidade) || 1;
+    if (qtd > 1) {
+      // Abrir modal de quantidade parcial
+      setConjuntoQtdPendente(conjunto);
+      setStatusQtdDestino(novoStatus);
+      setQtdMover(qtd); // default = todas
+      setModalQtdAberto(true);
+    } else {
+      // Quantidade = 1, ir direto para seleção de funcionário
+      setConjuntoPendente(conjunto);
+      setStatusPendenteProd(novoStatus);
+      setModalFuncionarioProd(true);
+    }
+  };
+
+  // Confirmar quantidade parcial → abrir seleção de funcionário
+  const handleConfirmarQtdParcial = () => {
+    if (!conjuntoQtdPendente || !statusQtdDestino) return;
+    const qtdTotal = parseInt(conjuntoQtdPendente.quantidade) || 1;
+    const qtdParaMover = Math.max(1, Math.min(qtdMover, qtdTotal));
+    // Armazenar info de split junto com o conjunto pendente
+    setConjuntoPendente({ ...conjuntoQtdPendente, _qtdMover: qtdParaMover, _qtdTotal: qtdTotal });
+    setStatusPendenteProd(statusQtdDestino);
+    setModalQtdAberto(false);
     setModalFuncionarioProd(true);
+  };
+
+  // Helper para atualizar statusProducao conforme etapa
+  const buildStatusProducao = (statusProducaoAtual, novoStatus) => {
+    const agora = new Date().toISOString();
+    const sp = { ...statusProducaoAtual };
+    const ordemEtapas = ['fabricacao', 'solda', 'pintura', 'expedido'];
+    const idx = ordemEtapas.indexOf(novoStatus);
+    // Marcar todas as etapas até a nova como concluídas
+    if (idx >= 1) { sp.fabricado = true; sp.dataFabricacao = sp.dataFabricacao || agora; }
+    if (idx >= 2) { sp.soldado = true; sp.dataSolda = sp.dataSolda || agora; }
+    if (idx >= 3) { sp.pintado = true; sp.dataPintura = sp.dataPintura || agora; sp.expedido = true; sp.dataExpedicao = sp.dataExpedicao || agora; }
+    // Se voltando para status anterior, desmarcar etapas futuras
+    if (idx < 3) { sp.expedido = false; sp.dataExpedicao = null; }
+    if (idx < 2) { sp.pintado = false; sp.dataPintura = null; }
+    if (idx < 1) { sp.soldado = false; sp.dataSolda = null; }
+    if (idx < 0) { sp.fabricado = false; sp.dataFabricacao = null; }
+    return sp;
   };
 
   // Executar movimentação após seleção de funcionário
@@ -362,59 +410,139 @@ export default function KanbanProducaoIntegrado() {
     const conjuntoId = conjuntoPendente.id;
     const novoStatus = statusPendenteProd;
     const statusAnterior = conjuntoPendente.status || 'fabricacao';
+    const qtdTotal = conjuntoPendente._qtdTotal || (parseInt(conjuntoPendente.quantidade) || 1);
+    const qtdMoverFinal = conjuntoPendente._qtdMover || qtdTotal;
+    const isSplit = qtdMoverFinal < qtdTotal;
 
     // Fechar modal
     setModalFuncionarioProd(false);
 
-    // Atualizar estado local
-    setProducaoFabrica(prev => prev.map(c => {
-      if (c.id === conjuntoId) {
-        const agora = new Date().toISOString();
-        const statusProducao = { ...c.statusProducao };
+    if (isSplit) {
+      // ===== SPLIT: Mover parcial → cria nova peça + atualiza original =====
+      const pesoUnitario = qtdTotal > 0 ? (conjuntoPendente.pesoTotal || 0) / qtdTotal : 0;
+      const qtdRestante = qtdTotal - qtdMoverFinal;
+      const pesoMovido = pesoUnitario * qtdMoverFinal;
+      const pesoRestante = pesoUnitario * qtdRestante;
+      const novoId = crypto.randomUUID();
 
-        if (novoStatus === 'solda') {
-          statusProducao.fabricado = true;
-          statusProducao.dataFabricacao = agora;
-        } else if (novoStatus === 'pintura') {
-          statusProducao.soldado = true;
-          statusProducao.dataSolda = agora;
-        } else if (novoStatus === 'expedido') {
-          statusProducao.pintado = true;
-          statusProducao.dataPintura = agora;
-          statusProducao.expedido = true;
-          statusProducao.dataExpedicao = agora;
+      // Nova peça (a que vai para o novo status)
+      const novaPeca = {
+        ...conjuntoPendente,
+        id: novoId,
+        quantidade: qtdMoverFinal,
+        pesoTotal: pesoMovido,
+        pesoUnitario: pesoUnitario,
+        status: novoStatus,
+        statusProducao: buildStatusProducao(conjuntoPendente.statusProducao, novoStatus),
+        unidadesStatus: [],
+        _qtdMover: undefined,
+        _qtdTotal: undefined,
+      };
+
+      // Atualizar estado local: update original (restante) + add nova
+      setProducaoFabrica(prev => {
+        const updated = prev.map(c => {
+          if (c.id === conjuntoId) {
+            return { ...c, quantidade: qtdRestante, pesoTotal: pesoRestante };
+          }
+          return c;
+        });
+        updated.push(novaPeca);
+        return updated;
+      });
+
+      // Persistir no Supabase: atualizar original com qtd restante
+      try {
+        await updatePeca(conjuntoId, {
+          quantidade: qtdRestante,
+          peso_total: pesoRestante,
+        });
+
+        // Criar nova peça no Supabase com a quantidade movida
+        const novaPecaDB = {
+          nome: conjuntoPendente.conjunto || conjuntoPendente.descricao || 'Peça',
+          marca: conjuntoPendente.conjunto,
+          tipo: conjuntoPendente.tipo,
+          perfil: conjuntoPendente.perfil || conjuntoPendente.material,
+          material: conjuntoPendente.material,
+          descricao: conjuntoPendente.descricao,
+          quantidade: qtdMoverFinal,
+          peso_total: pesoMovido,
+          peso_unitario: pesoUnitario,
+          obra_id: conjuntoPendente.obraId,
+          obra_nome: conjuntoPendente.obraNome,
+          etapa: novoStatus,
+          status: novoStatus === 'expedido' ? 'concluido' : 'em_producao',
+          comprimento: conjuntoPendente.comprimento || null,
+          observacoes: `Split parcial: ${qtdMoverFinal} de ${qtdTotal} unidades movidas para ${novoStatus}`,
+        };
+        if (funcionarioId) {
+          novaPecaDB.responsavel = funcionarioId;
+          if (novoStatus === 'fabricacao') novaPecaDB.funcionario_fabricacao = funcionarioId;
+          else if (novoStatus === 'solda') novaPecaDB.funcionario_solda = funcionarioId;
+          else if (novoStatus === 'pintura') novaPecaDB.funcionario_pintura = funcionarioId;
+          else if (novoStatus === 'expedido') novaPecaDB.funcionario_expedido = funcionarioId;
         }
+        await addPecasContext([novaPecaDB]);
 
-        return { ...c, status: novoStatus, statusProducao };
+        console.log(`[Kanban] ✅ SPLIT: ${conjuntoPendente.conjunto} — ${qtdMoverFinal}un → ${novoStatus}, ${qtdRestante}un ficam em ${statusAnterior}`);
+      } catch (err) {
+        console.error('[Kanban] ❌ Erro ao salvar split no Supabase:', err);
+        toast.error('Erro ao salvar split parcial');
       }
-      return c;
-    }));
 
-    // Persistir no Supabase via ERPContext (agora com funcionarioId)
-    try {
-      await moverPecaEtapaContext(conjuntoId, novoStatus, funcionarioId);
-      console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} (${funcionarioNome}) salva no Supabase`);
-    } catch (err) {
-      console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
-      toast.error('Erro ao salvar movimentação');
+      // Registrar no histórico
+      await registrarTransicao(
+        conjuntoId,
+        statusAnterior,
+        novoStatus,
+        funcionarioId,
+        funcionarioNome,
+        `Split: ${qtdMoverFinal}/${qtdTotal} unidades movidas de ${statusAnterior} para ${novoStatus}`
+      );
+
+      const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
+      toast.success(`${conjuntoPendente.conjunto}: ${qtdMoverFinal} un → ${colDestino?.title || novoStatus} (${qtdRestante} un ficam em ${statusAnterior})`);
+
+    } else {
+      // ===== MOVER TUDO (sem split) =====
+      setProducaoFabrica(prev => prev.map(c => {
+        if (c.id === conjuntoId) {
+          return {
+            ...c,
+            status: novoStatus,
+            statusProducao: buildStatusProducao(c.statusProducao, novoStatus),
+          };
+        }
+        return c;
+      }));
+
+      try {
+        await moverPecaEtapaContext(conjuntoId, novoStatus, funcionarioId);
+        console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} (${funcionarioNome}) salva no Supabase`);
+      } catch (err) {
+        console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
+        toast.error('Erro ao salvar movimentação');
+      }
+
+      await registrarTransicao(
+        conjuntoId,
+        statusAnterior,
+        novoStatus,
+        funcionarioId,
+        funcionarioNome,
+        `Movido de ${statusAnterior} para ${novoStatus} (${qtdTotal} un)`
+      );
+
+      const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
+      toast.success(`${conjuntoPendente.conjunto || conjuntoId} → ${colDestino?.title || novoStatus} (${funcionarioNome})`);
     }
-
-    // Registrar no histórico de produção
-    await registrarTransicao(
-      conjuntoId,
-      statusAnterior,
-      novoStatus,
-      funcionarioId,
-      funcionarioNome,
-      `Movido de ${statusAnterior} para ${novoStatus}`
-    );
-
-    const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
-    toast.success(`${conjuntoPendente.conjunto || conjuntoId} → ${colDestino?.title || novoStatus} (${funcionarioNome})`);
 
     // Limpar pendências
     setConjuntoPendente(null);
     setStatusPendenteProd(null);
+    setConjuntoQtdPendente(null);
+    setStatusQtdDestino(null);
   };
 
 
@@ -422,92 +550,165 @@ export default function KanbanProducaoIntegrado() {
   // EDIÇÃO POR UNIDADE - Para peças com quantidade > 1
   // ============================================================
 
-  // Abre o modal de edição por unidade
+  // Abre o modal de edição por unidade — agora com interface de QUANTIDADE por etapa
   const handleAbrirEdicaoUnidades = (conjunto) => {
-    const qtd = conjunto.quantidade || 1;
-    // Se já existem unidades individuais salvas, usa; senão inicializa
+    const qtd = parseInt(conjunto.quantidade) || 1;
+    if (qtd <= 1) {
+      // Para peça com qty=1, abrir diretamente o seletor de status
+      setConjuntoQtdPendente(conjunto);
+      setStatusQtdDestino(null); // será definido pelos botões
+      setModalEdicaoAberto(true);
+      setModalAberto(false);
+      return;
+    }
+    // Para peças com qty > 1, abrir modal de edição por quantidade
+    setConjuntoQtdPendente(conjunto);
+
+    // Calcular distribuição atual por etapa
     const unidadesExistentes = conjunto.unidadesStatus || [];
-    const unidades = Array.from({ length: qtd }, (_, i) => ({
-      indice: i + 1,
-      status: unidadesExistentes[i]?.status || conjunto.status,
-      label: `Unidade ${i + 1}`,
-    }));
-    setUnidadesEdicao(unidades);
+    const ordemEtapas = ['fabricacao', 'solda', 'pintura', 'expedido'];
+    const distribuicao = {};
+    ordemEtapas.forEach(e => { distribuicao[e] = 0; });
+    if (unidadesExistentes.length > 0) {
+      unidadesExistentes.forEach(u => {
+        distribuicao[u.status] = (distribuicao[u.status] || 0) + 1;
+      });
+    } else {
+      distribuicao[conjunto.status] = qtd;
+    }
+    setUnidadesEdicao(distribuicao);
     setModalEdicaoAberto(true);
     setModalAberto(false);
   };
 
-  // Salva as edições por unidade
+  // Salva a edição por quantidade — faz split real se necessário
   const handleSalvarEdicaoUnidades = async () => {
-    if (!conjuntoSelecionado) return;
-
-    // Determinar o status predominante (o mais avançado entre as unidades)
+    if (!conjuntoQtdPendente) return;
+    const conjunto = conjuntoQtdPendente;
+    const qtdTotal = parseInt(conjunto.quantidade) || 1;
     const ordemEtapas = ['fabricacao', 'solda', 'pintura', 'expedido'];
-    const statusCounts = {};
-    unidadesEdicao.forEach(u => {
-      statusCounts[u.status] = (statusCounts[u.status] || 0) + 1;
+    const distribuicao = unidadesEdicao;
+
+    // Verificar que soma bate
+    const somaQtd = ordemEtapas.reduce((s, e) => s + (distribuicao[e] || 0), 0);
+    if (somaQtd !== qtdTotal) {
+      toast.error(`A soma (${somaQtd}) deve ser igual ao total (${qtdTotal})`);
+      return;
+    }
+
+    // Identificar quais etapas têm quantidade
+    const etapasComQtd = ordemEtapas.filter(e => (distribuicao[e] || 0) > 0);
+    if (etapasComQtd.length === 0) return;
+
+    // Se só uma etapa, mover tudo para lá
+    if (etapasComQtd.length === 1) {
+      const etapaDestino = etapasComQtd[0];
+      if (etapaDestino === conjunto.status) {
+        toast('Nenhuma alteração detectada.');
+        setModalEdicaoAberto(false);
+        return;
+      }
+      // Mover tudo via fluxo normal
+      setConjuntoPendente({ ...conjunto, _qtdMover: qtdTotal, _qtdTotal: qtdTotal });
+      setStatusPendenteProd(etapaDestino);
+      setModalEdicaoAberto(false);
+      setModalFuncionarioProd(true);
+      return;
+    }
+
+    // Múltiplas etapas → split real
+    // Manter a etapa mais atrasada no registro original, criar novos para os demais
+    const pesoUnitario = qtdTotal > 0 ? (conjunto.pesoTotal || 0) / qtdTotal : 0;
+    const etapaPrincipal = ordemEtapas.find(e => (distribuicao[e] || 0) > 0);
+    const qtdPrincipal = distribuicao[etapaPrincipal];
+
+    // Atualizar registro original com a etapa mais atrasada
+    setProducaoFabrica(prev => {
+      let updated = prev.map(c => {
+        if (c.id === conjunto.id) {
+          return {
+            ...c,
+            quantidade: qtdPrincipal,
+            pesoTotal: pesoUnitario * qtdPrincipal,
+            status: etapaPrincipal,
+            statusProducao: buildStatusProducao(c.statusProducao, etapaPrincipal),
+            unidadesStatus: [],
+          };
+        }
+        return c;
+      });
+
+      // Criar novas peças para as outras etapas
+      etapasComQtd.filter(e => e !== etapaPrincipal).forEach(etapa => {
+        const qtdEtapa = distribuicao[etapa];
+        const novaPeca = {
+          ...conjunto,
+          id: crypto.randomUUID(),
+          quantidade: qtdEtapa,
+          pesoTotal: pesoUnitario * qtdEtapa,
+          pesoUnitario: pesoUnitario,
+          status: etapa,
+          statusProducao: buildStatusProducao(conjunto.statusProducao, etapa),
+          unidadesStatus: [],
+        };
+        updated.push(novaPeca);
+      });
+
+      return updated;
     });
 
-    // Status do conjunto = o status MENOS avançado (mais restritivo)
-    // Assim o card só avança quando TODAS as unidades estiverem na próxima etapa
-    let statusConjunto = conjuntoSelecionado.status;
-    const statusDasUnidades = unidadesEdicao.map(u => u.status);
-    const statusMaisAtrasado = ordemEtapas.find(e => statusDasUnidades.includes(e)) || conjuntoSelecionado.status;
-    statusConjunto = statusMaisAtrasado;
-
-    // Atualizar estado local com unidades individuais e novo status
-    const agora = new Date().toISOString();
-    const novoStatusProducao = { ...conjuntoSelecionado.statusProducao };
-    if (statusConjunto === 'solda') {
-      novoStatusProducao.fabricado = true;
-      novoStatusProducao.dataFabricacao = novoStatusProducao.dataFabricacao || agora;
-    } else if (statusConjunto === 'pintura') {
-      novoStatusProducao.fabricado = true;
-      novoStatusProducao.soldado = true;
-      novoStatusProducao.dataFabricacao = novoStatusProducao.dataFabricacao || agora;
-      novoStatusProducao.dataSolda = novoStatusProducao.dataSolda || agora;
-    } else if (statusConjunto === 'expedido') {
-      novoStatusProducao.fabricado = true;
-      novoStatusProducao.soldado = true;
-      novoStatusProducao.pintado = true;
-      novoStatusProducao.expedido = true;
-      novoStatusProducao.dataFabricacao = novoStatusProducao.dataFabricacao || agora;
-      novoStatusProducao.dataSolda = novoStatusProducao.dataSolda || agora;
-      novoStatusProducao.dataPintura = novoStatusProducao.dataPintura || agora;
-      novoStatusProducao.dataExpedicao = novoStatusProducao.dataExpedicao || agora;
-    }
-
-    setProducaoFabrica(prev => prev.map(c => {
-      if (c.id === conjuntoSelecionado.id) {
-        return {
-          ...c,
-          status: statusConjunto,
-          statusProducao: novoStatusProducao,
-          unidadesStatus: unidadesEdicao,
-        };
-      }
-      return c;
-    }));
-
-    // Se o status mudou, abrir modal de funcionário para registrar responsável
-    if (statusConjunto !== conjuntoSelecionado.status) {
-      // Abrir modal de funcionário para vincular à edição
-      setConjuntoPendente({ ...conjuntoSelecionado, status: statusConjunto });
-      setStatusPendenteProd(statusConjunto);
-      setModalFuncionarioProd(true);
-    }
-
-    // Persistir no Supabase (funcionário será vinculado quando o modal confirmar)
+    // Persistir no Supabase
     try {
-      await moverPecaEtapaContext(conjuntoSelecionado.id, statusConjunto, null);
-      console.log(`[Kanban] ✅ Unidades de ${conjuntoSelecionado.conjunto} atualizadas no Supabase`);
-      toast.success(`${conjuntoSelecionado.conjunto}: ${unidadesEdicao.length} unidades atualizadas!`);
+      // Atualizar original
+      await updatePeca(conjunto.id, {
+        quantidade: qtdPrincipal,
+        peso_total: pesoUnitario * qtdPrincipal,
+        etapa: etapaPrincipal,
+        status: etapaPrincipal === 'expedido' ? 'concluido' : 'em_producao',
+      });
+
+      // Criar novas peças para splits
+      const novasPecas = etapasComQtd.filter(e => e !== etapaPrincipal).map(etapa => ({
+        nome: conjunto.conjunto || conjunto.descricao || 'Peça',
+        marca: conjunto.conjunto,
+        tipo: conjunto.tipo,
+        perfil: conjunto.perfil || conjunto.material,
+        material: conjunto.material,
+        descricao: conjunto.descricao,
+        quantidade: distribuicao[etapa],
+        peso_total: pesoUnitario * distribuicao[etapa],
+        peso_unitario: pesoUnitario,
+        obra_id: conjunto.obraId,
+        obra_nome: conjunto.obraNome,
+        etapa: etapa,
+        status: etapa === 'expedido' ? 'concluido' : 'em_producao',
+        comprimento: conjunto.comprimento || null,
+        observacoes: `Split: ${distribuicao[etapa]} de ${qtdTotal} un → ${etapa}`,
+      }));
+
+      if (novasPecas.length > 0) {
+        await addPecasContext(novasPecas);
+      }
+
+      console.log(`[Kanban] ✅ SPLIT múltiplo: ${conjunto.conjunto} — ${etapasComQtd.map(e => `${distribuicao[e]}×${e}`).join(', ')}`);
+      toast.success(`${conjunto.conjunto}: ${etapasComQtd.map(e => `${distribuicao[e]} un → ${e}`).join(', ')}`);
     } catch (err) {
-      console.error('[Kanban] ❌ Erro ao persistir edição:', err);
-      toast.error('Erro ao salvar edição das unidades');
+      console.error('[Kanban] ❌ Erro split múltiplo:', err);
+      toast.error('Erro ao salvar edição de quantidades');
     }
+
+    // Registrar no histórico
+    await registrarTransicao(
+      conjunto.id,
+      conjunto.status,
+      etapasComQtd.join('+'),
+      null,
+      null,
+      `Edição por quantidade: ${etapasComQtd.map(e => `${distribuicao[e]}×${e}`).join(', ')}`
+    );
 
     setModalEdicaoAberto(false);
+    setConjuntoQtdPendente(null);
   };
 
   // Agrupar conjuntos por coluna
@@ -1108,21 +1309,39 @@ export default function KanbanProducaoIntegrado() {
                           );
                         })()}
 
-                        {/* Botão Avançar */}
-                        {proximaColuna && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="w-full mt-2 text-xs text-slate-400 hover:text-white hover:bg-slate-800"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              moverConjunto(conjunto.id, proximaColuna.id);
-                            }}
-                          >
-                            <ArrowRight className="h-3 w-3 mr-1" />
-                            {proximaColuna.title.replace(/[^\w\s]/g, '').trim()}
-                          </Button>
-                        )}
+                        {/* Botões de Ação Rápida de Status */}
+                        <div className="flex gap-1 mt-2">
+                          {/* Botão Voltar */}
+                          {(() => {
+                            const idxAtual = COLUNAS_PRODUCAO.findIndex(c => c.id === coluna.id);
+                            const colunaAnterior = idxAtual > 0 ? COLUNAS_PRODUCAO[idxAtual - 1] : null;
+                            return colunaAnterior ? (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="flex-1 text-[10px] text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 h-7"
+                                onClick={(e) => { e.stopPropagation(); moverConjunto(conjunto.id, colunaAnterior.id); }}
+                                title={`Voltar para ${colunaAnterior.title}`}
+                              >
+                                <ArrowLeft className="h-3 w-3 mr-0.5" />
+                                {colunaAnterior.title.replace(/[^\w\s]/g, '').trim().split(' ')[0]}
+                              </Button>
+                            ) : null;
+                          })()}
+                          {/* Botão Avançar */}
+                          {proximaColuna && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="flex-1 text-[10px] text-emerald-400 hover:text-emerald-300 hover:bg-emerald-900/20 h-7"
+                              onClick={(e) => { e.stopPropagation(); moverConjunto(conjunto.id, proximaColuna.id); }}
+                              title={`Avançar para ${proximaColuna.title}`}
+                            >
+                              {proximaColuna.title.replace(/[^\w\s]/g, '').trim().split(' ')[0]}
+                              <ArrowRight className="h-3 w-3 ml-0.5" />
+                            </Button>
+                          )}
+                        </div>
                       </motion.div>
                     ))}
                   </AnimatePresence>
@@ -1574,97 +1793,105 @@ export default function KanbanProducaoIntegrado() {
       </Dialog.Root>
 
 
-      {/* ===== MODAL EDIÇÃO POR UNIDADE ===== */}
+      {/* ===== MODAL EDIÇÃO POR QUANTIDADE / ETAPA ===== */}
       <Dialog.Root open={modalEdicaoAberto} onOpenChange={setModalEdicaoAberto}>
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl p-6 z-[60]">
-            {conjuntoSelecionado && (
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg max-h-[90vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-2xl p-6 z-[60]">
+            {conjuntoQtdPendente && (
               <>
                 <Dialog.Title className="text-xl font-bold text-white flex items-center gap-3 mb-2">
                   <div className="p-2 bg-blue-500/20 rounded-lg">
-                    <Edit className="h-5 w-5 text-blue-400" />
+                    <Scissors className="h-5 w-5 text-blue-400" />
                   </div>
                   <div>
-                    <span className="text-white">Editar por Unidade</span>
+                    <span className="text-white">Editar Quantidade por Etapa</span>
                     <p className="text-sm text-slate-400 font-normal mt-0.5">
-                      {conjuntoSelecionado.conjunto} — {conjuntoSelecionado.descricao}
+                      {conjuntoQtdPendente.conjunto} — {conjuntoQtdPendente.descricao}
                     </p>
                   </div>
                 </Dialog.Title>
 
                 <div className="mt-1 mb-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
                   <p className="text-blue-300 text-sm">
-                    <strong>{conjuntoSelecionado.quantidade} unidades</strong> deste conjunto. 
-                    Defina a etapa de produção de cada uma individualmente.
-                    O card no Kanban ficará na etapa <strong>menos avançada</strong> entre as unidades.
+                    <strong>{parseInt(conjuntoQtdPendente.quantidade) || 1} unidades</strong> totais.
+                    Distribua entre as etapas. Se dividir, peças separadas serão criadas automaticamente.
                   </p>
                 </div>
 
+                {/* Inputs de quantidade por etapa */}
                 <div className="space-y-3">
-                  {unidadesEdicao.map((unidade, idx) => (
-                    <div key={idx} className="bg-slate-800/60 border border-slate-700 rounded-xl p-4">
-                      <div className="flex items-center justify-between gap-4">
+                  {[
+                    { id: 'fabricacao', label: 'Fabricação', icon: '🔧', cor: 'blue' },
+                    { id: 'solda', label: 'Solda', icon: '⚡', cor: 'yellow' },
+                    { id: 'pintura', label: 'Pintura', icon: '🎨', cor: 'pink' },
+                    { id: 'expedido', label: 'Expedido', icon: '✅', cor: 'green' },
+                  ].map(etapa => {
+                    const qtdEtapa = (typeof unidadesEdicao === 'object' && !Array.isArray(unidadesEdicao)) ? (unidadesEdicao[etapa.id] || 0) : 0;
+                    const isAtual = conjuntoQtdPendente.status === etapa.id;
+                    const corMap = { blue: 'border-blue-500 bg-blue-500/10', yellow: 'border-yellow-500 bg-yellow-500/10', pink: 'border-pink-500 bg-pink-500/10', green: 'border-emerald-500 bg-emerald-500/10' };
+                    const corTexto = { blue: 'text-blue-400', yellow: 'text-yellow-400', pink: 'text-pink-400', green: 'text-emerald-400' };
+                    return (
+                      <div key={etapa.id} className={cn(
+                        "flex items-center justify-between p-4 rounded-xl border transition-all",
+                        qtdEtapa > 0 ? corMap[etapa.cor] : "border-slate-700 bg-slate-800/40"
+                      )}>
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-white font-bold text-sm flex-shrink-0">
-                            {unidade.indice}
-                          </div>
+                          <span className="text-lg">{etapa.icon}</span>
                           <div>
-                            <p className="text-white font-medium text-sm">{unidade.label}</p>
-                            <p className="text-slate-400 text-xs">{conjuntoSelecionado.conjunto} — unidade {unidade.indice}</p>
+                            <p className={cn("font-medium text-sm", qtdEtapa > 0 ? corTexto[etapa.cor] : "text-slate-400")}>{etapa.label}</p>
+                            {isAtual && <p className="text-[10px] text-slate-500">Etapa atual</p>}
                           </div>
                         </div>
-
-                        <div className="flex gap-1.5 flex-wrap justify-end">
-                          {[
-                            { id: 'fabricacao', label: 'Fabricação', color: 'blue' },
-                            { id: 'solda', label: 'Solda', color: 'yellow' },
-                            { id: 'pintura', label: 'Pintura', color: 'pink' },
-                            { id: 'expedido', label: 'Expedido', color: 'green' },
-                          ].map(etapa => (
-                            <button
-                              key={etapa.id}
-                              onClick={() => {
-                                const novasUnidades = [...unidadesEdicao];
-                                novasUnidades[idx] = { ...novasUnidades[idx], status: etapa.id };
-                                setUnidadesEdicao(novasUnidades);
-                              }}
-                              className={cn(
-                                "px-3 py-1.5 rounded-lg text-xs font-medium border transition-all",
-                                unidade.status === etapa.id
-                                  ? etapa.color === 'blue' ? "bg-blue-500/30 border-blue-400 text-blue-300"
-                                  : etapa.color === 'yellow' ? "bg-yellow-500/30 border-yellow-400 text-yellow-300"
-                                  : etapa.color === 'pink' ? "bg-pink-500/30 border-pink-400 text-pink-300"
-                                  : "bg-emerald-500/30 border-emerald-400 text-emerald-300"
-                                  : "bg-slate-700/50 border-slate-600 text-slate-400 hover:border-slate-400"
-                              )}
-                            >
-                              {etapa.label}
-                            </button>
-                          ))}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              if (qtdEtapa > 0) {
+                                setUnidadesEdicao(prev => ({ ...prev, [etapa.id]: qtdEtapa - 1 }));
+                              }
+                            }}
+                            className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center font-bold"
+                          >−</button>
+                          <input
+                            type="number"
+                            min={0}
+                            max={parseInt(conjuntoQtdPendente.quantidade) || 1}
+                            value={qtdEtapa}
+                            onChange={e => {
+                              const val = Math.max(0, parseInt(e.target.value) || 0);
+                              setUnidadesEdicao(prev => ({ ...prev, [etapa.id]: val }));
+                            }}
+                            className="w-16 text-center bg-slate-800 text-white text-lg font-bold border border-slate-600 rounded-lg py-1 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <button
+                            onClick={() => {
+                              setUnidadesEdicao(prev => ({ ...prev, [etapa.id]: qtdEtapa + 1 }));
+                            }}
+                            className="w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center font-bold"
+                          >+</button>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
-                {/* Resumo */}
-                <div className="mt-4 p-3 bg-slate-800/40 rounded-lg">
-                  <p className="text-slate-400 text-xs mb-2 font-medium">RESUMO DAS UNIDADES</p>
-                  <div className="flex gap-3 flex-wrap">
-                    {['fabricacao', 'solda', 'pintura', 'expedido'].map(etapa => {
-                      const count = unidadesEdicao.filter(u => u.status === etapa).length;
-                      if (count === 0) return null;
-                      const etapaLabel = { fabricacao: 'Fabricação', solda: 'Solda', pintura: 'Pintura', expedido: 'Expedido' };
-                      const etapaCor = { fabricacao: 'text-blue-400', solda: 'text-yellow-400', pintura: 'text-pink-400', expedido: 'text-emerald-400' };
-                      return (
-                        <span key={etapa} className={cn("text-sm font-medium", etapaCor[etapa])}>
-                          {count}× {etapaLabel[etapa]}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
+                {/* Validação da soma */}
+                {(() => {
+                  const qtdTotal = parseInt(conjuntoQtdPendente.quantidade) || 1;
+                  const soma = typeof unidadesEdicao === 'object' && !Array.isArray(unidadesEdicao)
+                    ? Object.values(unidadesEdicao).reduce((s, v) => s + (v || 0), 0) : 0;
+                  const valido = soma === qtdTotal;
+                  return (
+                    <div className={cn(
+                      "mt-4 p-3 rounded-lg border text-sm font-medium",
+                      valido ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" : "bg-red-500/10 border-red-500/30 text-red-400"
+                    )}>
+                      Distribuídas: <strong>{soma}</strong> / {qtdTotal} unidades
+                      {!valido && <span className="ml-2">({soma > qtdTotal ? `Excesso de ${soma - qtdTotal}` : `Faltam ${qtdTotal - soma}`})</span>}
+                      {valido && <span className="ml-2">✓ OK</span>}
+                    </div>
+                  );
+                })()}
 
                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700">
                   <Button
@@ -1673,6 +1900,7 @@ export default function KanbanProducaoIntegrado() {
                     onClick={() => {
                       setModalEdicaoAberto(false);
                       setModalAberto(true);
+                      setConjuntoQtdPendente(null);
                     }}
                   >
                     Voltar
@@ -1680,9 +1908,78 @@ export default function KanbanProducaoIntegrado() {
                   <Button
                     className="bg-emerald-600 hover:bg-emerald-700"
                     onClick={handleSalvarEdicaoUnidades}
+                    disabled={(() => {
+                      const qtdTotal = parseInt(conjuntoQtdPendente?.quantidade) || 1;
+                      const soma = typeof unidadesEdicao === 'object' && !Array.isArray(unidadesEdicao)
+                        ? Object.values(unidadesEdicao).reduce((s, v) => s + (v || 0), 0) : 0;
+                      return soma !== qtdTotal;
+                    })()}
                   >
                     <CheckCircle2 className="h-4 w-4 mr-2" />
                     Salvar Alterações
+                  </Button>
+                </div>
+              </>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
+
+      {/* ===== MODAL QUANTIDADE PARCIAL (ao avançar/voltar com botão rápido) ===== */}
+      <Dialog.Root open={modalQtdAberto} onOpenChange={setModalQtdAberto}>
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[60]" />
+          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-md bg-slate-900 border border-slate-700 rounded-2xl p-6 z-[60]">
+            {conjuntoQtdPendente && statusQtdDestino && (
+              <>
+                <Dialog.Title className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                  <Scissors className="h-5 w-5 text-blue-400" />
+                  Quantidade para mover
+                </Dialog.Title>
+                <div className="mb-4 p-3 bg-slate-800 rounded-lg">
+                  <p className="text-white font-medium">{conjuntoQtdPendente.conjunto}</p>
+                  <p className="text-slate-400 text-sm">{conjuntoQtdPendente.descricao}</p>
+                  <p className="text-slate-500 text-xs mt-1">
+                    {conjuntoQtdPendente.status} → {statusQtdDestino} | Total: {parseInt(conjuntoQtdPendente.quantidade) || 1} un
+                  </p>
+                </div>
+                <div className="mb-4">
+                  <label className="text-sm text-slate-400 block mb-2">Quantas unidades mover para <strong className="text-white">{statusQtdDestino}</strong>?</label>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setQtdMover(Math.max(1, qtdMover - 1))}
+                      className="w-10 h-10 rounded-lg bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center font-bold text-lg"
+                    >−</button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={parseInt(conjuntoQtdPendente.quantidade) || 1}
+                      value={qtdMover}
+                      onChange={e => setQtdMover(Math.max(1, Math.min(parseInt(e.target.value) || 1, parseInt(conjuntoQtdPendente.quantidade) || 1)))}
+                      className="flex-1 text-center bg-slate-800 text-white text-2xl font-bold border border-slate-600 rounded-lg py-2 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    />
+                    <button
+                      onClick={() => setQtdMover(Math.min(qtdMover + 1, parseInt(conjuntoQtdPendente.quantidade) || 1))}
+                      className="w-10 h-10 rounded-lg bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center font-bold text-lg"
+                    >+</button>
+                  </div>
+                  <div className="flex justify-between mt-2">
+                    <button onClick={() => setQtdMover(1)} className="text-xs text-blue-400 hover:text-blue-300">Mínimo (1)</button>
+                    <button onClick={() => setQtdMover(parseInt(conjuntoQtdPendente.quantidade) || 1)} className="text-xs text-blue-400 hover:text-blue-300">Todas ({parseInt(conjuntoQtdPendente.quantidade) || 1})</button>
+                  </div>
+                </div>
+                {qtdMover < (parseInt(conjuntoQtdPendente.quantidade) || 1) && (
+                  <div className="mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-300 text-sm">
+                    <strong>{qtdMover}</strong> un → {statusQtdDestino} | <strong>{(parseInt(conjuntoQtdPendente.quantidade) || 1) - qtdMover}</strong> un ficam em {conjuntoQtdPendente.status}
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <Button variant="outline" className="flex-1 border-slate-700 text-slate-300" onClick={() => { setModalQtdAberto(false); setConjuntoQtdPendente(null); }}>
+                    Cancelar
+                  </Button>
+                  <Button className="flex-1 bg-emerald-600 hover:bg-emerald-700" onClick={handleConfirmarQtdParcial}>
+                    <ArrowRight className="h-4 w-4 mr-2" />
+                    Mover {qtdMover} un
                   </Button>
                 </div>
               </>
