@@ -63,6 +63,7 @@ import {
 } from '../data/precosDatabase';
 import { useOrcamentos } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
+import { generatePropostaPDF } from '../utils/propostaPDFGenerator';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -2064,7 +2065,7 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
 // ============================================================================
 
 export default function SimuladorOrcamento() {
-  const { saveOrcamento } = useOrcamentos();
+  const { addOrcamento } = useOrcamentos();
   const [currentStep, setCurrentStep] = useState(0);
   const [project, setProject] = useState({
     nome: '',
@@ -2161,12 +2162,48 @@ export default function SimuladorOrcamento() {
       dataResposta: new Date().toISOString(),
     };
 
-    saveOrcamento(orcamento);
+    addOrcamento(orcamento);
     toast.success('Orçamento salvo com sucesso!');
   };
 
-  const handleGeneratePDF = () => {
-    toast.success('Funcionalidade de gerar PDF será implementada em breve!');
+  const handleGeneratePDF = async () => {
+    if (!project.nome || !project.cliente) {
+      toast.error('Preencha os dados do projeto primeiro');
+      return;
+    }
+    if (!setores.length) {
+      toast.error('Adicione pelo menos um setor com itens');
+      return;
+    }
+    try {
+      toast.loading('Gerando proposta PDF...', { id: 'pdf' });
+      const prazoDias = (cronograma.projeto || 0) + (cronograma.fabricacao || 0) + (cronograma.montagem || 0);
+      const blob = await generatePropostaPDF({
+        project,
+        setores,
+        calculations,
+        unitCosts,
+        propostaNumber: project.numeroPropostas || undefined,
+        prazoExecucao: prazoDias || 160,
+        condicoesPagamento: {
+          assinatura: paymentConditions.assinatura,
+          projeto: paymentConditions.aprovacao,
+          medicoes: paymentConditions.medicoes,
+        },
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Proposta_${project.nome.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Proposta PDF gerada com sucesso!', { id: 'pdf' });
+    } catch (err) {
+      console.error('Erro ao gerar PDF:', err);
+      toast.error('Erro ao gerar PDF: ' + err.message, { id: 'pdf' });
+    }
   };
 
   const renderStep = () => {
