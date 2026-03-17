@@ -64,6 +64,7 @@ import {
 import { useOrcamentos } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 import { generatePropostaPDF } from '../utils/propostaPDFGenerator';
+import { useNavigate } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -2064,8 +2065,223 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
 // MAIN COMPONENT
 // ============================================================================
 
+// ============================================================================
+// SAVED SIMULATIONS LIST
+// ============================================================================
+
+const statusLabels = {
+  rascunho: { label: 'Rascunho', bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/30' },
+  pendente: { label: 'Pendente', bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' },
+  aprovado: { label: 'Aprovado', bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30' },
+  reprovado: { label: 'Reprovado', bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' },
+};
+
+const SimulacoesList = ({ orcamentos, onNew, onLoad, onDelete }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterStatus, setFilterStatus] = useState('todos');
+
+  const filtered = useMemo(() => {
+    return (orcamentos || []).filter(orc => {
+      const matchSearch = !searchTerm ||
+        (orc.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (orc.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (orc.numero || '').toLowerCase().includes(searchTerm.toLowerCase());
+      const matchStatus = filterStatus === 'todos' || orc.status === filterStatus;
+      return matchSearch && matchStatus;
+    });
+  }, [orcamentos, searchTerm, filterStatus]);
+
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 lg:px-8 py-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Simulador de Orçamento</h1>
+            <p className="text-gray-600 mt-1">Gerencie suas simulações e propostas comerciais</p>
+          </div>
+          <motion.button
+            onClick={onNew}
+            className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center gap-2 shadow-lg shadow-blue-600/25"
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <Plus className="h-5 w-5" />
+            Nova Simulação
+          </motion.button>
+        </div>
+
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          {[
+            { label: 'Total de Simulações', value: (orcamentos || []).length, icon: FileText, color: 'blue' },
+            { label: 'Rascunhos', value: (orcamentos || []).filter(o => o.status === 'rascunho').length, icon: Edit3, color: 'yellow' },
+            { label: 'Aprovados', value: (orcamentos || []).filter(o => o.status === 'aprovado').length, icon: CheckCircle2, color: 'green' },
+            { label: 'Valor Total', value: formatCurrency((orcamentos || []).reduce((sum, o) => sum + (o.valor_total || o.valor || 0), 0)), icon: DollarSign, color: 'purple', isText: true },
+          ].map((stat, idx) => {
+            const Icon = stat.icon;
+            return (
+              <div key={idx} className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg bg-${stat.color}-100`}>
+                    <Icon className={`h-5 w-5 text-${stat.color}-600`} />
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-500">{stat.label}</p>
+                    <p className="text-xl font-bold text-gray-900">{stat.isText ? stat.value : stat.value}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Search & Filters */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6 flex flex-wrap items-center gap-4">
+          <div className="relative flex-1 min-w-[200px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Buscar por nome, cliente ou número..."
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            />
+          </div>
+          <div className="flex gap-2">
+            {['todos', 'rascunho', 'pendente', 'aprovado', 'reprovado'].map(status => (
+              <button
+                key={status}
+                onClick={() => setFilterStatus(status)}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                  filterStatus === status
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+              >
+                {status === 'todos' ? 'Todos' : (statusLabels[status]?.label || status)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* List */}
+        {filtered.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-16 text-center">
+            <FileText className="h-16 w-16 text-gray-300 mx-auto mb-4" />
+            <h3 className="text-xl font-semibold text-gray-600 mb-2">
+              {(orcamentos || []).length === 0 ? 'Nenhuma simulação criada' : 'Nenhum resultado encontrado'}
+            </h3>
+            <p className="text-gray-400 mb-6">
+              {(orcamentos || []).length === 0
+                ? 'Crie sua primeira simulação de orçamento para começar'
+                : 'Tente alterar os filtros de busca'
+              }
+            </p>
+            {(orcamentos || []).length === 0 && (
+              <button
+                onClick={onNew}
+                className="px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold inline-flex items-center gap-2"
+              >
+                <Plus className="h-5 w-5" />
+                Criar Primeira Simulação
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {filtered.map((orc, idx) => {
+              const st = statusLabels[orc.status] || statusLabels.rascunho;
+              const valorTotal = orc.valor_total || orc.valor || 0;
+              const dataCreated = orc.dataResposta || orc.created_at || orc.data_criacao;
+              return (
+                <motion.div
+                  key={orc.id || idx}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-lg font-semibold text-gray-900">{orc.nome || 'Sem nome'}</h3>
+                        <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${st.bg} ${st.text} border ${st.border}`}>
+                          {st.label}
+                        </span>
+                        {orc.numero && (
+                          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded text-xs font-mono">
+                            #{orc.numero}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-6 text-sm text-gray-500">
+                        <span className="flex items-center gap-1">
+                          <Building2 className="h-3.5 w-3.5" />
+                          {orc.cliente || 'Cliente não informado'}
+                        </span>
+                        {orc.tipo && (
+                          <span className="flex items-center gap-1">
+                            <Package className="h-3.5 w-3.5" />
+                            {orc.tipo}
+                          </span>
+                        )}
+                        {orc.regiao && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-3.5 w-3.5" />
+                            {orc.regiao}
+                          </span>
+                        )}
+                        {dataCreated && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="h-3.5 w-3.5" />
+                            {new Date(dataCreated).toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="text-right mr-4">
+                        <p className="text-xs text-gray-400">Valor Total</p>
+                        <p className="text-lg font-bold text-green-600">{formatCurrency(valorTotal)}</p>
+                      </div>
+                      <button
+                        onClick={() => onLoad(orc)}
+                        className="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 font-medium text-sm flex items-center gap-1.5 transition-colors"
+                      >
+                        <Eye className="h-4 w-4" />
+                        Abrir
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (window.confirm(`Excluir simulação "${orc.nome}"?`)) {
+                            onDelete(orc.id);
+                          }
+                        }}
+                        className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
 export default function SimuladorOrcamento() {
-  const { addOrcamento } = useOrcamentos();
+  const { orcamentos, addOrcamento, deleteOrcamento, updateOrcamento } = useOrcamentos();
+  const [showList, setShowList] = useState(true);
+  const [editingId, setEditingId] = useState(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [project, setProject] = useState({
     nome: '',
@@ -2109,6 +2325,64 @@ export default function SimuladorOrcamento() {
 
   const fi = useFinancialIntelligence();
 
+  // Load saved simulation into wizard
+  const handleLoadSimulation = useCallback((orc) => {
+    setProject({
+      nome: orc.nome || '',
+      cliente: orc.cliente || '',
+      tipo: orc.tipo || '',
+      regiao: orc.regiao || 'sudeste',
+      numeroPropostas: orc.numeroPropostas || orc.numero || '',
+      dataEmissao: orc.dataEmissao || '',
+      dataValidade: orc.dataValidade || orc.validade || '',
+    });
+    if (orc.unitCosts) setUnitCosts(orc.unitCosts);
+    if (orc.setores && orc.setores.length > 0) setSetores(orc.setores);
+    if (orc.calculations) setCalculations(prev => ({ ...prev, ...orc.calculations }));
+    if (orc.paymentConditions) setPaymentConditions(orc.paymentConditions);
+    if (orc.cronograma) setCronograma(orc.cronograma);
+    if (orc.escopo) setEscopo(orc.escopo);
+    setEditingId(orc.id);
+    setCurrentStep(0);
+    setShowList(false);
+  }, []);
+
+  // Start new simulation
+  const handleNewSimulation = useCallback(() => {
+    setProject({ nome: '', cliente: '', tipo: '', regiao: 'sudeste', numeroPropostas: '', dataEmissao: '', dataValidade: '' });
+    setUnitCosts({
+      estrutura: { material: 50, fabricacao: 25, pintura: 10, transporte: 15, montagem: 20 },
+      cobertura: { tipo: 'galvanizada_050', material: 75, montagem: 18 },
+      fechamento: { tipo: 'pir_30mm', material: 125, montagem: 15 },
+      steelDeck: { material: 100, montagem: 20 },
+      complementos: { calha: 25, rufos: 20, platibanda: 45 },
+    });
+    setSetores([]);
+    setCalculations({ custoMaterial: 0, custoInstalacao: 0, margemPct: 18, impostosPct: 12, precoFinal: 0 });
+    setPaymentConditions({ assinatura: 10, aprovacao: 5, medicoes: 85 });
+    setCronograma({ projeto: 10, fabricacao: 30, montagem: 15, obrigacoes: 'Disponibilizar acesso ao local da obra; Fornecer ponto de energia elétrica e água; Garantir fundações conforme projeto fornecido pela Montex; Aprovar o projeto executivo em até 10 dias úteis; Efetuar os pagamentos nas datas acordadas.' });
+    setEscopo({ incluso: 'Projeto executivo de estrutura metálica; Fabricação completa em fábrica; Tratamento superficial e pintura; Transporte até a obra; Montagem completa com equipamentos; Acompanhamento técnico durante execução; Garantia de 5 anos contra defeitos de fabricação.', naoIncluso: 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.' });
+    setEditingId(null);
+    setCurrentStep(0);
+    setShowList(false);
+  }, []);
+
+  // Back to list
+  const handleBackToList = useCallback(() => {
+    setShowList(true);
+    setEditingId(null);
+  }, []);
+
+  // Delete simulation
+  const handleDeleteSimulation = useCallback(async (id) => {
+    try {
+      await deleteOrcamento(id);
+      toast.success('Simulação excluída com sucesso');
+    } catch (err) {
+      toast.error('Erro ao excluir: ' + (err.message || 'erro desconhecido'));
+    }
+  }, [deleteOrcamento]);
+
   const steps = [
     { label: 'Dados do Projeto', icon: Building2 },
     { label: 'Custos Unitários', icon: DollarSign },
@@ -2150,10 +2424,8 @@ export default function SimuladorOrcamento() {
       return;
     }
 
-    const orcamentoId = `ORC-${Date.now()}`;
     const prazoDias = (cronograma.projeto || 0) + (cronograma.fabricacao || 0) + (cronograma.montagem || 0);
-    const orcamento = {
-      id: orcamentoId,
+    const orcamentoData = {
       numero: project.numeroPropostas || `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getFullYear()).slice(-2)}`,
       nome: project.nome,
       cliente: project.cliente,
@@ -2177,8 +2449,17 @@ export default function SimuladorOrcamento() {
     };
 
     try {
-      await addOrcamento(orcamento);
-      toast.success('Orçamento salvo com sucesso!');
+      if (editingId) {
+        // Update existing simulation
+        await updateOrcamento(editingId, orcamentoData);
+        toast.success('Simulação atualizada com sucesso!');
+      } else {
+        // Create new simulation
+        const orcamentoId = `ORC-${Date.now()}`;
+        await addOrcamento({ id: orcamentoId, ...orcamentoData });
+        setEditingId(orcamentoId);
+        toast.success('Orçamento salvo com sucesso!');
+      }
     } catch (err) {
       console.error('Erro ao salvar orçamento:', err);
       toast.error('Erro ao salvar: ' + (err.message || 'erro desconhecido'));
@@ -2246,15 +2527,40 @@ export default function SimuladorOrcamento() {
     }
   };
 
+  // Show list view
+  if (showList) {
+    return (
+      <SimulacoesList
+        orcamentos={orcamentos}
+        onNew={handleNewSimulation}
+        onLoad={handleLoadSimulation}
+        onDelete={handleDeleteSimulation}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 sticky top-0 z-40">
         <div className="max-w-full px-4 lg:px-8 py-6">
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-3xl font-bold text-gray-900">Simulador de Orçamento</h1>
-              <p className="text-gray-600 mt-1">Construtor de Propostas Comerciais</p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleBackToList}
+                className="p-2 text-gray-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                title="Voltar à lista"
+              >
+                <ChevronLeft className="h-5 w-5" />
+              </button>
+              <div>
+                <h1 className="text-3xl font-bold text-gray-900">
+                  {editingId ? 'Editar Simulação' : 'Nova Simulação'}
+                </h1>
+                <p className="text-gray-600 mt-1">
+                  {editingId ? `Editando: ${project.nome || 'Sem nome'}` : 'Construtor de Propostas Comerciais'}
+                </p>
+              </div>
             </div>
             <div className="text-right">
               <p className="text-sm text-gray-600">Etapa {currentStep + 1} de {steps.length}</p>
