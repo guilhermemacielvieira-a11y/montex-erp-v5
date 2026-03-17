@@ -129,7 +129,10 @@ export default function SeletorObra({ compact = false }) {
               {obrasAtivas.map(obra => {
                 const Icon = statusConfig[obra.status]?.icon || Building2;
                 const info = statusConfig[obra.status];
-                const progressoTotal = Object.values(obra.progresso || {}).reduce((a, b) => a + b, 0) / 6;
+                const pe2 = obra.pesoPorEtapa;
+                const progressoTotal = pe2 && pe2.total > 0
+                  ? ((pe2.corte + pe2.fabricacao + pe2.solda + pe2.pintura + pe2.expedicao + pe2.montagem) / (6 * pe2.total)) * 100
+                  : Object.values(obra.progresso || {}).reduce((a, b) => a + b, 0) / 6;
 
                 return (
                   <Select.Item
@@ -183,9 +186,11 @@ export default function SeletorObra({ compact = false }) {
         const pesoProduzido = pe ? pe.pintura : (pesoTotal * ((obraAtualData.progresso?.pintura || 0) / 100));
         // Em processo = peso das pecas em corte ate solda (corte - pintura em peso)
         const pesoEmProcesso = pe ? Math.max(0, pe.corte - pe.pintura) : (pesoTotal * (Math.max(0, ((obraAtualData.progresso?.corte || 0) - (obraAtualData.progresso?.pintura || 0))) / 100));
-        // Progresso baseado em peso real quando disponivel
+        // Progresso = média ponderada de todas as etapas cumulativas
+        // Cada etapa completada (corte→fab→solda→pintura→expedição→montagem) contribui 1/6
+        // pe.* são cumulativos (fall-through): pe.pintura inclui peças em pintura+expedição+montagem
         const progresso = pe && pe.total > 0
-          ? Math.round((pe.expedicao / pe.total) * 100)
+          ? Math.round(((pe.corte + pe.fabricacao + pe.solda + pe.pintura + pe.expedicao + pe.montagem) / (6 * pe.total)) * 100)
           : (Object.values(obraAtualData.progresso || {}).reduce((a, b) => a + b, 0) / 6 | 0);
 
         return (
