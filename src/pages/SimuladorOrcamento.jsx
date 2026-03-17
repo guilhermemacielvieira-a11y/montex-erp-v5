@@ -63,7 +63,7 @@ import {
 } from '../data/precosDatabase';
 import { useOrcamentos } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
-import { generatePropostaPDF } from '../utils/propostaPDFGenerator';
+import { openPropostaHTML, generatePropostaPDF, generatePropostaDOCX } from '../utils/propostaPDFGenerator';
 import { useNavigate } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
@@ -1858,7 +1858,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
 };
 
 // Step 6: Prévia da Proposta
-const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF }) => {
+const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo, onSave, onGeneratePDF, onGenerateHTML, onGenerateDOCX }) => {
   const totalItens = setores.reduce((sum, s) => sum + s.itens.length, 0);
 
   const totalPeso = setores.reduce((sum, s) => {
@@ -1878,13 +1878,19 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
 
   const precoMedio = totalPeso > 0 ? calculations.precoFinal / totalPeso : 0;
 
+  const totalArea = setores.reduce((sum, s) => {
+    return sum + (s.itens || []).reduce((is, item) => is + ((item.unidade === 'M2') ? (item.quantidade || 0) : 0), 0);
+  }, 0);
+  const precoM2 = totalArea > 0 ? calculations.precoFinal / totalArea : 0;
+
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
       {/* KPI Summary */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
         <KPICard title="Peso Total" value={formatNumber(totalPeso) + ' kg'} icon={Weight} color="blue" />
-        <KPICard title="Número de Itens" value={totalItens} icon={Package} color="orange" />
-        <KPICard title="Preço Médio/kg" value={formatCurrency(precoMedio)} icon={TrendingUp} color="green" />
+        <KPICard title="Área Total" value={formatNumber(totalArea) + ' m²'} icon={Layers} color="orange" subtitle={totalArea > 0 ? `${formatCurrency(precoM2)}/m²` : ''} />
+        <KPICard title="Preço/kg" value={formatCurrency(precoMedio)} icon={TrendingUp} color="green" />
+        <KPICard title="Preço/m²" value={totalArea > 0 ? formatCurrency(precoM2) : 'N/A'} icon={Target} color="red" />
         <KPICard title="Valor Total" value={formatCurrency(calculations.precoFinal)} icon={DollarSign} color="purple" />
       </div>
 
@@ -1909,44 +1915,6 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
               <div><strong>Cliente:</strong> {project.cliente}</div>
               <div><strong>Tipo:</strong> {TIPOS_ESTRUTURA[project.tipo]?.nome || project.tipo}</div>
               <div><strong>Região:</strong> {project.regiao}</div>
-            </div>
-          </div>
-
-          {/* Custos Unitários */}
-          <div>
-            <h3 className="text-lg font-bold text-gray-900 mb-3">CUSTOS UNITÁRIOS DE REFERÊNCIA</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead className="bg-gray-100">
-                  <tr>
-                    <th className="border p-2 text-left font-semibold">Categoria</th>
-                    <th className="border p-2 text-right font-semibold">Valor</th>
-                    <th className="border p-2 text-left font-semibold">Unidade</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr className="border-b">
-                    <td className="border p-2">Estrutura - Material</td>
-                    <td className="border p-2 text-right">{formatCurrency(unitCosts.estrutura.material)}</td>
-                    <td className="border p-2">kg</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="border p-2">Estrutura - Fabricação</td>
-                    <td className="border p-2 text-right">{formatCurrency(unitCosts.estrutura.fabricacao)}</td>
-                    <td className="border p-2">kg</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="border p-2">Cobertura - Material</td>
-                    <td className="border p-2 text-right">{formatCurrency(unitCosts.cobertura.material)}</td>
-                    <td className="border p-2">m²</td>
-                  </tr>
-                  <tr className="border-b">
-                    <td className="border p-2">Fechamento - Material</td>
-                    <td className="border p-2 text-right">{formatCurrency(unitCosts.fechamento.material)}</td>
-                    <td className="border p-2">m²</td>
-                  </tr>
-                </tbody>
-              </table>
             </div>
           </div>
 
@@ -2083,20 +2051,34 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
       </div>
 
       {/* Buttons */}
-      <div className="flex gap-4 justify-end">
+      <div className="flex flex-wrap gap-3 justify-end">
         <button
           onClick={onSave}
-          className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2"
+          className="px-6 py-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 font-medium flex items-center gap-2 shadow-md"
         >
           <Save className="h-4 w-4" />
           Salvar Orçamento
         </button>
         <button
-          onClick={onGeneratePDF}
-          className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2"
+          onClick={onGenerateHTML}
+          className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 font-medium flex items-center gap-2 shadow-md"
         >
-          <Download className="h-4 w-4" />
-          Gerar Proposta PDF
+          <Eye className="h-4 w-4" />
+          Visualizar HTML
+        </button>
+        <button
+          onClick={onGeneratePDF}
+          className="px-5 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center gap-2 shadow-md"
+        >
+          <FileDown className="h-4 w-4" />
+          Gerar PDF
+        </button>
+        <button
+          onClick={onGenerateDOCX}
+          className="px-5 py-2.5 bg-purple-600 text-white rounded-lg hover:bg-purple-700 font-medium flex items-center gap-2 shadow-md"
+        >
+          <File className="h-4 w-4" />
+          Gerar DOCX
         </button>
       </div>
     </div>
@@ -2510,43 +2492,42 @@ export default function SimuladorOrcamento() {
     }
   };
 
-  const handleGeneratePDF = async () => {
-    if (!project.nome || !project.cliente) {
-      toast.error('Preencha os dados do projeto primeiro');
-      return;
-    }
-    if (!setores.length) {
-      toast.error('Adicione pelo menos um setor com itens');
-      return;
-    }
+  const getPropostaData = () => ({
+    project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo,
+  });
+
+  const handleGenerateHTML = () => {
+    if (!project.nome || !project.cliente) { toast.error('Preencha os dados do projeto primeiro'); return; }
+    if (!setores.length) { toast.error('Adicione pelo menos um setor com itens'); return; }
+    openPropostaHTML(getPropostaData());
+    toast.success('Proposta HTML aberta em nova aba');
+  };
+
+  const handleGeneratePDF = () => {
+    if (!project.nome || !project.cliente) { toast.error('Preencha os dados do projeto primeiro'); return; }
+    if (!setores.length) { toast.error('Adicione pelo menos um setor com itens'); return; }
+    generatePropostaPDF(getPropostaData());
+    toast.success('Use Ctrl+P ou Cmd+P para salvar como PDF');
+  };
+
+  const handleGenerateDOCX = async () => {
+    if (!project.nome || !project.cliente) { toast.error('Preencha os dados do projeto primeiro'); return; }
+    if (!setores.length) { toast.error('Adicione pelo menos um setor com itens'); return; }
     try {
-      toast.loading('Gerando proposta PDF...', { id: 'pdf' });
-      const prazoDias = (cronograma.projeto || 0) + (cronograma.fabricacao || 0) + (cronograma.montagem || 0);
-      const blob = await generatePropostaPDF({
-        project,
-        setores,
-        calculations,
-        unitCosts,
-        propostaNumber: project.numeroPropostas || undefined,
-        prazoExecucao: prazoDias || 160,
-        condicoesPagamento: {
-          assinatura: paymentConditions.assinatura,
-          projeto: paymentConditions.aprovacao,
-          medicoes: paymentConditions.medicoes,
-        },
-      });
+      toast.loading('Gerando DOCX...', { id: 'docx' });
+      const blob = await generatePropostaDOCX(getPropostaData());
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Proposta_${project.nome.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.pdf`;
+      a.download = `Proposta_${project.nome.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.doc`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      toast.success('Proposta PDF gerada com sucesso!', { id: 'pdf' });
+      toast.success('DOCX gerado com sucesso!', { id: 'docx' });
     } catch (err) {
-      console.error('Erro ao gerar PDF:', err);
-      toast.error('Erro ao gerar PDF: ' + err.message, { id: 'pdf' });
+      console.error('Erro ao gerar DOCX:', err);
+      toast.error('Erro ao gerar DOCX: ' + err.message, { id: 'docx' });
     }
   };
 
@@ -2565,7 +2546,7 @@ export default function SimuladorOrcamento() {
       case 5:
         return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} cronograma={cronograma} />;
       case 6:
-        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} />;
+        return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} onGenerateHTML={handleGenerateHTML} onGenerateDOCX={handleGenerateDOCX} />;
       default:
         return null;
     }
