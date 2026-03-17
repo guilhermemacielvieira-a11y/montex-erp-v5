@@ -278,6 +278,9 @@ const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
       const gruposPorBase = {};
       (s.itens || []).forEach(item => {
         if (item.unidade === 'KG') {
+          const desc = (item.descricao || '').toLowerCase();
+          // Não contar itens de projeto no peso (custo intelectual, não peso físico)
+          if (desc.includes('projeto')) return;
           const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
           if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
             gruposPorBase[base] = item.quantidade || 0;
@@ -1003,10 +1006,25 @@ const StepSetoresItens = ({ setores, setSetores, unitCosts }) => {
 
 // Step 4: BDI e Investimento
 const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, paymentConditions, setPaymentConditions }) => {
-  const [margemPct, setMargemPct] = useState(18);
-  const [impostosPct, setImpostosPct] = useState(12);
+  const margemPct = calculations.margemPct || 18;
+  const impostosPct = calculations.impostosPct || 12;
 
-  const totalValue = calculations.precoFinal || 0;
+  const handleMargemChange = (value) => {
+    const newMargem = parseFloat(value) || 0;
+    setCalculations(prev => ({ ...prev, margemPct: newMargem }));
+  };
+
+  const handleImpostosChange = (value) => {
+    const newImpostos = parseFloat(value) || 0;
+    setCalculations(prev => ({ ...prev, impostosPct: newImpostos }));
+  };
+
+  // Calculate composition values dynamically
+  const custoMaterial = calculations.custoMaterial || 0;
+  const custoInstalacao = calculations.custoInstalacao || 0;
+  const margemValor = custoInstalacao * (margemPct / 100);
+  const impostosValor = (custoInstalacao + margemValor) * (impostosPct / 100);
+  const valorTotal = custoMaterial + custoInstalacao + margemValor + impostosValor;
 
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
@@ -1021,7 +1039,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
                 type="number"
                 step="0.5"
                 value={margemPct}
-                onChange={(e) => setMargemPct(parseFloat(e.target.value))}
+                onChange={(e) => handleMargemChange(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
               />
               <p className="text-xs text-gray-600 mt-1">Sugeridos: Mínima 12%, Padrão 18%, Alta 25%</p>
@@ -1032,7 +1050,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
                 type="number"
                 step="0.5"
                 value={impostosPct}
-                onChange={(e) => setImpostosPct(parseFloat(e.target.value))}
+                onChange={(e) => handleImpostosChange(e.target.value)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500"
               />
               <p className="text-xs text-gray-600 mt-1">Padrão: ~12% (ISS, PIS, COFINS)</p>
@@ -1046,23 +1064,23 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
               <span className="text-gray-700">Material (s/ margem):</span>
-              <span className="font-semibold">{formatCurrency(calculations.custoMaterial || 0)}</span>
+              <span className="font-semibold">{formatCurrency(custoMaterial)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700">Instalação (Fab/Pint/Transp/Mont):</span>
-              <span className="font-semibold">{formatCurrency(calculations.custoInstalacao || 0)}</span>
+              <span className="font-semibold">{formatCurrency(custoInstalacao)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700">Margem (+{margemPct}%) s/ instalação:</span>
-              <span className="font-semibold text-green-600">{formatCurrency((calculations.custoInstalacao || 0) * (margemPct / 100))}</span>
+              <span className="font-semibold text-green-600">{formatCurrency(margemValor)}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-700">Impostos ({impostosPct}%) s/ instalação:</span>
-              <span className="font-semibold text-orange-600">{formatCurrency(((calculations.custoInstalacao || 0) * (1 + margemPct / 100)) * (impostosPct / 100))}</span>
+              <span className="font-semibold text-orange-600">{formatCurrency(impostosValor)}</span>
             </div>
             <div className="border-t pt-2 flex justify-between font-bold text-base">
               <span>VALOR TOTAL:</span>
-              <span className="text-green-700">{formatCurrency(calculations.precoFinal || 0)}</span>
+              <span className="text-green-700">{formatCurrency(valorTotal)}</span>
             </div>
           </div>
         </div>
@@ -1085,7 +1103,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-2"
             />
             <div className="text-sm font-semibold text-blue-900">
-              {formatCurrency((totalValue * paymentConditions.assinatura) / 100)}
+              {formatCurrency((valorTotal * paymentConditions.assinatura) / 100)}
             </div>
           </div>
 
@@ -1099,7 +1117,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 mb-2"
             />
             <div className="text-sm font-semibold text-orange-900">
-              {formatCurrency((totalValue * paymentConditions.aprovacao) / 100)}
+              {formatCurrency((valorTotal * paymentConditions.aprovacao) / 100)}
             </div>
           </div>
 
@@ -1113,7 +1131,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 mb-2"
             />
             <div className="text-sm font-semibold text-green-900">
-              {formatCurrency((totalValue * paymentConditions.medicoes) / 100)}
+              {formatCurrency((valorTotal * paymentConditions.medicoes) / 100)}
             </div>
           </div>
         </div>
@@ -1133,6 +1151,8 @@ const StepCronogramaEscopo = ({ cronograma, setCronograma, escopo, setEscopo, se
     const gruposPorBase = {};
     (s.itens || []).forEach(item => {
       if (item.unidade === 'KG') {
+        const desc = (item.descricao || '').toLowerCase();
+        if (desc.includes('projeto')) return;
         const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
         if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
           gruposPorBase[base] = item.quantidade || 0;
@@ -1270,7 +1290,7 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
 };
 
 // Step 7: Análise Interna — Custo Médio Mensal × Valor da Obra (Produção + Montagem)
-const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
+const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }) => {
   // === CUSTOS DE REFERÊNCIA MENSAL (base empresa) ===
   const META_PRODUCAO_MENSAL_KG = 45000;   // 45 ton fábrica/mês
   const META_MONTAGEM_MENSAL_KG = 25000;   // 25 ton montagem/mês
@@ -1294,16 +1314,18 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
       (s.itens || []).forEach(item => {
         const qty = item.quantidade || 0;
         const desc = (item.descricao || '').toLowerCase();
+        const totalItem = qty * ((item.precoMaterial || 0) + (item.precoInstalacao || 0));
 
-        // Classificar custos por tipo
-        if (desc.includes('fabricação') || desc.includes('fabricacao')) custoFabricacao += qty * (item.preco || 0);
-        else if (desc.includes('pintura')) custoPintura += qty * (item.preco || 0);
-        else if (desc.includes('transporte')) custoTransporte += qty * (item.preco || 0);
-        else if (desc.includes('montagem')) custoMontagem += qty * (item.preco || 0);
-        else if (desc.includes('material')) custoMaterial += qty * (item.preco || 0);
-        else custoMaterial += qty * (item.preco || 0); // outros vão pra material
+        // Classificar custos por tipo baseado na descrição do item
+        if (desc.includes('fabricação') || desc.includes('fabricacao')) custoFabricacao += totalItem;
+        else if (desc.includes('pintura')) custoPintura += totalItem;
+        else if (desc.includes('transporte')) custoTransporte += totalItem;
+        else if (desc.includes('montagem')) custoMontagem += totalItem;
+        else custoMaterial += totalItem; // material e outros
 
         if (item.unidade === 'KG') {
+          // Não contar itens de projeto no peso
+          if (desc.includes('projeto')) return;
           const base = (item.descricao || '').split(' - ')[0].trim() || 'item';
           if (!gruposPorBase[base] || qty > gruposPorBase[base]) gruposPorBase[base] = qty;
         }
@@ -1321,9 +1343,11 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
     const impostosVal = (custoInstalacao + margemVal) * ((calculations.impostosPct || 12) / 100);
     const valorProposta = custoTotal + margemVal + impostosVal;
 
-    // Quantos meses de produção essa obra ocupa
-    const mesesProducao = pesoTotal > 0 ? pesoTotal / META_PRODUCAO_MENSAL_KG : 0;
-    const mesesMontagem = pesoTotal > 0 ? pesoTotal / META_MONTAGEM_MENSAL_KG : 0;
+    // Quantos meses de produção — usa prazo editado na proposta (cronograma)
+    const diasFabricacao = (cronograma && cronograma.fabricacao) || 30;
+    const diasMontagem = (cronograma && cronograma.montagem) || 15;
+    const mesesProducao = diasFabricacao / 30; // converte dias para meses
+    const mesesMontagem = diasMontagem / 30;
 
     // Custo mensal médio que essa obra vai gerar
     const custoMensalProducaoObra = mesesProducao > 0 ? custoProducao / mesesProducao : 0;
@@ -1346,7 +1370,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
       custoKg: pesoTotal > 0 ? custoInstalacao / pesoTotal : 0,  // s/ material
       precoVendaKg: pesoTotal > 0 ? (custoInstalacao + margemVal + impostosVal) / pesoTotal : 0,  // s/ material
     };
-  }, [setores, calculations]);
+  }, [setores, calculations, cronograma]);
 
   // Ocupação da capacidade mensal (%)
   const ocupacaoProducao = CUSTO_MENSAL_PRODUCAO > 0 ? (analise.custoMensalProducaoObra / CUSTO_MENSAL_PRODUCAO) * 100 : 0;
@@ -1423,7 +1447,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
             <Gauge className="h-5 w-5 text-indigo-600" />
             Ocupação da Capacidade Mensal
           </h3>
-          <p className="text-xs text-gray-400 mb-4">Quanto do custo mensal da fábrica essa obra representa por mês</p>
+          <p className="text-xs text-gray-400 mb-4">Custo mensal da obra conforme prazo da proposta (Fabricação: {cronograma?.fabricacao || 30}d / Montagem: {cronograma?.montagem || 15}d)</p>
           <div className="space-y-5">
             <div>
               <div className="flex justify-between text-sm mb-1">
@@ -1437,7 +1461,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
                 <div className="h-3 rounded-full bg-purple-500" style={{ width: `${Math.min(100, ocupacaoProducao)}%` }} />
               </div>
               <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>{analise.mesesProducao.toFixed(1)} meses de produção</span>
+                <span>{analise.mesesProducao.toFixed(1)} meses ({cronograma?.fabricacao || 30} dias)</span>
                 <span>{ocupacaoProducao.toFixed(0)}% da capacidade/mês</span>
               </div>
             </div>
@@ -1453,7 +1477,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
                 <div className="h-3 rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ocupacaoMontagem)}%` }} />
               </div>
               <div className="flex justify-between text-xs text-gray-400 mt-1">
-                <span>{analise.mesesMontagem.toFixed(1)} meses de montagem</span>
+                <span>{analise.mesesMontagem.toFixed(1)} meses ({cronograma?.montagem || 15} dias)</span>
                 <span>{ocupacaoMontagem.toFixed(0)}% da capacidade/mês</span>
               </div>
             </div>
@@ -1825,6 +1849,8 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
     const gruposPorBase = {};
     (s.itens || []).forEach(item => {
       if (item.unidade === 'KG') {
+        const desc = (item.descricao || '').toLowerCase();
+        if (desc.includes('projeto')) return;
         const base = (item.descricao || '').split(' - ')[0].trim() || item.descricao || 'item';
         if (!gruposPorBase[base] || (item.quantidade || 0) > gruposPorBase[base]) {
           gruposPorBase[base] = item.quantidade || 0;
@@ -2393,7 +2419,7 @@ export default function SimuladorOrcamento() {
     { label: 'Prévia da Proposta', icon: Eye },
   ];
 
-  // Recalculate totals whenever setores change
+  // Recalculate totals whenever setores, margem, or impostos change
   useEffect(() => {
     let totalMaterial = 0;
     let totalInstalacao = 0;
@@ -2406,17 +2432,19 @@ export default function SimuladorOrcamento() {
       });
     });
 
-    const margemValor = totalInstalacao * (calculations.margemPct / 100);
-    const impostoValor = (totalInstalacao + margemValor) * (calculations.impostosPct / 100);
+    const currentMargem = calculations.margemPct || 18;
+    const currentImpostos = calculations.impostosPct || 12;
+    const margemValor = totalInstalacao * (currentMargem / 100);
+    const impostoValor = (totalInstalacao + margemValor) * (currentImpostos / 100);
     const precoFinal = totalMaterial + totalInstalacao + margemValor + impostoValor;
 
-    setCalculations({
-      ...calculations,
+    setCalculations(prev => ({
+      ...prev,
       custoMaterial: totalMaterial,
       custoInstalacao: totalInstalacao,
       precoFinal: precoFinal,
-    });
-  }, [setores]);
+    }));
+  }, [setores, calculations.margemPct, calculations.impostosPct]);
 
   const handleSaveOrcamento = async () => {
     if (!project.nome || !project.cliente) {
@@ -2519,7 +2547,7 @@ export default function SimuladorOrcamento() {
       case 4:
         return <StepCronogramaEscopo cronograma={cronograma} setCronograma={setCronograma} escopo={escopo} setEscopo={setEscopo} setores={setores} />;
       case 5:
-        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} />;
+        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} cronograma={cronograma} />;
       case 6:
         return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} />;
       default:
