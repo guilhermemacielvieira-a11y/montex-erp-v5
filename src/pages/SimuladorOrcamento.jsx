@@ -1342,8 +1342,8 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
       mesesProducao, mesesMontagem,
       custoMensalProducaoObra, custoMensalMontagemObra,
       fabricacaoKg, pinturaKg, transporteKg, montagemKg, producaoKg,
-      custoKg: pesoTotal > 0 ? custoTotal / pesoTotal : 0,
-      precoVendaKg: pesoTotal > 0 ? valorProposta / pesoTotal : 0,
+      custoKg: pesoTotal > 0 ? custoInstalacao / pesoTotal : 0,  // s/ material
+      precoVendaKg: pesoTotal > 0 ? (custoInstalacao + margemVal + impostosVal) / pesoTotal : 0,  // s/ material
     };
   }, [setores, calculations]);
 
@@ -1401,7 +1401,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
           { label: 'Custo Produção', value: formatCurrency(analise.custoProducao), sub: `Fab + Pint + Transp`, color: 'border-purple-500', icon: Settings },
           { label: 'Custo Montagem', value: formatCurrency(analise.custoMontagem), sub: 'Montagem em campo', color: 'border-emerald-500', icon: Target },
           { label: 'Valor Proposta', value: formatCurrency(analise.valorProposta), sub: `c/ margem ${calculations.margemPct || 18}% + impostos`, color: 'border-green-500', icon: DollarSign },
-          { label: 'Preço Venda/kg', value: formatCurrency(analise.precoVendaKg), sub: `Custo: ${formatCurrency(analise.custoKg)}/kg`, color: 'border-amber-500', icon: TrendingUp },
+          { label: 'Preço Venda/kg', value: formatCurrency(analise.precoVendaKg), sub: `Custo: ${formatCurrency(analise.custoKg)}/kg (s/ material)`, color: 'border-amber-500', icon: TrendingUp },
         ].map((kpi, idx) => (
           <div key={idx} className={`bg-white rounded-xl shadow-sm border-l-4 ${kpi.color} p-4`}>
             <div className="flex items-center justify-between mb-1">
@@ -1565,7 +1565,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
               </h3>
               <div className="space-y-3">
                 <div className="flex justify-between items-center">
-                  <span className="text-sm text-gray-600">Custo/kg simulado</span>
+                  <span className="text-sm text-gray-600">Custo/kg simulado (s/ mat.)</span>
                   <span className="font-bold text-gray-900">{formatCurrency(analise.custoKg)}</span>
                 </div>
                 <div className="flex justify-between items-center">
@@ -1585,7 +1585,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
                     );
                   })()}
                 </div>
-                <p className="text-xs text-gray-400 mt-2 border-t pt-2">Custo real baseado em produção mensal (custos/kg), não em despesas totais</p>
+                <p className="text-xs text-gray-400 mt-2 border-t pt-2">Custo/kg s/ material — apenas produção (fab+pint+transp) + montagem</p>
               </div>
             </div>
 
@@ -1692,7 +1692,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
               <tbody>
                 {[
                   {
-                    label: 'Custo por KG',
+                    label: 'Custo por KG (s/ material)',
                     sim: analise.custoKg,
                     real: fi.kpisGerais.custoKg || fi.custoPerKgGeral || 0,
                     meta: CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG,
@@ -1700,7 +1700,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi }) => {
                     metaLabel: `R$ ${(CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG).toFixed(2)}`,
                   },
                   {
-                    label: 'Preço Venda / KG',
+                    label: 'Preço Venda / KG (s/ material)',
                     sim: analise.precoVendaKg,
                     real: fi.kpisGerais.precoProducaoKg || 5.50,
                     meta: null,
