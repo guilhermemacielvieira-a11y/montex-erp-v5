@@ -1,13 +1,15 @@
 /**
  * Gerador de Proposta Comercial - Grupo Montex
- * v8 - SVG logo real, SEM custos unitários, layout conforme referência PDF
+ * v9 - PDF export corrigido: backgrounds imprimem, sem chrome do browser,
+ *      layout fluido com page-breaks corretos, SVG logo visível
  */
 
-// SVG real do logo Montex (M estilizado)
+// SVG real do logo Montex (M estilizado) - teal
 const MONTEX_LOGO_SVG = `<svg width="55" height="35" viewBox="0 0 1900 1200" style="flex-shrink:0">
   <path fill="#368784" d="M572.163 0L583.837 0C590.269 2.40243 602.143 0.735296 609.264 1.80956C617.731 3.08681 626.181 4.90844 634.594 6.57045C680.355 15.6105 721.355 41.8386 750.502 78.0239C763.354 93.9787 774.583 111.151 783.94 129.414C827.253 214.835 868.585 301.243 910.79 387.213C912.883 391.477 914.938 395.947 917.163 400.118C929.564 380.248 943.58 363.127 954.394 342.333C978.907 295.197 1001.57 246.481 1025.84 199.307C1047.46 157.276 1069.93 108.268 1101.81 73.7301C1131.05 41.4317 1169.55 18.9565 1212.05 9.3798C1271.72-4.41151 1339.42 3.09465 1392 36.0435C1440.79 66.6144 1462.32 105.451 1487.42 154.543L1520.77 219.852L1630.71 436.974C1676.34 527.348 1721.51 617.95 1766.23 708.777L1803.65 784.77C1819.18 816.436 1832.8 841.003 1840.8 875.839C1854.5 934.32 1844.33 995.852 1812.54 1046.81C1775.07 1106.27 1711.7 1143.65 1643.31 1152.74C1639.2 1153.29 1631.1 1153.94 1627.41 1155L1602.16 1155C1599.55 1153.8 1583.34 1152.93 1578.62 1151.9C1569.55 1149.92 1561.28 1147.9 1552.32 1145.11C1513.94 1132.96 1479.56 1110.64 1452.86 1080.51C1419.74 1043.75 1385.66 973.319 1361.89 927.491L1270.85 751.243C1258.08 772.266 1244.19 798.909 1232.36 820.675C1206.55 868.128 1181.19 915.825 1156.29 963.761C1145.14 985.4 1134.41 1008.01 1123.55 1029.04C1089.84 1094.29 1031.74 1140.68 958.566 1152.22C951.652 1153.31 938.844 1152.9 932.837 1155L908.163 1155C904.758 1153.42 886.42 1152.86 880.952 1151.86C870.385 1149.92 860.671 1147.98 850.269 1144.89C811.453 1133.54 776.728 1111.25 750.249 1080.68C720.559 1046.68 711.236 1020.92 692.623 981.458C683.058 961.343 673.276 941.331 663.278 921.426C634.416 863.533 604.515 806.164 573.587 749.348C541.47 812.012 510.73 875.141 477.157 937.1C428.151 1027.54 379.593 1123.27 268.5 1144.66C209.032 1155.73 147.602 1142.71 97.7418 1108.46C54.1175 1078.54 22.4605 1034.18 8.3546 983.194C4.05929 967.559 2.9118 954.943 0 939.414L0 902.586C1.00264 898.987 1.43661 893.281 2.05424 889.382C12.3183 824.592 47.3501 764.777 76.2507 706.456L181.889 494.232L315.667 226.965C332.112 194.391 348.856 161.389 365.025 128.745C399.237 58.2948 461.82 11.3312 540.098 2.56458C547.51 1.73444 566.141 2.1707 572.163 0ZM1612.2 1035.42C1643.17 1036.13 1673.14 1024.41 1695.43 1002.89C1716.13 982.955 1727.91 955.519 1728.12 926.784C1728.21 910.744 1725.18 894.84 1719.18 879.961C1712.13 862.405 1696.87 834.086 1688.11 816.578L1626.01 692.924L1536.73 514.984C1523.26 488.167 1509.49 460.117 1495.74 433.577C1489.47 421.472 1464.02 377.988 1454.42 368.649L1335.26 606L1458.19 852.863L1489.48 915.659C1511.55 960.515 1533.01 1012.59 1584 1029.9C1593.12 1032.97 1602.6 1034.82 1612.2 1035.42ZM508.028 611C496.095 587.141 386.57 365.692 383.513 363.471L193.193 742.364L144.969 841.074C136.9 857.751 122.609 884.061 118.081 901.381C100.338 969.258 175.151 1040.23 241.741 1030.3C294.795 1023.87 310.75 992.916 333.836 950.414C346.339 927.394 358.647 904.267 370.758 881.037C417.071 791.309 462.829 701.295 508.028 611ZM921.124 1030.49C954.718 1027.78 985.865 1011.85 1007.74 986.212C1036.66 952.151 1038.38 913.93 1021.28 874.005C998.152 819.99 971.382 767.417 944.778 714.988C940.794 707.136 926.85 676.207 922.408 670.682L851.363 811.214C839.253 835.672 818.261 875.438 812.678 900.385C808.856 917.503 809.673 935.332 815.046 952.028C828.763 993.401 876.405 1032.11 921.124 1030.49ZM854.201 541.5L789.127 415.242C785.293 407.808 766.155 369.339 763.006 365.504L640.382 610.753L699.856 726.043C709.352 744.427 721.598 769.889 731.675 787.151C772.006 706.44 815.3 622.504 854.201 541.5ZM573.837 477.231L641.338 342.922C652.904 319.682 674.333 280.91 679.679 257.559C691.491 205.968 667.606 148.777 617.859 127.115C604.005 120.724 585.136 113.78 569.757 116.362C538.043 117.957 510.564 139.545 489.977 162.096C465.987 188.375 453.58 223.079 468.204 257.368C479.966 284.949 492.911 311.895 505.865 338.959L572.354 476.771L573.837 477.231ZM1078.4 360.694L990.208 537.106C1000.38 562.047 1011.3 586.675 1022.95 610.956C1029.95 625.536 1109.39 779.989 1114.09 782.308L1202.1 605.705L1118.99 440.776L1091.68 386.664C1088.7 380.766 1081.66 365.822 1078.4 360.694ZM1262.76 127.395C1232.95 128.511 1209.57 138.403 1189.18 160.134C1162.35 188.734 1152.33 230.527 1167.35 267.306C1176.2 288.97 1186.55 310.387 1196.74 331.48C1215.62 370.223 1234.95 408.743 1254.73 447.031C1257.86 453.111 1264.86 470.064 1267.56 473.207L1269.05 473.654L1270.76 470.654C1301.02 409.15 1333.2 348.886 1361.98 286.584C1375.87 256.528 1382.17 229.094 1370.77 196.663C1362.1 171.735 1346.04 150.242 1321.94 138.426C1305.87 130.481 1280.47 125.104 1262.76 127.395Z"/>
 </svg>`;
 
+// SVG logo branco para header com fundo teal
 const MONTEX_LOGO_WHITE_SVG = `<svg width="55" height="35" viewBox="0 0 1900 1200" style="flex-shrink:0">
   <path fill="white" d="M572.163 0L583.837 0C590.269 2.40243 602.143 0.735296 609.264 1.80956C617.731 3.08681 626.181 4.90844 634.594 6.57045C680.355 15.6105 721.355 41.8386 750.502 78.0239C763.354 93.9787 774.583 111.151 783.94 129.414C827.253 214.835 868.585 301.243 910.79 387.213C912.883 391.477 914.938 395.947 917.163 400.118C929.564 380.248 943.58 363.127 954.394 342.333C978.907 295.197 1001.57 246.481 1025.84 199.307C1047.46 157.276 1069.93 108.268 1101.81 73.7301C1131.05 41.4317 1169.55 18.9565 1212.05 9.3798C1271.72-4.41151 1339.42 3.09465 1392 36.0435C1440.79 66.6144 1462.32 105.451 1487.42 154.543L1520.77 219.852L1630.71 436.974C1676.34 527.348 1721.51 617.95 1766.23 708.777L1803.65 784.77C1819.18 816.436 1832.8 841.003 1840.8 875.839C1854.5 934.32 1844.33 995.852 1812.54 1046.81C1775.07 1106.27 1711.7 1143.65 1643.31 1152.74C1639.2 1153.29 1631.1 1153.94 1627.41 1155L1602.16 1155C1599.55 1153.8 1583.34 1152.93 1578.62 1151.9C1569.55 1149.92 1561.28 1147.9 1552.32 1145.11C1513.94 1132.96 1479.56 1110.64 1452.86 1080.51C1419.74 1043.75 1385.66 973.319 1361.89 927.491L1270.85 751.243C1258.08 772.266 1244.19 798.909 1232.36 820.675C1206.55 868.128 1181.19 915.825 1156.29 963.761C1145.14 985.4 1134.41 1008.01 1123.55 1029.04C1089.84 1094.29 1031.74 1140.68 958.566 1152.22C951.652 1153.31 938.844 1152.9 932.837 1155L908.163 1155C904.758 1153.42 886.42 1152.86 880.952 1151.86C870.385 1149.92 860.671 1147.98 850.269 1144.89C811.453 1133.54 776.728 1111.25 750.249 1080.68C720.559 1046.68 711.236 1020.92 692.623 981.458C683.058 961.343 673.276 941.331 663.278 921.426C634.416 863.533 604.515 806.164 573.587 749.348C541.47 812.012 510.73 875.141 477.157 937.1C428.151 1027.54 379.593 1123.27 268.5 1144.66C209.032 1155.73 147.602 1142.71 97.7418 1108.46C54.1175 1078.54 22.4605 1034.18 8.3546 983.194C4.05929 967.559 2.9118 954.943 0 939.414L0 902.586C1.00264 898.987 1.43661 893.281 2.05424 889.382C12.3183 824.592 47.3501 764.777 76.2507 706.456L181.889 494.232L315.667 226.965C332.112 194.391 348.856 161.389 365.025 128.745C399.237 58.2948 461.82 11.3312 540.098 2.56458C547.51 1.73444 566.141 2.1707 572.163 0ZM1612.2 1035.42C1643.17 1036.13 1673.14 1024.41 1695.43 1002.89C1716.13 982.955 1727.91 955.519 1728.12 926.784C1728.21 910.744 1725.18 894.84 1719.18 879.961C1712.13 862.405 1696.87 834.086 1688.11 816.578L1626.01 692.924L1536.73 514.984C1523.26 488.167 1509.49 460.117 1495.74 433.577C1489.47 421.472 1464.02 377.988 1454.42 368.649L1335.26 606L1458.19 852.863L1489.48 915.659C1511.55 960.515 1533.01 1012.59 1584 1029.9C1593.12 1032.97 1602.6 1034.82 1612.2 1035.42ZM508.028 611C496.095 587.141 386.57 365.692 383.513 363.471L193.193 742.364L144.969 841.074C136.9 857.751 122.609 884.061 118.081 901.381C100.338 969.258 175.151 1040.23 241.741 1030.3C294.795 1023.87 310.75 992.916 333.836 950.414C346.339 927.394 358.647 904.267 370.758 881.037C417.071 791.309 462.829 701.295 508.028 611ZM921.124 1030.49C954.718 1027.78 985.865 1011.85 1007.74 986.212C1036.66 952.151 1038.38 913.93 1021.28 874.005C998.152 819.99 971.382 767.417 944.778 714.988C940.794 707.136 926.85 676.207 922.408 670.682L851.363 811.214C839.253 835.672 818.261 875.438 812.678 900.385C808.856 917.503 809.673 935.332 815.046 952.028C828.763 993.401 876.405 1032.11 921.124 1030.49ZM854.201 541.5L789.127 415.242C785.293 407.808 766.155 369.339 763.006 365.504L640.382 610.753L699.856 726.043C709.352 744.427 721.598 769.889 731.675 787.151C772.006 706.44 815.3 622.504 854.201 541.5ZM573.837 477.231L641.338 342.922C652.904 319.682 674.333 280.91 679.679 257.559C691.491 205.968 667.606 148.777 617.859 127.115C604.005 120.724 585.136 113.78 569.757 116.362C538.043 117.957 510.564 139.545 489.977 162.096C465.987 188.375 453.58 223.079 468.204 257.368C479.966 284.949 492.911 311.895 505.865 338.959L572.354 476.771L573.837 477.231ZM1078.4 360.694L990.208 537.106C1000.38 562.047 1011.3 586.675 1022.95 610.956C1029.95 625.536 1109.39 779.989 1114.09 782.308L1202.1 605.705L1118.99 440.776L1091.68 386.664C1088.7 380.766 1081.66 365.822 1078.4 360.694ZM1262.76 127.395C1232.95 128.511 1209.57 138.403 1189.18 160.134C1162.35 188.734 1152.33 230.527 1167.35 267.306C1176.2 288.97 1186.55 310.387 1196.74 331.48C1215.62 370.223 1234.95 408.743 1254.73 447.031C1257.86 453.111 1264.86 470.064 1267.56 473.207L1269.05 473.654L1270.76 470.654C1301.02 409.15 1333.2 348.886 1361.98 286.584C1375.87 256.528 1382.17 229.094 1370.77 196.663C1362.1 171.735 1346.04 150.242 1321.94 138.426C1305.87 130.481 1280.47 125.104 1262.76 127.395Z"/>
 </svg>`;
@@ -43,6 +45,7 @@ function calcSetorMetrics(setor) {
 
 /**
  * Gera o HTML completo da proposta comercial
+ * v9 - Layout otimizado para print: backgrounds forçados, sem chrome do browser
  */
 export function buildPropostaHTML(data) {
   const { project, setores, calculations, paymentConditions, cronograma, escopo } = data;
@@ -114,7 +117,7 @@ export function buildPropostaHTML(data) {
     }
 
     return `
-    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:18px;">
+    <div class="setor-block" style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:18px;">
       <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e8ecef;">
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="background:#2d8c7f;color:white;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${idx+1}</span>
@@ -146,7 +149,7 @@ export function buildPropostaHTML(data) {
 
   // Header HTML reutilizável com logo real
   const headerHTML = (showDates) => `
-  <div style="background:linear-gradient(135deg,#2d8c7f 0%,#3ba89a 100%);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;">
+  <div style="background:#2d8c7f;padding:14px 28px;display:flex;align-items:center;justify-content:space-between;">
     <div style="display:flex;align-items:center;gap:14px;">
       ${MONTEX_LOGO_WHITE_SVG}
       <div style="color:white;">
@@ -163,7 +166,7 @@ export function buildPropostaHTML(data) {
 
   // Footer HTML reutilizável
   const footerHTML = (pag) => `
-  <div style="position:absolute;bottom:0;left:0;right:0;padding:10px 28px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#64748b;border-top:1px solid #e0e0e0;background:white;">
+  <div class="page-footer" style="padding:10px 28px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#64748b;border-top:1px solid #e0e0e0;background:white;margin-top:auto;">
     <div><strong style="color:#2d8c7f;font-size:9px;">GRUPO MONTEX - Soluções em Aço</strong><br/>CNPJ: 00.000.000/0001-00 | contato@grupomontex.com.br | (31) 9 9999-9999</div>
     <div style="text-align:right;">Proposta ${propNum} | ${dataEmissao} | Pág ${pag}</div>
   </div>`;
@@ -175,26 +178,83 @@ export function buildPropostaHTML(data) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Proposta Comercial - ${project?.nome || 'Projeto'} - Grupo Montex</title>
 <style>
+  /* === PRINT: forçar backgrounds e remover chrome do browser === */
+  @page {
+    size: A4;
+    margin: 0;
+  }
   @media print {
-    body { margin: 0; }
-    .page { page-break-after: always; box-shadow: none !important; margin: 0 !important; }
+    html, body {
+      margin: 0 !important;
+      padding: 0 !important;
+      background: white !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
+    .page {
+      page-break-after: always;
+      box-shadow: none !important;
+      margin: 0 !important;
+      border: none !important;
+      width: 210mm !important;
+      min-height: 297mm !important;
+    }
     .page:last-child { page-break-after: avoid; }
     .no-print { display: none !important; }
-    .content-wrapper { margin-top: 0 !important; }
+    .content-wrapper { margin-top: 0 !important; padding-bottom: 0 !important; }
+    /* Forçar todos backgrounds a imprimir */
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      color-adjust: exact !important;
+    }
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; font-size: 11px; line-height: 1.5; background: #e8ecef; }
-  .page { width: 210mm; min-height: 297mm; margin: 20px auto; background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.12); position: relative; overflow: hidden; }
-  @media print { body { background: white; } }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    color: #1e293b;
+    font-size: 11px;
+    line-height: 1.5;
+    background: #e8ecef;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    color-adjust: exact;
+  }
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 20px auto;
+    background: white;
+    box-shadow: 0 2px 20px rgba(0,0,0,0.12);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .page-content {
+    flex: 1;
+    padding: 20px 28px 20px;
+  }
+  .page-footer {
+    flex-shrink: 0;
+  }
   .toolbar { position: fixed; top: 0; left: 0; right: 0; background: #2d8c7f; color: white; padding: 10px 24px; display: flex; gap: 12px; align-items: center; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
   .toolbar button { padding: 8px 18px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; }
   .toolbar button:hover { opacity: 0.85; }
   .toolbar .btn-print { background: white; color: #2d8c7f; }
   .toolbar .btn-close { background: rgba(255,255,255,0.15); color: white; margin-left: auto; }
   .toolbar span { font-weight: 700; font-size: 14px; letter-spacing: 1.5px; }
-  @media print { .toolbar { display: none; } }
   .content-wrapper { margin-top: 56px; padding-bottom: 20px; }
-  @media print { .content-wrapper { margin-top: 0; padding-bottom: 0; } }
+  @media print {
+    .toolbar { display: none !important; }
+    .content-wrapper { margin-top: 0 !important; padding-bottom: 0 !important; }
+    body { background: white !important; }
+  }
+  /* Setor blocks: evitar quebra no meio */
+  .setor-block {
+    page-break-inside: avoid;
+  }
 </style>
 </head>
 <body>
@@ -210,7 +270,7 @@ export function buildPropostaHTML(data) {
 <!-- PAGE 1: HEADER + DADOS + ORÇAMENTO -->
 <div class="page">
   ${headerHTML(true)}
-  <div style="padding:20px 28px 40px;">
+  <div class="page-content">
 
     <!-- DADOS DO PROJETO -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
@@ -246,7 +306,7 @@ export function buildPropostaHTML(data) {
 <!-- PAGE 2: TOTAL + COMPOSIÇÃO + PAGAMENTO + CRONOGRAMA + ESCOPO -->
 <div class="page">
   ${headerHTML(false)}
-  <div style="padding:20px 28px 40px;">
+  <div class="page-content">
 
     <!-- TOTAL GERAL -->
     <div style="border:2px solid #2d8c7f;border-radius:8px;overflow:hidden;margin-bottom:18px;">
@@ -257,88 +317,93 @@ export function buildPropostaHTML(data) {
     </div>
 
     <!-- MÉTRICAS -->
-    <div style="display:flex;gap:10px;margin-bottom:20px;">
-      <div style="flex:1;border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PESO TOTAL</div>
-        <div style="font-size:18px;font-weight:800;color:#1e293b;">${fmtN(totalWeight)} kg</div>
-      </div>
-      <div style="flex:1;border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">ÁREA TOTAL</div>
-        <div style="font-size:18px;font-weight:800;color:#1e293b;">${fmtN(totalArea)} m²</div>
-      </div>
-      <div style="flex:1;border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PREÇO MÉDIO / KG</div>
-        <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalWeight > 0 ? (totalOrcamento / totalWeight).toFixed(2).replace('.', ',') : '0,00'}</div>
-      </div>
-      <div style="flex:1;border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
-        <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PREÇO MÉDIO / M²</div>
-        <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalArea > 0 ? (totalOrcamento / totalArea).toFixed(2).replace('.', ',') : '0,00'}</div>
-      </div>
-    </div>
+    <table style="width:100%;border-collapse:separate;border-spacing:10px 0;margin-bottom:20px;margin-left:-10px;">
+      <tr>
+        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
+          <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PESO TOTAL</div>
+          <div style="font-size:18px;font-weight:800;color:#1e293b;">${fmtN(totalWeight)} kg</div>
+        </td>
+        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
+          <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">ÁREA TOTAL</div>
+          <div style="font-size:18px;font-weight:800;color:#1e293b;">${fmtN(totalArea)} m²</div>
+        </td>
+        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
+          <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PREÇO MÉDIO / KG</div>
+          <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalWeight > 0 ? (totalOrcamento / totalWeight).toFixed(2).replace('.', ',') : '0,00'}</div>
+        </td>
+        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
+          <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PREÇO MÉDIO / M²</div>
+          <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalArea > 0 ? (totalOrcamento / totalArea).toFixed(2).replace('.', ',') : '0,00'}</div>
+        </td>
+      </tr>
+    </table>
 
     <!-- COMPOSIÇÃO DO INVESTIMENTO -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
-      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">Composição do Investimento</div>
-      <div style="padding:14px 20px;display:flex;gap:30px;align-items:center;">
-        <div style="flex:1;font-size:12px;">
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dotted #d0d5dd;">
-            <span>Material (s/ margem/impostos)</span>
-            <strong>${fmt(custoMaterial)}</strong>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dotted #d0d5dd;">
-            <span>Instalação (Fab/Pint/Transp/Mont)</span>
-            <strong>${fmt(custoInstalacao)}</strong>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dotted #d0d5dd;">
-            <span>Margem (${margemPct}%) s/ instalação</span>
-            <strong>${fmt(margemVal)}</strong>
-          </div>
-          <div style="display:flex;justify-content:space-between;padding:6px 0;">
-            <span>Impostos (${impostosPct}%) s/ instalação</span>
-            <strong>${fmt(impostosVal)}</strong>
-          </div>
-        </div>
-        <div style="text-align:center;padding-left:24px;border-left:2px solid #2d8c7f;min-width:180px;">
-          <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px;">VALOR TOTAL DA PROPOSTA</div>
-          <div style="font-size:28px;font-weight:800;color:#1e293b;">${fmt(precoFinal)}</div>
-        </div>
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">COMPOSIÇÃO DO INVESTIMENTO</div>
+      <div style="padding:14px 20px;">
+        <table style="width:100%;font-size:12px;">
+          <tr>
+            <td style="width:60%;vertical-align:top;padding-right:24px;">
+              <table style="width:100%;">
+                <tr><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;">Material (s/ margem/impostos)</td><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;text-align:right;font-weight:700;">${fmt(custoMaterial)}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;">Instalação (Fab/Pint/Transp/Mont)</td><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;text-align:right;font-weight:700;">${fmt(custoInstalacao)}</td></tr>
+                <tr><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;">Margem (${margemPct}%) s/ instalação</td><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;text-align:right;font-weight:700;">${fmt(margemVal)}</td></tr>
+                <tr><td style="padding:6px 0;">Impostos (${impostosPct}%) s/ instalação</td><td style="padding:6px 0;text-align:right;font-weight:700;">${fmt(impostosVal)}</td></tr>
+              </table>
+            </td>
+            <td style="width:40%;vertical-align:middle;text-align:center;border-left:2px solid #2d8c7f;padding-left:24px;">
+              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px;">VALOR TOTAL DA PROPOSTA</div>
+              <div style="font-size:28px;font-weight:800;color:#1e293b;">${fmt(precoFinal)}</div>
+            </td>
+          </tr>
+        </table>
       </div>
     </div>
 
     <!-- CONDIÇÕES DE PAGAMENTO -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
       <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">CONDIÇÕES DE PAGAMENTO</div>
-      <div style="display:flex;">
-        <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #e0e0e0;">
-          <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.assinatura}%</div>
-          <div style="font-size:10px;color:#64748b;margin:4px 0;">Na Assinatura do Contrato</div>
-          <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.assinatura / 100)}</div>
-        </div>
-        <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #e0e0e0;">
-          <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.aprovacao}%</div>
-          <div style="font-size:10px;color:#64748b;margin:4px 0;">Aprovação do Projeto</div>
-          <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.aprovacao / 100)}</div>
-        </div>
-        <div style="flex:1;padding:16px;text-align:center;">
-          <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.medicoes}%</div>
-          <div style="font-size:10px;color:#64748b;margin:4px 0;">Medições Mensais</div>
-          <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.medicoes / 100)}</div>
-        </div>
-      </div>
+      <table style="width:100%;border-collapse:collapse;">
+        <tr>
+          <td style="padding:16px;text-align:center;border-right:1px solid #e0e0e0;width:33.33%;">
+            <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.assinatura}%</div>
+            <div style="font-size:10px;color:#64748b;margin:4px 0;">Na Assinatura do Contrato</div>
+            <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.assinatura / 100)}</div>
+          </td>
+          <td style="padding:16px;text-align:center;border-right:1px solid #e0e0e0;width:33.33%;">
+            <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.aprovacao}%</div>
+            <div style="font-size:10px;color:#64748b;margin:4px 0;">Aprovação do Projeto</div>
+            <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.aprovacao / 100)}</div>
+          </td>
+          <td style="padding:16px;text-align:center;width:33.33%;">
+            <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.medicoes}%</div>
+            <div style="font-size:10px;color:#64748b;margin:4px 0;">Medições Mensais</div>
+            <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.medicoes / 100)}</div>
+          </td>
+        </tr>
+      </table>
     </div>
 
     <!-- CRONOGRAMA -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
       <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">CRONOGRAMA ESTIMADO (${prazoDias} DIAS)</div>
       <div style="padding:14px 20px;">
-        <div style="display:flex;gap:4px;margin-bottom:8px;">
-          <div style="flex:${projDias};background:#3b82f6;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;">Projeto (${projDias}d)</div>
-          <div style="flex:${fabDias};background:#f59e0b;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;">Fabricação (${fabDias}d)</div>
-          <div style="flex:${montDias};background:#10b981;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;">Montagem (${montDias}d)</div>
-        </div>
-        <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;">
-          <span>Início</span><span>→</span><span>→</span><span>Entrega Final</span>
-        </div>
+        <table style="width:100%;border-collapse:separate;border-spacing:4px 0;">
+          <tr>
+            <td style="background:#3b82f6;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;width:${Math.round(projDias/prazoDias*100)}%;">Projeto (${projDias}d)</td>
+            <td style="background:#f59e0b;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;width:${Math.round(fabDias/prazoDias*100)}%;">Fabricação (${fabDias}d)</td>
+            <td style="background:#10b981;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;width:${Math.round(montDias/prazoDias*100)}%;">Montagem (${montDias}d)</td>
+          </tr>
+        </table>
+        <table style="width:100%;margin-top:8px;">
+          <tr>
+            <td style="font-size:10px;color:#64748b;text-align:left;">Início</td>
+            <td style="font-size:10px;color:#64748b;text-align:center;">→</td>
+            <td style="font-size:10px;color:#64748b;text-align:center;">→</td>
+            <td style="font-size:10px;color:#64748b;text-align:right;">Entrega Final</td>
+          </tr>
+        </table>
       </div>
     </div>
 
@@ -358,7 +423,7 @@ export function buildPropostaHTML(data) {
 <!-- PAGE 3: OBRIGAÇÕES + ASSINATURAS -->
 <div class="page">
   ${headerHTML(false)}
-  <div style="padding:20px 28px 40px;">
+  <div class="page-content">
 
     <!-- OBRIGAÇÕES -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
@@ -371,20 +436,23 @@ export function buildPropostaHTML(data) {
     <!-- ASSINATURAS -->
     <div style="margin-top:60px;">
       <div style="font-size:12px;font-weight:700;letter-spacing:2px;color:#1e293b;margin-bottom:50px;">ASSINATURAS</div>
-      <div style="display:flex;gap:80px;margin-top:80px;">
-        <div style="flex:1;text-align:center;">
-          <div style="border-top:2px solid #2d8c7f;padding-top:10px;">
-            <div style="font-weight:700;font-size:12px;color:#1e293b;">GRUPO MONTEX</div>
-            <div style="font-size:10px;color:#64748b;margin-top:2px;">Guilherme Maciel Vieira - Diretor Comercial</div>
-          </div>
-        </div>
-        <div style="flex:1;text-align:center;">
-          <div style="border-top:2px solid #2d8c7f;padding-top:10px;">
-            <div style="font-weight:700;font-size:12px;color:#1e293b;">CONTRATANTE</div>
-            <div style="font-size:10px;color:#64748b;margin-top:2px;">${project?.cliente || '___________________________'}</div>
-          </div>
-        </div>
-      </div>
+      <table style="width:100%;margin-top:80px;">
+        <tr>
+          <td style="width:45%;text-align:center;padding:0 20px;">
+            <div style="border-top:2px solid #2d8c7f;padding-top:10px;">
+              <div style="font-weight:700;font-size:12px;color:#1e293b;">GRUPO MONTEX</div>
+              <div style="font-size:10px;color:#64748b;margin-top:2px;">Guilherme Maciel Vieira - Diretor Comercial</div>
+            </div>
+          </td>
+          <td style="width:10%;"></td>
+          <td style="width:45%;text-align:center;padding:0 20px;">
+            <div style="border-top:2px solid #2d8c7f;padding-top:10px;">
+              <div style="font-weight:700;font-size:12px;color:#1e293b;">CONTRATANTE</div>
+              <div style="font-size:10px;color:#64748b;margin-top:2px;">${project?.cliente || '___________________________'}</div>
+            </div>
+          </td>
+        </tr>
+      </table>
     </div>
 
   </div>
@@ -413,6 +481,7 @@ export function openPropostaHTML(data) {
 
 /**
  * Gera PDF via nova janela + auto-print
+ * v9 - Usa @page margin:0 para remover headers/footers do browser
  */
 export async function generatePropostaPDF(data) {
   const html = buildPropostaHTML(data);
@@ -420,7 +489,8 @@ export async function generatePropostaPDF(data) {
   if (win) {
     win.document.write(html);
     win.document.close();
-    setTimeout(() => { win.print(); }, 600);
+    // Aguarda renderização completa (SVGs, fonts)
+    setTimeout(() => { win.print(); }, 800);
   }
   return null;
 }
