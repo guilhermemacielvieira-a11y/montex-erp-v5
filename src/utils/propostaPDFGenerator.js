@@ -1,8 +1,9 @@
 /**
  * Gerador de Proposta Comercial - Grupo Montex
- * v6 - Layout institucional conforme modelo PDF/DOCX de referência
- * Header teal com logo, seções com bordas, badges de análise, footer com CNPJ
+ * v7 - Logo real base64, SEM custos unitários, layout conforme referência PDF
  */
+
+import { LOGO_M_MAIN_B64, LOGO_M_LIGHT_B64 } from './montexLogos.js';
 
 const fmt = (v) => {
   if (!v || isNaN(v)) return 'R$ 0,00';
@@ -13,19 +14,6 @@ const fmtN = (v) => {
   if (!v || isNaN(v)) return '0';
   return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 };
-
-// SVG logo Montex (M estilizado teal)
-const MONTEX_LOGO_SVG = `<svg width="60" height="50" viewBox="0 0 120 100" xmlns="http://www.w3.org/2000/svg">
-  <path d="M10,90 L10,30 L35,60 L60,30 L60,90" stroke="#2d8c7f" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M60,90 L60,30 L85,60 L110,30 L110,90" stroke="#2d8c7f" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M25,85 Q60,100 95,85" stroke="#4db8a4" stroke-width="4" fill="none" stroke-linecap="round"/>
-</svg>`;
-
-const MONTEX_LOGO_WHITE_SVG = `<svg width="50" height="40" viewBox="0 0 120 100" xmlns="http://www.w3.org/2000/svg">
-  <path d="M10,90 L10,30 L35,60 L60,30 L60,90" stroke="white" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M60,90 L60,30 L85,60 L110,30 L110,90" stroke="white" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M25,85 Q60,100 95,85" stroke="rgba(255,255,255,0.6)" stroke-width="4" fill="none" stroke-linecap="round"/>
-</svg>`;
 
 function calcSetorMetrics(setor) {
   let total = 0, peso = 0, area = 0;
@@ -47,10 +35,10 @@ function calcSetorMetrics(setor) {
 }
 
 /**
- * Gera o HTML completo da proposta comercial - Layout Institucional Montex
+ * Gera o HTML completo da proposta comercial
  */
 export function buildPropostaHTML(data) {
-  const { project, setores, calculations, unitCosts, paymentConditions, cronograma, escopo } = data;
+  const { project, setores, calculations, paymentConditions, cronograma, escopo } = data;
 
   const propNum = project?.numeroPropostas || data.propostaNumber || `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getFullYear()).slice(-2)}`;
   const prazoDias = (cronograma?.projeto || 10) + (cronograma?.fabricacao || 30) + (cronograma?.montagem || 15);
@@ -82,59 +70,16 @@ export function buildPropostaHTML(data) {
 
   const margemPct = calculations?.margemPct || 18;
   const impostosPct = calculations?.impostosPct || 12;
-  const totalDireto = custoMaterial + custoInstalacao;
   const margemVal = custoInstalacao * (margemPct / 100);
   const impostosVal = (custoInstalacao + margemVal) * (impostosPct / 100);
+  const totalDireto = custoMaterial + custoInstalacao;
   const precoFinal = calculations?.precoFinal || (totalDireto + margemVal + impostosVal);
-  const precoKg = totalWeight > 0 ? precoFinal / totalWeight : 0;
-  const precoM2 = totalArea > 0 ? precoFinal / totalArea : 0;
   const totalOrcamento = totalDireto;
 
   // Escopo
   const escopoIncluso = escopo?.incluso || 'Projeto executivo de estrutura metálica; Fabricação completa em fábrica; Tratamento superficial e pintura; Transporte até a obra; Montagem completa com equipamentos; Acompanhamento técnico durante execução; Garantia de 5 anos contra defeitos de fabricação.';
   const escopoNaoIncluso = escopo?.naoIncluso || 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.';
   const obrigacoes = cronograma?.obrigacoes || 'Disponibilizar acesso ao local da obra; Fornecer ponto de energia elétrica e água; Garantir fundações conforme projeto fornecido pela Montex; Aprovar o projeto executivo em até 10 dias úteis; Efetuar os pagamentos nas datas acordadas.';
-
-  // Custos unitários
-  const custosUnit = [];
-  if (unitCosts?.estrutura) {
-    if (unitCosts.estrutura.material) custosUnit.push(['Estrutura - Material', `R$ ${Number(unitCosts.estrutura.material).toFixed(2)}/kg`]);
-    if (unitCosts.estrutura.fabricacao) custosUnit.push(['Estrutura - Fabricação', `R$ ${Number(unitCosts.estrutura.fabricacao).toFixed(2)}/kg`]);
-    if (unitCosts.estrutura.pintura) custosUnit.push(['Estrutura - Pintura', `R$ ${Number(unitCosts.estrutura.pintura).toFixed(2)}/kg`]);
-    if (unitCosts.estrutura.transporte) custosUnit.push(['Estrutura - Transporte', `R$ ${Number(unitCosts.estrutura.transporte).toFixed(2)}/kg`]);
-    if (unitCosts.estrutura.montagem) custosUnit.push(['Estrutura - Montagem', `R$ ${Number(unitCosts.estrutura.montagem).toFixed(2)}/kg`]);
-  }
-  if (unitCosts?.cobertura) {
-    if (unitCosts.cobertura.material) custosUnit.push(['Cobertura - Material', `R$ ${Number(unitCosts.cobertura.material).toFixed(2)}/m²`]);
-    if (unitCosts.cobertura.montagem) custosUnit.push(['Cobertura - Montagem', `R$ ${Number(unitCosts.cobertura.montagem).toFixed(2)}/m²`]);
-  }
-  if (unitCosts?.fechamento) {
-    if (unitCosts.fechamento.material) custosUnit.push(['Fechamento - Material', `R$ ${Number(unitCosts.fechamento.material).toFixed(2)}/m²`]);
-    if (unitCosts.fechamento.montagem) custosUnit.push(['Fechamento - Montagem', `R$ ${Number(unitCosts.fechamento.montagem).toFixed(2)}/m²`]);
-  }
-  if (unitCosts?.steeldeck) {
-    if (unitCosts.steeldeck.material) custosUnit.push(['Steel Deck - Material', `R$ ${Number(unitCosts.steeldeck.material).toFixed(2)}/m²`]);
-  }
-
-  // Custos unitários HTML - 2 colunas
-  let custosHTML = '';
-  if (custosUnit.length > 0) {
-    const mid = Math.ceil(custosUnit.length / 2);
-    const col1 = custosUnit.slice(0, mid);
-    const col2 = custosUnit.slice(mid);
-    custosHTML = `
-    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
-      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">CUSTOS UNITÁRIOS DE REFERÊNCIA</div>
-      <div style="padding:14px 20px;display:flex;gap:40px;">
-        <div style="flex:1;">
-          ${col1.map(c => `<div style="margin-bottom:6px;"><strong style="font-size:10px;color:#333;">${c[0]}:</strong><br/><span style="font-size:11px;color:#1e293b;">${c[1]}</span></div>`).join('')}
-        </div>
-        <div style="flex:1;">
-          ${col2.map(c => `<div style="margin-bottom:6px;"><strong style="font-size:10px;color:#333;">${c[0]}:</strong><br/><span style="font-size:11px;color:#1e293b;">${c[1]}</span></div>`).join('')}
-        </div>
-      </div>
-    </div>`;
-  }
 
   // Setores HTML
   const setoresHTML = setores.map((setor, idx) => {
@@ -163,7 +108,6 @@ export function buildPropostaHTML(data) {
 
     return `
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:18px;">
-      <!-- Setor Header -->
       <div style="padding:10px 16px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e8ecef;">
         <div style="display:flex;align-items:center;gap:10px;">
           <span style="background:#2d8c7f;color:white;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${idx+1}</span>
@@ -171,31 +115,51 @@ export function buildPropostaHTML(data) {
         </div>
         <span style="font-size:13px;font-weight:800;color:#1e293b;">${fmt(m.total)}</span>
       </div>
-      <!-- Table -->
       <table style="width:100%;border-collapse:collapse;">
         <thead><tr style="background:#f0f2f5;">
           <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">DESCRIÇÃO</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">UN</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">QUANTIDADE</th>
-          <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">PREÇO UNIT.</th>
-          <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">TOTAL</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;color:#475569;">UN</th>
+          <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;color:#475569;">QUANTIDADE</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;color:#475569;">PREÇO UNIT.</th>
+          <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;color:#475569;">TOTAL</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
-      <!-- Subtotal -->
       <div style="background:#f0f9f7;padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #2d8c7f;">
         <span style="font-size:11px;font-weight:600;color:#475569;">Subtotal - ${setor.nome.toUpperCase()}</span>
         <span style="font-size:12px;font-weight:800;color:#1e293b;">${fmt(m.total)}</span>
       </div>
-      <!-- Analysis Badges -->
       ${badges.length > 0 ? `<div style="padding:8px 16px;background:#fafbfc;">${badges.join('')}</div>` : ''}
     </div>`;
   }).join('');
 
-  // Cronograma bars
   const projDias = cronograma?.projeto || 10;
   const fabDias = cronograma?.fabricacao || 30;
   const montDias = cronograma?.montagem || 15;
+
+  // Header HTML reutilizável com logo real
+  const headerHTML = (showDates) => `
+  <div style="background:linear-gradient(135deg,#2d8c7f 0%,#3ba89a 100%);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:14px;">
+      <img src="${LOGO_M_LIGHT_B64}" alt="Montex" style="height:50px;width:auto;" />
+      <div style="color:white;">
+        <div style="font-size:22px;font-weight:800;letter-spacing:3px;line-height:1.1;">GRUPO MONTEX</div>
+        <div style="font-size:10px;letter-spacing:4px;color:rgba(255,255,255,0.8);margin-top:2px;">SOLUÇÕES EM AÇO</div>
+      </div>
+    </div>
+    <div style="text-align:right;color:white;">
+      <div style="font-size:9px;letter-spacing:2px;color:rgba(255,255,255,0.75);">PROPOSTA COMERCIAL</div>
+      <div style="font-size:22px;font-weight:800;">Nº ${propNum}</div>
+      ${showDates ? `<div style="font-size:9px;color:rgba(255,255,255,0.7);margin-top:2px;">Emissão: ${dataEmissao} | Validade: ${dataValidade}</div>` : ''}
+    </div>
+  </div>`;
+
+  // Footer HTML reutilizável
+  const footerHTML = (pag) => `
+  <div style="position:absolute;bottom:0;left:0;right:0;padding:10px 28px;display:flex;justify-content:space-between;align-items:center;font-size:8px;color:#64748b;border-top:1px solid #e0e0e0;background:white;">
+    <div><strong style="color:#2d8c7f;font-size:9px;">GRUPO MONTEX - Soluções em Aço</strong><br/>CNPJ: 00.000.000/0001-00 | contato@grupomontex.com.br | (31) 9 9999-9999</div>
+    <div style="text-align:right;">Proposta ${propNum} | ${dataEmissao} | Pág ${pag}</div>
+  </div>`;
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -215,9 +179,8 @@ export function buildPropostaHTML(data) {
   body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; color: #1e293b; font-size: 11px; line-height: 1.5; background: #e8ecef; }
   .page { width: 210mm; min-height: 297mm; margin: 20px auto; background: white; box-shadow: 0 2px 20px rgba(0,0,0,0.12); position: relative; overflow: hidden; }
   @media print { body { background: white; } }
-
-  .toolbar { position: fixed; top: 0; left: 0; right: 0; background: #2d8c7f; color: white; padding: 10px 24px; display: flex; gap: 12px; align-items: center; z-index: 100; font-family: sans-serif; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
-  .toolbar button { padding: 8px 18px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; transition: opacity 0.2s; }
+  .toolbar { position: fixed; top: 0; left: 0; right: 0; background: #2d8c7f; color: white; padding: 10px 24px; display: flex; gap: 12px; align-items: center; z-index: 100; box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+  .toolbar button { padding: 8px 18px; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 12px; }
   .toolbar button:hover { opacity: 0.85; }
   .toolbar .btn-print { background: white; color: #2d8c7f; }
   .toolbar .btn-close { background: rgba(255,255,255,0.15); color: white; margin-left: auto; }
@@ -225,31 +188,10 @@ export function buildPropostaHTML(data) {
   @media print { .toolbar { display: none; } }
   .content-wrapper { margin-top: 56px; padding-bottom: 20px; }
   @media print { .content-wrapper { margin-top: 0; padding-bottom: 0; } }
-
-  /* Header institucional */
-  .header-bar { background: linear-gradient(135deg, #2d8c7f 0%, #3ba89a 100%); padding: 16px 28px; display: flex; align-items: center; justify-content: space-between; }
-  .header-left { display: flex; align-items: center; gap: 14px; }
-  .header-title { color: white; }
-  .header-title h1 { font-size: 22px; font-weight: 800; letter-spacing: 3px; margin: 0; line-height: 1.1; }
-  .header-title p { font-size: 10px; letter-spacing: 4px; color: rgba(255,255,255,0.8); margin: 2px 0 0; }
-  .header-right { text-align: right; color: white; }
-  .header-right .label { font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,0.75); }
-  .header-right .number { font-size: 22px; font-weight: 800; }
-  .header-right .dates { font-size: 9px; color: rgba(255,255,255,0.7); margin-top: 2px; }
-
-  /* Section box */
-  .section-box { border: 2px solid #e0e0e0; border-radius: 8px; overflow: hidden; margin-bottom: 20px; }
-  .section-title { background: #2d8c7f; color: white; padding: 8px 16px; font-size: 11px; font-weight: 700; letter-spacing: 2px; }
-  .section-content { padding: 14px 20px; }
-
-  /* Footer */
-  .page-footer { position: absolute; bottom: 0; left: 0; right: 0; padding: 10px 28px; display: flex; justify-content: space-between; align-items: center; font-size: 8px; color: #64748b; border-top: 1px solid #e0e0e0; background: white; }
-  .page-footer strong { color: #2d8c7f; font-size: 9px; }
 </style>
 </head>
 <body>
 
-<!-- TOOLBAR -->
 <div class="toolbar no-print">
   <span>GRUPO MONTEX — Proposta Comercial</span>
   <button class="btn-print" onclick="window.print()">Imprimir / Salvar PDF</button>
@@ -258,32 +200,15 @@ export function buildPropostaHTML(data) {
 
 <div class="content-wrapper">
 
-<!-- ============================================ -->
-<!-- PAGE 1: HEADER + DADOS + CUSTOS + ORÇAMENTO  -->
-<!-- ============================================ -->
+<!-- PAGE 1: HEADER + DADOS + ORÇAMENTO -->
 <div class="page">
-  <!-- Header Institucional -->
-  <div class="header-bar">
-    <div class="header-left">
-      ${MONTEX_LOGO_WHITE_SVG}
-      <div class="header-title">
-        <h1>GRUPO MONTEX</h1>
-        <p>SOLUÇÕES EM AÇO</p>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="label">PROPOSTA COMERCIAL</div>
-      <div class="number">Nº ${propNum}</div>
-      <div class="dates">Emissão: ${dataEmissao} | Validade: ${dataValidade}</div>
-    </div>
-  </div>
-
+  ${headerHTML(true)}
   <div style="padding:20px 28px 40px;">
 
     <!-- DADOS DO PROJETO -->
-    <div class="section-box">
-      <div class="section-title">DADOS DO PROJETO</div>
-      <div class="section-content">
+    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">DADOS DO PROJETO</div>
+      <div style="padding:14px 20px;">
         <table style="width:100%;font-size:12px;">
           <tr>
             <td style="padding:4px 0;width:50%;"><strong style="color:#64748b;">Projeto:</strong> ${project?.nome || '-'}</td>
@@ -297,9 +222,6 @@ export function buildPropostaHTML(data) {
       </div>
     </div>
 
-    <!-- CUSTOS UNITÁRIOS -->
-    ${custosHTML}
-
     <!-- ORÇAMENTO DETALHADO POR SETOR -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
       <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;display:flex;justify-content:space-between;">
@@ -311,33 +233,12 @@ export function buildPropostaHTML(data) {
     ${setoresHTML}
 
   </div>
-
-  <!-- Footer -->
-  <div class="page-footer">
-    <div><strong>GRUPO MONTEX - Soluções em Aço</strong><br/>CNPJ: 00.000.000/0001-00 | contato@grupomontex.com.br | (31) 9 9999-9999</div>
-    <div style="text-align:right;">Proposta ${propNum} | ${dataEmissao} | Pág 1</div>
-  </div>
+  ${footerHTML(1)}
 </div>
 
-<!-- ============================================ -->
 <!-- PAGE 2: TOTAL + COMPOSIÇÃO + PAGAMENTO + CRONOGRAMA + ESCOPO -->
-<!-- ============================================ -->
 <div class="page">
-  <!-- Header -->
-  <div class="header-bar">
-    <div class="header-left">
-      ${MONTEX_LOGO_WHITE_SVG}
-      <div class="header-title">
-        <h1>GRUPO MONTEX</h1>
-        <p>SOLUÇÕES EM AÇO</p>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="label">PROPOSTA COMERCIAL</div>
-      <div class="number">Nº ${propNum}</div>
-    </div>
-  </div>
-
+  ${headerHTML(false)}
   <div style="padding:20px 28px 40px;">
 
     <!-- TOTAL GERAL -->
@@ -348,7 +249,7 @@ export function buildPropostaHTML(data) {
       </div>
     </div>
 
-    <!-- MÉTRICAS (4 boxes) -->
+    <!-- MÉTRICAS -->
     <div style="display:flex;gap:10px;margin-bottom:20px;">
       <div style="flex:1;border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;">
         <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PESO TOTAL</div>
@@ -369,9 +270,9 @@ export function buildPropostaHTML(data) {
     </div>
 
     <!-- COMPOSIÇÃO DO INVESTIMENTO -->
-    <div class="section-box">
-      <div class="section-title">Composição do Investimento</div>
-      <div class="section-content" style="display:flex;gap:30px;align-items:center;">
+    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">Composição do Investimento</div>
+      <div style="padding:14px 20px;display:flex;gap:30px;align-items:center;">
         <div style="flex:1;font-size:12px;">
           <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dotted #d0d5dd;">
             <span>Material (s/ margem/impostos)</span>
@@ -398,90 +299,64 @@ export function buildPropostaHTML(data) {
     </div>
 
     <!-- CONDIÇÕES DE PAGAMENTO -->
-    <div class="section-box">
-      <div class="section-title">CONDIÇÕES DE PAGAMENTO</div>
-      <div class="section-content" style="padding:0;">
-        <div style="display:flex;">
-          <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #e0e0e0;">
-            <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.assinatura}%</div>
-            <div style="font-size:10px;color:#64748b;margin:4px 0;">Na Assinatura do Contrato</div>
-            <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.assinatura / 100)}</div>
-          </div>
-          <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #e0e0e0;">
-            <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.aprovacao}%</div>
-            <div style="font-size:10px;color:#64748b;margin:4px 0;">Aprovação do Projeto</div>
-            <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.aprovacao / 100)}</div>
-          </div>
-          <div style="flex:1;padding:16px;text-align:center;">
-            <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.medicoes}%</div>
-            <div style="font-size:10px;color:#64748b;margin:4px 0;">Medições Mensais</div>
-            <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.medicoes / 100)}</div>
-          </div>
+    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">CONDIÇÕES DE PAGAMENTO</div>
+      <div style="display:flex;">
+        <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #e0e0e0;">
+          <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.assinatura}%</div>
+          <div style="font-size:10px;color:#64748b;margin:4px 0;">Na Assinatura do Contrato</div>
+          <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.assinatura / 100)}</div>
+        </div>
+        <div style="flex:1;padding:16px;text-align:center;border-right:1px solid #e0e0e0;">
+          <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.aprovacao}%</div>
+          <div style="font-size:10px;color:#64748b;margin:4px 0;">Aprovação do Projeto</div>
+          <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.aprovacao / 100)}</div>
+        </div>
+        <div style="flex:1;padding:16px;text-align:center;">
+          <div style="font-size:28px;font-weight:800;color:#1e293b;">${pagamento.medicoes}%</div>
+          <div style="font-size:10px;color:#64748b;margin:4px 0;">Medições Mensais</div>
+          <div style="font-size:12px;font-weight:700;color:#1e293b;">${fmt(precoFinal * pagamento.medicoes / 100)}</div>
         </div>
       </div>
     </div>
 
     <!-- CRONOGRAMA -->
-    <div class="section-box">
-      <div class="section-title">CRONOGRAMA ESTIMADO (${prazoDias} DIAS)</div>
-      <div class="section-content">
+    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">CRONOGRAMA ESTIMADO (${prazoDias} DIAS)</div>
+      <div style="padding:14px 20px;">
         <div style="display:flex;gap:4px;margin-bottom:8px;">
           <div style="flex:${projDias};background:#3b82f6;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;">Projeto (${projDias}d)</div>
           <div style="flex:${fabDias};background:#f59e0b;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;">Fabricação (${fabDias}d)</div>
           <div style="flex:${montDias};background:#10b981;color:white;text-align:center;border-radius:6px;padding:10px 8px;font-size:11px;font-weight:700;">Montagem (${montDias}d)</div>
         </div>
         <div style="display:flex;justify-content:space-between;font-size:10px;color:#64748b;">
-          <span>Início</span>
-          <span>→</span>
-          <span>→</span>
-          <span>Entrega Final</span>
+          <span>Início</span><span>→</span><span>→</span><span>Entrega Final</span>
         </div>
       </div>
     </div>
 
-    <!-- ESCOPO DE FORNECIMENTO -->
-    <div class="section-box">
-      <div class="section-title">ESCOPO DE FORNECIMENTO</div>
-      <div class="section-content" style="font-size:11px;line-height:1.7;color:#475569;">
+    <!-- ESCOPO -->
+    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">ESCOPO DE FORNECIMENTO</div>
+      <div style="padding:14px 20px;font-size:11px;line-height:1.7;color:#475569;">
         <p><strong style="color:#1e293b;">INCLUSO:</strong> ${escopoIncluso}</p>
         <p style="margin-top:10px;"><strong style="color:#1e293b;">NÃO INCLUSO:</strong> ${escopoNaoIncluso}</p>
       </div>
     </div>
 
   </div>
-
-  <!-- Footer -->
-  <div class="page-footer">
-    <div><strong>GRUPO MONTEX - Soluções em Aço</strong><br/>CNPJ: 00.000.000/0001-00 | contato@grupomontex.com.br | (31) 9 9999-9999</div>
-    <div style="text-align:right;">Proposta ${propNum} | ${dataEmissao} | Pág 2</div>
-  </div>
+  ${footerHTML(2)}
 </div>
 
-<!-- ============================================ -->
-<!-- PAGE 3: OBRIGAÇÕES + ASSINATURAS            -->
-<!-- ============================================ -->
+<!-- PAGE 3: OBRIGAÇÕES + ASSINATURAS -->
 <div class="page">
-  <!-- Header -->
-  <div class="header-bar">
-    <div class="header-left">
-      ${MONTEX_LOGO_WHITE_SVG}
-      <div class="header-title">
-        <h1>GRUPO MONTEX</h1>
-        <p>SOLUÇÕES EM AÇO</p>
-      </div>
-    </div>
-    <div class="header-right">
-      <div class="label">PROPOSTA COMERCIAL</div>
-      <div class="number">Nº ${propNum}</div>
-    </div>
-  </div>
-
+  ${headerHTML(false)}
   <div style="padding:20px 28px 40px;">
 
-    <!-- OBRIGAÇÕES DO CONTRATANTE -->
-    <div class="section-box">
-      <div class="section-title">OBRIGAÇÕES DO CONTRATANTE</div>
-      <div class="section-content" style="font-size:11px;line-height:1.7;color:#475569;">
+    <!-- OBRIGAÇÕES -->
+    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
+      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">OBRIGAÇÕES DO CONTRATANTE</div>
+      <div style="padding:14px 20px;font-size:11px;line-height:1.7;color:#475569;">
         ${obrigacoes}
       </div>
     </div>
@@ -506,12 +381,7 @@ export function buildPropostaHTML(data) {
     </div>
 
   </div>
-
-  <!-- Footer -->
-  <div class="page-footer">
-    <div><strong>GRUPO MONTEX - Soluções em Aço</strong><br/>CNPJ: 00.000.000/0001-00 | contato@grupomontex.com.br | (31) 9 9999-9999</div>
-    <div style="text-align:right;">Proposta ${propNum} | ${dataEmissao} | Pág 3</div>
-  </div>
+  ${footerHTML(3)}
 </div>
 
 </div>
@@ -522,7 +392,7 @@ export function buildPropostaHTML(data) {
 }
 
 /**
- * Abre a proposta HTML em nova janela (permite imprimir como PDF)
+ * Abre a proposta HTML em nova janela
  */
 export function openPropostaHTML(data) {
   const html = buildPropostaHTML(data);
@@ -543,20 +413,16 @@ export async function generatePropostaPDF(data) {
   if (win) {
     win.document.write(html);
     win.document.close();
-    setTimeout(() => {
-      win.print();
-    }, 600);
+    setTimeout(() => { win.print(); }, 600);
   }
   return null;
 }
 
 /**
- * Gera DOCX baixável a partir do HTML
+ * Gera DOCX baixável
  */
 export async function generatePropostaDOCX(data) {
   const html = buildPropostaHTML(data);
-
-  // Extract body content for Word
   const bodyMatch = html.match(/<body[^>]*>([\s\S]*)<\/body>/i);
   const bodyContent = bodyMatch ? bodyMatch[1] : html;
 
