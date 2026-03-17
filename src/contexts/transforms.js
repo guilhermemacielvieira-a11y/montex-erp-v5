@@ -380,6 +380,8 @@ export function calcularProgressoObra(obras, pecas) {
       switch (etapa) {
         case 'montagem': etapas.montagem++; pesoEtapas.montagem += peso;
         // falls through
+        case 'entregue': // falls through
+        case 'enviado': // falls through (saiu da fábrica, conta como expedido+)
         case 'expedido': etapas.expedicao++; pesoEtapas.expedicao += peso;
         // falls through
         case 'pintura': etapas.pintura++; pesoEtapas.pintura += peso;

@@ -38,6 +38,7 @@ export const ETAPAS_PRODUCAO = {
   SOLDA: 'solda',
   PINTURA: 'pintura',
   EXPEDIDO: 'expedido',
+  ENVIADO: 'enviado',
   ENTREGUE: 'entregue'
 };
 

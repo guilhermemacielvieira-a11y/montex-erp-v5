@@ -162,6 +162,7 @@ export default function KanbanProducaoIntegrado() {
     console.log(`[Kanban] Carregando ${pecasSupabase.length} peças do Supabase...`);
 
     // Mapear etapa do Supabase → status do kanban
+    // Peças com etapa 'enviado' ou 'entregue' NÃO devem aparecer no Kanban
     const mapEtapaToStatus = (etapa) => {
       switch (etapa) {
         case 'aguardando': return 'fabricacao';
@@ -170,12 +171,17 @@ export default function KanbanProducaoIntegrado() {
         case 'solda': return 'solda';
         case 'pintura': return 'pintura';
         case 'expedido': return 'expedido';
+        case 'enviado': return null;   // excluir do Kanban
+        case 'entregue': return null;  // excluir do Kanban
+        case 'montagem': return null;  // excluir do Kanban
         default: return 'fabricacao';
       }
     };
 
     const conjuntosConvertidos = pecasSupabase.map((peca) => {
       const status = mapEtapaToStatus(peca.etapa);
+      // Peças com status null (enviado, entregue, montagem) não entram no Kanban
+      if (status === null) return null;
       return {
         id: peca.id,
         conjunto: peca.marca || peca.nome || '',
@@ -207,8 +213,9 @@ export default function KanbanProducaoIntegrado() {
       };
     });
 
-    console.log(`[Kanban] ✅ ${conjuntosConvertidos.length} peças carregadas do Supabase`);
-    setProducaoFabrica(conjuntosConvertidos);
+    const conjuntosValidos = conjuntosConvertidos.filter(Boolean);
+    console.log(`[Kanban] ✅ ${conjuntosValidos.length} peças carregadas do Supabase (${pecasSupabase.length - conjuntosValidos.length} enviadas/entregues excluídas)`);
+    setProducaoFabrica(conjuntosValidos);
   }, [pecasSupabase]);
 
   // Obter obras disponíveis (priorizar Supabase/Context)

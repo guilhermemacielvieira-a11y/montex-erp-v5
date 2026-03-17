@@ -50,6 +50,7 @@ export default function EnviosExpedicaoPage() {
   // ==== ESTADO LOCAL ====
   const [pecasExpedidasRaw, setPecasExpedidasRaw] = useState([]);
   const [pecasPinturaRaw, setPecasPinturaRaw] = useState([]);
+  const [pecasEnviadasRaw, setPecasEnviadasRaw] = useState([]);
   const [loadingPecas, setLoadingPecas] = useState(true);
   const [abaAtiva, setAbaAtiva] = useState('fila');
   const [busca, setBusca] = useState('');
@@ -105,6 +106,10 @@ export default function EnviosExpedicaoPage() {
       const emPintura = todasPecas.filter(p => p.etapa === 'pintura');
       setPecasPinturaRaw(emPintura);
 
+      // Peças já enviadas (saíram da fábrica via romaneio)
+      const enviadas = todasPecas.filter(p => p.etapa === 'enviado' || p.etapa === 'entregue');
+      setPecasEnviadasRaw(enviadas);
+
       // Pegar IDs das peças já incluídas em expedições existentes
       const pecasJaEnviadas = new Set();
       (expedicoes || []).forEach(exp => {
@@ -138,6 +143,11 @@ export default function EnviosExpedicaoPage() {
     if (!obraFiltro || obraFiltro === 'todas') return pecasPinturaRaw;
     return pecasPinturaRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
   }, [pecasPinturaRaw, obraFiltro]);
+
+  const pecasEnviadas = useMemo(() => {
+    if (!obraFiltro || obraFiltro === 'todas') return pecasEnviadasRaw;
+    return pecasEnviadasRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
+  }, [pecasEnviadasRaw, obraFiltro]);
 
   // ==== EXPEDIÇÕES FILTRADAS POR OBRA ====
   const expedicoesFiltradas = useMemo(() => {
@@ -451,6 +461,13 @@ export default function EnviosExpedicaoPage() {
               className="px-4 py-2 text-sm rounded-t-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white text-gray-400 hover:text-white transition-colors flex items-center gap-1">
               <FileText className="w-4 h-4" /> Lista de Envios
             </Tabs.Trigger>
+            <Tabs.Trigger value="enviadas"
+              className="px-4 py-2 text-sm rounded-t-lg data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-gray-400 hover:text-white transition-colors flex items-center gap-1">
+              <CheckCircle2 className="w-4 h-4" /> Peças Enviadas
+              {pecasEnviadas.length > 0 && (
+                <span className="ml-1 bg-emerald-500 text-white text-xs rounded-full px-1.5 py-0.5">{pecasEnviadas.length}</span>
+              )}
+            </Tabs.Trigger>
             <Tabs.Trigger value="status"
               className="px-4 py-2 text-sm rounded-t-lg data-[state=active]:bg-blue-600 data-[state=active]:text-white text-gray-400 hover:text-white transition-colors flex items-center gap-1">
               <ArrowUpAZ className="w-4 h-4" /> Visão por Status
@@ -669,6 +686,78 @@ export default function EnviosExpedicaoPage() {
                 );
               })}
             </div>
+          )}
+        </Tabs.Content>
+
+        {/* Aba: Peças Enviadas */}
+        <Tabs.Content value="enviadas" className="flex-1 overflow-y-auto p-6">
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              Peças Enviadas
+            </h2>
+            <p className="text-gray-400 text-sm">Peças que já saíram da fábrica via romaneio de expedição</p>
+          </div>
+
+          {pecasEnviadas.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-gray-500">
+              <Truck className="w-12 h-12 mb-3 opacity-30" />
+              <p className="text-lg">Nenhuma peça enviada ainda</p>
+              <p className="text-sm text-gray-600 mt-1">Quando cargas forem criadas e romaneios gerados, as peças aparecerão aqui</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex justify-between items-center mb-4">
+                <p className="text-sm text-gray-400">
+                  {pecasEnviadas.length} peça(s) enviada(s) ·{' '}
+                  {(pecasEnviadas.reduce((s, p) => s + (parseFloat(p.peso) || parseFloat(p.pesoTotal) || 0), 0) / 1000).toFixed(2)}t
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-700 text-gray-400 text-xs">
+                      <th className="py-2 px-3 text-left">#</th>
+                      <th className="py-2 px-3 text-left">Marca / Peça</th>
+                      <th className="py-2 px-3 text-left">Tipo</th>
+                      <th className="py-2 px-3 text-center">Qtd</th>
+                      <th className="py-2 px-3 text-right">Peso (kg)</th>
+                      <th className="py-2 px-3 text-left">Obra</th>
+                      <th className="py-2 px-3 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pecasEnviadas.map((peca, idx) => (
+                      <tr key={peca.id} className="border-b border-gray-800 hover:bg-gray-900/50">
+                        <td className="py-2 px-3 text-gray-500">{idx + 1}</td>
+                        <td className="py-2 px-3 font-medium text-white">{peca.marca || peca.nome || '-'}</td>
+                        <td className="py-2 px-3 text-gray-400">{peca.tipo || peca.descricao || '-'}</td>
+                        <td className="py-2 px-3 text-center text-gray-300">{peca.quantidade || 1}</td>
+                        <td className="py-2 px-3 text-right text-gray-300">{(parseFloat(peca.peso) || parseFloat(peca.pesoTotal) || 0).toFixed(1)}</td>
+                        <td className="py-2 px-3 text-gray-400">{peca.obraNome || peca.obra_nome || '-'}</td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            peca.etapa === 'entregue'
+                              ? 'bg-green-900/40 text-green-400'
+                              : 'bg-emerald-900/40 text-emerald-400'
+                          }`}>
+                            {peca.etapa === 'entregue' ? 'Entregue' : 'Enviado'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-4 p-3 bg-gray-900 rounded-lg border border-gray-800 flex items-center justify-between">
+                <span className="text-sm text-gray-400">
+                  Total: {pecasEnviadas.length} peça(s) · {pecasEnviadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0)} un
+                </span>
+                <span className="text-sm font-semibold text-emerald-400">
+                  {(pecasEnviadas.reduce((s, p) => s + (parseFloat(p.peso) || parseFloat(p.pesoTotal) || 0), 0)).toFixed(2)} kg
+                </span>
+              </div>
+            </>
           )}
         </Tabs.Content>
 
