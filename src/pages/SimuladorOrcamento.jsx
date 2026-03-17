@@ -2045,14 +2045,14 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
                     <h4 className="font-bold text-gray-900 mb-2">ETAPA {idx + 1} — {setor.nome}</h4>
                     <div className="overflow-x-auto mb-2">
                       <table className="w-full text-xs">
-                        <thead>
-                          <tr className="bg-blue-700 text-white">
-                            <th className="border border-blue-600 p-1 text-left">DESCRIÇÃO</th>
-                            <th className="border border-blue-600 p-1 text-center">UN</th>
-                            <th className="border border-blue-600 p-1 text-center">QTD</th>
-                            <th className="border border-blue-600 p-1 text-right" style={{background:'#1e3a8a'}}>MATERIAL UN.</th>
-                            <th className="border border-blue-600 p-1 text-right" style={{background:'#ca8a04', color:'white'}}>INSTALAÇÃO UN.</th>
-                            <th className="border border-blue-600 p-1 text-right">TOTAL</th>
+                        <thead className="bg-gray-100">
+                          <tr>
+                            <th className="border p-1 text-left">DESCRIÇÃO</th>
+                            <th className="border p-1 text-center">UN</th>
+                            <th className="border p-1 text-center">QTD</th>
+                            <th className="border p-1 text-right">MATERIAL UN.</th>
+                            <th className="border p-1 text-right">INSTALAÇÃO UN.</th>
+                            <th className="border p-1 text-right">TOTAL</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -2065,12 +2065,8 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
                                 <td className="border p-1">{item.descricao}</td>
                                 <td className="border p-1 text-center">{item.unidade}</td>
                                 <td className="border p-1 text-center">{formatNumber(item.quantidade)}</td>
-                                <td className="border p-1 text-right" style={{color: matUn > 0 ? '#1e40af' : '#9ca3af'}}>
-                                  {matUn > 0 ? formatCurrency(matUn) : '—'}
-                                </td>
-                                <td className="border p-1 text-right" style={{color: instUn > 0 ? '#92400e' : '#9ca3af'}}>
-                                  {instUn > 0 ? formatCurrency(instUn) : '—'}
-                                </td>
+                                <td className="border p-1 text-right text-gray-700">{matUn > 0 ? formatCurrency(matUn) : '—'}</td>
+                                <td className="border p-1 text-right text-gray-700">{instUn > 0 ? formatCurrency(instUn) : '—'}</td>
                                 <td className="border p-1 text-right font-semibold">{formatCurrency(total)}</td>
                               </tr>
                             );
@@ -2079,9 +2075,9 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
                         <tfoot>
                           <tr className="bg-gray-100 font-bold text-xs">
                             <td className="border p-1.5" colSpan={3}>SUBTOTAL ETAPA {idx + 1}</td>
-                            <td className="border p-1.5 text-right" style={{color:'#1e40af'}}>{formatCurrency(setorMaterial)}</td>
-                            <td className="border p-1.5 text-right" style={{color:'#92400e'}}>{formatCurrency(setorInstalacao)}</td>
-                            <td className="border p-1.5 text-right text-gray-800">{formatCurrency(setorTotal)}</td>
+                            <td className="border p-1.5 text-right">{formatCurrency(setorMaterial)}</td>
+                            <td className="border p-1.5 text-right">{formatCurrency(setorInstalacao)}</td>
+                            <td className="border p-1.5 text-right">{formatCurrency(setorTotal)}</td>
                           </tr>
                         </tfoot>
                       </table>

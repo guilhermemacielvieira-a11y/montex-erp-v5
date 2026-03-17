@@ -335,8 +335,8 @@ export async function generatePropostaDOCX({ project, setores, calculations, uni
           celula('DESCRIÇÃO',      { bold: true, bg: COR_CINZA_MEDIO, size: 18 }),
           celula('UN',             { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.CENTER, size: 18 }),
           celula('QTD',            { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.CENTER, size: 18 }),
-          celula('MATERIAL UN.',   { bold: true, bg: '1e3a8a', color: COR_BRANCO, align: AlignmentType.RIGHT, size: 18 }),
-          celula('INSTALAÇÃO UN.', { bold: true, bg: 'ca8a04', color: COR_BRANCO, align: AlignmentType.RIGHT, size: 18 }),
+          celula('MATERIAL UN.',   { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.RIGHT, size: 18 }),
+          celula('INSTALAÇÃO UN.', { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.RIGHT, size: 18 }),
           celula('TOTAL',          { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.RIGHT, size: 18 }),
         ],
       })
