@@ -1308,31 +1308,34 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
   const [valoresAnimados, setValoresAnimados] = useState({});
 
   // === REFERÊNCIAS MENSAIS ===
-  const META_PROD_KG   = 45000;  // 45 ton/mês fábrica
-  const META_MONT_KG   = 25000;  // 25 ton/mês montagem
-  const REF_FAB_KG     = 5.50;
-  const REF_PINT_KG    = 1.40;
-  const REF_TRANSP_KG  = 1.00;
+  const META_PROD_KG  = 45000;
+  const META_MONT_KG  = 25000;
+  const REF_FAB_KG    = 5.50;
+  const REF_PINT_KG   = 1.40;
+  const REF_TRANSP_KG = 1.00;
   const REF_MONT_KG    = 3.00;
-  const REF_PROD_KG    = REF_FAB_KG + REF_PINT_KG + REF_TRANSP_KG; // 7.90
 
-  // === CÁLCULOS PRINCIPAIS ===
+  // === DESPESA MÉDIA MENSAL DO MÓDULO FINANCEIRO ===
+  const despesaMediaMensal = fi?.kpisGerais?.despesaMensalMedia || fi?.despesaMedia3Meses || 430500;
+
+  // === CÁLCULOS (SEM MATERIAL — apenas serviços) ===
   const analise = useMemo(() => {
     let pesoTotal = 0, areaTotal = 0;
-    let custoFab = 0, custoPint = 0, custoTranp = 0, custoMont = 0, custoPrj = 0, custoMat = 0;
+    let custoFab = 0, custoPint = 0, custoTranp = 0, custoMont = 0, custoPrj = 0;
 
     (setores || []).forEach(s => {
       const grupos = {};
       (s.itens || []).forEach(item => {
         const qty   = item.quantidade || 0;
         const desc  = (item.descricao || '').toLowerCase();
-        const total = qty * ((item.precoMaterial || 0) + (item.precoInstalacao || 0));
+        // EXCLUIR MATERIAL — usa apenas precoInstalacao
+        const total = qty * (item.precoInstalacao || 0);
         if (desc.includes('fabricaç') || desc.includes('fabricac')) custoFab  += total;
         else if (desc.includes('pintura'))    custoPint  += total;
         else if (desc.includes('transporte')) custoTranp += total;
         else if (desc.includes('montagem'))   custoMont  += total;
         else if (desc.includes('projeto'))    custoPrj   += total;
-        else                                  custoMat   += total;
+        // material ignorado completamente
         if (item.unidade === 'KG' && !desc.includes('projeto')) {
           const base = (item.descricao || '').split(' - ')[0].trim() || 'item';
           if (!grupos[base] || qty > grupos[base]) grupos[base] = qty;
@@ -1344,112 +1347,117 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
 
     const marg   = calculations.margemPct   || 18;
     const impost = calculations.impostosPct || 12;
-    const custoServicos   = custoFab + custoPint + custoTranp + custoMont + custoPrj;
-    const custoTotal      = custoMat + custoServicos;          // COM material
-    const margemValSM     = custoServicos * (marg / 100);      // sem material
-    const impostValSM     = (custoServicos + margemValSM) * (impost / 100);
-    const valorSemMat     = custoServicos + margemValSM + impostValSM;
-    const margemValCM     = custoTotal * (marg / 100);         // com material
-    const impostValCM     = (custoTotal + margemValCM) * (impost / 100);
-    const valorComMat     = custoTotal + margemValCM + impostValCM;
-    const precoFinal      = calculations.precoFinal || valorComMat;
+    const custoProd    = custoFab + custoPint + custoTranp;
+    const custoServicos = custoProd + custoMont + custoPrj;
+    const margemVal    = custoServicos * (marg / 100);
+    const impostVal    = (custoServicos + margemVal) * (impost / 100);
+    const valorServicos = custoServicos + margemVal + impostVal;  // proposta SEM material
 
     // Prazo da proposta
     const diasPrj  = cronograma?.projeto    || 10;
     const diasFab  = cronograma?.fabricacao || 30;
     const diasMont = cronograma?.montagem   || 15;
     const prazoTotal = diasPrj + diasFab + diasMont;
+    const mesesFab   = diasFab  / 30;
+    const mesesMont  = diasMont / 30;
+    const prazoMeses = prazoTotal / 30;
 
-    // Custo mensal da obra proporcional ao prazo
-    const mesesFab  = diasFab  / 30;
-    const mesesMont = diasMont / 30;
-    const custoProd = custoFab + custoPint + custoTranp;
-    const custoMensalProdObra = mesesFab  > 0 ? custoProd / mesesFab  : 0;
-    const custoMensalMontObra = mesesMont > 0 ? custoMont / mesesMont : 0;
+    // Custo mensal da obra
+    const custoMensalProdObra = mesesFab  > 0 ? custoProd  / mesesFab  : 0;
+    const custoMensalMontObra = mesesMont > 0 ? custoMont  / mesesMont : 0;
     const ocProd = META_PROD_KG > 0 ? Math.min(150, (pesoTotal / (mesesFab * META_PROD_KG || 1)) * 100) : 0;
     const ocMont = META_MONT_KG > 0 ? Math.min(150, (pesoTotal / (mesesMont * META_MONT_KG || 1)) * 100) : 0;
 
     // R$/kg
-    const fabKg   = pesoTotal > 0 ? custoFab   / pesoTotal : 0;
-    const pintKg  = pesoTotal > 0 ? custoPint  / pesoTotal : 0;
-    const transpKg= pesoTotal > 0 ? custoTranp / pesoTotal : 0;
-    const montKg  = pesoTotal > 0 ? custoMont  / pesoTotal : 0;
-    const prodKg  = pesoTotal > 0 ? custoProd  / pesoTotal : 0;
-    const custoKgSM = pesoTotal > 0 ? custoServicos / pesoTotal : 0;
-    const precoVdKgSM = pesoTotal > 0 ? valorSemMat / pesoTotal : 0;
-    const precoVdKgCM = pesoTotal > 0 ? precoFinal / pesoTotal : 0;
+    const fabKg    = pesoTotal > 0 ? custoFab   / pesoTotal : 0;
+    const pintKg   = pesoTotal > 0 ? custoPint  / pesoTotal : 0;
+    const transpKg = pesoTotal > 0 ? custoTranp / pesoTotal : 0;
+    const montKg   = pesoTotal > 0 ? custoMont  / pesoTotal : 0;
+    const custoKg  = pesoTotal > 0 ? custoServicos / pesoTotal : 0;
+    const vendaKg  = pesoTotal > 0 ? valorServicos  / pesoTotal : 0;
 
-    // ROI e retorno × benefício
-    const receita          = precoFinal;
-    const lucroBruto       = receita - custoTotal;
-    const lucroServicos    = valorSemMat - custoServicos;
-    const roi              = custoTotal > 0 ? (lucroBruto / custoTotal) * 100 : 0;
-    const roiServicos      = custoServicos > 0 ? (lucroServicos / custoServicos) * 100 : 0;
-    const receitaDia       = prazoTotal > 0 ? receita   / prazoTotal : 0;
-    const lucroMedioDia    = prazoTotal > 0 ? lucroBruto / prazoTotal : 0;
-    const paybackDias      = receitaDia > 0 ? custoTotal / receitaDia : 0;
+    // ROI sobre serviços
+    const lucroBruto   = margemVal;   // lucro = margem
+    const roi          = custoServicos > 0 ? (lucroBruto / custoServicos) * 100 : 0;
+    const receitaDia   = prazoTotal   > 0 ? valorServicos / prazoTotal : 0;
+    const lucroMedioDia = prazoTotal  > 0 ? lucroBruto    / prazoTotal : 0;
+    const paybackDias  = receitaDia   > 0 ? custoServicos / receitaDia : 0;
 
-    // % composição
-    const pctMat    = receita > 0 ? (custoMat        / receita) * 100 : 0;
-    const pctFab    = receita > 0 ? (custoFab         / receita) * 100 : 0;
-    const pctPint   = receita > 0 ? (custoPint        / receita) * 100 : 0;
-    const pctTranp  = receita > 0 ? (custoTranp       / receita) * 100 : 0;
-    const pctMont   = receita > 0 ? (custoMont        / receita) * 100 : 0;
-    const pctPrj    = receita > 0 ? (custoPrj         / receita) * 100 : 0;
-    const pctMarg   = receita > 0 ? (lucroBruto       / receita) * 100 : 0;
-    const pctImp    = receita > 0 ? (impostValCM      / receita) * 100 : 0;
+    // % composição (base: valorServicos)
+    const pctFab    = valorServicos > 0 ? (custoFab    / valorServicos) * 100 : 0;
+    const pctPint   = valorServicos > 0 ? (custoPint   / valorServicos) * 100 : 0;
+    const pctTranp  = valorServicos > 0 ? (custoTranp  / valorServicos) * 100 : 0;
+    const pctMont   = valorServicos > 0 ? (custoMont   / valorServicos) * 100 : 0;
+    const pctPrj    = valorServicos > 0 ? (custoPrj    / valorServicos) * 100 : 0;
+    const pctMarg   = valorServicos > 0 ? (margemVal   / valorServicos) * 100 : 0;
+    const pctImp    = valorServicos > 0 ? (impostVal   / valorServicos) * 100 : 0;
 
-    // Cashflow por fase (pagamentos estipulados)
-    const payAssin  = (calculations.precoFinal || precoFinal) * 0.10;
-    const payAprov  = (calculations.precoFinal || precoFinal) * 0.05;
-    const payMed    = (calculations.precoFinal || precoFinal) * 0.85;
-    const cashflowFases = [
-      { fase: 'Assinatura', dia: 0,                          receita: payAssin, custo: custoMat * 0.15 + custoPrj,       label: `Dia 0` },
-      { fase: 'Projeto',    dia: diasPrj,                    receita: payAprov, custo: custoMat * 0.60,                  label: `Dia ${diasPrj}` },
-      { fase: 'Fabricação', dia: diasPrj + diasFab,          receita: payMed * 0.50, custo: custoProd * 0.80,            label: `Dia ${diasPrj + diasFab}` },
-      { fase: 'Montagem',   dia: diasPrj + diasFab + diasMont, receita: payMed * 0.50, custo: custoMont,                label: `Dia ${prazoTotal}` },
-    ];
+    // === CASHFLOW 6 MESES (receita conforme contrato + despesa média real) ===
+    // Pagamentos conforme contrato
+    const pctAssin  = (calculations.precoFinal ? calculations : { precoFinal: valorServicos }).precoFinal * 0.10;
+    const pctAprov  = (calculations.precoFinal ? calculations : { precoFinal: valorServicos }).precoFinal * 0.05;
+    const pctMedic  = (calculations.precoFinal ? calculations : { precoFinal: valorServicos }).precoFinal * 0.85;
+
+    // Distribuição mês a mês das medições (85%) ao longo da fabricação+montagem
+    const mesesObra  = Math.max(1, Math.ceil(prazoMeses));
+    const meses6     = 6;
+    const cashflow6  = [];
+    for (let m = 1; m <= meses6; m++) {
+      let receitaMes = 0;
+      if (m === 1) receitaMes += pctAssin + pctAprov;  // assinatura + aprovação no mês 1
+      // medições: distribuídas nos meses da obra
+      if (m >= 1 && m <= mesesObra) {
+        receitaMes += pctMedic / mesesObra;
+      }
+      const despMes = despesaMediaMensal;  // despesa fixa mensal real (fi)
+      const saldoMes = receitaMes - despMes;
+      const recAcum = cashflow6.length > 0
+        ? cashflow6[cashflow6.length - 1].recAcum + receitaMes
+        : receitaMes;
+      const despAcum = cashflow6.length > 0
+        ? cashflow6[cashflow6.length - 1].despAcum + despMes
+        : despMes;
+      cashflow6.push({
+        mes: `Mês ${m}`,
+        receita: receitaMes,
+        despesa: despMes,
+        saldo: saldoMes,
+        recAcum,
+        despAcum,
+        saldoAcum: recAcum - despAcum,
+      });
+    }
+
+    // Valor restante a receber após contrato encerrado
+    const totalRecebidoAteObra = cashflow6.slice(0, mesesObra).reduce((s, m) => s + m.receita, 0);
+    const valorRestante = valorServicos - totalRecebidoAteObra;
 
     return {
-      pesoTotal, areaTotal, prazoTotal, diasPrj, diasFab, diasMont,
-      custoMat, custoFab, custoPint, custoTranp, custoMont, custoPrj,
-      custoServicos, custoTotal, custoProd,
-      valorSemMat, valorComMat, precoFinal, receita,
-      margemValSM, margemValCM, impostValSM, impostValCM,
-      lucroBruto, lucroServicos, roi, roiServicos,
-      receitaDia, lucroMedioDia, paybackDias,
-      custoMensalProdObra, custoMensalMontObra, ocProd, ocMont,
-      mesesFab, mesesMont,
-      fabKg, pintKg, transpKg, montKg, prodKg, custoKgSM, precoVdKgSM, precoVdKgCM,
-      pctMat, pctFab, pctPint, pctTranp, pctMont, pctPrj, pctMarg, pctImp,
-      cashflowFases,
+      pesoTotal, areaTotal, prazoTotal, diasPrj, diasFab, diasMont, prazoMeses, mesesObra,
+      custoFab, custoPint, custoTranp, custoMont, custoPrj,
+      custoProd, custoServicos, margemVal, impostVal, valorServicos,
+      lucroBruto, roi, receitaDia, lucroMedioDia, paybackDias,
+      custoMensalProdObra, custoMensalMontObra, ocProd, ocMont, mesesFab, mesesMont,
+      fabKg, pintKg, transpKg, montKg, custoKg, vendaKg,
+      pctFab, pctPint, pctTranp, pctMont, pctPrj, pctMarg, pctImp,
+      cashflow6, totalRecebidoAteObra, valorRestante,
     };
-  }, [setores, calculations, cronograma]);
+  }, [setores, calculations, cronograma, despesaMediaMensal]);
 
   // Count-up animation
   useEffect(() => {
     setAnimado(false);
-    const t = setTimeout(() => setAnimado(true), 100);
+    const t = setTimeout(() => setAnimado(true), 80);
     return () => clearTimeout(t);
   }, [abaAtiva]);
 
   useEffect(() => {
     if (!animado) return;
-    const targets = {
-      roi:         analise.roi,
-      receitaDia:  analise.receitaDia,
-      lucroDia:    analise.lucroMedioDia,
-      payback:     analise.paybackDias,
-      prazo:       analise.prazoTotal,
-      pctMat:      analise.pctMat,
-      pctMarg:     analise.pctMarg,
-    };
-    let frame = 0;
-    const total = 45;
+    const targets = { roi: analise.roi, receitaDia: analise.receitaDia, lucroDia: analise.lucroMedioDia, payback: analise.paybackDias };
+    let frame = 0; const total = 45;
     const id = setInterval(() => {
       frame++;
-      const p = frame / total;
-      const ease = 1 - Math.pow(1 - p, 3);
+      const ease = 1 - Math.pow(1 - frame / total, 3);
       const cur = {};
       Object.keys(targets).forEach(k => { cur[k] = targets[k] * ease; });
       setValoresAnimados(cur);
@@ -1462,44 +1470,30 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
   const fmtC = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   const fmtN = (v, d = 1) => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: d, maximumFractionDigits: d });
 
-  // === 3D BAR CHART (CSS perspective) ===
-  const Bar3D = ({ data, maxVal, colors, height = 200 }) => {
-    const barW = Math.floor(100 / (data.length + 1));
+  // === CSS 3D BAR CHART ===
+  const Bar3D = ({ data, maxVal, colors, height = 180 }) => {
+    const bw = Math.floor(92 / (data.length + 1));
     return (
-      <div style={{ perspective: '800px', perspectiveOrigin: '50% 40%' }} className="relative w-full overflow-hidden">
-        <div style={{ transform: 'rotateX(22deg)', transformStyle: 'preserve-3d', height: `${height + 50}px` }}
-             className="relative flex items-end justify-around px-4 pb-6">
+      <div style={{ perspective: '800px', perspectiveOrigin: '50% 40%' }} className="w-full overflow-hidden">
+        <div style={{ transform: 'rotateX(20deg)', transformStyle: 'preserve-3d', height: `${height + 50}px` }}
+             className="relative flex items-end justify-around px-2 pb-6">
           {data.map((d, i) => {
             const h = maxVal > 0 ? Math.max(4, (d.value / maxVal) * height) : 4;
             const col = colors[i % colors.length];
             return (
-              <div key={i} className="flex flex-col items-center" style={{ width: `${barW}%` }}>
-                <div className="text-center mb-1" style={{ fontSize: 10, color: '#6b7280', transform: 'rotateX(-22deg)' }}>
-                  {fmtN(d.value, 0)}
+              <div key={i} className="flex flex-col items-center" style={{ width: `${bw}%` }}>
+                <div style={{ fontSize: 9, color: '#6b7280', transform: 'rotateX(-20deg)', marginBottom: 2, textAlign: 'center' }}>
+                  {d.topLabel || fmtC(d.value)}
                 </div>
                 <div style={{ position: 'relative', width: '100%', height: `${h}px` }}>
-                  {/* Frente da barra */}
-                  <div style={{
-                    position: 'absolute', bottom: 0, left: '10%', right: '10%',
-                    height: `${h}px`, background: col,
-                    borderRadius: '3px 3px 0 0',
-                    boxShadow: `inset -4px 0 8px rgba(0,0,0,0.2), 0 -2px 4px rgba(255,255,255,0.3)`,
-                  }} />
-                  {/* Topo 3D */}
-                  <div style={{
-                    position: 'absolute', top: 0, left: '10%', right: '10%', height: '10px',
-                    background: col, filter: 'brightness(1.3)',
-                    transform: 'skewX(-20deg) translateX(-4px)',
-                    borderRadius: '2px 2px 0 0',
-                  }} />
-                  {/* Lateral 3D */}
-                  <div style={{
-                    position: 'absolute', bottom: 0, right: '5%', width: '14%',
-                    height: `${h}px`, background: col, filter: 'brightness(0.7)',
-                    transform: 'skewY(-35deg) translateY(-5px)',
-                  }} />
+                  <div style={{ position: 'absolute', bottom: 0, left: '10%', right: '15%', height: `${h}px`, background: col,
+                    borderRadius: '3px 3px 0 0', boxShadow: `inset -3px 0 6px rgba(0,0,0,0.2), 0 -1px 3px rgba(255,255,255,0.3)` }} />
+                  <div style={{ position: 'absolute', top: 0, left: '10%', right: '15%', height: '8px',
+                    background: col, filter: 'brightness(1.3)', transform: 'skewX(-18deg) translateX(-3px)', borderRadius: '2px 2px 0 0' }} />
+                  <div style={{ position: 'absolute', bottom: 0, right: '5%', width: '12%', height: `${h}px`,
+                    background: col, filter: 'brightness(0.65)', transform: 'skewY(-32deg) translateY(-4px)' }} />
                 </div>
-                <div className="text-center mt-1" style={{ fontSize: 10, color: '#374151', fontWeight: 600, transform: 'rotateX(-22deg)' }}>
+                <div style={{ fontSize: 10, color: '#374151', fontWeight: 600, transform: 'rotateX(-20deg)', marginTop: 2, textAlign: 'center' }}>
                   {d.label}
                 </div>
               </div>
@@ -1510,55 +1504,38 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     );
   };
 
-  // === 3D DONUT (CSS conic-gradient + pseudo-3D) ===
+  // === CSS 3D DONUT ===
   const Donut3D = ({ segments, size = 180 }) => {
     let acc = 0;
     const total = segments.reduce((s, d) => s + (d.value || 0), 0);
-    const conicStops = segments.map(d => {
+    const stops = segments.map(d => {
       const pct = total > 0 ? (d.value / total) * 100 : 0;
       const stop = `${d.color} ${acc.toFixed(1)}% ${(acc + pct).toFixed(1)}%`;
       acc += pct;
       return stop;
     }).join(', ');
-
     return (
-      <div className="relative flex flex-col items-center">
-        <div style={{ position: 'relative', width: size, height: size * 0.55 }}>
-          {/* Sombra base */}
-          <div style={{
-            position: 'absolute', bottom: -4, left: '10%', width: '80%', height: '20px',
-            background: 'rgba(0,0,0,0.15)', borderRadius: '50%', filter: 'blur(6px)',
-          }} />
-          {/* Lado do donut (profundidade) */}
-          <div style={{
-            position: 'absolute', bottom: 0, left: 0, width: size, height: size * 0.45,
-            borderRadius: '50%',
-            background: `conic-gradient(${conicStops})`,
-            filter: 'brightness(0.65)',
-          }} />
-          {/* Topo do donut */}
-          <div style={{
-            position: 'absolute', top: 0, left: 0, width: size, height: size * 0.45,
-            borderRadius: '50%',
-            background: `conic-gradient(${conicStops})`,
-            boxShadow: 'inset 0 2px 8px rgba(255,255,255,0.3), 0 2px 8px rgba(0,0,0,0.2)',
-          }}>
-            <div style={{
-              position: 'absolute', top: '15%', left: '15%', width: '70%', height: '70%',
-              borderRadius: '50%', background: 'white',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column',
-            }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: '#1e3a5f' }}>TOTAL</span>
-              <span style={{ fontSize: 10, color: '#6b7280' }}>{fmtC(total)}</span>
+      <div className="flex flex-col items-center">
+        <div style={{ position: 'relative', width: size, height: size * 0.52 }}>
+          <div style={{ position: 'absolute', bottom: -3, left: '10%', width: '80%', height: 16,
+            background: 'rgba(0,0,0,0.12)', borderRadius: '50%', filter: 'blur(5px)' }} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, width: size, height: size * 0.42,
+            borderRadius: '50%', background: `conic-gradient(${stops})`, filter: 'brightness(0.62)' }} />
+          <div style={{ position: 'absolute', top: 0, left: 0, width: size, height: size * 0.42,
+            borderRadius: '50%', background: `conic-gradient(${stops})`,
+            boxShadow: 'inset 0 2px 6px rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.18)' }}>
+            <div style={{ position: 'absolute', top: '15%', left: '15%', width: '70%', height: '70%',
+              borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f' }}>SERVIÇOS</span>
+              <span style={{ fontSize: 9, color: '#6b7280' }}>{fmtC(total)}</span>
             </div>
           </div>
         </div>
-        {/* Legenda */}
-        <div className="flex flex-wrap justify-center gap-x-3 gap-y-1 mt-3">
+        <div className="flex flex-wrap justify-center gap-x-3 gap-y-0.5 mt-2">
           {segments.filter(d => d.value > 0).map((d, i) => (
             <div key={i} className="flex items-center gap-1">
-              <div style={{ width: 9, height: 9, borderRadius: 2, background: d.color, flexShrink: 0 }} />
-              <span style={{ fontSize: 10, color: '#374151' }}>{d.label}: {total > 0 ? ((d.value / total) * 100).toFixed(0) : 0}%</span>
+              <div style={{ width: 8, height: 8, borderRadius: 2, background: d.color, flexShrink: 0 }} />
+              <span style={{ fontSize: 9, color: '#374151' }}>{d.label}: {total > 0 ? ((d.value / total) * 100).toFixed(0) : 0}%</span>
             </div>
           ))}
         </div>
@@ -1566,42 +1543,28 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     );
   };
 
-  // ── dados dos gráficos ──
-  const barCustosKg = [
-    { label: 'Fab.', value: analise.fabKg,   ref: REF_FAB_KG },
-    { label: 'Pint.', value: analise.pintKg,  ref: REF_PINT_KG },
-    { label: 'Transp.', value: analise.transpKg, ref: REF_TRANSP_KG },
-    { label: 'Mont.', value: analise.montKg,  ref: REF_MONT_KG },
-  ];
-  const maxBarKg = Math.max(...barCustosKg.map(d => Math.max(d.value, d.ref)), 1);
-  const barCoresSimul = ['#6366f1','#f59e0b','#06b6d4','#10b981'];
-  const barCoresRef   = ['#c7d2fe','#fde68a','#cffafe','#d1fae5'];
-
-  const segComMat = [
-    { label: 'Material',    value: analise.custoMat,   color: '#3b82f6' },
+  const segServicos = [
     { label: 'Fabricação',  value: analise.custoFab,   color: '#8b5cf6' },
     { label: 'Pintura',     value: analise.custoPint,  color: '#f59e0b' },
     { label: 'Transporte',  value: analise.custoTranp, color: '#06b6d4' },
     { label: 'Montagem',    value: analise.custoMont,  color: '#10b981' },
     { label: 'Projeto',     value: analise.custoPrj,   color: '#6366f1' },
-    { label: 'Margem',      value: analise.margemValCM,color: '#22c55e' },
-    { label: 'Impostos',    value: analise.impostValCM,color: '#ef4444' },
+    { label: 'Margem',      value: analise.margemVal,  color: '#22c55e' },
+    { label: 'Impostos',    value: analise.impostVal,  color: '#ef4444' },
   ].filter(d => d.value > 0);
 
-  const segSemMat = [
-    { label: 'Fabricação',  value: analise.custoFab,    color: '#8b5cf6' },
-    { label: 'Pintura',     value: analise.custoPint,   color: '#f59e0b' },
-    { label: 'Transporte',  value: analise.custoTranp,  color: '#06b6d4' },
-    { label: 'Montagem',    value: analise.custoMont,   color: '#10b981' },
-    { label: 'Projeto',     value: analise.custoPrj,    color: '#6366f1' },
-    { label: 'Margem',      value: analise.margemValSM, color: '#22c55e' },
-    { label: 'Impostos',    value: analise.impostValSM, color: '#ef4444' },
-  ].filter(d => d.value > 0);
+  const barCustosKg = [
+    { label: 'Fab.',    value: analise.fabKg,    ref: REF_FAB_KG },
+    { label: 'Pint.',   value: analise.pintKg,   ref: REF_PINT_KG },
+    { label: 'Transp.', value: analise.transpKg, ref: REF_TRANSP_KG },
+    { label: 'Mont.',   value: analise.montKg,   ref: REF_MONT_KG },
+  ];
+  const maxBarKg = Math.max(...barCustosKg.map(d => Math.max(d.value, d.ref)), 1);
 
   const tabs = [
-    { id: 'visao',    label: 'Visão Geral',   icon: PieChartIcon },
-    { id: 'producao', label: 'Produção',       icon: BarChart3 },
-    { id: 'montagem', label: 'Montagem',       icon: Layers },
+    { id: 'visao',    label: 'Visão Geral',        icon: PieChartIcon },
+    { id: 'producao', label: 'Produção',            icon: BarChart3 },
+    { id: 'montagem', label: 'Montagem',            icon: Layers },
     { id: 'retorno',  label: 'Retorno × Benefício', icon: TrendingUp },
   ];
 
@@ -1612,12 +1575,13 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
       <div className="bg-gradient-to-r from-indigo-700 via-purple-700 to-blue-700 rounded-2xl p-6 text-white shadow-xl">
         <div className="flex items-center gap-3 mb-1">
           <Activity className="h-6 w-6" />
-          <h2 className="text-xl font-bold">Análise Interna — Retorno × Benefício</h2>
+          <h2 className="text-xl font-bold">Análise Interna — Serviços (sem material)</h2>
         </div>
         <p className="text-indigo-200 text-sm">
-          Prazo da proposta: <strong className="text-white">{analise.prazoTotal} dias</strong>
+          Prazo: <strong className="text-white">{analise.prazoTotal} dias</strong>
           &nbsp;(Projeto {analise.diasPrj}d · Fabricação {analise.diasFab}d · Montagem {analise.diasMont}d)
-          &nbsp;|&nbsp;Peso: <strong className="text-white">{fmtN(analise.pesoTotal / 1000)} ton</strong>
+          &nbsp;·&nbsp;Peso: <strong className="text-white">{fmtN(analise.pesoTotal / 1000)} ton</strong>
+          &nbsp;·&nbsp;Despesa média/mês: <strong className="text-amber-300">{fmtC(despesaMediaMensal)}</strong>
         </p>
       </div>
 
@@ -1626,37 +1590,30 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
         {tabs.map(t => {
           const Icon = t.icon;
           return (
-            <button
-              key={t.id}
-              onClick={() => setAbaAtiva(t.id)}
+            <button key={t.id} onClick={() => setAbaAtiva(t.id)}
               className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm transition-all ${
-                abaAtiva === t.id
-                  ? 'bg-indigo-600 text-white shadow-lg scale-105'
-                  : 'bg-white text-gray-600 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
-              }`}
-            >
-              <Icon className="h-4 w-4" />
-              {t.label}
+                abaAtiva === t.id ? 'bg-indigo-600 text-white shadow-lg scale-105' : 'bg-white text-gray-600 border border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+              }`}>
+              <Icon className="h-4 w-4" />{t.label}
             </button>
           );
         })}
       </div>
 
-      {/* ═══════════════ ABA: VISÃO GERAL ═══════════════ */}
+      {/* ══ VISÃO GERAL ══ */}
       {abaAtiva === 'visao' && (
         <div className="space-y-5">
-          {/* KPIs COM/SEM material */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Proposta COM Material', val: fmtC(analise.valorComMat), sub: `Inclui R$/kg material: ${fmtC(analise.custoMat)}`, cor: 'from-blue-500 to-blue-700', icon: Package },
-              { label: 'Proposta SEM Material', val: fmtC(analise.valorSemMat), sub: `Apenas serviços + margem + impostos`, cor: 'from-indigo-500 to-purple-700', icon: Settings },
-              { label: '% Material / Total',    val: `${fmtN(va.pctMat ?? analise.pctMat)}%`, sub: `R$ ${fmtC(analise.custoMat)} em material`, cor: 'from-sky-500 to-cyan-700', icon: Percent },
-              { label: '% Margem / Total',      val: `${fmtN(va.pctMarg ?? analise.pctMarg)}%`, sub: `Lucro bruto ${fmtC(analise.lucroBruto)}`, cor: 'from-emerald-500 to-green-700', icon: TrendingUp },
+              { label: 'Valor Proposta (serviços)', val: fmtC(analise.valorServicos), sub: 'Fab + Pint + Transp + Mont + Margem', cor: 'from-indigo-500 to-purple-700', icon: DollarSign },
+              { label: 'Custo Total Serviços',      val: fmtC(analise.custoServicos), sub: 'Sem material — apenas execução',      cor: 'from-blue-500 to-blue-700',    icon: Settings },
+              { label: 'Margem Bruta',              val: fmtC(analise.margemVal),     sub: `${fmtN(analise.pctMarg)}% sobre serviços`, cor: analise.pctMarg >= 15 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700', icon: TrendingUp },
+              { label: 'Preço Venda / kg',          val: fmtC(analise.vendaKg),       sub: `Custo ${fmtC(analise.custoKg)}/kg s/ mat.`, cor: 'from-amber-500 to-orange-700', icon: Weight },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
                 <div className="flex items-center justify-between mb-1">
                   <p className="text-xs text-white/70 font-medium">{k.label}</p>
-                  <k.icon className="h-4 w-4 text-white/50" />
+                  <k.icon className="h-4 w-4 text-white/40" />
                 </div>
                 <p className="text-xl font-bold">{k.val}</p>
                 <p className="text-xs text-white/60 mt-0.5">{k.sub}</p>
@@ -1664,94 +1621,51 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             ))}
           </div>
 
-          {/* Dois donuts lado a lado */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500" />
-                Composição COM Material (% do valor proposta)
+                <div className="w-3 h-3 rounded-full bg-indigo-500" />
+                Composição do Valor — Serviços (s/ material)
               </h3>
-              <Donut3D segments={segComMat} size={200} />
+              <Donut3D segments={segServicos} size={200} />
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                Composição SEM Material (apenas serviços)
-              </h3>
-              <Donut3D segments={segSemMat} size={200} />
-            </div>
-          </div>
-
-          {/* Tabela % comparativo */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-6 py-3 bg-gray-50 border-b">
-              <h3 className="font-semibold text-gray-700 text-sm">Detalhamento % — Com Material vs Sem Material</h3>
-            </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50/50">
-                  <th className="px-5 py-2.5 text-left text-gray-500 font-semibold">Item</th>
-                  <th className="px-5 py-2.5 text-right text-gray-500 font-semibold">Valor (R$)</th>
-                  <th className="px-5 py-2.5 text-right text-blue-600 font-semibold">% c/ Mat.</th>
-                  <th className="px-5 py-2.5 text-right text-indigo-600 font-semibold">% s/ Mat.</th>
-                  <th className="px-5 py-2.5 text-right text-gray-500 font-semibold">R$/kg</th>
-                </tr>
-              </thead>
-              <tbody>
+              <h3 className="text-sm font-bold text-gray-800 mb-3">Detalhamento % — Base Valor Proposta (serviços)</h3>
+              <div className="space-y-2">
                 {[
-                  { nome: 'Material',   val: analise.custoMat,    corDot: '#3b82f6', kgV: null },
-                  { nome: 'Fabricação', val: analise.custoFab,    corDot: '#8b5cf6', kgV: analise.fabKg },
-                  { nome: 'Pintura',    val: analise.custoPint,   corDot: '#f59e0b', kgV: analise.pintKg },
-                  { nome: 'Transporte', val: analise.custoTranp,  corDot: '#06b6d4', kgV: analise.transpKg },
-                  { nome: 'Montagem',   val: analise.custoMont,   corDot: '#10b981', kgV: analise.montKg },
-                  { nome: 'Projeto',    val: analise.custoPrj,    corDot: '#6366f1', kgV: null },
-                  { nome: 'Margem',     val: analise.margemValCM, corDot: '#22c55e', kgV: null },
-                  { nome: 'Impostos',   val: analise.impostValCM, corDot: '#ef4444', kgV: null },
-                ].filter(r => r.val > 0).map((r, i) => {
-                  const pctCM = analise.valorComMat > 0 ? (r.val / analise.valorComMat) * 100 : 0;
-                  const pctSM = analise.valorSemMat > 0 ? (r.val / analise.valorSemMat) * 100 : 0;
-                  return (
-                    <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-5 py-2.5 flex items-center gap-2">
-                        <span style={{ width: 8, height: 8, borderRadius: 2, background: r.corDot, display: 'inline-block', flexShrink: 0 }} />
-                        {r.nome}
-                      </td>
-                      <td className="px-5 py-2.5 text-right font-mono text-gray-800">{fmtC(r.val)}</td>
-                      <td className="px-5 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-16 bg-gray-200 rounded-full h-1.5">
-                            <div style={{ width: `${Math.min(100, pctCM)}%`, background: r.corDot }} className="h-1.5 rounded-full" />
-                          </div>
-                          <span className="font-semibold text-blue-700 w-10 text-right">{fmtN(pctCM)}%</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-2.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <div className="w-16 bg-gray-200 rounded-full h-1.5">
-                            <div style={{ width: `${Math.min(100, pctSM)}%`, background: r.corDot }} className="h-1.5 rounded-full" />
-                          </div>
-                          <span className="font-semibold text-indigo-700 w-10 text-right">{fmtN(pctSM)}%</span>
-                        </div>
-                      </td>
-                      <td className="px-5 py-2.5 text-right text-gray-500">{r.kgV != null ? fmtC(r.kgV) : '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  { nome: 'Fabricação',  val: analise.custoFab,   pct: analise.pctFab,  cor: '#8b5cf6', kgv: analise.fabKg },
+                  { nome: 'Pintura',     val: analise.custoPint,  pct: analise.pctPint, cor: '#f59e0b', kgv: analise.pintKg },
+                  { nome: 'Transporte',  val: analise.custoTranp, pct: analise.pctTranp,cor: '#06b6d4', kgv: analise.transpKg },
+                  { nome: 'Montagem',    val: analise.custoMont,  pct: analise.pctMont, cor: '#10b981', kgv: analise.montKg },
+                  { nome: 'Margem',      val: analise.margemVal,  pct: analise.pctMarg, cor: '#22c55e', kgv: null },
+                  { nome: 'Impostos',    val: analise.impostVal,  pct: analise.pctImp,  cor: '#ef4444', kgv: null },
+                ].filter(r => r.val > 0).map((r, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <div style={{ width: 8, height: 8, borderRadius: 2, background: r.cor, flexShrink: 0 }} />
+                    <span className="text-xs text-gray-600 w-20 flex-shrink-0">{r.nome}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-2">
+                      <div style={{ width: `${Math.min(100, r.pct)}%`, background: r.cor }} className="h-2 rounded-full transition-all duration-700" />
+                    </div>
+                    <span className="text-xs font-bold text-indigo-700 w-9 text-right">{fmtN(r.pct)}%</span>
+                    <span className="text-xs text-gray-400 w-20 text-right">{fmtC(r.val)}</span>
+                    <span className="text-xs text-gray-300 w-16 text-right">{r.kgv != null ? fmtC(r.kgv)+'/kg' : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       )}
 
-      {/* ═══════════════ ABA: PRODUÇÃO ═══════════════ */}
+      {/* ══ PRODUÇÃO ══ */}
       {abaAtiva === 'producao' && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Custo Produção Total', val: fmtC(analise.custoProd), sub: `Fab + Pint + Transp`, cor: 'from-purple-500 to-purple-700' },
-              { label: 'Custo/mês (Produção)',  val: fmtC(analise.custoMensalProdObra), sub: `${analise.diasFab}d = ${fmtN(analise.mesesFab)} mês`, cor: 'from-violet-500 to-indigo-700' },
-              { label: 'Ocupação Capacidade',   val: `${fmtN(analise.ocProd)}%`, sub: `Ref. ${(META_PROD_KG/1000).toFixed(0)} ton/mês`, cor: `from-${analise.ocProd > 100 ? 'red' : analise.ocProd > 70 ? 'amber' : 'sky'}-500 to-${analise.ocProd > 100 ? 'red' : analise.ocProd > 70 ? 'amber' : 'sky'}-700` },
-              { label: 'Produção/kg (venda)',   val: fmtC(analise.precoVdKgSM), sub: `Custo: ${fmtC(analise.custoKgSM)}/kg s/ mat.`, cor: 'from-emerald-500 to-green-700' },
+              { label: 'Custo Produção Total', val: fmtC(analise.custoProd),            sub: `Fab + Pint + Transp`,                 cor: 'from-purple-500 to-purple-700' },
+              { label: 'Custo/mês (Produção)', val: fmtC(analise.custoMensalProdObra),  sub: `${analise.diasFab}d = ${fmtN(analise.mesesFab)} mês`, cor: 'from-violet-500 to-indigo-700' },
+              { label: 'Ocupação Capacidade',  val: `${fmtN(analise.ocProd)}%`,          sub: `Ref. ${(META_PROD_KG/1000).toFixed(0)} ton/mês`, cor: analise.ocProd > 100 ? 'from-red-500 to-red-700' : analise.ocProd > 70 ? 'from-amber-500 to-amber-700' : 'from-sky-500 to-sky-700' },
+              { label: 'Custo / kg (Prod.)',   val: fmtC(analise.fabKg + analise.pintKg + analise.transpKg), sub: `Ref. ${fmtC(REF_FAB_KG + REF_PINT_KG + REF_TRANSP_KG)}/kg`, cor: 'from-emerald-500 to-green-700' },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
                 <p className="text-xs text-white/70 font-medium mb-1">{k.label}</p>
@@ -1760,60 +1674,40 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
               </div>
             ))}
           </div>
-
-          {/* Gráfico 3D barras comparativo: Simulado vs Referência */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-5">
-              R$/kg — Simulado (cor) vs Referência (clara) · Prazo Fabricação: {analise.diasFab} dias
-            </h3>
+            <h3 className="text-sm font-bold text-gray-800 mb-5">R$/kg — Simulado vs Referência Montex · {analise.diasFab} dias fabricação</h3>
             <div className="grid grid-cols-2 gap-6">
               <div>
                 <p className="text-xs text-center text-indigo-600 font-semibold mb-2">SIMULADO</p>
-                <Bar3D
-                  data={barCustosKg.map(d => ({ label: d.label, value: d.value }))}
-                  maxVal={maxBarKg}
-                  colors={barCoresSimul}
-                  height={180}
-                />
+                <Bar3D data={barCustosKg.map(d => ({ label: d.label, value: d.value }))} maxVal={maxBarKg} colors={['#8b5cf6','#f59e0b','#06b6d4','#10b981']} height={170} />
               </div>
               <div>
-                <p className="text-xs text-center text-gray-500 font-semibold mb-2">REFERÊNCIA MONTEX</p>
-                <Bar3D
-                  data={barCustosKg.map(d => ({ label: d.label, value: d.ref }))}
-                  maxVal={maxBarKg}
-                  colors={barCoresRef}
-                  height={180}
-                />
+                <p className="text-xs text-center text-gray-400 font-semibold mb-2">REFERÊNCIA</p>
+                <Bar3D data={barCustosKg.map(d => ({ label: d.label, value: d.ref }))} maxVal={maxBarKg} colors={['#ddd6fe','#fde68a','#cffafe','#d1fae5']} height={170} />
               </div>
             </div>
           </div>
-
-          {/* Ocupação capacidade com barra animada */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Ocupação da Capacidade de Produção — {analise.diasFab} dias</h3>
+            <h3 className="text-sm font-bold text-gray-800 mb-4">Ocupação da Capacidade de Produção ({analise.diasFab} dias)</h3>
             <div className="space-y-5">
               {[
-                { nome: 'Fabricação',  val: analise.custoFab,   ref: META_PROD_KG * REF_FAB_KG  * analise.mesesFab, cor: 'bg-purple-500', corText: 'text-purple-700' },
-                { nome: 'Pintura',     val: analise.custoPint,  ref: META_PROD_KG * REF_PINT_KG * analise.mesesFab, cor: 'bg-amber-500',  corText: 'text-amber-700' },
-                { nome: 'Transporte',  val: analise.custoTranp, ref: META_PROD_KG * REF_TRANSP_KG* analise.mesesFab,cor: 'bg-cyan-500',   corText: 'text-cyan-700' },
+                { nome: 'Fabricação',  val: analise.custoFab,   ref: META_PROD_KG * REF_FAB_KG    * analise.mesesFab, cor: 'bg-purple-500', corT: 'text-purple-700' },
+                { nome: 'Pintura',     val: analise.custoPint,  ref: META_PROD_KG * REF_PINT_KG   * analise.mesesFab, cor: 'bg-amber-500',  corT: 'text-amber-700' },
+                { nome: 'Transporte',  val: analise.custoTranp, ref: META_PROD_KG * REF_TRANSP_KG * analise.mesesFab, cor: 'bg-cyan-500',   corT: 'text-cyan-700'  },
               ].map((r, i) => {
                 const pct = r.ref > 0 ? Math.min(140, (r.val / r.ref) * 100) : 0;
-                const ok  = pct <= 115;
                 return (
                   <div key={i}>
                     <div className="flex justify-between text-sm mb-1.5">
                       <span className="font-medium text-gray-700">{r.nome}</span>
                       <div className="flex items-center gap-2">
-                        <span className={`font-bold ${r.corText}`}>{fmtC(r.val)}</span>
+                        <span className={`font-bold ${r.corT}`}>{fmtC(r.val)}</span>
                         <span className="text-gray-400 text-xs">/ {fmtC(r.ref)} ref.</span>
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${ok ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {pct.toFixed(0)}%
-                        </span>
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pct <= 115 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{pct.toFixed(0)}%</span>
                       </div>
                     </div>
                     <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                      <div className={`h-3 rounded-full transition-all duration-700 ${r.cor} ${pct > 100 ? 'opacity-80' : ''}`}
-                           style={{ width: `${Math.min(100, pct)}%` }} />
+                      <div className={`h-3 rounded-full ${r.cor}`} style={{ width: `${Math.min(100, pct)}%`, transition: 'width 0.7s' }} />
                     </div>
                   </div>
                 );
@@ -1823,15 +1717,15 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
         </div>
       )}
 
-      {/* ═══════════════ ABA: MONTAGEM ═══════════════ */}
+      {/* ══ MONTAGEM ══ */}
       {abaAtiva === 'montagem' && (
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Custo Montagem Total', val: fmtC(analise.custoMont), sub: `Montagem em campo`, cor: 'from-emerald-500 to-teal-700' },
-              { label: 'Custo/mês (Montagem)',  val: fmtC(analise.custoMensalMontObra), sub: `${analise.diasMont}d = ${fmtN(analise.mesesMont)} mês`, cor: 'from-teal-500 to-cyan-700' },
-              { label: 'Ocupação Montagem',     val: `${fmtN(analise.ocMont)}%`, sub: `Ref. ${(META_MONT_KG/1000).toFixed(0)} ton/mês`, cor: `from-${analise.ocMont > 100 ? 'red' : 'green'}-500 to-${analise.ocMont > 100 ? 'red' : 'green'}-700` },
-              { label: 'Montagem/kg (venda)',   val: fmtC(analise.precoVdKgCM), sub: `${fmtC(analise.montKg)}/kg custo montagem`, cor: 'from-sky-500 to-blue-700' },
+              { label: 'Custo Montagem Total', val: fmtC(analise.custoMont),           sub: 'Montagem em campo',                  cor: 'from-emerald-500 to-teal-700' },
+              { label: 'Custo/mês (Montagem)', val: fmtC(analise.custoMensalMontObra), sub: `${analise.diasMont}d = ${fmtN(analise.mesesMont)} mês`, cor: 'from-teal-500 to-cyan-700' },
+              { label: 'Ocupação Montagem',    val: `${fmtN(analise.ocMont)}%`,         sub: `Ref. ${(META_MONT_KG/1000).toFixed(0)} ton/mês`, cor: analise.ocMont > 100 ? 'from-red-500 to-red-700' : 'from-green-500 to-green-700' },
+              { label: 'Montagem / kg',        val: fmtC(analise.montKg),              sub: `Ref. ${fmtC(REF_MONT_KG)}/kg`,        cor: 'from-sky-500 to-blue-700' },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
                 <p className="text-xs text-white/70 font-medium mb-1">{k.label}</p>
@@ -1840,61 +1734,52 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
               </div>
             ))}
           </div>
-
-          {/* Timeline da proposta */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-5">Timeline da Proposta — {analise.prazoTotal} dias totais</h3>
-            <div className="relative">
-              {/* Barra geral */}
-              <div className="w-full h-10 rounded-xl overflow-hidden flex shadow-inner">
-                {[
-                  { label: `Projeto\n${analise.diasPrj}d`, pct: (analise.diasPrj / analise.prazoTotal) * 100, bg: 'bg-blue-500' },
-                  { label: `Fabricação\n${analise.diasFab}d`, pct: (analise.diasFab / analise.prazoTotal) * 100, bg: 'bg-purple-600' },
-                  { label: `Montagem\n${analise.diasMont}d`, pct: (analise.diasMont / analise.prazoTotal) * 100, bg: 'bg-emerald-500' },
-                ].map((f, i) => (
-                  <div key={i} style={{ width: `${f.pct}%` }}
-                       className={`${f.bg} flex items-center justify-center text-white text-xs font-semibold whitespace-pre-line text-center leading-tight border-r border-white/30 last:border-0`}>
-                    {f.label}
-                  </div>
-                ))}
-              </div>
-              <div className="flex justify-between text-xs text-gray-400 mt-1.5">
-                <span>Dia 0</span>
-                <span>Dia {analise.diasPrj}</span>
-                <span>Dia {analise.diasPrj + analise.diasFab}</span>
-                <span>Dia {analise.prazoTotal}</span>
-              </div>
+            <h3 className="text-sm font-bold text-gray-800 mb-4">Timeline da Proposta — {analise.prazoTotal} dias</h3>
+            <div className="w-full h-10 rounded-xl overflow-hidden flex shadow-inner mb-2">
+              {[
+                { label: `Projeto\n${analise.diasPrj}d`, pct: (analise.diasPrj / analise.prazoTotal) * 100, bg: 'bg-blue-500' },
+                { label: `Fabricação\n${analise.diasFab}d`, pct: (analise.diasFab / analise.prazoTotal) * 100, bg: 'bg-purple-600' },
+                { label: `Montagem\n${analise.diasMont}d`, pct: (analise.diasMont / analise.prazoTotal) * 100, bg: 'bg-emerald-500' },
+              ].map((f, i) => (
+                <div key={i} style={{ width: `${f.pct}%` }}
+                     className={`${f.bg} flex items-center justify-center text-white text-xs font-semibold whitespace-pre-line text-center leading-tight border-r border-white/30 last:border-0`}>
+                  {f.label}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between text-xs text-gray-400">
+              <span>Dia 0</span><span>Dia {analise.diasPrj}</span><span>Dia {analise.diasPrj + analise.diasFab}</span><span>Dia {analise.prazoTotal}</span>
             </div>
           </div>
-
-          {/* Gráfico 3D comparativo montagem vs referência */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Montagem: Custo Total vs Referência Capacidade ({analise.diasMont} dias)</h3>
+            <h3 className="text-sm font-bold text-gray-800 mb-4">Montagem: Simulado vs Referência ({analise.diasMont} dias)</h3>
             <Bar3D
               data={[
                 { label: 'Custo Mont.\nObra',      value: analise.custoMont },
-                { label: `Ref. Cap.\n${fmtN(analise.mesesMont)}mês`, value: META_MONT_KG * REF_MONT_KG * analise.mesesMont },
-                { label: 'Custo Total\nInstalação', value: analise.custoServicos },
-                { label: 'Valor Venda\nS/ Mat.',    value: analise.valorSemMat },
+                { label: `Ref.Cap.\n${fmtN(analise.mesesMont)}mês`, value: META_MONT_KG * REF_MONT_KG * analise.mesesMont },
+                { label: 'Custo Total\nServiços',  value: analise.custoServicos },
+                { label: 'Valor Venda\nServiços',  value: analise.valorServicos },
               ]}
-              maxVal={Math.max(analise.valorSemMat, analise.custoServicos, META_MONT_KG * REF_MONT_KG * analise.mesesMont) * 1.1}
+              maxVal={Math.max(analise.valorServicos, analise.custoServicos, META_MONT_KG * REF_MONT_KG * analise.mesesMont) * 1.1}
               colors={['#10b981','#d1fae5','#6366f1','#22c55e']}
-              height={200}
+              height={190}
             />
           </div>
         </div>
       )}
 
-      {/* ═══════════════ ABA: RETORNO × BENEFÍCIO ═══════════════ */}
+      {/* ══ RETORNO × BENEFÍCIO ══ */}
       {abaAtiva === 'retorno' && (
         <div className="space-y-5">
+
           {/* KPIs ROI */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'ROI (com material)',   val: `${fmtN(va.roi ?? analise.roi)}%`,         sub: `Lucro ${fmtC(analise.lucroBruto)} / Custo ${fmtC(analise.custoTotal)}`,  cor: analise.roi >= 15 ? 'from-green-500 to-emerald-700' : 'from-red-500 to-red-700' },
-              { label: 'ROI (só serviços)',     val: `${fmtN(analise.roiServicos)}%`,            sub: `Margem s/ mat.: ${fmtC(analise.lucroServicos)}`,                         cor: analise.roiServicos >= 15 ? 'from-teal-500 to-cyan-700' : 'from-orange-500 to-orange-700' },
-              { label: 'Receita / Dia',         val: fmtC(va.receitaDia ?? analise.receitaDia),  sub: `${va.prazo ? fmtN(va.prazo, 0) : analise.prazoTotal} dias de contrato`,  cor: 'from-blue-500 to-indigo-700' },
-              { label: 'Lucro / Dia',           val: fmtC(va.lucroDia ?? analise.lucroMedioDia), sub: `Payback em ${fmtN(va.payback ?? analise.paybackDias, 0)} dias`,           cor: analise.lucroMedioDia > 0 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700' },
+              { label: 'ROI (serviços)',    val: `${fmtN(va.roi ?? analise.roi)}%`, sub: `Lucro ${fmtC(analise.lucroBruto)} / Custo ${fmtC(analise.custoServicos)}`, cor: analise.roi >= 15 ? 'from-green-500 to-emerald-700' : 'from-red-500 to-red-700' },
+              { label: 'Receita / Dia',     val: fmtC(va.receitaDia ?? analise.receitaDia), sub: `${analise.prazoTotal} dias de contrato`,  cor: 'from-blue-500 to-indigo-700' },
+              { label: 'Lucro / Dia',       val: fmtC(va.lucroDia ?? analise.lucroMedioDia), sub: `Payback em ${fmtN(va.payback ?? analise.paybackDias, 0)} dias`, cor: analise.lucroMedioDia > 0 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700' },
+              { label: 'Despesa Méd./mês',  val: fmtC(despesaMediaMensal), sub: 'Base: Módulo Análise Financeira', cor: 'from-amber-500 to-orange-700' },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
                 <p className="text-xs text-white/70 font-medium mb-1">{k.label}</p>
@@ -1904,94 +1789,124 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             ))}
           </div>
 
-          {/* Gráfico 3D: Cashflow por fase */}
+          {/* Nota sobre base da despesa */}
+          {fi?.kpisGerais?.mesesBaseNomes && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
+              <Info className="h-4 w-4 text-amber-600 flex-shrink-0" />
+              <p className="text-xs text-amber-800">
+                <strong>Despesa média mensal</strong> calculada com base nos meses:&nbsp;
+                <strong>{fi.kpisGerais.mesesBaseNomes.join(', ')}</strong>.
+                &nbsp;Inclui RH + despesas operacionais lançadas no módulo financeiro.
+              </p>
+            </div>
+          )}
+
+          {/* Gráfico 3D cashflow 6 meses — Receita vs Despesa */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-1">Cashflow por Fase — Receita × Custo (R$)</h3>
-            <p className="text-xs text-gray-400 mb-4">Baseado nos prazos da proposta: assinatura 10% · aprovação 5% · medições 85%</p>
+            <h3 className="text-sm font-bold text-gray-800 mb-1">Cashflow 6 Meses — Receita (contrato) × Despesa Média Real</h3>
+            <p className="text-xs text-gray-400 mb-5">
+              Receita conforme contrato (10% assinatura + 5% aprovação + 85% medições em {analise.mesesObra} mês{analise.mesesObra !== 1 ? 'es' : ''})
+              &nbsp;·&nbsp;Despesa = {fmtC(despesaMediaMensal)}/mês (base financeira)
+            </p>
             <div className="grid grid-cols-2 gap-8">
               <div>
-                <p className="text-xs font-semibold text-green-700 text-center mb-2">ENTRADAS (Receita)</p>
+                <p className="text-xs font-semibold text-green-700 text-center mb-2">ENTRADAS — Receita por Mês (R$)</p>
                 <Bar3D
-                  data={analise.cashflowFases.map(f => ({ label: f.label, value: f.receita }))}
-                  maxVal={Math.max(...analise.cashflowFases.map(f => Math.max(f.receita, f.custo))) * 1.1}
-                  colors={['#22c55e','#16a34a','#15803d','#166534']}
-                  height={170}
+                  data={analise.cashflow6.map(m => ({ label: m.mes, value: m.receita, topLabel: m.receita > 0 ? fmtC(m.receita) : 'R$0' }))}
+                  maxVal={Math.max(...analise.cashflow6.map(m => Math.max(m.receita, m.despesa))) * 1.15}
+                  colors={['#22c55e','#16a34a','#15803d','#166534','#14532d','#052e16']}
+                  height={180}
                 />
               </div>
               <div>
-                <p className="text-xs font-semibold text-red-600 text-center mb-2">SAÍDAS (Custo)</p>
+                <p className="text-xs font-semibold text-red-600 text-center mb-2">SAÍDAS — Despesa Média/Mês (R$)</p>
                 <Bar3D
-                  data={analise.cashflowFases.map(f => ({ label: f.label, value: f.custo }))}
-                  maxVal={Math.max(...analise.cashflowFases.map(f => Math.max(f.receita, f.custo))) * 1.1}
-                  colors={['#ef4444','#dc2626','#b91c1c','#991b1b']}
-                  height={170}
+                  data={analise.cashflow6.map(m => ({ label: m.mes, value: m.despesa, topLabel: fmtC(m.despesa) }))}
+                  maxVal={Math.max(...analise.cashflow6.map(m => Math.max(m.receita, m.despesa))) * 1.15}
+                  colors={['#ef4444','#dc2626','#b91c1c','#991b1b','#7f1d1d','#6b0000']}
+                  height={180}
                 />
               </div>
             </div>
           </div>
 
-          {/* Tabela retorno × benefício por fase */}
+          {/* Tabela cashflow detalhado */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b">
-              <h3 className="font-semibold text-gray-700 text-sm">Retorno × Benefício — Análise por Fase (prazo proposta)</h3>
+              <h3 className="font-semibold text-gray-700 text-sm">Detalhamento Mensal — Receita × Despesa × Saldo Acumulado (6 meses)</h3>
             </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-gray-50/50">
-                  <th className="px-5 py-2.5 text-left text-gray-500 font-semibold">Fase</th>
-                  <th className="px-5 py-2.5 text-center text-gray-500 font-semibold">Prazo</th>
-                  <th className="px-5 py-2.5 text-right text-green-600 font-semibold">Entrada (R$)</th>
-                  <th className="px-5 py-2.5 text-right text-red-600 font-semibold">Saída (R$)</th>
-                  <th className="px-5 py-2.5 text-right text-blue-600 font-semibold">Saldo (R$)</th>
-                  <th className="px-5 py-2.5 text-center text-gray-500 font-semibold">Status</th>
+                  <th className="px-4 py-2.5 text-left text-gray-500 font-semibold">Período</th>
+                  <th className="px-4 py-2.5 text-right text-green-600 font-semibold">Receita</th>
+                  <th className="px-4 py-2.5 text-right text-red-600 font-semibold">Despesa</th>
+                  <th className="px-4 py-2.5 text-right text-blue-600 font-semibold">Saldo Mês</th>
+                  <th className="px-4 py-2.5 text-right text-indigo-600 font-semibold">Saldo Acum.</th>
+                  <th className="px-4 py-2.5 text-center text-gray-500 font-semibold">Status</th>
                 </tr>
               </thead>
               <tbody>
-                {analise.cashflowFases.map((f, i) => {
-                  const saldo = f.receita - f.custo;
-                  const fasesDias = [analise.diasPrj, analise.diasFab, analise.diasMont, 0];
-                  return (
-                    <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-5 py-3 font-semibold text-gray-800">{f.fase}</td>
-                      <td className="px-5 py-3 text-center text-gray-500">{fasesDias[i]} dias</td>
-                      <td className="px-5 py-3 text-right text-green-700 font-mono font-semibold">{fmtC(f.receita)}</td>
-                      <td className="px-5 py-3 text-right text-red-600 font-mono">{fmtC(f.custo)}</td>
-                      <td className={`px-5 py-3 text-right font-mono font-bold ${saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                        {saldo >= 0 ? '+' : ''}{fmtC(saldo)}
-                      </td>
-                      <td className="px-5 py-3 text-center">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                          {saldo >= 0 ? '✅ Positivo' : '⚠️ Negativo'}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
+                {analise.cashflow6.map((m, i) => (
+                  <tr key={i} className={`border-b last:border-0 ${i < analise.mesesObra ? 'bg-blue-50/20' : ''} hover:bg-gray-50`}>
+                    <td className="px-4 py-2.5 font-semibold text-gray-800 flex items-center gap-2">
+                      {m.mes}
+                      {i < analise.mesesObra && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">obra</span>}
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-green-700 font-mono font-semibold">{fmtC(m.receita)}</td>
+                    <td className="px-4 py-2.5 text-right text-red-600 font-mono">{fmtC(m.despesa)}</td>
+                    <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                      {m.saldo >= 0 ? '+' : ''}{fmtC(m.saldo)}
+                    </td>
+                    <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldoAcum >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                      {m.saldoAcum >= 0 ? '+' : ''}{fmtC(m.saldoAcum)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${m.saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {m.saldo >= 0 ? '✅' : '⚠️'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
                 <tr className="bg-indigo-50 font-bold border-t-2 border-indigo-200">
-                  <td className="px-5 py-3 text-indigo-800">TOTAL OBRA</td>
-                  <td className="px-5 py-3 text-center text-indigo-700">{analise.prazoTotal} dias</td>
-                  <td className="px-5 py-3 text-right text-green-700 font-mono">{fmtC(analise.cashflowFases.reduce((s,f) => s+f.receita,0))}</td>
-                  <td className="px-5 py-3 text-right text-red-600 font-mono">{fmtC(analise.cashflowFases.reduce((s,f) => s+f.custo,0))}</td>
-                  <td className="px-5 py-3 text-right font-mono text-indigo-800">{fmtC(analise.lucroBruto)}</td>
-                  <td className="px-5 py-3 text-center">
-                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800">
-                      ROI {fmtN(analise.roi)}%
-                    </span>
+                  <td className="px-4 py-3 text-indigo-800">TOTAL 6 MESES</td>
+                  <td className="px-4 py-3 text-right text-green-700 font-mono">{fmtC(analise.cashflow6.reduce((s,m) => s + m.receita, 0))}</td>
+                  <td className="px-4 py-3 text-right text-red-600 font-mono">{fmtC(analise.cashflow6.reduce((s,m) => s + m.despesa, 0))}</td>
+                  <td className="px-4 py-3 text-right font-mono text-indigo-800">{fmtC(analise.cashflow6[analise.cashflow6.length-1]?.saldoAcum ?? 0)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-indigo-800">{fmtC(analise.cashflow6[analise.cashflow6.length-1]?.saldoAcum ?? 0)}</td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800">ROI {fmtN(analise.roi)}%</span>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          {/* Alertas inteligentes */}
+          {/* Valor restante a receber */}
+          {analise.valorRestante > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5">
+              <div className="flex items-start gap-3">
+                <DollarSign className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold text-blue-900 text-sm">Valor Restante a Receber após {analise.mesesObra} mês{analise.mesesObra !== 1 ? 'es' : ''} de obra</p>
+                  <p className="text-blue-700 text-xs mt-1">
+                    Do total de <strong>{fmtC(analise.valorServicos)}</strong>, foram recebidos <strong>{fmtC(analise.totalRecebidoAteObra)}</strong> durante a obra.
+                    &nbsp;Restam <strong className="text-lg">{fmtC(analise.valorRestante)}</strong> a serem recebidos após a entrega.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Alertas */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {[
-              analise.roi < 15 && { tipo: 'warn', msg: `ROI de ${fmtN(analise.roi)}% está abaixo da meta de 15%. Considere aumentar margem ou reduzir custos.` },
-              analise.ocProd > 100 && { tipo: 'warn', msg: `Ocupação de produção em ${fmtN(analise.ocProd)}% — acima da capacidade mensal. Verifique prazo de fabricação.` },
-              analise.paybackDias > analise.prazoTotal && { tipo: 'warn', msg: `Payback (${fmtN(analise.paybackDias, 0)} dias) maior que o prazo da obra (${analise.prazoTotal} dias). Risco de fluxo negativo.` },
-              analise.roi >= 15 && { tipo: 'ok', msg: `ROI de ${fmtN(analise.roi)}% está dentro da meta. Margem saudável para o projeto.` },
-              analise.receitaDia > 0 && { tipo: 'ok', msg: `Receita média de ${fmtC(analise.receitaDia)}/dia gera ${fmtC(analise.lucroMedioDia)}/dia de lucro bruto ao longo dos ${analise.prazoTotal} dias.` },
-            ].filter(Boolean).slice(0,4).map((a, i) => (
+              analise.roi < 15 && { tipo: 'warn', msg: `ROI de ${fmtN(analise.roi)}% abaixo da meta de 15%. Aumente a margem ou reduza custos.` },
+              analise.cashflow6.some(m => m.saldo < 0) && { tipo: 'warn', msg: `Há meses com saldo negativo (despesa supera a entrada). Verifique antecipação de pagamentos.` },
+              analise.roi >= 15 && { tipo: 'ok', msg: `ROI de ${fmtN(analise.roi)}% dentro da meta. Margem saudável para o projeto.` },
+              analise.lucroMedioDia > 0 && { tipo: 'ok', msg: `Gera ${fmtC(analise.lucroMedioDia)}/dia de lucro bruto ao longo dos ${analise.prazoTotal} dias de contrato.` },
+              !fi?.kpisGerais?.despesaMensalMedia && { tipo: 'warn', msg: `Despesa média usando valor de referência (${fmtC(despesaMediaMensal)}/mês). Conecte o módulo financeiro para dados reais.` },
+            ].filter(Boolean).slice(0, 4).map((a, i) => (
               <div key={i} className={`flex items-start gap-3 p-4 rounded-xl border ${a.tipo === 'ok' ? 'bg-green-50 border-green-200' : 'bg-amber-50 border-amber-200'}`}>
                 {a.tipo === 'ok' ? <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" /> : <AlertCircle className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />}
                 <p className={`text-sm font-medium ${a.tipo === 'ok' ? 'text-green-800' : 'text-amber-800'}`}>{a.msg}</p>
