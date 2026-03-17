@@ -251,7 +251,11 @@ export function orcamentoToSupabase(record) {
   // Dados complexos serializados como JSON no campo 'itens'
   const dadosCompletos = {};
   if (record.setores) dadosCompletos.setores = record.setores;
-  if (record.custosUnitarios) dadosCompletos.custosUnitarios = record.custosUnitarios;
+  if (record.custosUnitarios || record.unitCosts) dadosCompletos.custosUnitarios = record.custosUnitarios || record.unitCosts;
+  if (record.calculations) dadosCompletos.calculations = record.calculations;
+  if (record.paymentConditions) dadosCompletos.paymentConditions = record.paymentConditions;
+  if (record.cronograma) dadosCompletos.cronograma = record.cronograma;
+  if (record.escopo) dadosCompletos.escopo = record.escopo;
   if (record.resumo) dadosCompletos.resumo = record.resumo;
   if (record.nome) dadosCompletos.nome = record.nome;
   if (record.projeto) dadosCompletos.projeto = record.projeto;
@@ -262,6 +266,9 @@ export function orcamentoToSupabase(record) {
     dadosCompletos.pesoEstimado = record.peso_estimado || record.pesoEstimado;
   }
   if (record.valorBDI) dadosCompletos.valorBDI = record.valorBDI;
+  if (record.numeroPropostas) dadosCompletos.numeroPropostas = record.numeroPropostas;
+  if (record.dataEmissao) dadosCompletos.dataEmissao = record.dataEmissao;
+  if (record.dataValidade) dadosCompletos.dataValidade = record.dataValidade;
   // Campo itens é jsonb no Supabase — enviar como objeto, não string
   result.itens = dadosCompletos;
 
@@ -285,9 +292,16 @@ export function transformOrcamentoFromSupabase(record) {
     if (itens.responsavel) base.responsavel = itens.responsavel;
     if (itens.setores) base.setores = itens.setores;
     if (itens.custosUnitarios) base.custosUnitarios = itens.custosUnitarios;
+    if (itens.calculations) base.calculations = itens.calculations;
+    if (itens.paymentConditions) base.paymentConditions = itens.paymentConditions;
+    if (itens.cronograma) base.cronograma = itens.cronograma;
+    if (itens.escopo) base.escopo = itens.escopo;
     if (itens.resumo) base.resumo = itens.resumo;
     if (itens.pesoEstimado) base.pesoEstimado = itens.pesoEstimado;
     if (itens.valorBDI) base.valorBDI = itens.valorBDI;
+    if (itens.numeroPropostas) base.numeroPropostas = itens.numeroPropostas;
+    if (itens.dataEmissao) base.dataEmissao = itens.dataEmissao;
+    if (itens.dataValidade) base.dataValidade = itens.dataValidade;
   }
   // Aliases
   base.cliente = base.clienteNome || base.cliente || '';

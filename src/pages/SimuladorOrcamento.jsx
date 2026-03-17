@@ -2144,15 +2144,21 @@ export default function SimuladorOrcamento() {
     });
   }, [setores]);
 
-  const handleSaveOrcamento = () => {
+  const handleSaveOrcamento = async () => {
     if (!project.nome || !project.cliente) {
       toast.error('Preencha os dados do projeto primeiro');
       return;
     }
 
+    const orcamentoId = `ORC-${Date.now()}`;
+    const prazoDias = (cronograma.projeto || 0) + (cronograma.fabricacao || 0) + (cronograma.montagem || 0);
     const orcamento = {
-      id: Date.now(),
-      ...project,
+      id: orcamentoId,
+      numero: project.numeroPropostas || `${String(new Date().getMonth() + 1).padStart(2, '0')}/${String(new Date().getFullYear()).slice(-2)}`,
+      nome: project.nome,
+      cliente: project.cliente,
+      tipo: project.tipo,
+      regiao: project.regiao,
       status: 'rascunho',
       unitCosts,
       setores,
@@ -2160,13 +2166,23 @@ export default function SimuladorOrcamento() {
       paymentConditions,
       cronograma,
       escopo,
+      numeroPropostas: project.numeroPropostas,
+      dataEmissao: project.dataEmissao,
+      dataValidade: project.dataValidade,
       valor_total: calculations.precoFinal || 0,
       validade: project.dataValidade || new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10),
+      prazo_entrega: `${prazoDias} dias`,
+      condicoes_pagamento: `Assinatura: ${paymentConditions.assinatura}%, Aprovação: ${paymentConditions.aprovacao}%, Medições: ${paymentConditions.medicoes}%`,
       dataResposta: new Date().toISOString(),
     };
 
-    addOrcamento(orcamento);
-    toast.success('Orçamento salvo com sucesso!');
+    try {
+      await addOrcamento(orcamento);
+      toast.success('Orçamento salvo com sucesso!');
+    } catch (err) {
+      console.error('Erro ao salvar orçamento:', err);
+      toast.error('Erro ao salvar: ' + (err.message || 'erro desconhecido'));
+    }
   };
 
   const handleGeneratePDF = async () => {
