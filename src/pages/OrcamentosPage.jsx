@@ -81,6 +81,15 @@ const formatWeight = (peso) => {
 };
 
 // Configuração de status do pipeline
+const STATUS_DEFAULT = {
+  label: 'Indefinido',
+  icon: FileText,
+  color: 'gray',
+  bgColor: 'bg-gray-500/20',
+  textColor: 'text-gray-400',
+  borderColor: 'border-gray-500/30',
+};
+
 const statusConfig = {
   rascunho: {
     label: 'Rascunho',
@@ -168,7 +177,7 @@ function KPICard({ title, value, subtitle, icon: Icon, color, trend }) {
 
 // Card de Orçamento para o Pipeline
 const OrcamentoCard = React.forwardRef(({ orcamento, onDragStart, onDragEnd, isDragging, onVerDetalhes, onEditar, onDuplicar, onEnviarCliente, onApagar, onAbrirSimulador }, ref) => {
-  const config = statusConfig[orcamento.status];
+  const config = statusConfig[orcamento.status] || STATUS_DEFAULT;
   const diasRestantes = Math.ceil(
     (new Date(orcamento.validade) - new Date()) / (1000 * 60 * 60 * 24)
   );
@@ -726,7 +735,7 @@ export default function OrcamentosPage() {
                   </thead>
                   <tbody>
                     {orcamentosFiltrados.map((orc, index) => {
-                      const config = statusConfig[orc.status];
+                      const config = statusConfig[orc.status] || STATUS_DEFAULT;
                       const diasRestantes = Math.ceil(
                         (new Date(orc.validade) - new Date()) / (1000 * 60 * 60 * 24)
                       );

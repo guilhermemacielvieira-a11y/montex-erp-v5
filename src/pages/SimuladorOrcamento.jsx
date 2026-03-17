@@ -2153,12 +2153,15 @@ export default function SimuladorOrcamento() {
     const orcamento = {
       id: Date.now(),
       ...project,
+      status: 'rascunho',
       unitCosts,
       setores,
       calculations,
       paymentConditions,
       cronograma,
       escopo,
+      valor_total: calculations.precoFinal || 0,
+      validade: project.dataValidade || new Date(Date.now() + 30*24*60*60*1000).toISOString().slice(0,10),
       dataResposta: new Date().toISOString(),
     };
 
