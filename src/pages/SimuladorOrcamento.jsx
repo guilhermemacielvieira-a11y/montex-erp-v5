@@ -1331,22 +1331,32 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
       (s.itens || []).forEach(item => {
         const qty   = item.quantidade || 0;
         const desc  = (item.descricao || '').toLowerCase();
-        const totalComMat = qty * ((item.precoMaterial || 0) + (item.precoInstalacao || 0));
-        const totalSemMat = qty * (item.precoInstalacao || 0);
-        const isMat = desc.includes('material') || desc.includes('aço') || desc.includes('chapa');
+        const matUnit  = item.precoMaterial   || 0;
+        const instUnit = item.precoInstalacao || 0;
+        const totalComMat = qty * (matUnit + instUnit);
+        const totalSemMat = qty * instUnit;   // SOMENTE instalação — nunca inclui material
+        const isMat = (desc.includes('material') || desc.includes('aço') || desc.includes('chapa'))
+                      && instUnit === 0;       // item é APENAS material, sem serviço associado
+        const isMont = desc.includes('montagem') || desc.includes('steel deck') ||
+                       desc.includes('steel-deck') || desc.includes('telha') ||
+                       desc.includes('deck') || desc.includes('cobertura') ||
+                       desc.includes('estrutura');
 
         if (isMat) {
+          // item de fornecimento de material puro — não gera receita de serviço
           cMat += totalComMat;
         } else if (desc.includes('fabricaç') || desc.includes('fabricac')) {
           cFab  += totalComMat; sFab  += totalSemMat;
         } else if (desc.includes('pintura'))    { cPint  += totalComMat; sPint  += totalSemMat;
         } else if (desc.includes('transporte')) { cTranp += totalComMat; sTranp += totalSemMat;
-        } else if (desc.includes('montagem'))   { cMont  += totalComMat; sMont  += totalSemMat;
-        } else if (desc.includes('projeto'))    { cPrj   += totalComMat; sPrj   += totalSemMat;
+        } else if (isMont)                      { cMont  += totalComMat; sMont  += totalSemMat;
+        } else if (desc.includes('projeto') || desc.includes('engenhari')) {
+          cPrj  += totalComMat; sPrj  += totalSemMat;
         } else {
-          // itens sem categoria clara: alocar como material se tiver precoMaterial, senão fabricação
-          if ((item.precoMaterial || 0) > 0) { cMat  += totalComMat; }
-          else { cFab += totalComMat; sFab += totalSemMat; }
+          // Itens mistos/não categorizados: material vai p/ cMat, instalação p/ fabricação
+          cMat  += qty * matUnit;
+          cFab  += qty * instUnit;
+          sFab  += qty * instUnit;   // instalação sempre conta nos serviços
         }
 
         if (item.unidade === 'KG' && !desc.includes('projeto')) {
@@ -1417,11 +1427,11 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     const lucroMedioDia = prazoTotal > 0 ? lucroBruto   / prazoTotal : 0;
     const paybackDias  = receitaDia  > 0 ? custoServicos / receitaDia : 0;
 
-    // === CASHFLOW 6 MESES (baseado em SERVIÇOS — sem material) ===
-    const baseRec   = calculations.precoFinal || valorServicos;
-    const pctAssin  = baseRec * 0.10;
-    const pctAprov  = baseRec * 0.05;
-    const pctMedic  = baseRec * 0.85;
+    // === CASHFLOW 6 MESES — base = SOMENTE SERVIÇOS (instalação), sem material ===
+    // valorServicos = custoServicos + margem + impostos (só precoInstalacao de cada item)
+    const pctAssin  = valorServicos * 0.10;
+    const pctAprov  = valorServicos * 0.05;
+    const pctMedic  = valorServicos * 0.85;
     // medições distribuídas ao longo de fabricação + montagem (paralela = 90 dias)
     const mesesObra  = Math.max(1, Math.ceil((diasFab + DIAS_MONT_CASHFLOW) / 30));
     const meses6     = 6;
