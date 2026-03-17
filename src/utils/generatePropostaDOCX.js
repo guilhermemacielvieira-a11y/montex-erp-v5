@@ -317,37 +317,43 @@ export async function generatePropostaDOCX({ project, setores, calculations, uni
 
   const setoresRows = [];
   setores.forEach((setor, idx) => {
-    const setorTotal = setor.itens.reduce((s, i) => s + (i.quantidade * i.preco), 0);
+    const setorMat  = setor.itens.reduce((s, i) => s + (i.quantidade * (i.precoMaterial   || 0)), 0);
+    const setorInst = setor.itens.reduce((s, i) => s + (i.quantidade * (i.precoInstalacao || 0)), 0);
+    const setorTotal = setorMat + setorInst;
 
     // Cabeçalho do setor
     setoresRows.push(
       new TableRow({
         children: [
           celula(`ETAPA ${idx + 1} — ${(setor.nome || '').toUpperCase()}`, {
-            bold: true, bg: COR_SECUNDARIA, color: COR_BRANCO, colspan: 5, size: 20,
+            bold: true, bg: COR_SECUNDARIA, color: COR_BRANCO, colspan: 6, size: 20,
           }),
         ],
       }),
       new TableRow({
         children: [
-          celula('DESCRIÇÃO', { bold: true, bg: COR_CINZA_MEDIO, size: 18 }),
-          celula('UN', { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.CENTER, size: 18 }),
-          celula('QTD', { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.CENTER, size: 18 }),
-          celula('UNIT.', { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.RIGHT, size: 18 }),
-          celula('TOTAL', { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.RIGHT, size: 18 }),
+          celula('DESCRIÇÃO',      { bold: true, bg: COR_CINZA_MEDIO, size: 18 }),
+          celula('UN',             { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.CENTER, size: 18 }),
+          celula('QTD',            { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.CENTER, size: 18 }),
+          celula('MATERIAL UN.',   { bold: true, bg: '1e3a8a', color: COR_BRANCO, align: AlignmentType.RIGHT, size: 18 }),
+          celula('INSTALAÇÃO UN.', { bold: true, bg: 'ca8a04', color: COR_BRANCO, align: AlignmentType.RIGHT, size: 18 }),
+          celula('TOTAL',          { bold: true, bg: COR_CINZA_MEDIO, align: AlignmentType.RIGHT, size: 18 }),
         ],
       })
     );
 
     setor.itens.forEach(item => {
+      const matUn  = item.precoMaterial   || 0;
+      const instUn = item.precoInstalacao || 0;
       setoresRows.push(
         new TableRow({
           children: [
             celula(item.descricao || '', { size: 18 }),
-            celula(item.unidade || '', { align: AlignmentType.CENTER, size: 18 }),
+            celula(item.unidade   || '', { align: AlignmentType.CENTER, size: 18 }),
             celula(fmtNum(item.quantidade), { align: AlignmentType.CENTER, size: 18 }),
-            celula(fmt(item.preco), { align: AlignmentType.RIGHT, size: 18 }),
-            celula(fmt(item.quantidade * item.preco), { align: AlignmentType.RIGHT, size: 18 }),
+            celula(matUn  > 0 ? fmt(matUn)  : '—', { align: AlignmentType.RIGHT, size: 18 }),
+            celula(instUn > 0 ? fmt(instUn) : '—', { align: AlignmentType.RIGHT, size: 18 }),
+            celula(fmt(item.quantidade * (matUn + instUn)), { align: AlignmentType.RIGHT, bold: true, size: 18 }),
           ],
         })
       );
@@ -356,7 +362,9 @@ export async function generatePropostaDOCX({ project, setores, calculations, uni
     setoresRows.push(
       new TableRow({
         children: [
-          celula(`SUBTOTAL ETAPA ${idx + 1}`, { bold: true, colspan: 4, bg: COR_CINZA_CLARO, size: 18 }),
+          celula(`SUBTOTAL ETAPA ${idx + 1}`, { bold: true, colspan: 3, bg: COR_CINZA_CLARO, size: 18 }),
+          celula(fmt(setorMat),   { bold: true, align: AlignmentType.RIGHT, bg: COR_CINZA_CLARO, size: 18 }),
+          celula(fmt(setorInst),  { bold: true, align: AlignmentType.RIGHT, bg: COR_CINZA_CLARO, size: 18 }),
           celula(fmt(setorTotal), { bold: true, align: AlignmentType.RIGHT, bg: COR_CINZA_CLARO, size: 18 }),
         ],
       })
@@ -368,7 +376,7 @@ export async function generatePropostaDOCX({ project, setores, calculations, uni
     quebra(),
     new Table({
       width: { size: 100, type: WidthType.PERCENTAGE },
-      columnWidths: [4000, 800, 1200, 1600, 1800],
+      columnWidths: [3600, 700, 1100, 1500, 1500, 1600],
       rows: setoresRows,
     }),
   ];

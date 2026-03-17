@@ -2036,38 +2036,55 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
             <h3 className="text-lg font-bold text-gray-900 mb-3">ORÇAMENTO DETALHADO POR SETOR ({setores.length} SETORES | {totalItens} ITENS)</h3>
             <div className="space-y-4">
               {setores.map((setor, idx) => {
-                const setorTotal = setor.itens.reduce((sum, item) => sum + (item.quantidade * item.preco), 0);
-                const setorMaterial = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoMaterial || 0)), 0);
+                const setorMaterial    = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoMaterial   || 0)), 0);
+                const setorInstalacao  = setor.itens.reduce((sum, item) => sum + (item.quantidade * (item.precoInstalacao || 0)), 0);
+                const setorTotal       = setorMaterial + setorInstalacao;
 
                 return (
                   <div key={idx} className="border rounded-lg p-3">
-                    <h4 className="font-bold text-gray-900 mb-2">ETAPA {idx + 1} ({setor.nome})</h4>
-                    <div className="overflow-x-auto mb-3">
+                    <h4 className="font-bold text-gray-900 mb-2">ETAPA {idx + 1} — {setor.nome}</h4>
+                    <div className="overflow-x-auto mb-2">
                       <table className="w-full text-xs">
-                        <thead className="bg-gray-100">
-                          <tr>
-                            <th className="border p-1 text-left">DESCRIÇÃO</th>
-                            <th className="border p-1 text-center">UN</th>
-                            <th className="border p-1 text-center">QUANTIDADE</th>
-                            <th className="border p-1 text-right">PREÇO UNIT.</th>
-                            <th className="border p-1 text-right">TOTAL</th>
+                        <thead>
+                          <tr className="bg-blue-700 text-white">
+                            <th className="border border-blue-600 p-1 text-left">DESCRIÇÃO</th>
+                            <th className="border border-blue-600 p-1 text-center">UN</th>
+                            <th className="border border-blue-600 p-1 text-center">QTD</th>
+                            <th className="border border-blue-600 p-1 text-right" style={{background:'#1e3a8a'}}>MATERIAL UN.</th>
+                            <th className="border border-blue-600 p-1 text-right" style={{background:'#ca8a04', color:'white'}}>INSTALAÇÃO UN.</th>
+                            <th className="border border-blue-600 p-1 text-right">TOTAL</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {setor.itens.map((item, iIdx) => (
-                            <tr key={iIdx} className="border-b">
-                              <td className="border p-1">{item.descricao}</td>
-                              <td className="border p-1 text-center">{item.unidade}</td>
-                              <td className="border p-1 text-center">{formatNumber(item.quantidade)}</td>
-                              <td className="border p-1 text-right">{formatCurrency(item.preco)}</td>
-                              <td className="border p-1 text-right font-semibold">{formatCurrency(item.quantidade * item.preco)}</td>
-                            </tr>
-                          ))}
+                          {setor.itens.map((item, iIdx) => {
+                            const matUn  = item.precoMaterial   || 0;
+                            const instUn = item.precoInstalacao || 0;
+                            const total  = item.quantidade * (matUn + instUn);
+                            return (
+                              <tr key={iIdx} className={`border-b ${iIdx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                <td className="border p-1">{item.descricao}</td>
+                                <td className="border p-1 text-center">{item.unidade}</td>
+                                <td className="border p-1 text-center">{formatNumber(item.quantidade)}</td>
+                                <td className="border p-1 text-right" style={{color: matUn > 0 ? '#1e40af' : '#9ca3af'}}>
+                                  {matUn > 0 ? formatCurrency(matUn) : '—'}
+                                </td>
+                                <td className="border p-1 text-right" style={{color: instUn > 0 ? '#92400e' : '#9ca3af'}}>
+                                  {instUn > 0 ? formatCurrency(instUn) : '—'}
+                                </td>
+                                <td className="border p-1 text-right font-semibold">{formatCurrency(total)}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
+                        <tfoot>
+                          <tr className="bg-gray-100 font-bold text-xs">
+                            <td className="border p-1.5" colSpan={3}>SUBTOTAL ETAPA {idx + 1}</td>
+                            <td className="border p-1.5 text-right" style={{color:'#1e40af'}}>{formatCurrency(setorMaterial)}</td>
+                            <td className="border p-1.5 text-right" style={{color:'#92400e'}}>{formatCurrency(setorInstalacao)}</td>
+                            <td className="border p-1.5 text-right text-gray-800">{formatCurrency(setorTotal)}</td>
+                          </tr>
+                        </tfoot>
                       </table>
-                    </div>
-                    <div className="flex gap-6 text-xs font-semibold">
-                      <span>Subtotal: {formatCurrency(setorTotal)}</span>
                     </div>
                   </div>
                 );
