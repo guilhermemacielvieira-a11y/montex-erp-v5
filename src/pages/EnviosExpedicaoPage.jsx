@@ -38,14 +38,18 @@ export default function EnviosExpedicaoPage() {
   const { expedicoes, addExpedicao, updateExpedicao, deleteExpedicao } = useExpedicao();
   const { obras } = useObras();
 
-  // ==== OBRA ATIVA ====
+  // ==== FILTRO DE OBRA ====
+  const [obraFiltro, setObraFiltro] = useState('todas');
+
+  // Obra ativa para criação de envios (fallback se nenhuma selecionada)
   const obraAtiva = useMemo(() => {
+    if (obraFiltro && obraFiltro !== 'todas') return obras?.find(o => o.id === obraFiltro) || null;
     return obras?.find(o => o.status === 'em_producao' || o.status === 'ativo') || obras?.[0] || null;
-  }, [obras]);
+  }, [obras, obraFiltro]);
 
   // ==== ESTADO LOCAL ====
-  const [pecasExpedidas, setPecasExpedidas] = useState([]);
-  const [pecasPintura, setPecasPintura] = useState([]);
+  const [pecasExpedidasRaw, setPecasExpedidasRaw] = useState([]);
+  const [pecasPinturaRaw, setPecasPinturaRaw] = useState([]);
   const [loadingPecas, setLoadingPecas] = useState(true);
   const [abaAtiva, setAbaAtiva] = useState('fila');
   const [busca, setBusca] = useState('');
@@ -99,7 +103,7 @@ export default function EnviosExpedicaoPage() {
 
       // Peças em pintura (processo que precede expedição no Kanban Corte)
       const emPintura = todasPecas.filter(p => p.etapa === 'pintura');
-      setPecasPintura(emPintura);
+      setPecasPinturaRaw(emPintura);
 
       // Pegar IDs das peças já incluídas em expedições existentes
       const pecasJaEnviadas = new Set();
@@ -111,7 +115,7 @@ export default function EnviosExpedicaoPage() {
       // Filtrar peças que ainda não foram enviadas
       const pecasAguardando = expedidas.filter(p => !pecasJaEnviadas.has(String(p.id)));
 
-      setPecasExpedidas(pecasAguardando);
+      setPecasExpedidasRaw(pecasAguardando);
     } catch (err) {
       console.error('Erro ao carregar peças expedidas:', err);
       toast.error('Erro ao carregar peças prontas para embarque');
@@ -124,15 +128,32 @@ export default function EnviosExpedicaoPage() {
     carregarPecasExpedidas();
   }, [carregarPecasExpedidas]);
 
+  // ==== FILTRAR PEÇAS POR OBRA SELECIONADA ====
+  const pecasExpedidas = useMemo(() => {
+    if (!obraFiltro || obraFiltro === 'todas') return pecasExpedidasRaw;
+    return pecasExpedidasRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
+  }, [pecasExpedidasRaw, obraFiltro]);
+
+  const pecasPintura = useMemo(() => {
+    if (!obraFiltro || obraFiltro === 'todas') return pecasPinturaRaw;
+    return pecasPinturaRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
+  }, [pecasPinturaRaw, obraFiltro]);
+
+  // ==== EXPEDIÇÕES FILTRADAS POR OBRA ====
+  const expedicoesFiltradas = useMemo(() => {
+    if (!obraFiltro || obraFiltro === 'todas') return expedicoes || [];
+    return (expedicoes || []).filter(e => (e.obra_id || e.obraId) === obraFiltro);
+  }, [expedicoes, obraFiltro]);
+
   // ==== KPIs ====
   const kpis = useMemo(() => {
-    const total = expedicoes?.length || 0;
-    const emTransito = expedicoes?.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length || 0;
-    const entregues = expedicoes?.filter(e => (e.status || '').toUpperCase() === 'ENTREGUE').length || 0;
-    const pesoTotal = expedicoes?.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0) || 0;
+    const total = expedicoesFiltradas.length;
+    const emTransito = expedicoesFiltradas.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length;
+    const entregues = expedicoesFiltradas.filter(e => (e.status || '').toUpperCase() === 'ENTREGUE').length;
+    const pesoTotal = expedicoesFiltradas.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0);
     const prontas = pecasExpedidas.length;
     return { total, emTransito, entregues, pesoTotal, prontas };
-  }, [expedicoes, pecasExpedidas]);
+  }, [expedicoesFiltradas, pecasExpedidas]);
 
   // ==== PEÇAS FILTRADAS NA FILA ====
   const pecasFiltradas = useMemo(() => {
@@ -148,7 +169,7 @@ export default function EnviosExpedicaoPage() {
 
   // ==== ENVIOS FILTRADOS ====
   const enviosFiltrados = useMemo(() => {
-    let lista = expedicoes || [];
+    let lista = expedicoesFiltradas;
     if (filtroStatus !== 'todos') lista = lista.filter(e => (e.status || '').toUpperCase() === filtroStatus);
     if (busca) {
       const b = busca.toLowerCase();
@@ -159,7 +180,7 @@ export default function EnviosExpedicaoPage() {
       );
     }
     return lista;
-  }, [expedicoes, filtroStatus, busca]);
+  }, [expedicoesFiltradas, filtroStatus, busca]);
 
   // ==== TOGGLE SELEÇÃO DE PEÇA ====
   const togglePeca = useCallback((peca) => {
@@ -363,7 +384,29 @@ export default function EnviosExpedicaoPage() {
           </h1>
           <p className="text-gray-400 text-sm mt-1">Controle de remessas e entregas</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          {/* Filtro de Obra */}
+          <Select.Root value={obraFiltro} onValueChange={setObraFiltro}>
+            <Select.Trigger className="flex items-center gap-2 bg-gray-900 border border-gray-700 text-white px-3 py-2 rounded-lg text-sm min-w-[200px]">
+              <Building2 className="w-4 h-4 text-teal-400 flex-shrink-0" />
+              <Select.Value placeholder="Selecionar Obra" />
+              <ChevronDown className="w-4 h-4 ml-auto" />
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Content className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
+                <Select.Viewport className="p-1">
+                  <Select.Item value="todas" className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none">
+                    <Select.ItemText>Todas as Obras</Select.ItemText>
+                  </Select.Item>
+                  {(obras || []).map(o => (
+                    <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none">
+                      <Select.ItemText>{o.nome || o.name || `Obra ${o.id?.slice(0, 6)}`}</Select.ItemText>
+                    </Select.Item>
+                  ))}
+                </Select.Viewport>
+              </Select.Content>
+            </Select.Portal>
+          </Select.Root>
           <Button variant="outline" size="sm" onClick={() => exportToExcel(enviosFiltrados, 'envios')}>
             <Download className="w-4 h-4 mr-1" /> Exportar
           </Button>
@@ -709,14 +752,14 @@ export default function EnviosExpedicaoPage() {
                 <Truck className="w-5 h-5 text-blue-400" />
                 <h3 className="font-semibold text-white">Em Trânsito</h3>
                 <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-blue-500/20 text-blue-400">
-                  {(expedicoes || []).filter(e => e.status === 'EM_TRANSITO').length}
+                  {expedicoesFiltradas.filter(e => e.status === 'EM_TRANSITO').length}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mb-3">Envios criados a partir do romaneio expedido</p>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {(expedicoes || []).filter(e => e.status === 'EM_TRANSITO').length === 0 ? (
+                {expedicoesFiltradas.filter(e => e.status === 'EM_TRANSITO').length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-4">Nenhum envio em trânsito</p>
-                ) : (expedicoes || []).filter(e => e.status === 'EM_TRANSITO').map(e => (
+                ) : expedicoesFiltradas.filter(e => e.status === 'EM_TRANSITO').map(e => (
                   <div key={e.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-blue-500">
                     <div className="flex justify-between items-start">
                       <div>
@@ -753,7 +796,7 @@ export default function EnviosExpedicaoPage() {
           {/* Status secundários: Entregue e Problema */}
           <div className="grid grid-cols-2 gap-6 mb-6">
             {STATUS_ENVIO.filter(s => s.id === 'ENTREGUE' || s.id === 'PROBLEMA').map(status => {
-              const enviosDoStatus = (expedicoes || []).filter(e => e.status === status.id);
+              const enviosDoStatus = expedicoesFiltradas.filter(e => e.status === status.id);
               return (
                 <div key={status.id} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
                   <div className="flex items-center gap-2 mb-3">
