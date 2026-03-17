@@ -710,7 +710,7 @@ export default function EnviosExpedicaoPage() {
               <div className="flex justify-between items-center mb-4">
                 <p className="text-sm text-gray-400">
                   {pecasEnviadas.length} peça(s) enviada(s) ·{' '}
-                  {(pecasEnviadas.reduce((s, p) => s + (parseFloat(p.peso) || parseFloat(p.pesoTotal) || 0), 0) / 1000).toFixed(2)}t
+                  {(pecasEnviadas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0) / 1000).toFixed(2)}t
                 </p>
               </div>
               <div className="overflow-x-auto">
@@ -719,9 +719,10 @@ export default function EnviosExpedicaoPage() {
                     <tr className="border-b border-gray-700 text-gray-400 text-xs">
                       <th className="py-2 px-3 text-left">#</th>
                       <th className="py-2 px-3 text-left">Marca / Peça</th>
-                      <th className="py-2 px-3 text-left">Tipo</th>
+                      <th className="py-2 px-3 text-left">Tipo / Perfil</th>
                       <th className="py-2 px-3 text-center">Qtd</th>
-                      <th className="py-2 px-3 text-right">Peso (kg)</th>
+                      <th className="py-2 px-3 text-right">Peso Unit. (kg)</th>
+                      <th className="py-2 px-3 text-right">Peso Total (kg)</th>
                       <th className="py-2 px-3 text-left">Obra</th>
                       <th className="py-2 px-3 text-center">Status</th>
                     </tr>
@@ -731,9 +732,13 @@ export default function EnviosExpedicaoPage() {
                       <tr key={peca.id} className="border-b border-gray-800 hover:bg-gray-900/50">
                         <td className="py-2 px-3 text-gray-500">{idx + 1}</td>
                         <td className="py-2 px-3 font-medium text-white">{peca.marca || peca.nome || '-'}</td>
-                        <td className="py-2 px-3 text-gray-400">{peca.tipo || peca.descricao || '-'}</td>
+                        <td className="py-2 px-3 text-gray-400">
+                          {peca.tipo || '-'}
+                          {peca.perfil && peca.perfil !== peca.tipo ? ` / ${peca.perfil}` : ''}
+                        </td>
                         <td className="py-2 px-3 text-center text-gray-300">{peca.quantidade || 1}</td>
-                        <td className="py-2 px-3 text-right text-gray-300">{(parseFloat(peca.peso) || parseFloat(peca.pesoTotal) || 0).toFixed(1)}</td>
+                        <td className="py-2 px-3 text-right text-gray-300">{(parseFloat(peca.pesoUnitario) || parseFloat(peca.pesoUnit) || 0).toFixed(1)}</td>
+                        <td className="py-2 px-3 text-right font-medium text-gray-300">{(parseFloat(peca.pesoTotal) || parseFloat(peca.peso) || 0).toFixed(1)}</td>
                         <td className="py-2 px-3 text-gray-400">{peca.obraNome || peca.obra_nome || '-'}</td>
                         <td className="py-2 px-3 text-center">
                           <span className={`text-xs px-2 py-0.5 rounded-full ${
@@ -754,7 +759,7 @@ export default function EnviosExpedicaoPage() {
                   Total: {pecasEnviadas.length} peça(s) · {pecasEnviadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0)} un
                 </span>
                 <span className="text-sm font-semibold text-emerald-400">
-                  {(pecasEnviadas.reduce((s, p) => s + (parseFloat(p.peso) || parseFloat(p.pesoTotal) || 0), 0)).toFixed(2)} kg
+                  {(pecasEnviadas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0)).toFixed(2)} kg
                 </span>
               </div>
             </>
