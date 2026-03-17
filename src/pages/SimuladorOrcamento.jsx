@@ -1329,34 +1329,38 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     (setores || []).forEach(s => {
       const grupos = {};
       (s.itens || []).forEach(item => {
-        const qty   = item.quantidade || 0;
-        const desc  = (item.descricao || '').toLowerCase();
-        const matUnit  = item.precoMaterial   || 0;
+        const qty      = item.quantidade     || 0;
+        const desc     = (item.descricao || '').toLowerCase();
+        const matUnit  = item.precoMaterial  || 0;
         const instUnit = item.precoInstalacao || 0;
-        const totalComMat = qty * (matUnit + instUnit);
-        const totalSemMat = qty * instUnit;   // SOMENTE instalação — nunca inclui material
-        const isMat = (desc.includes('material') || desc.includes('aço') || desc.includes('chapa'))
-                      && instUnit === 0;       // item é APENAS material, sem serviço associado
-        const isMont = desc.includes('montagem') || desc.includes('steel deck') ||
-                       desc.includes('steel-deck') || desc.includes('telha') ||
-                       desc.includes('deck') || desc.includes('cobertura') ||
-                       desc.includes('estrutura');
 
-        if (isMat) {
-          // item de fornecimento de material puro — não gera receita de serviço
-          cMat += totalComMat;
-        } else if (desc.includes('fabricaç') || desc.includes('fabricac')) {
-          cFab  += totalComMat; sFab  += totalSemMat;
-        } else if (desc.includes('pintura'))    { cPint  += totalComMat; sPint  += totalSemMat;
-        } else if (desc.includes('transporte')) { cTranp += totalComMat; sTranp += totalSemMat;
-        } else if (isMont)                      { cMont  += totalComMat; sMont  += totalSemMat;
-        } else if (desc.includes('projeto') || desc.includes('engenhari')) {
-          cPrj  += totalComMat; sPrj  += totalSemMat;
-        } else {
-          // Itens mistos/não categorizados: material vai p/ cMat, instalação p/ fabricação
-          cMat  += qty * matUnit;
-          cFab  += qty * instUnit;
-          sFab  += qty * instUnit;   // instalação sempre conta nos serviços
+        // ── MATERIAL: sempre pelo campo precoMaterial, independe do nome do item ──
+        // (Estrutura Metálica - Material: matUnit=8,50 instUnit=0 → só cMat)
+        // (Cobertura - Material: matUnit=125,00 instUnit=20,00 → cMat+cMont)
+        cMat += qty * matUnit;
+
+        // ── SERVIÇO (mão de obra / instalação): campo precoInstalacao, classificado pelo nome ──
+        const instTotal = qty * instUnit;
+        if (instUnit > 0) {
+          if (desc.includes('fabricaç') || desc.includes('fabricac')) {
+            cFab  += instTotal; sFab  += instTotal;
+          } else if (desc.includes('pintura')) {
+            cPint += instTotal; sPint += instTotal;
+          } else if (desc.includes('transporte')) {
+            cTranp += instTotal; sTranp += instTotal;
+          } else if (
+            desc.includes('montagem')   || desc.includes('steel deck') ||
+            desc.includes('steel-deck') || desc.includes('telha')      ||
+            desc.includes('deck')       || desc.includes('cobertura')  ||
+            desc.includes('estrutura')
+          ) {
+            cMont += instTotal; sMont += instTotal;
+          } else if (desc.includes('projeto') || desc.includes('engenhari')) {
+            cPrj  += instTotal; sPrj  += instTotal;
+          } else {
+            // serviço sem categoria clara → fabricação por default
+            cFab  += instTotal; sFab  += instTotal;
+          }
         }
 
         if (item.unidade === 'KG' && !desc.includes('projeto')) {
