@@ -1318,24 +1318,37 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
   // === DESPESA MÉDIA MENSAL DO MÓDULO FINANCEIRO ===
   const despesaMediaMensal = fi?.kpisGerais?.despesaMensalMedia || fi?.despesaMedia3Meses || 430500;
 
-  // === CÁLCULOS (SEM MATERIAL — apenas serviços) ===
+  // === CÁLCULOS DUPLOS: COM MATERIAL (abas 1-3) e SEM MATERIAL (aba Retorno) ===
   const analise = useMemo(() => {
     let pesoTotal = 0, areaTotal = 0;
-    let custoFab = 0, custoPint = 0, custoTranp = 0, custoMont = 0, custoPrj = 0;
+    // Com material (precoMaterial + precoInstalacao) — para Visão Geral, Produção, Montagem
+    let cFab = 0, cPint = 0, cTranp = 0, cMont = 0, cPrj = 0, cMat = 0;
+    // Sem material (precoInstalacao only) — para Retorno × Benefício
+    let sFab = 0, sPint = 0, sTranp = 0, sMont = 0, sPrj = 0;
 
     (setores || []).forEach(s => {
       const grupos = {};
       (s.itens || []).forEach(item => {
         const qty   = item.quantidade || 0;
         const desc  = (item.descricao || '').toLowerCase();
-        // EXCLUIR MATERIAL — usa apenas precoInstalacao
-        const total = qty * (item.precoInstalacao || 0);
-        if (desc.includes('fabricaç') || desc.includes('fabricac')) custoFab  += total;
-        else if (desc.includes('pintura'))    custoPint  += total;
-        else if (desc.includes('transporte')) custoTranp += total;
-        else if (desc.includes('montagem'))   custoMont  += total;
-        else if (desc.includes('projeto'))    custoPrj   += total;
-        // material ignorado completamente
+        const totalComMat = qty * ((item.precoMaterial || 0) + (item.precoInstalacao || 0));
+        const totalSemMat = qty * (item.precoInstalacao || 0);
+        const isMat = desc.includes('material') || desc.includes('aço') || desc.includes('chapa');
+
+        if (isMat) {
+          cMat += totalComMat;
+        } else if (desc.includes('fabricaç') || desc.includes('fabricac')) {
+          cFab  += totalComMat; sFab  += totalSemMat;
+        } else if (desc.includes('pintura'))    { cPint  += totalComMat; sPint  += totalSemMat;
+        } else if (desc.includes('transporte')) { cTranp += totalComMat; sTranp += totalSemMat;
+        } else if (desc.includes('montagem'))   { cMont  += totalComMat; sMont  += totalSemMat;
+        } else if (desc.includes('projeto'))    { cPrj   += totalComMat; sPrj   += totalSemMat;
+        } else {
+          // itens sem categoria clara: alocar como material se tiver precoMaterial, senão fabricação
+          if ((item.precoMaterial || 0) > 0) { cMat  += totalComMat; }
+          else { cFab += totalComMat; sFab += totalSemMat; }
+        }
+
         if (item.unidade === 'KG' && !desc.includes('projeto')) {
           const base = (item.descricao || '').split(' - ')[0].trim() || 'item';
           if (!grupos[base] || qty > grupos[base]) grupos[base] = qty;
@@ -1347,99 +1360,96 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
 
     const marg   = calculations.margemPct   || 18;
     const impost = calculations.impostosPct || 12;
-    const custoProd    = custoFab + custoPint + custoTranp;
-    const custoServicos = custoProd + custoMont + custoPrj;
+
+    // === COM MATERIAL ===
+    const custoProd    = cFab + cPint + cTranp;
+    const custoTotal   = custoProd + cMont + cPrj + cMat;
+    const margemValM   = custoTotal * (marg / 100);
+    const impostValM   = (custoTotal + margemValM) * (impost / 100);
+    const valorTotal   = custoTotal + margemValM + impostValM;
+
+    // === SEM MATERIAL (para Retorno × Benefício) ===
+    const custoProdS   = sFab + sPint + sTranp;
+    const custoServicos = custoProdS + sMont + sPrj;
     const margemVal    = custoServicos * (marg / 100);
     const impostVal    = (custoServicos + margemVal) * (impost / 100);
-    const valorServicos = custoServicos + margemVal + impostVal;  // proposta SEM material
+    const valorServicos = custoServicos + margemVal + impostVal;
 
-    // Prazo da proposta
+    // Prazo da proposta — montagem corre em paralelo com fabricação
     const diasPrj  = cronograma?.projeto    || 10;
     const diasFab  = cronograma?.fabricacao || 30;
-    const diasMont = cronograma?.montagem   || 15;
-    const prazoTotal = diasPrj + diasFab + diasMont;
+    const DIAS_MONT_CASHFLOW = 90;  // montagem = 90 dias (parallel), não altera prazo final
+    const diasMont = cronograma?.montagem   || 15;  // mantido para exibir na timeline
+    const prazoTotal = diasPrj + diasFab;            // montagem corre em paralelo
     const mesesFab   = diasFab  / 30;
-    const mesesMont  = diasMont / 30;
+    const mesesMont  = DIAS_MONT_CASHFLOW / 30;      // 3 meses p/ distribuição cashflow
     const prazoMeses = prazoTotal / 30;
 
-    // Custo mensal da obra
+    // Custo mensal da obra (COM MATERIAL)
     const custoMensalProdObra = mesesFab  > 0 ? custoProd  / mesesFab  : 0;
-    const custoMensalMontObra = mesesMont > 0 ? custoMont  / mesesMont : 0;
+    const custoMensalMontObra = mesesMont > 0 ? cMont      / mesesMont : 0;
     const ocProd = META_PROD_KG > 0 ? Math.min(150, (pesoTotal / (mesesFab * META_PROD_KG || 1)) * 100) : 0;
     const ocMont = META_MONT_KG > 0 ? Math.min(150, (pesoTotal / (mesesMont * META_MONT_KG || 1)) * 100) : 0;
 
-    // R$/kg
-    const fabKg    = pesoTotal > 0 ? custoFab   / pesoTotal : 0;
-    const pintKg   = pesoTotal > 0 ? custoPint  / pesoTotal : 0;
-    const transpKg = pesoTotal > 0 ? custoTranp / pesoTotal : 0;
-    const montKg   = pesoTotal > 0 ? custoMont  / pesoTotal : 0;
-    const custoKg  = pesoTotal > 0 ? custoServicos / pesoTotal : 0;
-    const vendaKg  = pesoTotal > 0 ? valorServicos  / pesoTotal : 0;
+    // R$/kg — COM MATERIAL
+    const fabKg    = pesoTotal > 0 ? cFab   / pesoTotal : 0;
+    const pintKg   = pesoTotal > 0 ? cPint  / pesoTotal : 0;
+    const transpKg = pesoTotal > 0 ? cTranp / pesoTotal : 0;
+    const montKg   = pesoTotal > 0 ? cMont  / pesoTotal : 0;
+    const matKg    = pesoTotal > 0 ? cMat   / pesoTotal : 0;
+    const custoKg  = pesoTotal > 0 ? custoTotal / pesoTotal : 0;
+    const vendaKg  = pesoTotal > 0 ? valorTotal / pesoTotal : 0;
 
-    // ROI sobre serviços
-    const lucroBruto   = margemVal;   // lucro = margem
+    // % composição (base: valorTotal COM MATERIAL)
+    const pctFab    = valorTotal > 0 ? (cFab      / valorTotal) * 100 : 0;
+    const pctPint   = valorTotal > 0 ? (cPint     / valorTotal) * 100 : 0;
+    const pctTranp  = valorTotal > 0 ? (cTranp    / valorTotal) * 100 : 0;
+    const pctMont   = valorTotal > 0 ? (cMont     / valorTotal) * 100 : 0;
+    const pctPrj    = valorTotal > 0 ? (cPrj      / valorTotal) * 100 : 0;
+    const pctMat    = valorTotal > 0 ? (cMat      / valorTotal) * 100 : 0;
+    const pctMarg   = valorTotal > 0 ? (margemValM / valorTotal) * 100 : 0;
+    const pctImp    = valorTotal > 0 ? (impostValM / valorTotal) * 100 : 0;
+
+    // ROI sobre SERVIÇOS (sem material) — para Retorno
+    const lucroBruto   = margemVal;
     const roi          = custoServicos > 0 ? (lucroBruto / custoServicos) * 100 : 0;
-    const receitaDia   = prazoTotal   > 0 ? valorServicos / prazoTotal : 0;
-    const lucroMedioDia = prazoTotal  > 0 ? lucroBruto    / prazoTotal : 0;
-    const paybackDias  = receitaDia   > 0 ? custoServicos / receitaDia : 0;
+    const receitaDia   = prazoTotal > 0 ? valorServicos / prazoTotal : 0;
+    const lucroMedioDia = prazoTotal > 0 ? lucroBruto   / prazoTotal : 0;
+    const paybackDias  = receitaDia  > 0 ? custoServicos / receitaDia : 0;
 
-    // % composição (base: valorServicos)
-    const pctFab    = valorServicos > 0 ? (custoFab    / valorServicos) * 100 : 0;
-    const pctPint   = valorServicos > 0 ? (custoPint   / valorServicos) * 100 : 0;
-    const pctTranp  = valorServicos > 0 ? (custoTranp  / valorServicos) * 100 : 0;
-    const pctMont   = valorServicos > 0 ? (custoMont   / valorServicos) * 100 : 0;
-    const pctPrj    = valorServicos > 0 ? (custoPrj    / valorServicos) * 100 : 0;
-    const pctMarg   = valorServicos > 0 ? (margemVal   / valorServicos) * 100 : 0;
-    const pctImp    = valorServicos > 0 ? (impostVal   / valorServicos) * 100 : 0;
-
-    // === CASHFLOW 6 MESES (receita conforme contrato + despesa média real) ===
-    // Pagamentos conforme contrato
-    const pctAssin  = (calculations.precoFinal ? calculations : { precoFinal: valorServicos }).precoFinal * 0.10;
-    const pctAprov  = (calculations.precoFinal ? calculations : { precoFinal: valorServicos }).precoFinal * 0.05;
-    const pctMedic  = (calculations.precoFinal ? calculations : { precoFinal: valorServicos }).precoFinal * 0.85;
-
-    // Distribuição mês a mês das medições (85%) ao longo da fabricação+montagem
-    const mesesObra  = Math.max(1, Math.ceil(prazoMeses));
+    // === CASHFLOW 6 MESES (baseado em SERVIÇOS — sem material) ===
+    const baseRec   = calculations.precoFinal || valorServicos;
+    const pctAssin  = baseRec * 0.10;
+    const pctAprov  = baseRec * 0.05;
+    const pctMedic  = baseRec * 0.85;
+    // medições distribuídas ao longo de fabricação + montagem (paralela = 90 dias)
+    const mesesObra  = Math.max(1, Math.ceil((diasFab + DIAS_MONT_CASHFLOW) / 30));
     const meses6     = 6;
     const cashflow6  = [];
     for (let m = 1; m <= meses6; m++) {
       let receitaMes = 0;
-      if (m === 1) receitaMes += pctAssin + pctAprov;  // assinatura + aprovação no mês 1
-      // medições: distribuídas nos meses da obra
-      if (m >= 1 && m <= mesesObra) {
-        receitaMes += pctMedic / mesesObra;
-      }
-      const despMes = despesaMediaMensal;  // despesa fixa mensal real (fi)
+      if (m === 1) receitaMes += pctAssin + pctAprov;
+      if (m >= 1 && m <= mesesObra) receitaMes += pctMedic / mesesObra;
+      const despMes  = despesaMediaMensal;
       const saldoMes = receitaMes - despMes;
-      const recAcum = cashflow6.length > 0
-        ? cashflow6[cashflow6.length - 1].recAcum + receitaMes
-        : receitaMes;
-      const despAcum = cashflow6.length > 0
-        ? cashflow6[cashflow6.length - 1].despAcum + despMes
-        : despMes;
-      cashflow6.push({
-        mes: `Mês ${m}`,
-        receita: receitaMes,
-        despesa: despMes,
-        saldo: saldoMes,
-        recAcum,
-        despAcum,
-        saldoAcum: recAcum - despAcum,
-      });
+      const recAcum  = cashflow6.length > 0 ? cashflow6[cashflow6.length - 1].recAcum + receitaMes : receitaMes;
+      const despAcum = cashflow6.length > 0 ? cashflow6[cashflow6.length - 1].despAcum + despMes   : despMes;
+      cashflow6.push({ mes: `Mês ${m}`, receita: receitaMes, despesa: despMes, saldo: saldoMes, recAcum, despAcum, saldoAcum: recAcum - despAcum });
     }
-
-    // Valor restante a receber após contrato encerrado
     const totalRecebidoAteObra = cashflow6.slice(0, mesesObra).reduce((s, m) => s + m.receita, 0);
     const valorRestante = valorServicos - totalRecebidoAteObra;
 
     return {
       pesoTotal, areaTotal, prazoTotal, diasPrj, diasFab, diasMont, prazoMeses, mesesObra,
-      custoFab, custoPint, custoTranp, custoMont, custoPrj,
-      custoProd, custoServicos, margemVal, impostVal, valorServicos,
-      lucroBruto, roi, receitaDia, lucroMedioDia, paybackDias,
+      // COM MATERIAL (tabs 1-3)
+      custoFab: cFab, custoPint: cPint, custoTranp: cTranp, custoMont: cMont, custoPrj: cPrj, custoMat: cMat,
+      custoProd, custoTotal, margemValM, impostValM, valorTotal,
       custoMensalProdObra, custoMensalMontObra, ocProd, ocMont, mesesFab, mesesMont,
-      fabKg, pintKg, transpKg, montKg, custoKg, vendaKg,
-      pctFab, pctPint, pctTranp, pctMont, pctPrj, pctMarg, pctImp,
+      fabKg, pintKg, transpKg, montKg, matKg, custoKg, vendaKg,
+      pctFab, pctPint, pctTranp, pctMont, pctPrj, pctMat, pctMarg, pctImp,
+      // SEM MATERIAL (tab Retorno)
+      custoServicos, margemVal, impostVal, valorServicos,
+      lucroBruto, roi, receitaDia, lucroMedioDia, paybackDias,
       cashflow6, totalRecebidoAteObra, valorRestante,
     };
   }, [setores, calculations, cronograma, despesaMediaMensal]);
@@ -1526,7 +1536,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             boxShadow: 'inset 0 2px 6px rgba(255,255,255,0.25), 0 2px 6px rgba(0,0,0,0.18)' }}>
             <div style={{ position: 'absolute', top: '15%', left: '15%', width: '70%', height: '70%',
               borderRadius: '50%', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f' }}>SERVIÇOS</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#1e3a5f' }}>TOTAL</span>
               <span style={{ fontSize: 9, color: '#6b7280' }}>{fmtC(total)}</span>
             </div>
           </div>
@@ -1543,6 +1553,18 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     );
   };
 
+  // Donut COM MATERIAL (usado nas abas Visão Geral, Produção, Montagem)
+  const segTotal = [
+    { label: 'Material',    value: analise.custoMat,   color: '#3b82f6' },
+    { label: 'Fabricação',  value: analise.custoFab,   color: '#8b5cf6' },
+    { label: 'Pintura',     value: analise.custoPint,  color: '#f59e0b' },
+    { label: 'Transporte',  value: analise.custoTranp, color: '#06b6d4' },
+    { label: 'Montagem',    value: analise.custoMont,  color: '#10b981' },
+    { label: 'Projeto',     value: analise.custoPrj,   color: '#6366f1' },
+    { label: 'Margem',      value: analise.margemValM, color: '#22c55e' },
+    { label: 'Impostos',    value: analise.impostValM, color: '#ef4444' },
+  ].filter(d => d.value > 0);
+  // Donut SEM MATERIAL (usado na aba Retorno × Benefício)
   const segServicos = [
     { label: 'Fabricação',  value: analise.custoFab,   color: '#8b5cf6' },
     { label: 'Pintura',     value: analise.custoPint,  color: '#f59e0b' },
@@ -1575,11 +1597,11 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
       <div className="bg-gradient-to-r from-indigo-700 via-purple-700 to-blue-700 rounded-2xl p-6 text-white shadow-xl">
         <div className="flex items-center gap-3 mb-1">
           <Activity className="h-6 w-6" />
-          <h2 className="text-xl font-bold">Análise Interna — Serviços (sem material)</h2>
+          <h2 className="text-xl font-bold">Análise Interna</h2>
         </div>
         <p className="text-indigo-200 text-sm">
           Prazo: <strong className="text-white">{analise.prazoTotal} dias</strong>
-          &nbsp;(Projeto {analise.diasPrj}d · Fabricação {analise.diasFab}d · Montagem {analise.diasMont}d)
+          &nbsp;(Projeto {analise.diasPrj}d · Fabricação {analise.diasFab}d · Montagem 90d em paralelo)
           &nbsp;·&nbsp;Peso: <strong className="text-white">{fmtN(analise.pesoTotal / 1000)} ton</strong>
           &nbsp;·&nbsp;Despesa média/mês: <strong className="text-amber-300">{fmtC(despesaMediaMensal)}</strong>
         </p>
@@ -1605,10 +1627,10 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
         <div className="space-y-5">
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'Valor Proposta (serviços)', val: fmtC(analise.valorServicos), sub: 'Fab + Pint + Transp + Mont + Margem', cor: 'from-indigo-500 to-purple-700', icon: DollarSign },
-              { label: 'Custo Total Serviços',      val: fmtC(analise.custoServicos), sub: 'Sem material — apenas execução',      cor: 'from-blue-500 to-blue-700',    icon: Settings },
-              { label: 'Margem Bruta',              val: fmtC(analise.margemVal),     sub: `${fmtN(analise.pctMarg)}% sobre serviços`, cor: analise.pctMarg >= 15 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700', icon: TrendingUp },
-              { label: 'Preço Venda / kg',          val: fmtC(analise.vendaKg),       sub: `Custo ${fmtC(analise.custoKg)}/kg s/ mat.`, cor: 'from-amber-500 to-orange-700', icon: Weight },
+              { label: 'Valor Total Proposta',  val: fmtC(analise.valorTotal),   sub: 'Material + Serviços + Margem', cor: 'from-indigo-500 to-purple-700', icon: DollarSign },
+              { label: 'Custo Total',           val: fmtC(analise.custoTotal),   sub: 'Material + execução completa', cor: 'from-blue-500 to-blue-700',    icon: Settings },
+              { label: 'Margem Bruta',          val: fmtC(analise.margemValM),   sub: `${fmtN(analise.pctMarg)}% sobre custo total`, cor: analise.pctMarg >= 15 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700', icon: TrendingUp },
+              { label: 'Preço Venda / kg',      val: fmtC(analise.vendaKg),      sub: `Custo ${fmtC(analise.custoKg)}/kg c/ material`, cor: 'from-amber-500 to-orange-700', icon: Weight },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
                 <div className="flex items-center justify-between mb-1">
@@ -1625,20 +1647,21 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
               <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-indigo-500" />
-                Composição do Valor — Serviços (s/ material)
+                Composição do Valor Total (c/ material)
               </h3>
-              <Donut3D segments={segServicos} size={200} />
+              <Donut3D segments={segTotal} size={200} />
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-              <h3 className="text-sm font-bold text-gray-800 mb-3">Detalhamento % — Base Valor Proposta (serviços)</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-3">Detalhamento % — Base Valor Total (c/ material)</h3>
               <div className="space-y-2">
                 {[
+                  { nome: 'Material',    val: analise.custoMat,   pct: analise.pctMat,  cor: '#3b82f6', kgv: analise.matKg },
                   { nome: 'Fabricação',  val: analise.custoFab,   pct: analise.pctFab,  cor: '#8b5cf6', kgv: analise.fabKg },
                   { nome: 'Pintura',     val: analise.custoPint,  pct: analise.pctPint, cor: '#f59e0b', kgv: analise.pintKg },
                   { nome: 'Transporte',  val: analise.custoTranp, pct: analise.pctTranp,cor: '#06b6d4', kgv: analise.transpKg },
                   { nome: 'Montagem',    val: analise.custoMont,  pct: analise.pctMont, cor: '#10b981', kgv: analise.montKg },
-                  { nome: 'Margem',      val: analise.margemVal,  pct: analise.pctMarg, cor: '#22c55e', kgv: null },
-                  { nome: 'Impostos',    val: analise.impostVal,  pct: analise.pctImp,  cor: '#ef4444', kgv: null },
+                  { nome: 'Margem',      val: analise.margemValM, pct: analise.pctMarg, cor: '#22c55e', kgv: null },
+                  { nome: 'Impostos',    val: analise.impostValM, pct: analise.pctImp,  cor: '#ef4444', kgv: null },
                 ].filter(r => r.val > 0).map((r, i) => (
                   <div key={i} className="flex items-center gap-2">
                     <div style={{ width: 8, height: 8, borderRadius: 2, background: r.cor, flexShrink: 0 }} />
@@ -1735,33 +1758,46 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             ))}
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Timeline da Proposta — {analise.prazoTotal} dias</h3>
-            <div className="w-full h-10 rounded-xl overflow-hidden flex shadow-inner mb-2">
-              {[
-                { label: `Projeto\n${analise.diasPrj}d`, pct: (analise.diasPrj / analise.prazoTotal) * 100, bg: 'bg-blue-500' },
-                { label: `Fabricação\n${analise.diasFab}d`, pct: (analise.diasFab / analise.prazoTotal) * 100, bg: 'bg-purple-600' },
-                { label: `Montagem\n${analise.diasMont}d`, pct: (analise.diasMont / analise.prazoTotal) * 100, bg: 'bg-emerald-500' },
-              ].map((f, i) => (
-                <div key={i} style={{ width: `${f.pct}%` }}
-                     className={`${f.bg} flex items-center justify-center text-white text-xs font-semibold whitespace-pre-line text-center leading-tight border-r border-white/30 last:border-0`}>
-                  {f.label}
+            <h3 className="text-sm font-bold text-gray-800 mb-4">Timeline da Proposta — {analise.prazoTotal} dias (montagem em paralelo)</h3>
+            {/* Linha 1: Projeto + Fabricação */}
+            <div className="mb-1">
+              <p className="text-xs text-gray-400 mb-1">Linha fabril (prazo contratual)</p>
+              <div className="w-full h-9 rounded-xl overflow-hidden flex shadow-inner">
+                {[
+                  { label: `Projeto ${analise.diasPrj}d`, pct: (analise.diasPrj / analise.prazoTotal) * 100, bg: 'bg-blue-500' },
+                  { label: `Fabricação ${analise.diasFab}d`, pct: (analise.diasFab / analise.prazoTotal) * 100, bg: 'bg-purple-600' },
+                ].map((f, i) => (
+                  <div key={i} style={{ width: `${f.pct}%` }}
+                       className={`${f.bg} flex items-center justify-center text-white text-xs font-semibold text-center leading-tight border-r border-white/30 last:border-0`}>
+                    {f.label}
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* Linha 2: Montagem (inicia durante fabricação) */}
+            <div className="mb-2">
+              <p className="text-xs text-gray-400 mb-1">Montagem em campo (inicia c/ fabricação em andamento)</p>
+              <div className="w-full h-9 rounded-xl overflow-hidden relative shadow-inner bg-gray-100">
+                <div style={{ position: 'absolute', left: `${(analise.diasPrj / analise.prazoTotal) * 100}%`, width: '100%' }}
+                     className="h-full bg-emerald-500 flex items-center justify-center text-white text-xs font-semibold">
+                  Montagem 90d (paralela)
                 </div>
-              ))}
+              </div>
             </div>
             <div className="flex justify-between text-xs text-gray-400">
-              <span>Dia 0</span><span>Dia {analise.diasPrj}</span><span>Dia {analise.diasPrj + analise.diasFab}</span><span>Dia {analise.prazoTotal}</span>
+              <span>Dia 0</span><span>Dia {analise.diasPrj}</span><span>Dia {analise.prazoTotal}</span>
             </div>
           </div>
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">Montagem: Simulado vs Referência ({analise.diasMont} dias)</h3>
+            <h3 className="text-sm font-bold text-gray-800 mb-4">Montagem: Simulado vs Referência (90 dias paralelos)</h3>
             <Bar3D
               data={[
                 { label: 'Custo Mont.\nObra',      value: analise.custoMont },
                 { label: `Ref.Cap.\n${fmtN(analise.mesesMont)}mês`, value: META_MONT_KG * REF_MONT_KG * analise.mesesMont },
-                { label: 'Custo Total\nServiços',  value: analise.custoServicos },
-                { label: 'Valor Venda\nServiços',  value: analise.valorServicos },
+                { label: 'Custo Total\nc/ material',  value: analise.custoTotal },
+                { label: 'Valor Venda\nTotal',        value: analise.valorTotal },
               ]}
-              maxVal={Math.max(analise.valorServicos, analise.custoServicos, META_MONT_KG * REF_MONT_KG * analise.mesesMont) * 1.1}
+              maxVal={Math.max(analise.valorTotal, analise.custoTotal, META_MONT_KG * REF_MONT_KG * analise.mesesMont) * 1.1}
               colors={['#10b981','#d1fae5','#6366f1','#22c55e']}
               height={190}
             />
@@ -1806,6 +1842,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             <h3 className="text-sm font-bold text-gray-800 mb-1">Cashflow 6 Meses — Receita (contrato) × Despesa Média Real</h3>
             <p className="text-xs text-gray-400 mb-5">
               Receita conforme contrato (10% assinatura + 5% aprovação + 85% medições em {analise.mesesObra} mês{analise.mesesObra !== 1 ? 'es' : ''})
+              &nbsp;·&nbsp;Serviços apenas (sem material) · Montagem 90d em paralelo
               &nbsp;·&nbsp;Despesa = {fmtC(despesaMediaMensal)}/mês (base financeira)
             </p>
             <div className="grid grid-cols-2 gap-8">
