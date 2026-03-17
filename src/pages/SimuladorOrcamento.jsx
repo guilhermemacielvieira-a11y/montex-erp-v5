@@ -60,24 +60,10 @@ import {
   aplicarFatorRegional,
   calcularPrazoEstimado,
 } from '../data/precosDatabase';
-import { useOrcamentos, useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
+import { useOrcamentos } from '../contexts/ERPContext';
 import {
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-  RadarChart,
-  Radar,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
+  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 
 // Color palette for charts
@@ -1279,150 +1265,120 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
   );
 };
 
-// Step 7: Análise Interna - Comparativo Simulação vs Realidade
+// Step 7: Análise Interna — Custo Médio Mensal × Valor da Obra (Produção + Montagem)
 const StepAnaliseInterna = ({ setores, calculations, unitCosts }) => {
-  // Dados reais do financeiro
-  const { lancamentosDespesas } = useLancamentos();
-  const { medicoes } = useMedicoes();
-  const { obras } = useObras();
+  // === CUSTOS DE REFERÊNCIA MENSAL (base empresa) ===
+  const META_PRODUCAO_MENSAL_KG = 45000;   // 45 ton fábrica/mês
+  const META_MONTAGEM_MENSAL_KG = 25000;   // 25 ton montagem/mês
+  const CUSTO_MEDIO_FABRICACAO_KG = 5.50;
+  const CUSTO_MEDIO_PINTURA_KG = 1.40;
+  const CUSTO_MEDIO_TRANSPORTE_KG = 1.00;
+  const CUSTO_MEDIO_MONTAGEM_KG = 3.00;
+  const CUSTO_PRODUCAO_KG = CUSTO_MEDIO_FABRICACAO_KG + CUSTO_MEDIO_PINTURA_KG + CUSTO_MEDIO_TRANSPORTE_KG; // 7.90
+  const CUSTO_MENSAL_PRODUCAO = META_PRODUCAO_MENSAL_KG * CUSTO_PRODUCAO_KG; // R$ 355.500
+  const CUSTO_MENSAL_MONTAGEM = META_MONTAGEM_MENSAL_KG * CUSTO_MEDIO_MONTAGEM_KG; // R$ 75.000
+  const CUSTO_MENSAL_TOTAL = CUSTO_MENSAL_PRODUCAO + CUSTO_MENSAL_MONTAGEM; // R$ 430.500
 
-  // === DADOS DA SIMULAÇÃO (orçamento em construção) ===
-  const simulacao = useMemo(() => {
-    let pesoTotalSim = 0;
-    let custoMaterialSim = 0;
-    let custoInstalacaoSim = 0;
+  // === DADOS DA SIMULAÇÃO (do orçamento em construção) ===
+  const analise = useMemo(() => {
+    let pesoTotal = 0;
+    let custoFabricacao = 0, custoPintura = 0, custoTransporte = 0, custoMontagem = 0, custoMaterial = 0;
     let areaTotal = 0;
 
     (setores || []).forEach(s => {
       const gruposPorBase = {};
       (s.itens || []).forEach(item => {
         const qty = item.quantidade || 0;
-        custoMaterialSim += qty * (item.precoMaterial || 0);
-        custoInstalacaoSim += qty * (item.precoInstalacao || 0);
+        const desc = (item.descricao || '').toLowerCase();
+
+        // Classificar custos por tipo
+        if (desc.includes('fabricação') || desc.includes('fabricacao')) custoFabricacao += qty * (item.preco || 0);
+        else if (desc.includes('pintura')) custoPintura += qty * (item.preco || 0);
+        else if (desc.includes('transporte')) custoTransporte += qty * (item.preco || 0);
+        else if (desc.includes('montagem')) custoMontagem += qty * (item.preco || 0);
+        else if (desc.includes('material')) custoMaterial += qty * (item.preco || 0);
+        else custoMaterial += qty * (item.preco || 0); // outros vão pra material
+
         if (item.unidade === 'KG') {
           const base = (item.descricao || '').split(' - ')[0].trim() || 'item';
           if (!gruposPorBase[base] || qty > gruposPorBase[base]) gruposPorBase[base] = qty;
         }
         if (item.unidade === 'M2') areaTotal += qty;
       });
-      pesoTotalSim += Object.values(gruposPorBase).reduce((a, b) => a + b, 0);
+      pesoTotal += Object.values(gruposPorBase).reduce((a, b) => a + b, 0);
     });
 
-    const custoTotalSim = custoMaterialSim + custoInstalacaoSim;
-    const margemVal = custoInstalacaoSim * ((calculations.margemPct || 18) / 100);
-    const impostosVal = (custoInstalacaoSim + margemVal) * ((calculations.impostosPct || 12) / 100);
-    const valorProposta = custoTotalSim + margemVal + impostosVal;
-    const custoKgSim = pesoTotalSim > 0 ? custoTotalSim / pesoTotalSim : 0;
-    const precoVendaKg = pesoTotalSim > 0 ? valorProposta / pesoTotalSim : 0;
+    const custoProducao = custoFabricacao + custoPintura + custoTransporte;
+    const custoTotal = custoMaterial + custoProducao + custoMontagem;
+
+    // Margem e impostos
+    const custoInstalacao = custoProducao + custoMontagem;
+    const margemVal = custoInstalacao * ((calculations.margemPct || 18) / 100);
+    const impostosVal = (custoInstalacao + margemVal) * ((calculations.impostosPct || 12) / 100);
+    const valorProposta = custoTotal + margemVal + impostosVal;
+
+    // Quantos meses de produção essa obra ocupa
+    const mesesProducao = pesoTotal > 0 ? pesoTotal / META_PRODUCAO_MENSAL_KG : 0;
+    const mesesMontagem = pesoTotal > 0 ? pesoTotal / META_MONTAGEM_MENSAL_KG : 0;
+
+    // Custo mensal médio que essa obra vai gerar
+    const custoMensalProducaoObra = mesesProducao > 0 ? custoProducao / mesesProducao : 0;
+    const custoMensalMontagemObra = mesesMontagem > 0 ? custoMontagem / mesesMontagem : 0;
+
+    // R$/kg simulado vs referência
+    const fabricacaoKg = pesoTotal > 0 ? custoFabricacao / pesoTotal : 0;
+    const pinturaKg = pesoTotal > 0 ? custoPintura / pesoTotal : 0;
+    const transporteKg = pesoTotal > 0 ? custoTransporte / pesoTotal : 0;
+    const montagemKg = pesoTotal > 0 ? custoMontagem / pesoTotal : 0;
+    const producaoKg = pesoTotal > 0 ? custoProducao / pesoTotal : 0;
 
     return {
-      pesoTotal: pesoTotalSim,
-      custoMaterial: custoMaterialSim,
-      custoInstalacao: custoInstalacaoSim,
-      custoTotal: custoTotalSim,
-      margem: margemVal,
-      impostos: impostosVal,
-      valorProposta,
-      custoKg: custoKgSim,
-      precoVendaKg,
-      areaTotal,
-      custoM2: areaTotal > 0 ? custoTotalSim / areaTotal : 0,
+      pesoTotal, areaTotal, custoTotal, valorProposta,
+      custoMaterial, custoFabricacao, custoPintura, custoTransporte, custoMontagem,
+      custoProducao, custoInstalacao, margemVal, impostosVal,
+      mesesProducao, mesesMontagem,
+      custoMensalProducaoObra, custoMensalMontagemObra,
+      fabricacaoKg, pinturaKg, transporteKg, montagemKg, producaoKg,
+      custoKg: pesoTotal > 0 ? custoTotal / pesoTotal : 0,
+      precoVendaKg: pesoTotal > 0 ? valorProposta / pesoTotal : 0,
     };
   }, [setores, calculations]);
 
-  // === DADOS REAIS DO FINANCEIRO ===
-  const realidade = useMemo(() => {
-    // Despesas reais lançadas
-    const totalDespesas = (lancamentosDespesas || []).reduce((sum, l) => {
-      const val = l.valor || l.valorTotal || l.valor_total || 0;
-      return sum + Math.abs(val);
-    }, 0);
+  // Ocupação da capacidade mensal (%)
+  const ocupacaoProducao = CUSTO_MENSAL_PRODUCAO > 0 ? (analise.custoMensalProducaoObra / CUSTO_MENSAL_PRODUCAO) * 100 : 0;
+  const ocupacaoMontagem = CUSTO_MENSAL_MONTAGEM > 0 ? (analise.custoMensalMontagemObra / CUSTO_MENSAL_MONTAGEM) * 100 : 0;
 
-    // Receitas reais (medições pagas)
-    const totalReceitas = (medicoes || []).reduce((sum, m) => {
-      const val = m.valorBruto || m.valor_bruto || 0;
-      return sum + val;
-    }, 0);
+  // Dados gráfico barras - Custo/kg: Simulado vs Referência
+  const custoKgData = [
+    { name: 'Fabricação', simulado: analise.fabricacaoKg, referencia: CUSTO_MEDIO_FABRICACAO_KG },
+    { name: 'Pintura', simulado: analise.pinturaKg, referencia: CUSTO_MEDIO_PINTURA_KG },
+    { name: 'Transporte', simulado: analise.transporteKg, referencia: CUSTO_MEDIO_TRANSPORTE_KG },
+    { name: 'Montagem', simulado: analise.montagemKg, referencia: CUSTO_MEDIO_MONTAGEM_KG },
+  ];
 
-    // Peso total das obras (real produzido)
-    let pesoRealProduzido = 0;
-    let pesoRealTotal = 0;
-    (obras || []).forEach(o => {
-      const pe = o.pesoPorEtapa || {};
-      pesoRealProduzido += pe.pintura || 0;
-      pesoRealTotal += o.pesoTotal || o.peso_total || 0;
-    });
+  // Dados gráfico pizza - Composição do custo da obra
+  const composicaoPie = [
+    { name: 'Material', value: analise.custoMaterial, color: '#3b82f6' },
+    { name: 'Fabricação', value: analise.custoFabricacao, color: '#8b5cf6' },
+    { name: 'Pintura', value: analise.custoPintura, color: '#f59e0b' },
+    { name: 'Transporte', value: analise.custoTransporte, color: '#06b6d4' },
+    { name: 'Montagem', value: analise.custoMontagem, color: '#10b981' },
+  ].filter(d => d.value > 0);
 
-    const custoKgReal = pesoRealProduzido > 0 ? totalDespesas / pesoRealProduzido : 0;
-    const receitaKgReal = pesoRealProduzido > 0 ? totalReceitas / pesoRealProduzido : 0;
-
-    return {
-      totalDespesas,
-      totalReceitas,
-      resultado: totalReceitas - totalDespesas,
-      pesoRealProduzido,
-      pesoRealTotal,
-      custoKgReal,
-      receitaKgReal,
-      margemReal: totalReceitas > 0 ? ((totalReceitas - totalDespesas) / totalReceitas) * 100 : 0,
-      numDespesas: (lancamentosDespesas || []).length,
-      numMedicoes: (medicoes || []).length,
-    };
-  }, [lancamentosDespesas, medicoes, obras]);
-
-  // === METAS FINANCEIRAS DE REFERÊNCIA ===
-  const metas = {
-    custoKgMeta: 18.50,       // Custo máximo por kg aceitável
-    margemMinima: 15,          // Margem mínima %
-    precoVendaKgRef: 26.00,   // Preço venda R$/kg referência mercado
-    custoM2Meta: 800,          // Custo máximo por m² referência
-    prazoFabDias: 45,          // Prazo fabricação por tonelada
+  const ProgressBar = ({ label, value, max, color, format }) => {
+    const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
+    return (
+      <div>
+        <div className="flex justify-between text-sm mb-1">
+          <span className="text-gray-600">{label}</span>
+          <span className="font-semibold">{format ? format(value) : `${pct.toFixed(0)}%`}</span>
+        </div>
+        <div className="w-full bg-gray-200 rounded-full h-2.5">
+          <div className={`h-2.5 rounded-full ${color}`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    );
   };
-
-  // === COMPARATIVO ===
-  const comparativo = useMemo(() => {
-    const custoKgDiff = simulacao.custoKg > 0 && realidade.custoKgReal > 0
-      ? ((simulacao.custoKg - realidade.custoKgReal) / realidade.custoKgReal) * 100
-      : 0;
-    const margemSimulada = simulacao.valorProposta > 0
-      ? ((simulacao.valorProposta - simulacao.custoTotal) / simulacao.valorProposta) * 100
-      : 0;
-
-    return {
-      custoKgDiff,
-      margemSimulada,
-      margemVsMeta: margemSimulada - metas.margemMinima,
-      precoVendaVsRef: simulacao.precoVendaKg > 0
-        ? ((simulacao.precoVendaKg - metas.precoVendaKgRef) / metas.precoVendaKgRef) * 100
-        : 0,
-      custoVsMeta: simulacao.custoKg > 0
-        ? ((simulacao.custoKg - metas.custoKgMeta) / metas.custoKgMeta) * 100
-        : 0,
-    };
-  }, [simulacao, realidade]);
-
-  // Dados para gráfico radar
-  const radarData = [
-    { subject: 'Custo/kg', simulacao: Math.min(100, (metas.custoKgMeta / Math.max(1, simulacao.custoKg)) * 100), real: Math.min(100, (metas.custoKgMeta / Math.max(1, realidade.custoKgReal)) * 100), meta: 100 },
-    { subject: 'Margem', simulacao: Math.min(100, (comparativo.margemSimulada / 30) * 100), real: Math.min(100, (realidade.margemReal / 30) * 100), meta: (metas.margemMinima / 30) * 100 },
-    { subject: 'R$/kg Venda', simulacao: Math.min(100, (simulacao.precoVendaKg / 35) * 100), real: Math.min(100, (realidade.receitaKgReal / 35) * 100), meta: (metas.precoVendaKgRef / 35) * 100 },
-    { subject: 'Volume (t)', simulacao: Math.min(100, (simulacao.pesoTotal / 200000) * 100), real: Math.min(100, (realidade.pesoRealProduzido / 200000) * 100), meta: 50 },
-    { subject: 'Receita', simulacao: Math.min(100, (simulacao.valorProposta / 6000000) * 100), real: Math.min(100, (realidade.totalReceitas / 6000000) * 100), meta: 50 },
-  ];
-
-  // Dados para gráfico barras - composição de custos
-  const composicaoData = [
-    { name: 'Material', simulacao: simulacao.custoMaterial, real: realidade.totalDespesas * 0.55 },
-    { name: 'Instalação', simulacao: simulacao.custoInstalacao, real: realidade.totalDespesas * 0.45 },
-    { name: 'Margem', simulacao: simulacao.margem, real: realidade.totalReceitas - realidade.totalDespesas > 0 ? realidade.totalReceitas - realidade.totalDespesas : 0 },
-  ];
-
-  const StatusBadge = ({ value, isGood }) => (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${isGood ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-      {isGood ? <ArrowUpRight className="h-3 w-3" /> : <ArrowDownRight className="h-3 w-3" />}
-      {value}
-    </span>
-  );
 
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
@@ -1430,297 +1386,209 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts }) => {
       <div className="bg-gradient-to-r from-indigo-600 to-purple-700 rounded-xl p-6 text-white">
         <div className="flex items-center gap-3 mb-2">
           <Activity className="h-6 w-6" />
-          <h2 className="text-xl font-bold">Análise Interna — Cenário Comparativo</h2>
+          <h2 className="text-xl font-bold">Análise Interna — Produção × Montagem</h2>
         </div>
-        <p className="text-indigo-200 text-sm">Comparação entre a simulação do orçamento, dados reais do financeiro e metas da empresa</p>
+        <p className="text-indigo-200 text-sm">Custo médio mensal × valor da obra | Fabricação, Pintura, Transporte (Produção) + Montagem em Campo</p>
       </div>
 
-      {/* KPIs Comparativos - 3 Colunas: Simulação | Real | Meta */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-4 bg-gray-50 border-b font-semibold text-sm">
-          <div className="px-4 py-3 text-gray-600">INDICADOR</div>
-          <div className="px-4 py-3 text-blue-600 text-center">SIMULAÇÃO</div>
-          <div className="px-4 py-3 text-emerald-600 text-center">REAL (FINANCEIRO)</div>
-          <div className="px-4 py-3 text-purple-600 text-center">META / REF.</div>
-        </div>
+      {/* KPIs Principais */}
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {[
-          {
-            label: 'Custo por KG',
-            sim: formatCurrency(simulacao.custoKg),
-            real: formatCurrency(realidade.custoKgReal),
-            meta: formatCurrency(metas.custoKgMeta),
-            simGood: simulacao.custoKg <= metas.custoKgMeta,
-            realGood: realidade.custoKgReal <= metas.custoKgMeta,
-          },
-          {
-            label: 'Preço Venda / KG',
-            sim: formatCurrency(simulacao.precoVendaKg),
-            real: formatCurrency(realidade.receitaKgReal),
-            meta: formatCurrency(metas.precoVendaKgRef),
-            simGood: simulacao.precoVendaKg >= metas.precoVendaKgRef,
-            realGood: realidade.receitaKgReal >= metas.precoVendaKgRef,
-          },
-          {
-            label: 'Margem (%)',
-            sim: `${comparativo.margemSimulada.toFixed(1)}%`,
-            real: `${realidade.margemReal.toFixed(1)}%`,
-            meta: `${metas.margemMinima}% mín.`,
-            simGood: comparativo.margemSimulada >= metas.margemMinima,
-            realGood: realidade.margemReal >= metas.margemMinima,
-          },
-          {
-            label: 'Peso Total',
-            sim: `${formatNumber(simulacao.pesoTotal)} kg`,
-            real: `${formatNumber(realidade.pesoRealProduzido)} kg`,
-            meta: '-',
-            simGood: true,
-            realGood: true,
-          },
-          {
-            label: 'Custo Total',
-            sim: formatCurrency(simulacao.custoTotal),
-            real: formatCurrency(realidade.totalDespesas),
-            meta: '-',
-            simGood: true,
-            realGood: true,
-          },
-          {
-            label: 'Receita / Valor Proposta',
-            sim: formatCurrency(simulacao.valorProposta),
-            real: formatCurrency(realidade.totalReceitas),
-            meta: '-',
-            simGood: true,
-            realGood: realidade.totalReceitas > realidade.totalDespesas,
-          },
-          {
-            label: 'Resultado',
-            sim: formatCurrency(simulacao.valorProposta - simulacao.custoTotal),
-            real: formatCurrency(realidade.resultado),
-            meta: '> 0',
-            simGood: (simulacao.valorProposta - simulacao.custoTotal) > 0,
-            realGood: realidade.resultado > 0,
-          },
-        ].map((row, idx) => (
-          <div key={idx} className={`grid grid-cols-4 border-b last:border-b-0 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}`}>
-            <div className="px-4 py-3 text-sm font-medium text-gray-800 flex items-center">{row.label}</div>
-            <div className="px-4 py-3 text-sm text-center">
-              <span className="font-semibold text-gray-900">{row.sim}</span>
-              <div className="mt-0.5"><StatusBadge value={row.simGood ? 'OK' : 'Atenção'} isGood={row.simGood} /></div>
+          { label: 'Peso Total Obra', value: `${formatNumber(analise.pesoTotal / 1000)} ton`, sub: `${formatNumber(analise.pesoTotal)} kg`, color: 'border-blue-500', icon: Weight },
+          { label: 'Custo Produção', value: formatCurrency(analise.custoProducao), sub: `Fab + Pint + Transp`, color: 'border-purple-500', icon: Settings },
+          { label: 'Custo Montagem', value: formatCurrency(analise.custoMontagem), sub: 'Montagem em campo', color: 'border-emerald-500', icon: Target },
+          { label: 'Valor Proposta', value: formatCurrency(analise.valorProposta), sub: `c/ margem ${calculations.margemPct || 18}% + impostos`, color: 'border-green-500', icon: DollarSign },
+          { label: 'Preço Venda/kg', value: formatCurrency(analise.precoVendaKg), sub: `Custo: ${formatCurrency(analise.custoKg)}/kg`, color: 'border-amber-500', icon: TrendingUp },
+        ].map((kpi, idx) => (
+          <div key={idx} className={`bg-white rounded-xl shadow-sm border-l-4 ${kpi.color} p-4`}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-gray-500 font-medium">{kpi.label}</p>
+              <kpi.icon className="h-4 w-4 text-gray-300" />
             </div>
-            <div className="px-4 py-3 text-sm text-center">
-              <span className="font-semibold text-gray-900">{row.real}</span>
-              <div className="mt-0.5"><StatusBadge value={row.realGood ? 'OK' : 'Atenção'} isGood={row.realGood} /></div>
-            </div>
-            <div className="px-4 py-3 text-sm text-center font-medium text-purple-700">{row.meta}</div>
+            <p className="text-lg font-bold text-gray-900">{kpi.value}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{kpi.sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Gráficos */}
+      {/* Capacidade Mensal e Meses de Produção */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Radar Comparativo */}
+        {/* Ocupação da Capacidade */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
             <Gauge className="h-5 w-5 text-indigo-600" />
-            Radar Comparativo
+            Ocupação da Capacidade Mensal
           </h3>
-          <ResponsiveContainer width="100%" height={320}>
-            <RadarChart data={radarData}>
-              <PolarGrid stroke="#e5e7eb" />
-              <PolarAngleAxis dataKey="subject" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <PolarRadiusAxis angle={90} domain={[0, 100]} tick={false} axisLine={false} />
-              <Radar name="Simulação" dataKey="simulacao" stroke="#3b82f6" fill="#3b82f6" fillOpacity={0.2} strokeWidth={2} />
-              <Radar name="Real" dataKey="real" stroke="#10b981" fill="#10b981" fillOpacity={0.15} strokeWidth={2} />
-              <Radar name="Meta" dataKey="meta" stroke="#8b5cf6" fill="none" strokeWidth={2} strokeDasharray="5 5" />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-            </RadarChart>
-          </ResponsiveContainer>
+          <p className="text-xs text-gray-400 mb-4">Quanto do custo mensal da fábrica essa obra representa por mês</p>
+          <div className="space-y-5">
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-600 font-medium">Produção (Fab+Pint+Transp)</span>
+                <div className="text-right">
+                  <span className="font-bold text-gray-900">{formatCurrency(analise.custoMensalProducaoObra)}</span>
+                  <span className="text-gray-400 text-xs ml-1">/ {formatCurrency(CUSTO_MENSAL_PRODUCAO)} mês</span>
+                </div>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div className="h-3 rounded-full bg-purple-500" style={{ width: `${Math.min(100, ocupacaoProducao)}%` }} />
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>{analise.mesesProducao.toFixed(1)} meses de produção</span>
+                <span>{ocupacaoProducao.toFixed(0)}% da capacidade/mês</span>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span className="text-gray-600 font-medium">Montagem em Campo</span>
+                <div className="text-right">
+                  <span className="font-bold text-gray-900">{formatCurrency(analise.custoMensalMontagemObra)}</span>
+                  <span className="text-gray-400 text-xs ml-1">/ {formatCurrency(CUSTO_MENSAL_MONTAGEM)} mês</span>
+                </div>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-3">
+                <div className="h-3 rounded-full bg-emerald-500" style={{ width: `${Math.min(100, ocupacaoMontagem)}%` }} />
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-1">
+                <span>{analise.mesesMontagem.toFixed(1)} meses de montagem</span>
+                <span>{ocupacaoMontagem.toFixed(0)}% da capacidade/mês</span>
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200">
+            <p className="text-xs text-indigo-700">
+              <strong>Capacidade mensal:</strong> Produção {formatNumber(META_PRODUCAO_MENSAL_KG / 1000)} ton/mês ({formatCurrency(CUSTO_MENSAL_PRODUCAO)}) | Montagem {formatNumber(META_MONTAGEM_MENSAL_KG / 1000)} ton/mês ({formatCurrency(CUSTO_MENSAL_MONTAGEM)})
+            </p>
+          </div>
         </div>
 
-        {/* Composição de Custos - Barras */}
+        {/* Custo/kg Comparativo */}
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-800 mb-1 flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-indigo-600" />
-            Composição: Simulação vs Real
+            R$/kg: Simulado vs Referência
           </h3>
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={composicaoData} barGap={4}>
+          <p className="text-xs text-gray-400 mb-4">Comparativo do custo por kg em cada etapa</p>
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={custoKgData} barGap={4}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#6b7280' }} />
-              <YAxis tickFormatter={(v) => `R$ ${(v / 1000).toFixed(0)}k`} tick={{ fontSize: 10, fill: '#9ca3af' }} />
+              <YAxis tickFormatter={(v) => `R$ ${v.toFixed(2)}`} tick={{ fontSize: 10, fill: '#9ca3af' }} />
               <Tooltip formatter={(v) => formatCurrency(v)} />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Bar name="Simulação" dataKey="simulacao" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-              <Bar name="Real" dataKey="real" fill="#10b981" radius={[4, 4, 0, 0]} />
+              <Bar name="Simulado" dataKey="simulado" fill="#3b82f6" radius={[4, 4, 0, 0]} />
+              <Bar name="Referência" dataKey="referencia" fill="#d1d5db" radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
-      {/* Cards de Alertas e Insights */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Peso × Custo */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Scale className="h-5 w-5 text-blue-600" />
-            <h4 className="font-semibold text-gray-800">Peso × Custo</h4>
-          </div>
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Custo/kg simulado</span>
-              <span className="font-bold">{formatCurrency(simulacao.custoKg)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Custo/kg real</span>
-              <span className="font-bold">{formatCurrency(realidade.custoKgReal)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Diferença</span>
-              <StatusBadge
-                value={`${comparativo.custoKgDiff >= 0 ? '+' : ''}${comparativo.custoKgDiff.toFixed(1)}%`}
-                isGood={comparativo.custoKgDiff <= 5}
-              />
-            </div>
-            <div className="border-t pt-2 mt-2">
-              <p className="text-xs text-gray-500">
-                {comparativo.custoKgDiff > 10
-                  ? '⚠️ Custo simulado está significativamente acima do real. Revise os preços unitários.'
-                  : comparativo.custoKgDiff < -10
-                  ? '✅ Custo simulado está abaixo do real — boa margem de segurança.'
-                  : 'Custo simulado alinhado com a realidade financeira.'}
-              </p>
-            </div>
-          </div>
+      {/* Tabela Custos Unitários: Simulado vs Referência */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="px-6 py-4 border-b bg-gray-50">
+          <h3 className="font-semibold text-gray-800 flex items-center gap-2">
+            <Scale className="h-5 w-5 text-indigo-600" />
+            Custo por KG — Simulado vs Referência Mensal
+          </h3>
         </div>
-
-        {/* Metas Financeiras */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Target className="h-5 w-5 text-purple-600" />
-            <h4 className="font-semibold text-gray-800">Metas Financeiras</h4>
-          </div>
-          <div className="space-y-3 text-sm">
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-gray-500">Margem simulada</span>
-                <span className="font-bold">{comparativo.margemSimulada.toFixed(1)}%</span>
-              </div>
-              <div className="w-full bg-gray-200 rounded-full h-2">
-                <div
-                  className={`h-2 rounded-full ${comparativo.margemSimulada >= metas.margemMinima ? 'bg-green-500' : 'bg-red-500'}`}
-                  style={{ width: `${Math.min(100, (comparativo.margemSimulada / 30) * 100)}%` }}
-                />
-              </div>
-              <p className="text-xs text-gray-400 mt-0.5">Meta mínima: {metas.margemMinima}%</p>
-            </div>
-            <div>
-              <div className="flex justify-between mb-1">
-                <span className="text-gray-500">Preço venda/kg vs ref.</span>
-                <StatusBadge
-                  value={`${comparativo.precoVendaVsRef >= 0 ? '+' : ''}${comparativo.precoVendaVsRef.toFixed(1)}%`}
-                  isGood={comparativo.precoVendaVsRef >= -5}
-                />
-              </div>
-            </div>
-            <div className="border-t pt-2 mt-2">
-              <p className="text-xs text-gray-500">
-                {comparativo.margemSimulada < metas.margemMinima
-                  ? `⚠️ Margem de ${comparativo.margemSimulada.toFixed(1)}% está abaixo da meta de ${metas.margemMinima}%. Aumente preço ou reduza custos.`
-                  : `✅ Margem saudável de ${comparativo.margemSimulada.toFixed(1)}%. Acima da meta mínima.`}
-              </p>
-            </div>
-          </div>
-        </div>
-
-        {/* Cenário Geral */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <Activity className="h-5 w-5 text-emerald-600" />
-            <h4 className="font-semibold text-gray-800">Cenário Geral</h4>
-          </div>
-          <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-gray-500">Despesas lançadas</span>
-              <span className="font-bold">{realidade.numDespesas} registros</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Medições realizadas</span>
-              <span className="font-bold">{realidade.numMedicoes} medições</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Peso real produzido</span>
-              <span className="font-bold">{formatNumber(realidade.pesoRealProduzido / 1000)} ton</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Resultado real</span>
-              <span className={`font-bold ${realidade.resultado >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {formatCurrency(realidade.resultado)}
-              </span>
-            </div>
-            <div className="border-t pt-2 mt-2">
-              <p className="text-xs text-gray-500">
-                {realidade.resultado >= 0
-                  ? `✅ Operação lucrativa. Receitas cobrem despesas com folga de ${formatCurrency(realidade.resultado)}.`
-                  : `⚠️ Operação no vermelho. Deficit de ${formatCurrency(Math.abs(realidade.resultado))}.`}
-              </p>
-            </div>
-          </div>
-        </div>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b bg-gray-50/50">
+              <th className="px-6 py-3 text-left font-semibold text-gray-600">Etapa</th>
+              <th className="px-6 py-3 text-right font-semibold text-blue-600">R$/kg Simulado</th>
+              <th className="px-6 py-3 text-right font-semibold text-gray-500">R$/kg Referência</th>
+              <th className="px-6 py-3 text-right font-semibold text-gray-600">Diferença</th>
+              <th className="px-6 py-3 text-right font-semibold text-gray-600">Custo Total Obra</th>
+              <th className="px-6 py-3 text-center font-semibold text-gray-600">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {[
+              { etapa: 'Fabricação', simKg: analise.fabricacaoKg, refKg: CUSTO_MEDIO_FABRICACAO_KG, total: analise.custoFabricacao, tipo: 'producao' },
+              { etapa: 'Pintura', simKg: analise.pinturaKg, refKg: CUSTO_MEDIO_PINTURA_KG, total: analise.custoPintura, tipo: 'producao' },
+              { etapa: 'Transporte', simKg: analise.transporteKg, refKg: CUSTO_MEDIO_TRANSPORTE_KG, total: analise.custoTransporte, tipo: 'producao' },
+              { etapa: 'SUBTOTAL PRODUÇÃO', simKg: analise.producaoKg, refKg: CUSTO_PRODUCAO_KG, total: analise.custoProducao, tipo: 'subtotal' },
+              { etapa: 'Montagem Campo', simKg: analise.montagemKg, refKg: CUSTO_MEDIO_MONTAGEM_KG, total: analise.custoMontagem, tipo: 'montagem' },
+              { etapa: 'TOTAL PRODUÇÃO + MONTAGEM', simKg: analise.producaoKg + analise.montagemKg, refKg: CUSTO_PRODUCAO_KG + CUSTO_MEDIO_MONTAGEM_KG, total: analise.custoProducao + analise.custoMontagem, tipo: 'total' },
+            ].map((row, idx) => {
+              const diff = row.refKg > 0 ? ((row.simKg - row.refKg) / row.refKg) * 100 : 0;
+              const isSubtotal = row.tipo === 'subtotal' || row.tipo === 'total';
+              const isOk = row.simKg <= row.refKg * 1.15 || row.simKg === 0;
+              return (
+                <tr key={idx} className={`border-b last:border-b-0 ${isSubtotal ? 'bg-gray-50 font-semibold' : 'hover:bg-gray-50'}`}>
+                  <td className={`px-6 py-3 ${isSubtotal ? 'text-gray-900 font-bold' : 'text-gray-700'} ${row.tipo === 'montagem' ? 'text-emerald-700' : ''}`}>
+                    {row.tipo === 'producao' && <span className="inline-block w-2 h-2 rounded-full bg-purple-500 mr-2" />}
+                    {row.tipo === 'montagem' && <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-2" />}
+                    {row.etapa}
+                  </td>
+                  <td className="px-6 py-3 text-right font-mono text-blue-700">{formatCurrency(row.simKg)}</td>
+                  <td className="px-6 py-3 text-right font-mono text-gray-500">{formatCurrency(row.refKg)}</td>
+                  <td className={`px-6 py-3 text-right font-mono ${diff > 15 ? 'text-red-600' : diff < -5 ? 'text-green-600' : 'text-gray-600'}`}>
+                    {diff >= 0 ? '+' : ''}{diff.toFixed(1)}%
+                  </td>
+                  <td className="px-6 py-3 text-right font-semibold text-gray-800">{formatCurrency(row.total)}</td>
+                  <td className="px-6 py-3 text-center">
+                    {!isSubtotal && (
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold ${isOk ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {isOk ? <CheckCircle2 className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                        {isOk ? 'OK' : 'Acima'}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
-      {/* Tabela Detalhada - Custo por Etapa */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <FileText className="h-5 w-5 text-indigo-600" />
-          Detalhamento por Setor — Simulação
-        </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b">
-                <th className="px-4 py-2 text-left font-semibold text-gray-600">Setor</th>
-                <th className="px-4 py-2 text-right font-semibold text-gray-600">Peso (kg)</th>
-                <th className="px-4 py-2 text-right font-semibold text-gray-600">Material</th>
-                <th className="px-4 py-2 text-right font-semibold text-gray-600">Instalação</th>
-                <th className="px-4 py-2 text-right font-semibold text-gray-600">Total</th>
-                <th className="px-4 py-2 text-right font-semibold text-gray-600">R$/kg</th>
-                <th className="px-4 py-2 text-center font-semibold text-gray-600">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {(setores || []).map((setor, idx) => {
-                const gruposPorBase = {};
-                let matSetor = 0, instSetor = 0;
-                (setor.itens || []).forEach(item => {
-                  const qty = item.quantidade || 0;
-                  matSetor += qty * (item.precoMaterial || 0);
-                  instSetor += qty * (item.precoInstalacao || 0);
-                  if (item.unidade === 'KG') {
-                    const base = (item.descricao || '').split(' - ')[0].trim() || 'item';
-                    if (!gruposPorBase[base] || qty > gruposPorBase[base]) gruposPorBase[base] = qty;
-                  }
-                });
-                const pesoSetor = Object.values(gruposPorBase).reduce((a, b) => a + b, 0);
-                const totalSetor = matSetor + instSetor;
-                const custoKgSetor = pesoSetor > 0 ? totalSetor / pesoSetor : 0;
-                const isOk = custoKgSetor <= metas.custoKgMeta || custoKgSetor === 0;
+      {/* Composição de Custos da Obra - Pizza + Resumo */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <PieChartIcon className="h-5 w-5 text-indigo-600" />
+            Composição do Custo da Obra
+          </h3>
+          <ResponsiveContainer width="100%" height={280}>
+            <PieChart>
+              <Pie data={composicaoPie} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={2} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}>
+                {composicaoPie.map((entry, idx) => (
+                  <Cell key={idx} fill={entry.color} />
+                ))}
+              </Pie>
+              <Tooltip formatter={(v) => formatCurrency(v)} />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
 
-                return (
-                  <tr key={idx} className="border-b last:border-b-0 hover:bg-gray-50">
-                    <td className="px-4 py-2 font-medium text-gray-800">{setor.nome}</td>
-                    <td className="px-4 py-2 text-right text-gray-600">{formatNumber(pesoSetor)}</td>
-                    <td className="px-4 py-2 text-right text-gray-600">{formatCurrency(matSetor)}</td>
-                    <td className="px-4 py-2 text-right text-gray-600">{formatCurrency(instSetor)}</td>
-                    <td className="px-4 py-2 text-right font-semibold text-gray-800">{formatCurrency(totalSetor)}</td>
-                    <td className="px-4 py-2 text-right font-mono text-gray-600">{formatCurrency(custoKgSetor)}</td>
-                    <td className="px-4 py-2 text-center">
-                      <StatusBadge value={isOk ? 'OK' : 'Alto'} isGood={isOk} />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
+            <FileText className="h-5 w-5 text-indigo-600" />
+            Resumo da Análise
+          </h3>
+          <div className="space-y-4">
+            <ProgressBar label="Produção (Fab+Pint+Transp)" value={analise.custoProducao} max={analise.custoTotal} color="bg-purple-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
+            <ProgressBar label="Montagem em Campo" value={analise.custoMontagem} max={analise.custoTotal} color="bg-emerald-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
+            <ProgressBar label="Material" value={analise.custoMaterial} max={analise.custoTotal} color="bg-blue-500" format={(v) => `${((v / Math.max(1, analise.custoTotal)) * 100).toFixed(0)}% — ${formatCurrency(v)}`} />
+            <div className="border-t pt-3 mt-3 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Margem ({calculations.margemPct || 18}%) s/ instalação</span>
+                <span className="font-bold text-green-600">{formatCurrency(analise.margemVal)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">Impostos ({calculations.impostosPct || 12}%) s/ instalação</span>
+                <span className="font-bold text-amber-600">{formatCurrency(analise.impostosVal)}</span>
+              </div>
+              <div className="flex justify-between text-base border-t pt-2">
+                <span className="font-bold text-gray-800">VALOR TOTAL PROPOSTA</span>
+                <span className="font-bold text-green-700 text-lg">{formatCurrency(analise.valorProposta)}</span>
+              </div>
+            </div>
+            <div className="p-3 bg-indigo-50 rounded-lg border border-indigo-200 mt-3">
+              <p className="text-xs text-indigo-700">
+                <strong>Essa obra ocupa</strong> {analise.mesesProducao.toFixed(1)} meses de produção na fábrica e {analise.mesesMontagem.toFixed(1)} meses de montagem em campo, gerando custo médio mensal de {formatCurrency(analise.custoMensalProducaoObra + analise.custoMensalMontagemObra)} (produção + montagem).
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
