@@ -1302,10 +1302,11 @@ const KPICard = ({ title, value, icon: Icon, color = 'blue', subtitle = '' }) =>
 };
 
 // Step 7: Análise Interna — Custo Médio Mensal × Valor da Obra (Produção + Montagem)
-const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }) => {
+const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, paymentConditions }) => {
   const [abaAtiva, setAbaAtiva] = useState('visao');
   const [animado, setAnimado] = useState(false);
   const [valoresAnimados, setValoresAnimados] = useState({});
+  const [mesesPagamento, setMesesPagamento] = useState(6);
 
   // === REFERÊNCIAS MENSAIS ===
   const META_PROD_KG  = 45000;
@@ -1425,36 +1426,14 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
     const pctImp    = valorTotal > 0 ? (impostValM / valorTotal) * 100 : 0;
 
     // ROI sobre SERVIÇOS (sem material) — para Retorno
-    const lucroBruto   = margemVal;
-    const roi          = custoServicos > 0 ? (lucroBruto / custoServicos) * 100 : 0;
-    const receitaDia   = prazoTotal > 0 ? valorServicos / prazoTotal : 0;
-    const lucroMedioDia = prazoTotal > 0 ? lucroBruto   / prazoTotal : 0;
-    const paybackDias  = receitaDia  > 0 ? custoServicos / receitaDia : 0;
-
-    // === CASHFLOW 6 MESES — base = SOMENTE SERVIÇOS (instalação), sem material ===
-    // valorServicos = custoServicos + margem + impostos (só precoInstalacao de cada item)
-    const pctAssin  = valorServicos * 0.10;
-    const pctAprov  = valorServicos * 0.05;
-    const pctMedic  = valorServicos * 0.85;
-    // medições distribuídas ao longo de fabricação + montagem (paralela = 90 dias)
-    const mesesObra  = Math.max(1, Math.ceil((diasFab + DIAS_MONT_CASHFLOW) / 30));
-    const meses6     = 6;
-    const cashflow6  = [];
-    for (let m = 1; m <= meses6; m++) {
-      let receitaMes = 0;
-      if (m === 1) receitaMes += pctAssin + pctAprov;
-      if (m >= 1 && m <= mesesObra) receitaMes += pctMedic / mesesObra;
-      const despMes  = despesaMediaMensal;
-      const saldoMes = receitaMes - despMes;
-      const recAcum  = cashflow6.length > 0 ? cashflow6[cashflow6.length - 1].recAcum + receitaMes : receitaMes;
-      const despAcum = cashflow6.length > 0 ? cashflow6[cashflow6.length - 1].despAcum + despMes   : despMes;
-      cashflow6.push({ mes: `Mês ${m}`, receita: receitaMes, despesa: despMes, saldo: saldoMes, recAcum, despAcum, saldoAcum: recAcum - despAcum });
-    }
-    const totalRecebidoAteObra = cashflow6.slice(0, mesesObra).reduce((s, m) => s + m.receita, 0);
-    const valorRestante = valorServicos - totalRecebidoAteObra;
+    const lucroBruto    = margemVal;
+    const roi           = custoServicos > 0 ? (lucroBruto / custoServicos) * 100 : 0;
+    const receitaDia    = prazoTotal > 0 ? valorServicos / prazoTotal : 0;
+    const lucroMedioDia = prazoTotal > 0 ? lucroBruto    / prazoTotal : 0;
+    const paybackDias   = receitaDia  > 0 ? custoServicos / receitaDia : 0;
 
     return {
-      pesoTotal, areaTotal, prazoTotal, diasPrj, diasFab, diasMont, prazoMeses, mesesObra,
+      pesoTotal, areaTotal, prazoTotal, diasPrj, diasFab, diasMont, prazoMeses,
       // COM MATERIAL (tabs 1-3)
       custoFab: cFab, custoPint: cPint, custoTranp: cTranp, custoMont: cMont, custoPrj: cPrj, custoMat: cMat,
       custoProd, custoTotal, margemValM, impostValM, valorTotal,
@@ -1464,9 +1443,32 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
       // SEM MATERIAL (tab Retorno)
       custoServicos, margemVal, impostVal, valorServicos,
       lucroBruto, roi, receitaDia, lucroMedioDia, paybackDias,
-      cashflow6, totalRecebidoAteObra, valorRestante,
     };
   }, [setores, calculations, cronograma, despesaMediaMensal]);
+
+  // === CASHFLOW — recalcula quando mesesPagamento muda ===
+  const cashflowData = useMemo(() => {
+    const pctEntrada  = paymentConditions?.assinatura ?? 10;  // % de entrada
+    const valEntrada  = analise.valorServicos * (pctEntrada / 100);
+    const valSaldo    = analise.valorServicos - valEntrada;
+    const parcelaMes  = mesesPagamento > 0 ? valSaldo / mesesPagamento : valSaldo;
+    // exibir pelo menos 6 linhas, ou até mesesPagamento+1
+    const totalLinhas = Math.max(6, mesesPagamento + 1);
+    const rows = [];
+    for (let m = 1; m <= totalLinhas; m++) {
+      let receitaMes = 0;
+      if (m === 1) receitaMes += valEntrada;              // entrada no mês 1
+      if (m >= 1 && m <= mesesPagamento) receitaMes += parcelaMes;  // parcela mensal
+      const despMes   = despesaMediaMensal;
+      const saldo     = receitaMes - despMes;
+      const recAcum   = rows.length > 0 ? rows[rows.length - 1].recAcum  + receitaMes : receitaMes;
+      const despAcum  = rows.length > 0 ? rows[rows.length - 1].despAcum + despMes    : despMes;
+      rows.push({ mes: `Mês ${m}`, receita: receitaMes, despesa: despMes, saldo, recAcum, despAcum, saldoAcum: recAcum - despAcum });
+    }
+    const totalRecebido = rows.slice(0, mesesPagamento).reduce((s, r) => s + r.receita, 0);
+    const valorRestante = analise.valorServicos - totalRecebido;
+    return { rows, valEntrada, valSaldo, parcelaMes, pctEntrada, totalRecebido, valorRestante };
+  }, [analise.valorServicos, mesesPagamento, despesaMediaMensal, paymentConditions]);
 
   // Count-up animation
   useEffect(() => {
@@ -1826,10 +1828,10 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
           {/* KPIs ROI */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {[
-              { label: 'ROI (serviços)',    val: `${fmtN(va.roi ?? analise.roi)}%`, sub: `Lucro ${fmtC(analise.lucroBruto)} / Custo ${fmtC(analise.custoServicos)}`, cor: analise.roi >= 15 ? 'from-green-500 to-emerald-700' : 'from-red-500 to-red-700' },
-              { label: 'Receita / Dia',     val: fmtC(va.receitaDia ?? analise.receitaDia), sub: `${analise.prazoTotal} dias de contrato`,  cor: 'from-blue-500 to-indigo-700' },
-              { label: 'Lucro / Dia',       val: fmtC(va.lucroDia ?? analise.lucroMedioDia), sub: `Payback em ${fmtN(va.payback ?? analise.paybackDias, 0)} dias`, cor: analise.lucroMedioDia > 0 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700' },
-              { label: 'Despesa Méd./mês',  val: fmtC(despesaMediaMensal), sub: 'Base: Módulo Análise Financeira', cor: 'from-amber-500 to-orange-700' },
+              { label: 'ROI (serviços)',    val: `${fmtN(va.roi ?? analise.roi)}%`,              sub: `Lucro ${fmtC(analise.lucroBruto)} / Custo ${fmtC(analise.custoServicos)}`, cor: analise.roi >= 15 ? 'from-green-500 to-emerald-700' : 'from-red-500 to-red-700' },
+              { label: 'Receita / Dia',     val: fmtC(va.receitaDia ?? analise.receitaDia),       sub: `${analise.prazoTotal} dias de contrato`, cor: 'from-blue-500 to-indigo-700' },
+              { label: 'Lucro / Dia',       val: fmtC(va.lucroDia ?? analise.lucroMedioDia),      sub: `Payback em ${fmtN(va.payback ?? analise.paybackDias, 0)} dias`, cor: analise.lucroMedioDia > 0 ? 'from-emerald-500 to-green-700' : 'from-red-500 to-red-700' },
+              { label: 'Despesa Méd./mês',  val: fmtC(despesaMediaMensal),                        sub: 'Base: Módulo Análise Financeira', cor: 'from-amber-500 to-orange-700' },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
                 <p className="text-xs text-white/70 font-medium mb-1">{k.label}</p>
@@ -1839,58 +1841,90 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             ))}
           </div>
 
-          {/* Nota sobre base da despesa */}
-          {fi?.kpisGerais?.mesesBaseNomes && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
-              <Info className="h-4 w-4 text-amber-600 flex-shrink-0" />
-              <p className="text-xs text-amber-800">
-                <strong>Despesa média mensal</strong> calculada com base nos meses:&nbsp;
-                <strong>{fi.kpisGerais.mesesBaseNomes.join(', ')}</strong>.
-                &nbsp;Inclui RH + despesas operacionais lançadas no módulo financeiro.
-              </p>
+          {/* Configuração do recebimento + nota despesa */}
+          <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5">
+            <div className="flex flex-wrap items-center gap-6">
+              {/* Seletor de meses */}
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold text-gray-700">Prazo de recebimento:</span>
+                <div className="flex gap-1.5">
+                  {[4, 5, 6, 7, 8, 9, 10, 12].map(n => (
+                    <button key={n} onClick={() => setMesesPagamento(n)}
+                      className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
+                        mesesPagamento === n
+                          ? 'bg-indigo-600 text-white shadow-md scale-105'
+                          : 'bg-gray-100 text-gray-600 hover:bg-indigo-50 hover:text-indigo-700'
+                      }`}>
+                      {n}
+                    </button>
+                  ))}
+                  <span className="flex items-center text-xs text-gray-400 ml-1">meses</span>
+                </div>
+              </div>
+              {/* Resumo do plano */}
+              <div className="flex items-center gap-4 text-xs text-gray-600 border-l pl-6">
+                <span>Entrada <strong className="text-indigo-700">{fmtC(cashflowData.valEntrada)}</strong> ({cashflowData.pctEntrada}%) no mês 1</span>
+                <span>+</span>
+                <span>Saldo <strong className="text-emerald-700">{fmtC(cashflowData.valSaldo)}</strong> em {mesesPagamento}× de <strong className="text-emerald-700">{fmtC(cashflowData.parcelaMes)}</strong>/mês</span>
+              </div>
             </div>
-          )}
+            {fi?.kpisGerais?.mesesBaseNomes && (
+              <div className="mt-3 pt-3 border-t flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 text-amber-500 flex-shrink-0" />
+                <p className="text-xs text-gray-500">
+                  Despesa média calculada com base em: <strong>{fi.kpisGerais.mesesBaseNomes.join(', ')}</strong>
+                </p>
+              </div>
+            )}
+          </div>
 
-          {/* Gráfico 3D cashflow 6 meses — Receita vs Despesa */}
+          {/* Gráfico 3D Receita vs Despesa */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-1">Cashflow 6 Meses — Receita (contrato) × Despesa Média Real</h3>
+            <h3 className="text-sm font-bold text-gray-800 mb-1">
+              Receita × Despesa — {cashflowData.rows.length} meses
+            </h3>
             <p className="text-xs text-gray-400 mb-5">
-              Receita conforme contrato (10% assinatura + 5% aprovação + 85% medições em {analise.mesesObra} mês{analise.mesesObra !== 1 ? 'es' : ''})
-              &nbsp;·&nbsp;Serviços apenas (sem material) · Montagem 90d em paralelo
-              &nbsp;·&nbsp;Despesa = {fmtC(despesaMediaMensal)}/mês (base financeira)
+              Entrada {cashflowData.pctEntrada}% no mês 1 + saldo em {mesesPagamento} parcelas mensais
+              &nbsp;·&nbsp;Serviços (sem material) · Despesa = {fmtC(despesaMediaMensal)}/mês
             </p>
             <div className="grid grid-cols-2 gap-8">
               <div>
-                <p className="text-xs font-semibold text-green-700 text-center mb-2">ENTRADAS — Receita por Mês (R$)</p>
+                <p className="text-xs font-semibold text-green-700 text-center mb-2">ENTRADAS — Receita por Mês</p>
                 <Bar3D
-                  data={analise.cashflow6.map(m => ({ label: m.mes, value: m.receita, topLabel: m.receita > 0 ? fmtC(m.receita) : 'R$0' }))}
-                  maxVal={Math.max(...analise.cashflow6.map(m => Math.max(m.receita, m.despesa))) * 1.15}
-                  colors={['#22c55e','#16a34a','#15803d','#166534','#14532d','#052e16']}
+                  data={cashflowData.rows.map(m => ({ label: m.mes, value: m.receita, topLabel: m.receita > 0 ? fmtC(m.receita) : '—' }))}
+                  maxVal={Math.max(...cashflowData.rows.map(m => Math.max(m.receita, m.despesa)), 1) * 1.15}
+                  colors={Array(cashflowData.rows.length).fill(null).map((_, i) => `hsl(${142 - i * 8}, 70%, ${40 + i * 3}%)`)}
                   height={180}
                 />
               </div>
               <div>
-                <p className="text-xs font-semibold text-red-600 text-center mb-2">SAÍDAS — Despesa Média/Mês (R$)</p>
+                <p className="text-xs font-semibold text-red-600 text-center mb-2">SAÍDAS — Despesa Média/Mês</p>
                 <Bar3D
-                  data={analise.cashflow6.map(m => ({ label: m.mes, value: m.despesa, topLabel: fmtC(m.despesa) }))}
-                  maxVal={Math.max(...analise.cashflow6.map(m => Math.max(m.receita, m.despesa))) * 1.15}
-                  colors={['#ef4444','#dc2626','#b91c1c','#991b1b','#7f1d1d','#6b0000']}
+                  data={cashflowData.rows.map(m => ({ label: m.mes, value: m.despesa, topLabel: fmtC(m.despesa) }))}
+                  maxVal={Math.max(...cashflowData.rows.map(m => Math.max(m.receita, m.despesa)), 1) * 1.15}
+                  colors={Array(cashflowData.rows.length).fill('#ef4444')}
                   height={180}
                 />
               </div>
             </div>
           </div>
 
-          {/* Tabela cashflow detalhado */}
+          {/* Tabela detalhamento mensal */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-6 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b">
-              <h3 className="font-semibold text-gray-700 text-sm">Detalhamento Mensal — Receita × Despesa × Saldo Acumulado (6 meses)</h3>
+            <div className="px-6 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b flex items-center justify-between">
+              <h3 className="font-semibold text-gray-700 text-sm">
+                Detalhamento Mensal — Receita × Despesa × Saldo Acumulado ({cashflowData.rows.length} meses)
+              </h3>
+              <span className="text-xs text-indigo-600 font-semibold">
+                Total serviços: {fmtC(analise.valorServicos)}
+              </span>
             </div>
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-gray-50/50">
                   <th className="px-4 py-2.5 text-left text-gray-500 font-semibold">Período</th>
                   <th className="px-4 py-2.5 text-right text-green-600 font-semibold">Receita</th>
+                  <th className="px-4 py-2.5 text-right text-gray-500 font-semibold text-xs">Composição</th>
                   <th className="px-4 py-2.5 text-right text-red-600 font-semibold">Despesa</th>
                   <th className="px-4 py-2.5 text-right text-blue-600 font-semibold">Saldo Mês</th>
                   <th className="px-4 py-2.5 text-right text-indigo-600 font-semibold">Saldo Acum.</th>
@@ -1898,33 +1932,46 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
                 </tr>
               </thead>
               <tbody>
-                {analise.cashflow6.map((m, i) => (
-                  <tr key={i} className={`border-b last:border-0 ${i < analise.mesesObra ? 'bg-blue-50/20' : ''} hover:bg-gray-50`}>
-                    <td className="px-4 py-2.5 font-semibold text-gray-800 flex items-center gap-2">
-                      {m.mes}
-                      {i < analise.mesesObra && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">obra</span>}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-green-700 font-mono font-semibold">{fmtC(m.receita)}</td>
-                    <td className="px-4 py-2.5 text-right text-red-600 font-mono">{fmtC(m.despesa)}</td>
-                    <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-                      {m.saldo >= 0 ? '+' : ''}{fmtC(m.saldo)}
-                    </td>
-                    <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldoAcum >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
-                      {m.saldoAcum >= 0 ? '+' : ''}{fmtC(m.saldoAcum)}
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${m.saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {m.saldo >= 0 ? '✅' : '⚠️'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                {cashflowData.rows.map((m, i) => {
+                  const isEntrada = i === 0;
+                  const isParcela = i < mesesPagamento;
+                  return (
+                    <tr key={i} className={`border-b last:border-0 ${isParcela ? 'bg-blue-50/20' : 'bg-gray-50/30'} hover:bg-gray-50`}>
+                      <td className="px-4 py-2.5 font-semibold text-gray-800">
+                        <div className="flex items-center gap-1.5">
+                          {m.mes}
+                          {isEntrada && <span className="text-xs bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-full">entrada</span>}
+                          {isParcela && <span className="text-xs bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full">parcela {i + 1}/{mesesPagamento}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-green-700 font-mono font-semibold">{m.receita > 0 ? fmtC(m.receita) : '—'}</td>
+                      <td className="px-4 py-2.5 text-right text-xs text-gray-400">
+                        {isEntrada && isParcela ? `${fmtC(cashflowData.valEntrada)} + ${fmtC(cashflowData.parcelaMes)}`
+                          : isEntrada ? `${cashflowData.pctEntrada}% entrada`
+                          : isParcela ? `parcela ${i + 1}/${mesesPagamento}`
+                          : '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-red-600 font-mono">{fmtC(m.despesa)}</td>
+                      <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldo >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                        {m.saldo >= 0 ? '+' : ''}{fmtC(m.saldo)}
+                      </td>
+                      <td className={`px-4 py-2.5 text-right font-mono font-bold ${m.saldoAcum >= 0 ? 'text-indigo-700' : 'text-red-700'}`}>
+                        {m.saldoAcum >= 0 ? '+' : ''}{fmtC(m.saldoAcum)}
+                      </td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${m.saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                          {m.saldo >= 0 ? '✅' : '⚠️'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
                 <tr className="bg-indigo-50 font-bold border-t-2 border-indigo-200">
-                  <td className="px-4 py-3 text-indigo-800">TOTAL 6 MESES</td>
-                  <td className="px-4 py-3 text-right text-green-700 font-mono">{fmtC(analise.cashflow6.reduce((s,m) => s + m.receita, 0))}</td>
-                  <td className="px-4 py-3 text-right text-red-600 font-mono">{fmtC(analise.cashflow6.reduce((s,m) => s + m.despesa, 0))}</td>
-                  <td className="px-4 py-3 text-right font-mono text-indigo-800">{fmtC(analise.cashflow6[analise.cashflow6.length-1]?.saldoAcum ?? 0)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-indigo-800">{fmtC(analise.cashflow6[analise.cashflow6.length-1]?.saldoAcum ?? 0)}</td>
+                  <td className="px-4 py-3 text-indigo-800">TOTAL {cashflowData.rows.length} MESES</td>
+                  <td className="px-4 py-3 text-right text-green-700 font-mono">{fmtC(cashflowData.rows.reduce((s, r) => s + r.receita, 0))}</td>
+                  <td className="px-4 py-3" />
+                  <td className="px-4 py-3 text-right text-red-600 font-mono">{fmtC(cashflowData.rows.reduce((s, r) => s + r.despesa, 0))}</td>
+                  <td className="px-4 py-3 text-right font-mono text-indigo-800" colSpan={2}>{fmtC(cashflowData.rows[cashflowData.rows.length - 1]?.saldoAcum ?? 0)}</td>
                   <td className="px-4 py-3 text-center">
                     <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-indigo-200 text-indigo-800">ROI {fmtN(analise.roi)}%</span>
                   </td>
@@ -1933,19 +1980,15 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
             </table>
           </div>
 
-          {/* Valor restante a receber */}
-          {analise.valorRestante > 0 && (
-            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-5">
-              <div className="flex items-start gap-3">
-                <DollarSign className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-bold text-blue-900 text-sm">Valor Restante a Receber após {analise.mesesObra} mês{analise.mesesObra !== 1 ? 'es' : ''} de obra</p>
-                  <p className="text-blue-700 text-xs mt-1">
-                    Do total de <strong>{fmtC(analise.valorServicos)}</strong>, foram recebidos <strong>{fmtC(analise.totalRecebidoAteObra)}</strong> durante a obra.
-                    &nbsp;Restam <strong className="text-lg">{fmtC(analise.valorRestante)}</strong> a serem recebidos após a entrega.
-                  </p>
-                </div>
-              </div>
+          {/* Valor restante */}
+          {cashflowData.valorRestante > 0 && (
+            <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl p-4 flex items-start gap-3">
+              <DollarSign className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-blue-800">
+                Do total de serviços <strong>{fmtC(analise.valorServicos)}</strong>,
+                serão recebidos <strong>{fmtC(cashflowData.totalRecebido)}</strong> ao longo dos {mesesPagamento} meses.
+                {cashflowData.valorRestante > 0 && <> Restam <strong className="text-base">{fmtC(cashflowData.valorRestante)}</strong> após o período.</>}
+              </p>
             </div>
           )}
 
@@ -1953,7 +1996,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma }
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {[
               analise.roi < 15 && { tipo: 'warn', msg: `ROI de ${fmtN(analise.roi)}% abaixo da meta de 15%. Aumente a margem ou reduza custos.` },
-              analise.cashflow6.some(m => m.saldo < 0) && { tipo: 'warn', msg: `Há meses com saldo negativo (despesa supera a entrada). Verifique antecipação de pagamentos.` },
+              cashflowData.rows.some(m => m.saldo < 0) && { tipo: 'warn', msg: `Há meses com saldo negativo (despesa supera a entrada). Verifique antecipação de pagamentos.` },
               analise.roi >= 15 && { tipo: 'ok', msg: `ROI de ${fmtN(analise.roi)}% dentro da meta. Margem saudável para o projeto.` },
               analise.lucroMedioDia > 0 && { tipo: 'ok', msg: `Gera ${fmtC(analise.lucroMedioDia)}/dia de lucro bruto ao longo dos ${analise.prazoTotal} dias de contrato.` },
               !fi?.kpisGerais?.despesaMensalMedia && { tipo: 'warn', msg: `Despesa média usando valor de referência (${fmtC(despesaMediaMensal)}/mês). Conecte o módulo financeiro para dados reais.` },
@@ -2670,7 +2713,7 @@ export default function SimuladorOrcamento() {
       case 4:
         return <StepCronogramaEscopo cronograma={cronograma} setCronograma={setCronograma} escopo={escopo} setEscopo={setEscopo} setores={setores} />;
       case 5:
-        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} cronograma={cronograma} />;
+        return <StepAnaliseInterna setores={setores} calculations={calculations} unitCosts={unitCosts} fi={fi} cronograma={cronograma} paymentConditions={paymentConditions} />;
       case 6:
         return <StepPrevia project={project} setores={setores} calculations={calculations} unitCosts={unitCosts} paymentConditions={paymentConditions} cronograma={cronograma} escopo={escopo} onSave={handleSaveOrcamento} onGeneratePDF={handleGeneratePDF} onGenerateHTML={handleGenerateHTML} onGenerateDOCX={handleGenerateDOCX} />;
       default:
