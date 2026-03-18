@@ -274,6 +274,7 @@ const navigationCategories = [
     activeColor: 'bg-slate-500/15 border-slate-500/40',
     items: [
       { name: 'Usuários', href: 'UsuariosPage', icon: Users, badge: 'ADMIN', badgeColor: 'bg-red-500/20 text-red-400' },
+      { name: 'Gestão de Usuários', href: 'GestaoUsuariosPage', icon: Users, badge: 'ADMIN', badgeColor: 'bg-orange-500/20 text-orange-400' },
     ]
   },
 ];

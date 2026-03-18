@@ -119,6 +119,7 @@ const VendasPage = lazy(() => import('./pages/VendasPage'));
 
 // ===== ADMIN =====
 const UsuariosPage = lazy(() => import('./pages/UsuariosPage'));
+const GestaoUsuariosPage = lazy(() => import('./pages/GestaoUsuariosPage'));
 
 // ===== LAYOUT (não usa lazy - carregado sempre) =====
 import __Layout from './Layout.jsx';
@@ -216,6 +217,7 @@ export const PAGES = {
 
     // Admin
     "UsuariosPage": UsuariosPage,
+    "GestaoUsuariosPage": GestaoUsuariosPage,
 }
 
 export const pagesConfig = {
