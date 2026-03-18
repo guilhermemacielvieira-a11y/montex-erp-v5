@@ -751,15 +751,24 @@ export default function KanbanProducaoIntegrado() {
 
     const totalConjuntos = conjuntosFiltrados.length;
     const totalPecas = conjuntosFiltrados.reduce((sum, c) => sum + c.pecas * c.quantidade, 0);
-    const pesoTotal = conjuntosFiltrados.reduce((sum, c) => sum + c.pesoTotal, 0);
     const expedidos = conjuntosFiltrados.filter(c => c.status === 'expedido').length;
     const altaPrioridade = conjuntosFiltrados.filter(c => c.prioridade === 'alta').length;
 
-    // Peso por status
+    // Peso por status (só das peças no kanban ativo)
     const pesoFabricacao = conjuntosFiltrados.filter(c => c.status === 'fabricacao').reduce((sum, c) => sum + c.pesoTotal, 0);
     const pesoSolda = conjuntosFiltrados.filter(c => c.status === 'solda').reduce((sum, c) => sum + c.pesoTotal, 0);
     const pesoPintura = conjuntosFiltrados.filter(c => c.status === 'pintura').reduce((sum, c) => sum + c.pesoTotal, 0);
     const pesoExpedido = conjuntosFiltrados.filter(c => c.status === 'expedido').reduce((sum, c) => sum + c.pesoTotal, 0);
+
+    // Peças enviadas/entregues/montagem — excluídas do kanban mas contam para peso total da obra
+    const ETAPAS_ENVIADAS = ['enviado', 'entregue', 'montagem'];
+    const pecasEnviadasSupabase = (pecasSupabase || []).filter(p => ETAPAS_ENVIADAS.includes(p.etapa));
+    const qtdEnviadas = pecasEnviadasSupabase.reduce((sum, p) => sum + (p.quantidade || 1), 0);
+    const pesoEnviadas = pecasEnviadasSupabase.reduce((sum, p) => sum + (p.pesoTotal || p.peso || 0), 0);
+
+    // Peso total REAL da obra = kanban ativo + enviadas
+    const pesoKanban = conjuntosFiltrados.reduce((sum, c) => sum + c.pesoTotal, 0);
+    const pesoTotal = pesoKanban + pesoEnviadas;
 
     // Valor de medição
     const valorFabricacao = pesoFabricacao * 2.50;
@@ -767,7 +776,7 @@ export default function KanbanProducaoIntegrado() {
     const valorPintura = pesoPintura * 1.80;
     const valorTotal = valorFabricacao + valorSolda + valorPintura;
 
-    const progressoGeral = pesoTotal > 0 ? Math.round((pesoExpedido / pesoTotal) * 100) : 0;
+    const progressoGeral = pesoTotal > 0 ? Math.round(((pesoExpedido + pesoEnviadas) / pesoTotal) * 100) : 0;
 
     return {
       totalConjuntos,
@@ -780,9 +789,12 @@ export default function KanbanProducaoIntegrado() {
       pesoPintura,
       pesoExpedido,
       valorTotal,
-      progressoGeral
+      progressoGeral,
+      // Enviadas
+      qtdEnviadas,
+      pesoEnviadas,
     };
-  }, [producaoFabrica, obraFiltro]);
+  }, [producaoFabrica, obraFiltro, pecasSupabase]);
 
   // Dados para gráfico
   const dadosGrafico = COLUNAS_PRODUCAO.map((col, idx) => {
@@ -957,13 +969,20 @@ export default function KanbanProducaoIntegrado() {
       )}
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {[
-          { label: 'Total Conjuntos', value: kpis.totalConjuntos.toLocaleString(), icon: Package, cor: 'blue' },
-          { label: 'Peso Total', value: formatPeso(kpis.pesoTotal), icon: Layers, cor: 'purple' },
-          { label: 'Em Fabricação', value: formatPeso(kpis.pesoFabricacao), icon: Wrench, cor: 'blue' },
-          { label: 'Expedido', value: formatPeso(kpis.pesoExpedido), icon: Truck, cor: 'emerald' },
-          { label: 'Alta Prioridade', value: kpis.altaPrioridade, icon: AlertTriangle, cor: 'red' },
+          { label: 'Total Conjuntos', value: kpis.totalConjuntos.toLocaleString(), icon: Package, cor: 'blue', sub: null },
+          { label: 'Peso Total Obra', value: formatPeso(kpis.pesoTotal), icon: Layers, cor: 'purple', sub: null },
+          { label: 'Em Fabricação', value: formatPeso(kpis.pesoFabricacao), icon: Wrench, cor: 'blue', sub: null },
+          { label: 'Expedido', value: formatPeso(kpis.pesoExpedido), icon: Truck, cor: 'emerald', sub: null },
+          {
+            label: 'Peças Enviadas',
+            value: kpis.qtdEnviadas.toLocaleString('pt-BR'),
+            icon: CheckCircle2,
+            cor: 'cyan',
+            sub: formatPeso(kpis.pesoEnviadas),
+          },
+          { label: 'Alta Prioridade', value: kpis.altaPrioridade, icon: AlertTriangle, cor: 'red', sub: null },
         ].map((kpi, idx) => (
           <motion.div
             key={idx}
@@ -976,12 +995,16 @@ export default function KanbanProducaoIntegrado() {
               <div>
                 <p className="text-slate-400 text-xs">{kpi.label}</p>
                 <p className="text-xl font-bold text-white mt-1">{kpi.value}</p>
+                {kpi.sub && (
+                  <p className="text-xs text-slate-500 mt-0.5">{kpi.sub}</p>
+                )}
               </div>
               <div className={cn(
                 "p-2 rounded-lg",
                 kpi.cor === 'blue' && "bg-blue-500/20 text-blue-400",
                 kpi.cor === 'purple' && "bg-purple-500/20 text-purple-400",
                 kpi.cor === 'emerald' && "bg-emerald-500/20 text-emerald-400",
+                kpi.cor === 'cyan' && "bg-cyan-500/20 text-cyan-400",
                 kpi.cor === 'red' && "bg-red-500/20 text-red-400",
               )}>
                 <kpi.icon className="h-5 w-5" />
