@@ -18,6 +18,7 @@ import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/con
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
 import { useEstoque, useObras } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
+import { LancamentoProducaoModal } from '../components/kanban/LancamentoProducaoModal';
 import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
 import { useCorteSupabase } from '../hooks/useCorteSupabase';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -115,6 +116,10 @@ export default function KanbanCortePage() {
   // --- Modal de seleção de funcionário ---
   const [modalFuncionario, setModalFuncionario] = useState(false);
   const [itemPendenteCorte, setItemPendenteCorte] = useState(null);
+
+  // Modal Lançamento de Produção por Funcionário
+  const [modalLancamento, setModalLancamento] = useState(false);
+  const [itenslancamento, setItensLancamento] = useState([]);
   const [acaoPendenteCorte, setAcaoPendenteCorte] = useState(null); // 'iniciar' | 'finalizar_direto' | 'finalizar' | 'resetar' | 'generico'
   const [statusOrigemCorte, setStatusOrigemCorte] = useState(null);
   const { registrarTransicao } = useProducaoHistorico();
@@ -493,6 +498,27 @@ export default function KanbanCortePage() {
               🎯 Kanban
             </button>
           </div>
+
+          <button
+            onClick={() => {
+              const todosItens = itensFiltrados || [];
+              setItensLancamento(todosItens.map(item => ({
+                id: item.id, nome: item.nome || item.marca, marca: item.marca,
+                tipo: item.tipo || '', pesoTotal: item.pesoTotal || item.peso_total || item.pesoItem || 0,
+                obraId: item.obraId || '', obraNome: item.obraNome || ''
+              })));
+              setModalLancamento(true);
+            }}
+            style={{
+              background: 'linear-gradient(135deg, #4c1d95, #3b0764)',
+              border: '1px solid #7c3aed', borderRadius: 10,
+              padding: '10px 16px', cursor: 'pointer', color: '#c4b5fd',
+              fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
+              transition: 'all 0.2s'
+            }}
+          >
+            👤 Lançar Corte
+          </button>
 
           <button
             onClick={() => setShowPanel(!showPanel)}
@@ -1310,6 +1336,15 @@ export default function KanbanCortePage() {
         input[type="checkbox"] { accent-color: #8b5cf6; }
         select:focus, input:focus { border-color: #6366f1 !important; }
       `}</style>
+
+      {/* Modal Lançamento de Produção por Funcionário */}
+      <LancamentoProducaoModal
+        isOpen={modalLancamento}
+        onClose={() => setModalLancamento(false)}
+        pecas={itenslancamento}
+        defaultEtapa="corte"
+        onSaved={() => setModalLancamento(false)}
+      />
 
       {/* Modal de seleção de funcionário para corte */}
       <FuncionarioSelectorModal

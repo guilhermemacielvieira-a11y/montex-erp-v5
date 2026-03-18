@@ -18,7 +18,7 @@ import {
   Download, FileSpreadsheet, X as XIcon,
   Database, Play, LayoutGrid, Table2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  AlertTriangle, CheckCircle2, FileText, Scissors
+  AlertTriangle, CheckCircle2, FileText, Scissors, Users, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +33,7 @@ import {
 // Contexto ERP e Database
 import { useObras, useProducao } from '@/contexts/ERPContext';
 import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 import { listasMaterial, obras as obrasDB } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
@@ -124,6 +125,11 @@ export default function KanbanProducaoIntegrado() {
   const [modalFuncionarioProd, setModalFuncionarioProd] = useState(false);
   const [conjuntoPendente, setConjuntoPendente] = useState(null);
   const [statusPendenteProd, setStatusPendenteProd] = useState(null);
+
+  // Modal Lançamento de Produção por Funcionário
+  const [modalLancamento, setModalLancamento] = useState(false);
+  const [pecasLancamento, setPecasLancamento] = useState([]);
+  const [etapaLancamento, setEtapaLancamento] = useState('fabricacao');
 
   // Estado para modal de quantidade parcial (split)
   const [modalQtdAberto, setModalQtdAberto] = useState(false);
@@ -959,6 +965,18 @@ export default function KanbanProducaoIntegrado() {
             Exportar
           </Button>
           <Button
+            variant="outline"
+            className="border-purple-700/50 text-purple-300 hover:bg-purple-900/20"
+            onClick={() => {
+              setPecasLancamento(producaoFabrica);
+              setEtapaLancamento('fabricacao');
+              setModalLancamento(true);
+            }}
+          >
+            <UserCheck className="h-4 w-4 mr-2" />
+            Lançar Produção
+          </Button>
+          <Button
             className="bg-blue-600 hover:bg-blue-700"
             onClick={() => {
               setModalNovaOrdem(true);
@@ -1467,6 +1485,16 @@ export default function KanbanProducaoIntegrado() {
                             </Button>
                           )}
                         </div>
+
+                        {/* Botão Lançamento de Produção */}
+                        <button
+                          className="w-full flex items-center justify-center gap-1 mt-1 py-1 rounded-lg text-[10px] text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 transition-colors border border-dashed border-purple-700/30 hover:border-purple-600/50"
+                          onClick={(e) => { e.stopPropagation(); setPecasLancamento([conjunto]); setEtapaLancamento(coluna.id); setModalLancamento(true); }}
+                          title="Lançar produção por funcionário"
+                        >
+                          <UserCheck className="h-3 w-3" />
+                          Lançar Funcionário
+                        </button>
                       </motion.div>
                     ))}
                   </AnimatePresence>
@@ -1769,6 +1797,11 @@ export default function KanbanProducaoIntegrado() {
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-white"
                               onClick={(e) => { e.stopPropagation(); setConjuntoSelecionado(conjunto); setModalAberto(true); }}>
                               <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
+                              onClick={(e) => { e.stopPropagation(); setPecasLancamento([conjunto]); setEtapaLancamento(conjunto.status || 'fabricacao'); setModalLancamento(true); }}
+                              title="Lançar produção por funcionário">
+                              <UserCheck className="h-4 w-4" />
                             </Button>
                             {proximaColuna && (
                               <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-slate-400 hover:text-emerald-400"
@@ -2480,6 +2513,15 @@ export default function KanbanProducaoIntegrado() {
         setor={statusPendenteProd || 'fabricacao'}
         etapaLabel={COLUNAS_PRODUCAO.find(c => c.id === statusPendenteProd)?.title?.replace(/[^\w\sÀ-ú]/g, '').trim() || 'Produção'}
         pecaInfo={conjuntoPendente ? `${conjuntoPendente.conjunto || conjuntoPendente.id} - ${conjuntoPendente.tipo || ''}` : ''}
+      />
+
+      {/* ===== MODAL LANÇAMENTO DE PRODUÇÃO POR FUNCIONÁRIO ===== */}
+      <LancamentoProducaoModal
+        isOpen={modalLancamento}
+        onClose={() => setModalLancamento(false)}
+        pecas={pecasLancamento}
+        defaultEtapa={etapaLancamento}
+        onSaved={() => { setModalLancamento(false); }}
       />
     </div>
   );

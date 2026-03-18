@@ -22,6 +22,7 @@ import {
   Download,
   RefreshCw,
   Eye,
+  UserCheck,
   Edit,
   Scissors,
   Paintbrush,
@@ -66,6 +67,7 @@ import { useSmartPagination } from '@/hooks/useSmartPagination';
 import PaginationControls from '@/components/ui/PaginationControls';
 // Modal de seleção de funcionário e histórico
 import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 
 // Importar configuração de produção e enums
@@ -373,6 +375,11 @@ export default function ProducaoPage() {
   const [pecaPendente, setPecaPendente] = useState(null);
   const [etapaPendente, setEtapaPendente] = useState(null);
 
+  // Modal Lançamento de Produção por Funcionário
+  const [modalLancamento, setModalLancamento] = useState(false);
+  const [pecasLancamento, setPecasLancamento] = useState([]);
+  const [etapaLancamento, setEtapaLancamento] = useState('fabricacao');
+
   // Filtro customizado para prioridade
   const customFilter = useMemo(() => {
     return (item) => {
@@ -673,6 +680,14 @@ export default function ProducaoPage() {
             <Button variant="outline" className="border-slate-700 text-white" onClick={handleAtualizar}>
               <RefreshCw className="h-4 w-4 mr-2" />
               Atualizar
+            </Button>
+            <Button
+              variant="outline"
+              className="border-purple-700/50 text-purple-300 hover:bg-purple-900/20"
+              onClick={() => { setPecasLancamento(pagination.currentData || []); setEtapaLancamento('fabricacao'); setModalLancamento(true); }}
+            >
+              <UserCheck className="h-4 w-4 mr-2" />
+              Lançar Produção
             </Button>
             <Button className="bg-orange-500 hover:bg-orange-600 text-white" onClick={openCreateModal}>
               <Plus className="h-4 w-4 mr-2" />
@@ -1200,6 +1215,15 @@ export default function ProducaoPage() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* Modal Lançamento de Produção por Funcionário */}
+      <LancamentoProducaoModal
+        isOpen={modalLancamento}
+        onClose={() => setModalLancamento(false)}
+        pecas={pecasLancamento}
+        defaultEtapa={etapaLancamento}
+        onSaved={() => setModalLancamento(false)}
+      />
 
       {/* Modal de seleção de funcionário para movimentações */}
       <FuncionarioSelectorModal

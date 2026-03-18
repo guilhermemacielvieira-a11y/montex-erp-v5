@@ -867,16 +867,32 @@ export default function ProducaoFuncionarioPage() {
   const [filtroSetor, setFiltroSetor] = useState('todos');
   const [filtroEquipe, setFiltroEquipe] = useState('todos');
   const [ordenacao, setOrdenacao] = useState('ranking');
+  const [filtroPeriodo, setFiltroPeriodo] = useState('mes'); // 'mes' | 'trimestre' | 'ano' | 'tudo'
   const [funcSelecionado, setFuncSelecionado] = useState(null);
   const [showPendentes, setShowPendentes] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Calcular período com base no filtro
+  const periodoFiltro = useMemo(() => {
+    const agora = new Date();
+    if (filtroPeriodo === 'tudo') return { inicio: '2020-01-01T00:00:00.000Z', fim: new Date(agora.getFullYear() + 1, 0, 1).toISOString() };
+    if (filtroPeriodo === 'trimestre') {
+      const trimStart = new Date(agora.getFullYear(), Math.floor(agora.getMonth() / 3) * 3, 1);
+      return { inicio: trimStart.toISOString(), fim: new Date(trimStart.getFullYear(), trimStart.getMonth() + 3, 0, 23, 59, 59).toISOString() };
+    }
+    if (filtroPeriodo === 'ano') {
+      return { inicio: new Date(agora.getFullYear(), 0, 1).toISOString(), fim: new Date(agora.getFullYear(), 11, 31, 23, 59, 59).toISOString() };
+    }
+    // mes (default)
+    return { inicio: new Date(agora.getFullYear(), agora.getMonth(), 1).toISOString(), fim: new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59).toISOString() };
+  }, [filtroPeriodo]);
 
   const {
     loading, error,
     funcionariosComDados, funcionariosSemDados,
     kpis, topPerformers, pecas,
     refetch,
-  } = useProducaoAnalytics({ equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined });
+  } = useProducaoAnalytics({ equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined, periodo: periodoFiltro });
 
   // Setores únicos
   const setoresUnicos = useMemo(() => {
@@ -963,6 +979,18 @@ export default function ProducaoFuncionarioPage() {
               <SelectItem value="ranking">Ranking</SelectItem>
               <SelectItem value="unidades">Unidades</SelectItem>
               <SelectItem value="kg">KG</SelectItem>
+            </SelectContent>
+          </Select>
+
+          <Select value={filtroPeriodo} onValueChange={setFiltroPeriodo}>
+            <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700">
+              <SelectValue placeholder="Período" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="mes">Este Mês</SelectItem>
+              <SelectItem value="trimestre">Este Trimestre</SelectItem>
+              <SelectItem value="ano">Este Ano</SelectItem>
+              <SelectItem value="tudo">Todo Período</SelectItem>
             </SelectContent>
           </Select>
 
