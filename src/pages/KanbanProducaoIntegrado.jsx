@@ -760,6 +760,16 @@ export default function KanbanProducaoIntegrado() {
     const pesoPintura = conjuntosFiltrados.filter(c => c.status === 'pintura').reduce((sum, c) => sum + c.pesoTotal, 0);
     const pesoExpedido = conjuntosFiltrados.filter(c => c.status === 'expedido').reduce((sum, c) => sum + c.pesoTotal, 0);
 
+    // Contagem por status
+    const qtdFabricacao = conjuntosFiltrados.filter(c => c.status === 'fabricacao').length;
+    const qtdSolda = conjuntosFiltrados.filter(c => c.status === 'solda').length;
+    const qtdPintura = conjuntosFiltrados.filter(c => c.status === 'pintura').length;
+
+    // Peso alta prioridade
+    const pesoAltaPrioridade = conjuntosFiltrados
+      .filter(c => c.prioridade === 'alta')
+      .reduce((sum, c) => sum + c.pesoTotal, 0);
+
     // Peças enviadas/entregues/montagem — excluídas do kanban mas contam para peso total da obra
     const ETAPAS_ENVIADAS = ['enviado', 'entregue', 'montagem'];
     const pecasEnviadasSupabase = (pecasSupabase || []).filter(p => ETAPAS_ENVIADAS.includes(p.etapa));
@@ -790,6 +800,12 @@ export default function KanbanProducaoIntegrado() {
       pesoExpedido,
       valorTotal,
       progressoGeral,
+      // Contagens por status
+      qtdFabricacao,
+      qtdSolda,
+      qtdPintura,
+      // Alta prioridade peso
+      pesoAltaPrioridade,
       // Enviadas
       qtdEnviadas,
       pesoEnviadas,
@@ -971,10 +987,34 @@ export default function KanbanProducaoIntegrado() {
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {[
-          { label: 'Total Conjuntos', value: kpis.totalConjuntos.toLocaleString(), icon: Package, cor: 'blue', sub: null },
-          { label: 'Peso Total Obra', value: formatPeso(kpis.pesoTotal), icon: Layers, cor: 'purple', sub: null },
-          { label: 'Em Fabricação', value: formatPeso(kpis.pesoFabricacao), icon: Wrench, cor: 'blue', sub: null },
-          { label: 'Expedido', value: formatPeso(kpis.pesoExpedido), icon: Truck, cor: 'emerald', sub: null },
+          {
+            label: 'Total Conjuntos',
+            value: kpis.totalConjuntos.toLocaleString(),
+            icon: Package,
+            cor: 'blue',
+            sub: `${kpis.totalPecas.toLocaleString('pt-BR')} peças`,
+          },
+          {
+            label: 'Peso Total Obra',
+            value: formatPeso(kpis.pesoTotal),
+            icon: Layers,
+            cor: 'purple',
+            sub: `${kpis.progressoGeral}% concluído`,
+          },
+          {
+            label: 'Em Fabricação',
+            value: formatPeso(kpis.pesoFabricacao),
+            icon: Wrench,
+            cor: 'blue',
+            sub: `${kpis.qtdFabricacao} conjuntos`,
+          },
+          {
+            label: 'Expedido',
+            value: formatPeso(kpis.pesoExpedido),
+            icon: Truck,
+            cor: 'emerald',
+            sub: `${kpis.expedidos} conjuntos`,
+          },
           {
             label: 'Peças Enviadas',
             value: kpis.qtdEnviadas.toLocaleString('pt-BR'),
@@ -982,7 +1022,13 @@ export default function KanbanProducaoIntegrado() {
             cor: 'cyan',
             sub: formatPeso(kpis.pesoEnviadas),
           },
-          { label: 'Alta Prioridade', value: kpis.altaPrioridade, icon: AlertTriangle, cor: 'red', sub: null },
+          {
+            label: 'Alta Prioridade',
+            value: kpis.altaPrioridade,
+            icon: AlertTriangle,
+            cor: 'red',
+            sub: formatPeso(kpis.pesoAltaPrioridade),
+          },
         ].map((kpi, idx) => (
           <motion.div
             key={idx}
@@ -1196,33 +1242,46 @@ export default function KanbanProducaoIntegrado() {
                 key={coluna.id}
                 className="bg-slate-800/30 border border-slate-700 rounded-xl overflow-hidden"
               >
-                {/* Header da Coluna */}
+                {/* Header da Coluna — modelo KPI */}
                 <div
                   className="p-4 border-b"
                   style={{ borderColor: `${coluna.cor}50`, backgroundColor: `${coluna.cor}10` }}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <ColunaIcon className="h-5 w-5" style={{ color: coluna.cor }} />
+                      <ColunaIcon className="h-4 w-4" style={{ color: coluna.cor }} />
                       <div>
                         <h3 className="text-white font-semibold text-sm">{coluna.title}</h3>
                         <p className="text-slate-500 text-xs">{coluna.subtitle}</p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      <span
-                        className="px-2 py-1 rounded-full text-xs font-bold"
-                        style={{ backgroundColor: `${coluna.cor}30`, color: coluna.cor }}
-                      >
-                        {qtdColuna}
-                      </span>
-                    </div>
                   </div>
-                  <div className="mt-2 flex justify-between text-xs text-slate-400">
-                    <span>Peso: <span className="text-white font-medium">{formatPeso(pesoColuna)}</span></span>
-                    {coluna.valorKg > 0 && (
-                      <span>Med: <span className="text-emerald-400 font-medium">{formatValor(valorColuna)}</span></span>
-                    )}
+                  {/* Mini KPIs da coluna */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div
+                      className="rounded-lg px-2.5 py-2"
+                      style={{ backgroundColor: `${coluna.cor}18`, border: `1px solid ${coluna.cor}30` }}
+                    >
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Conjuntos</p>
+                      <p className="text-white font-bold text-base mt-0.5">{qtdColuna}</p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">
+                        {kpis.totalConjuntos > 0
+                          ? `${Math.round((qtdColuna / kpis.totalConjuntos) * 100)}% do total`
+                          : '—'}
+                      </p>
+                    </div>
+                    <div
+                      className="rounded-lg px-2.5 py-2"
+                      style={{ backgroundColor: `${coluna.cor}18`, border: `1px solid ${coluna.cor}30` }}
+                    >
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peso</p>
+                      <p className="font-bold text-base mt-0.5" style={{ color: coluna.cor }}>{formatPeso(pesoColuna)}</p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">
+                        {kpis.pesoTotal > 0
+                          ? `${Math.round((pesoColuna / kpis.pesoTotal) * 100)}% da obra`
+                          : '—'}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -1392,6 +1451,38 @@ export default function KanbanProducaoIntegrado() {
       {/* ===== VISUALIZAÇÃO EM LISTA ===== */}
       {producaoFabrica.length > 0 && modoVisualizacao === 'lista' && (
         <div className="space-y-4">
+          {/* Mini KPIs por status — modo lista */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {COLUNAS_PRODUCAO.map(col => {
+              const ColIcon = col.icon;
+              const conjuntosCol = (conjuntosPorColuna[col.id] || []);
+              const qtdCol = conjuntosCol.length;
+              const pesoCol = conjuntosCol.reduce((sum, c) => sum + c.pesoTotal, 0);
+              const pctQtd = kpis.totalConjuntos > 0 ? Math.round((qtdCol / kpis.totalConjuntos) * 100) : 0;
+              return (
+                <div
+                  key={col.id}
+                  className="rounded-xl p-4 border"
+                  style={{ backgroundColor: `${col.cor}12`, borderColor: `${col.cor}40` }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-1.5">
+                      <ColIcon className="h-4 w-4" style={{ color: col.cor }} />
+                      <span className="text-xs font-semibold text-white">{col.title.split(' ').slice(1).join(' ')}</span>
+                    </div>
+                    <span
+                      className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+                      style={{ backgroundColor: `${col.cor}30`, color: col.cor }}
+                    >{pctQtd}%</span>
+                  </div>
+                  <p className="text-xl font-bold text-white">{qtdCol}</p>
+                  <p className="text-xs mt-0.5" style={{ color: col.cor }}>{formatPeso(pesoCol)}</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">conjuntos</p>
+                </div>
+              );
+            })}
+          </div>
+
           {/* Header da Lista */}
           <div className="flex items-center justify-between bg-slate-800/50 border border-slate-700 rounded-xl p-4">
             <div className="flex items-center gap-4">
