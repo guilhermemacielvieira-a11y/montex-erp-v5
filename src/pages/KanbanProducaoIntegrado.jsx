@@ -1062,28 +1062,37 @@ export default function KanbanProducaoIntegrado() {
 
       {/* Fluxo Visual */}
       <div className="bg-slate-800/30 border border-slate-700 rounded-xl p-4">
-        <div className="flex items-center justify-center gap-4 text-sm flex-wrap">
+        <div className="flex items-center justify-center gap-3 text-sm flex-wrap">
           {COLUNAS_PRODUCAO.map((col, idx) => {
             const ColIcon = col.icon;
             const conjuntosCol = conjuntosPorColuna[col.id] || [];
+            const pesoCol = conjuntosCol.reduce((sum, c) => sum + c.pesoTotal, 0);
             return (
               <React.Fragment key={col.id}>
                 <div
-                  className="flex items-center gap-2 px-4 py-2 rounded-lg border"
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-lg border"
                   style={{ backgroundColor: `${col.cor}20`, borderColor: `${col.cor}50` }}
                 >
-                  <span className="text-xl">{col.title.split(' ')[0]}</span>
+                  <ColIcon className="h-4 w-4" style={{ color: col.cor }} />
                   <div>
-                    <span className="font-medium" style={{ color: col.cor }}>{col.title.split(' ').slice(1).join(' ')}</span>
-                    <p className="text-xs text-slate-500">{conjuntosCol.length} conjuntos</p>
+                    <span className="font-semibold text-white text-sm">{col.title.split(' ').slice(1).join(' ')}</span>
+                    <p className="text-xs" style={{ color: col.cor }}>{conjuntosCol.length} conjuntos</p>
+                    <p className="text-xs text-slate-500">{formatPeso(pesoCol)}</p>
                   </div>
                 </div>
-                {idx < COLUNAS_PRODUCAO.length - 1 && (
-                  <ArrowRight className="w-5 h-5 text-slate-600" />
-                )}
+                <ArrowRight className="w-4 h-4 text-slate-600 shrink-0" />
               </React.Fragment>
             );
           })}
+          {/* Nó Enviadas */}
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-teal-500/50 bg-teal-500/10">
+            <CheckCircle2 className="h-4 w-4 text-teal-400" />
+            <div>
+              <span className="font-semibold text-white text-sm">Enviadas</span>
+              <p className="text-xs text-teal-400">{kpis.qtdEnviadas.toLocaleString('pt-BR')} peças</p>
+              <p className="text-xs text-slate-500">{formatPeso(kpis.pesoEnviadas)}</p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1283,6 +1292,24 @@ export default function KanbanProducaoIntegrado() {
                       </p>
                     </div>
                   </div>
+                  {/* Referência de Enviadas — apenas na coluna Expedido */}
+                  {coluna.id === 'expedido' && kpis.qtdEnviadas > 0 && (
+                    <div className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-lg bg-teal-500/10 border border-teal-500/30">
+                      <ArrowRight className="h-3.5 w-3.5 text-teal-400 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-teal-400 text-[10px] uppercase tracking-wide font-semibold">Enviadas</p>
+                        <div className="flex items-center justify-between mt-0.5">
+                          <span className="text-white text-xs font-bold">{kpis.qtdEnviadas.toLocaleString('pt-BR')} peças</span>
+                          <span className="text-teal-300 text-xs font-semibold">{formatPeso(kpis.pesoEnviadas)}</span>
+                        </div>
+                        <p className="text-slate-500 text-[10px] mt-0.5">
+                          {kpis.pesoTotal > 0
+                            ? `${Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100)}% da obra entregue`
+                            : 'entregues ao cliente'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Cards dos Conjuntos */}
@@ -1452,7 +1479,7 @@ export default function KanbanProducaoIntegrado() {
       {producaoFabrica.length > 0 && modoVisualizacao === 'lista' && (
         <div className="space-y-4">
           {/* Mini KPIs por status — modo lista */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {COLUNAS_PRODUCAO.map(col => {
               const ColIcon = col.icon;
               const conjuntosCol = (conjuntosPorColuna[col.id] || []);
@@ -1481,6 +1508,21 @@ export default function KanbanProducaoIntegrado() {
                 </div>
               );
             })}
+            {/* Card Enviadas */}
+            <div className="rounded-xl p-4 border border-teal-500/40 bg-teal-500/10">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-teal-400" />
+                  <span className="text-xs font-semibold text-white">Enviadas</span>
+                </div>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-teal-500/30 text-teal-400">
+                  {kpis.pesoTotal > 0 ? `${Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100)}%` : '0%'}
+                </span>
+              </div>
+              <p className="text-xl font-bold text-white">{kpis.qtdEnviadas.toLocaleString('pt-BR')}</p>
+              <p className="text-xs mt-0.5 text-teal-400">{formatPeso(kpis.pesoEnviadas)}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">peças entregues</p>
+            </div>
           </div>
 
           {/* Header da Lista */}
