@@ -773,7 +773,8 @@ export default function KanbanProducaoIntegrado() {
     // Peças enviadas/entregues/montagem — excluídas do kanban mas contam para peso total da obra
     const ETAPAS_ENVIADAS = ['enviado', 'entregue', 'montagem'];
     const pecasEnviadasSupabase = (pecasSupabase || []).filter(p => ETAPAS_ENVIADAS.includes(p.etapa));
-    const qtdEnviadas = pecasEnviadasSupabase.reduce((sum, p) => sum + (p.quantidade || 1), 0);
+    const conjuntosEnviados = pecasEnviadasSupabase.length; // nº de conjuntos distintos
+    const qtdEnviadas = pecasEnviadasSupabase.reduce((sum, p) => sum + (p.quantidade || 1), 0); // total de peças
     const pesoEnviadas = pecasEnviadasSupabase.reduce((sum, p) => sum + (p.pesoTotal || p.peso || 0), 0);
 
     // Peso total REAL da obra = kanban ativo + enviadas
@@ -807,6 +808,7 @@ export default function KanbanProducaoIntegrado() {
       // Alta prioridade peso
       pesoAltaPrioridade,
       // Enviadas
+      conjuntosEnviados,
       qtdEnviadas,
       pesoEnviadas,
     };
@@ -1041,11 +1043,11 @@ export default function KanbanProducaoIntegrado() {
             sub: `${kpis.expedidos} conjuntos`,
           },
           {
-            label: 'Peças Enviadas',
-            value: kpis.qtdEnviadas.toLocaleString('pt-BR'),
+            label: 'Conjuntos Enviados',
+            value: kpis.conjuntosEnviados.toLocaleString('pt-BR'),
             icon: CheckCircle2,
             cor: 'cyan',
-            sub: formatPeso(kpis.pesoEnviadas),
+            sub: `${formatPeso(kpis.pesoEnviadas)} · ${Math.round(kpis.pesoTotal > 0 ? (kpis.pesoEnviadas / kpis.pesoTotal) * 100 : 0)}% da obra`,
           },
           {
             label: 'Alta Prioridade',
@@ -1114,8 +1116,8 @@ export default function KanbanProducaoIntegrado() {
             <CheckCircle2 className="h-4 w-4 text-teal-400" />
             <div>
               <span className="font-semibold text-white text-sm">Enviadas</span>
-              <p className="text-xs text-teal-400">{kpis.qtdEnviadas.toLocaleString('pt-BR')} peças</p>
-              <p className="text-xs text-slate-500">{formatPeso(kpis.pesoEnviadas)}</p>
+              <p className="text-xs text-teal-400">{kpis.conjuntosEnviados.toLocaleString('pt-BR')} conjuntos</p>
+              <p className="text-xs text-slate-500">{formatPeso(kpis.pesoEnviadas)} · {kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}% da obra</p>
             </div>
           </div>
         </div>
@@ -1482,10 +1484,10 @@ export default function KanbanProducaoIntegrado() {
 
           {/* ===== COLUNA 5: ENVIADAS ===== */}
           {(() => {
-            const corEnviadas = '#14b8a6'; // teal-500
-            const qtdEnv = pecasEnviadasColuna.length;
+            const qtdEnv = pecasEnviadasColuna.length; // conjuntos
             const pesoEnv = pecasEnviadasColuna.reduce((sum, p) => sum + p.pesoTotal, 0);
-            const pctQtd = kpis.totalConjuntos > 0 ? Math.round((qtdEnv / (kpis.totalConjuntos + qtdEnv)) * 100) : 0;
+            const totalConj = kpis.totalConjuntos + qtdEnv; // total geral incluindo enviadas
+            const pctConj = totalConj > 0 ? Math.round((qtdEnv / totalConj) * 100) : 0;
             const pctPeso = kpis.pesoTotal > 0 ? Math.round((pesoEnv / kpis.pesoTotal) * 100) : 0;
             return (
               <div className="bg-slate-800/30 border border-teal-700/40 rounded-xl overflow-hidden">
@@ -1500,14 +1502,31 @@ export default function KanbanProducaoIntegrado() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg px-2.5 py-2 bg-teal-500/15 border border-teal-500/30">
-                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peças</p>
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Conjuntos</p>
                       <p className="text-white font-bold text-base mt-0.5">{qtdEnv.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500 text-[10px] mt-0.5">{pctQtd}% do total</p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">{pctConj}% do total</p>
                     </div>
                     <div className="rounded-lg px-2.5 py-2 bg-teal-500/15 border border-teal-500/30">
                       <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peso</p>
                       <p className="text-teal-400 font-bold text-base mt-0.5">{formatPeso(pesoEnv)}</p>
                       <p className="text-slate-500 text-[10px] mt-0.5">{pctPeso}% da obra</p>
+                    </div>
+                  </div>
+                  {/* Barra de progresso: peso enviado × total da obra */}
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peso Enviado / Total</p>
+                      <p className="text-teal-400 text-[10px] font-bold">{pctPeso}%</p>
+                    </div>
+                    <div className="w-full h-2 bg-slate-700/60 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-teal-500 to-emerald-400 rounded-full transition-all"
+                        style={{ width: `${pctPeso}%` }}
+                      />
+                    </div>
+                    <div className="flex justify-between mt-1">
+                      <span className="text-[10px] text-teal-400">{formatPeso(pesoEnv)}</span>
+                      <span className="text-[10px] text-slate-500">de {formatPeso(kpis.pesoTotal)}</span>
                     </div>
                   </div>
                 </div>
@@ -1599,9 +1618,12 @@ export default function KanbanProducaoIntegrado() {
                   {kpis.pesoTotal > 0 ? `${Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100)}%` : '0%'}
                 </span>
               </div>
-              <p className="text-xl font-bold text-white">{kpis.qtdEnviadas.toLocaleString('pt-BR')}</p>
+              <p className="text-xl font-bold text-white">{kpis.conjuntosEnviados.toLocaleString('pt-BR')}</p>
               <p className="text-xs mt-0.5 text-teal-400">{formatPeso(kpis.pesoEnviadas)}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">peças entregues</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">conjuntos · {kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}% do peso total</p>
+              <div className="mt-2 w-full h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
+                <div className="h-full bg-teal-500 rounded-full" style={{ width: `${kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}%` }} />
+              </div>
             </div>
           </div>
 
