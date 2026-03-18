@@ -823,6 +823,31 @@ export default function KanbanProducaoIntegrado() {
     };
   });
 
+  // Lista de peças enviadas/entregues para a coluna Enviadas do kanban
+  const pecasEnviadasColuna = useMemo(() => {
+    const ETAPAS_ENVIADAS = ['enviado', 'entregue', 'montagem'];
+    return (pecasSupabase || [])
+      .filter(p => ETAPAS_ENVIADAS.includes(p.etapa))
+      .filter(p => obraFiltro === 'todas' || (p.obraNome || '') === obraFiltro)
+      .map(p => ({
+        id: p.id,
+        conjunto: p.marca || p.nome || '',
+        tipo: p.tipo || '',
+        descricao: `${p.tipo || ''} - ${p.perfil || p.material || ''}`,
+        pecas: 1,
+        quantidade: p.quantidade || 1,
+        pesoTotal: p.pesoTotal || p.peso || 0,
+        pesoUnitario: p.quantidade > 0 ? (p.pesoTotal || p.peso || 0) / (p.quantidade || 1) : 0,
+        material: p.material || p.perfil || '',
+        prioridade: p.prioridade || 'normal',
+        status: 'enviado',
+        etapa: p.etapa,
+        obraId: p.obraId || '',
+        obraNome: p.obraNome || '',
+        dataExpedicao: p.dataFimReal || p.updatedAt || null,
+      }));
+  }, [pecasSupabase, obraFiltro]);
+
   // Obter obras únicas para filtro
   const obrasUnicas = useMemo(() => {
     const nomes = new Set(producaoFabrica.map(c => c.obraNome));
@@ -1237,7 +1262,7 @@ export default function KanbanProducaoIntegrado() {
 
       {/* Kanban Board */}
       {producaoFabrica.length > 0 && modoVisualizacao === 'kanban' && (
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           {COLUNAS_PRODUCAO.map((coluna, colIdx) => {
             const ColunaIcon = coluna.icon;
             const conjuntosColuna = conjuntosPorColuna[coluna.id] || [];
@@ -1292,24 +1317,6 @@ export default function KanbanProducaoIntegrado() {
                       </p>
                     </div>
                   </div>
-                  {/* Referência de Enviadas — apenas na coluna Expedido */}
-                  {coluna.id === 'expedido' && kpis.qtdEnviadas > 0 && (
-                    <div className="mt-2 flex items-center gap-2 px-2.5 py-2 rounded-lg bg-teal-500/10 border border-teal-500/30">
-                      <ArrowRight className="h-3.5 w-3.5 text-teal-400 shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-teal-400 text-[10px] uppercase tracking-wide font-semibold">Enviadas</p>
-                        <div className="flex items-center justify-between mt-0.5">
-                          <span className="text-white text-xs font-bold">{kpis.qtdEnviadas.toLocaleString('pt-BR')} peças</span>
-                          <span className="text-teal-300 text-xs font-semibold">{formatPeso(kpis.pesoEnviadas)}</span>
-                        </div>
-                        <p className="text-slate-500 text-[10px] mt-0.5">
-                          {kpis.pesoTotal > 0
-                            ? `${Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100)}% da obra entregue`
-                            : 'entregues ao cliente'}
-                        </p>
-                      </div>
-                    </div>
-                  )}
                 </div>
 
                 {/* Cards dos Conjuntos */}
@@ -1472,6 +1479,79 @@ export default function KanbanProducaoIntegrado() {
               </div>
             );
           })}
+
+          {/* ===== COLUNA 5: ENVIADAS ===== */}
+          {(() => {
+            const corEnviadas = '#14b8a6'; // teal-500
+            const qtdEnv = pecasEnviadasColuna.length;
+            const pesoEnv = pecasEnviadasColuna.reduce((sum, p) => sum + p.pesoTotal, 0);
+            const pctQtd = kpis.totalConjuntos > 0 ? Math.round((qtdEnv / (kpis.totalConjuntos + qtdEnv)) * 100) : 0;
+            const pctPeso = kpis.pesoTotal > 0 ? Math.round((pesoEnv / kpis.pesoTotal) * 100) : 0;
+            return (
+              <div className="bg-slate-800/30 border border-teal-700/40 rounded-xl overflow-hidden">
+                {/* Header — mesmo padrão das outras colunas */}
+                <div className="p-4 border-b border-teal-700/40 bg-teal-500/10">
+                  <div className="flex items-center gap-2 mb-3">
+                    <CheckCircle2 className="h-4 w-4 text-teal-400" />
+                    <div>
+                      <h3 className="text-white font-semibold text-sm">✅ Enviadas</h3>
+                      <p className="text-slate-500 text-xs">Entregues / Montagem</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="rounded-lg px-2.5 py-2 bg-teal-500/15 border border-teal-500/30">
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peças</p>
+                      <p className="text-white font-bold text-base mt-0.5">{qtdEnv.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">{pctQtd}% do total</p>
+                    </div>
+                    <div className="rounded-lg px-2.5 py-2 bg-teal-500/15 border border-teal-500/30">
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peso</p>
+                      <p className="text-teal-400 font-bold text-base mt-0.5">{formatPeso(pesoEnv)}</p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">{pctPeso}% da obra</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cards das peças enviadas */}
+                <div className="p-2 space-y-2 min-h-[300px] max-h-[500px] overflow-y-auto">
+                  <AnimatePresence>
+                    {pecasEnviadasColuna.map((peca, idx) => (
+                      <motion.div
+                        key={peca.id}
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.9 }}
+                        transition={{ delay: idx * 0.02 }}
+                        className="bg-slate-900/80 border border-teal-700/30 rounded-lg p-3"
+                      >
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-white font-mono font-bold text-sm">{peca.conjunto}</span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-teal-500/20 text-teal-400 border border-teal-500/30 uppercase">
+                            {peca.etapa}
+                          </span>
+                        </div>
+                        <p className="text-slate-300 text-xs mb-1">{peca.tipo}</p>
+                        <p className="text-slate-500 text-xs line-clamp-1">{peca.descricao}</p>
+                        <div className="flex items-center justify-between mt-2 pt-2 border-t border-teal-700/20">
+                          <span className="text-xs text-slate-400">{peca.pecas} pçs × {peca.quantidade}</span>
+                          <span className="text-xs text-teal-400 font-medium">{formatPeso(peca.pesoTotal)}</span>
+                        </div>
+                        {peca.obraNome && (
+                          <p className="text-[10px] text-slate-600 mt-1 truncate">{peca.obraNome}</p>
+                        )}
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+                  {pecasEnviadasColuna.length === 0 && (
+                    <div className="flex flex-col items-center justify-center py-8 text-slate-500">
+                      <CheckCircle2 className="h-8 w-8 mb-2 opacity-30" />
+                      <p className="text-sm">Nenhuma peça enviada</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       )}
 
