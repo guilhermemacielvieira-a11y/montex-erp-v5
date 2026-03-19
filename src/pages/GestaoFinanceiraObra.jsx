@@ -65,7 +65,8 @@ import {
   Pie,
   Cell,
   Line,
-  ComposedChart
+  ComposedChart,
+  Legend
 } from 'recharts';
 
 import {
@@ -461,6 +462,39 @@ export default function GestaoFinanceiraObra() {
       .reduce((sum, m) => sum + (m.valorBruto || 0), 0),
     [medicoes]
   );
+
+  // Total de receitas futuras = medições pendentes (aguardando, em_analise, aprovada, faturada)
+  const totalReceitasFuturas = useMemo(() =>
+    medicoes
+      .filter(m => m.status !== STATUS_MEDICAO.PAGA && m.status !== STATUS_MEDICAO.REJEITADA)
+      .reduce((sum, m) => sum + (m.valorBruto || 0), 0),
+    [medicoes]
+  );
+
+  // Dados de medições agrupados por mês para gráfico de tendência
+  const dadosMedicoesPorMes = useMemo(() => {
+    const porMes = {};
+    medicoes.forEach(m => {
+      const data = m.dataMedicao || m.dataReferencia;
+      if (!data) return;
+      const mes = data.substring(0, 7); // YYYY-MM
+      if (!porMes[mes]) porMes[mes] = { mes, pagas: 0, futuras: 0, total: 0, quantidade: 0 };
+      const val = m.valorBruto || 0;
+      porMes[mes].total += val;
+      porMes[mes].quantidade++;
+      if (m.status === STATUS_MEDICAO.PAGA) porMes[mes].pagas += val;
+      else if (m.status !== STATUS_MEDICAO.REJEITADA) porMes[mes].futuras += val;
+    });
+    const MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    let acumulado = 0;
+    return Object.values(porMes)
+      .sort((a, b) => a.mes.localeCompare(b.mes))
+      .map(d => {
+        acumulado += d.total;
+        const [ano, mesNum] = d.mes.split('-');
+        return { ...d, mesLabel: `${MESES[parseInt(mesNum) - 1]}/${ano.substring(2)}`, acumulado };
+      });
+  }, [medicoes]);
 
   // Filtros de lançamentos
   const lancamentosFiltrados = useMemo(() => {
@@ -884,6 +918,14 @@ export default function GestaoFinanceiraObra() {
             highlight={true}
           />
           <KPICard
+            icon={TrendingUp}
+            label="Receitas Futuras"
+            value={`R$ ${formatMoney(totalReceitasFuturas)}`}
+            subvalue="Pendentes de pagamento"
+            color="amber"
+            highlight={true}
+          />
+          <KPICard
             icon={ArrowDownRight}
             label="Despesas Pagas"
             value={`R$ ${formatMoney(totalPago)}`}
@@ -1090,6 +1132,82 @@ export default function GestaoFinanceiraObra() {
                   <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#06b6d4" strokeWidth={2} />
                 </ComposedChart>
               </ResponsiveContainer>
+            </div>
+
+            {/* Medições x Mês — Tendência */}
+            <div
+              className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
+              style={{
+                background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
+                borderColor: 'rgba(56,72,100,0.35)',
+                boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
+              }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                  <TrendingUp className="w-5 h-5 text-emerald-400" />
+                  Medições × Mês — Tendência
+                </h3>
+                <div className="flex items-center gap-4 text-xs text-slate-400">
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded bg-emerald-500" /> Pagas
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-3 h-3 rounded bg-amber-400" /> Futuras
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <div className="w-8 h-0.5 bg-cyan-400" /> Acumulado
+                  </span>
+                </div>
+              </div>
+              {dadosMedicoesPorMes.length === 0 ? (
+                <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
+                  Nenhuma medição lançada ainda
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <ComposedChart data={dadosMedicoesPorMes} margin={{ top: 8, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mesLabel" stroke="#64748b" fontSize={11} />
+                    <YAxis
+                      yAxisId="left"
+                      stroke="#64748b"
+                      fontSize={11}
+                      tickFormatter={(v) => `R$ ${formatMoneyShort(v)}`}
+                      width={80}
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      stroke="#06b6d4"
+                      fontSize={11}
+                      tickFormatter={(v) => `R$ ${formatMoneyShort(v)}`}
+                      width={85}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        background: 'linear-gradient(135deg, rgba(15,23,42,0.97), rgba(30,41,59,0.95))',
+                        border: '1px solid rgba(100,116,139,0.3)',
+                        borderRadius: '10px',
+                        boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                      }}
+                      formatter={(value, name) => [`R$ ${formatMoney(value)}`, name]}
+                    />
+                    <Bar yAxisId="left" dataKey="pagas" name="Pagas" fill="#10b981" stackId="a" radius={[0,0,0,0]} />
+                    <Bar yAxisId="left" dataKey="futuras" name="Futuras" fill="#f59e0b" stackId="a" radius={[4,4,0,0]} />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="acumulado"
+                      name="Acumulado"
+                      stroke="#06b6d4"
+                      strokeWidth={2.5}
+                      dot={{ r: 4, fill: '#06b6d4', strokeWidth: 0 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </Tabs.Content>
 
