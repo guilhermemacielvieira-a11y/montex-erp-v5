@@ -2393,21 +2393,23 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
 
     let detalhamento = {};
     if (isFabricacao) {
+      // Fabricação — taxa contratada Belo Vale: R$ 5,52/kg
+      // Breakdown: Descarga(0,50) + Montagem(3,62) + Torqueamento(0,80) + Acabamento(0,60) = 5,52
       const vk = valoresKg.fabricacao || {};
       detalhamento = {
-        corte: { peso: pesoNum, valorKg: vk.corte || 2.50, valor: pesoNum * (vk.corte || 2.50) },
-        fabricacao: { peso: pesoNum, valorKg: vk.fabricacao || 4.00, valor: pesoNum * (vk.fabricacao || 4.00) },
-        solda: { peso: pesoNum, valorKg: vk.solda || 3.00, valor: pesoNum * (vk.solda || 3.00) },
-        pintura: { peso: pesoNum, valorKg: vk.pintura || 1.80, valor: pesoNum * (vk.pintura || 1.80) },
-        expedicao: { peso: pesoNum, valorKg: vk.expedicao || 0.50, valor: pesoNum * (vk.expedicao || 0.50) },
+        descarga:     { peso: pesoNum, valorKg: vk.descarga     || 0.50, valor: pesoNum * (vk.descarga     || 0.50) },
+        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 3.62, valor: pesoNum * (vk.montagem     || 3.62) },
+        torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
+        acabamento:   { peso: pesoNum, valorKg: vk.acabamento   || 0.60, valor: pesoNum * (vk.acabamento   || 0.60) },
       };
     } else {
+      // Montagem — mesma taxa: R$ 5,52/kg
       const vk = valoresKg.montagem || {};
       detalhamento = {
-        descarga: { peso: pesoNum, valorKg: vk.descarga || 0.50, valor: pesoNum * (vk.descarga || 0.50) },
-        montagem: { peso: pesoNum, valorKg: vk.montagem || 4.50, valor: pesoNum * (vk.montagem || 4.50) },
+        descarga:     { peso: pesoNum, valorKg: vk.descarga     || 0.50, valor: pesoNum * (vk.descarga     || 0.50) },
+        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 3.62, valor: pesoNum * (vk.montagem     || 3.62) },
         torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
-        acabamento: { peso: pesoNum, valorKg: vk.acabamento || 0.60, valor: pesoNum * (vk.acabamento || 0.60) },
+        acabamento:   { peso: pesoNum, valorKg: vk.acabamento   || 0.60, valor: pesoNum * (vk.acabamento   || 0.60) },
       };
     }
 
@@ -2758,7 +2760,8 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
               Editar valores por sub-etapa manualmente (opcional)
             </summary>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              {(isFabricacao ? ['Corte','Fabricacao','Solda','Pintura','Expedicao'] : ['Descarga','Montagem','Torqueamento','Acabamento']).map(etapa => (
+              {/* Todas as medições (fabricação e montagem) usam o mesmo breakdown: Descarga/Montagem/Torqueamento/Acabamento */}
+              {['Descarga','Montagem','Torqueamento','Acabamento'].map(etapa => (
                 <div key={etapa}>
                   <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
                   <input type="number" step="0.01" value={formData[`det${etapa}`]}

@@ -1100,24 +1100,25 @@ export const OBRA_MODELO = {
     }
   ],
 
-  // VALORES POR KG PARA MEDIÇÃO
+  // VALORES POR KG PARA MEDIÇÃO — Obra Belo Vale (SUPERMERCADO)
+  // Taxa de fabricação contratada: R$ 5,52/kg (total)
+  // Aprovado em revisão contratual — 2026
   valoresKg: {
     fabricacao: {
-      corte: 2.50,
-      fabricacao: 4.00,
-      solda: 3.00,
-      pintura: 1.80,
-      expedicao: 0.50, // Conferência e expedição
-      totalFabricacao: 11.80 // Soma até expedição
+      descarga:     0.50, // Descarga e recebimento
+      montagem:     3.62, // Montagem/fabricação (ajustado de 4,50 → 3,62)
+      torqueamento: 0.80, // Torqueamento e fixação
+      acabamento:   0.60, // Acabamento e pintura
+      totalFabricacao: 5.52 // TOTAL CONTRATADO: R$ 5,52/kg (antes: R$ 6,40/kg)
     },
     montagem: {
-      descarga: 0.50,
-      montagem: 4.50,
+      descarga:     0.50,
+      montagem:     3.62, // Ajustado de 4,50 → 3,62
       torqueamento: 0.80,
-      acabamento: 0.60,
-      totalMontagem: 6.40
+      acabamento:   0.60,
+      totalMontagem: 5.52 // Total: R$ 5,52/kg
     },
-    totalGeral: 18.20 // fabricacao + montagem
+    totalGeral: 11.04 // fabricacao (5,52) + montagem (5,52)
   },
 
   // STATUS
@@ -1533,12 +1534,12 @@ export function calcularMedicoesDisponiveis(obra, pecasProducao) {
       // Fabricação
       pesoExpedido,
       percentualExpedido: setor.peso > 0 ? (pesoExpedido / setor.peso) * 100 : 0,
-      valorDisponivelFabricacao: pesoExpedido * (obra.valoresKg?.fabricacao?.totalFabricacao || 11.80),
+      valorDisponivelFabricacao: pesoExpedido * (obra.valoresKg?.fabricacao?.totalFabricacao || 5.52),
 
       // Montagem
       pesoMontado,
       percentualMontado: setor.peso > 0 ? (pesoMontado / setor.peso) * 100 : 0,
-      valorDisponivelMontagem: pesoMontado * (obra.valoresKg?.montagem?.totalMontagem || 6.40)
+      valorDisponivelMontagem: pesoMontado * (obra.valoresKg?.montagem?.totalMontagem || 5.52)
     };
   });
 }
@@ -1561,24 +1562,21 @@ export function calcularMedicao(obra, setor, etapa, pesoMedido) {
   let detalhamento = {};
   let valorBruto = 0;
 
-  if (etapa === ETAPA_MEDICAO.FABRICACAO) {
-    detalhamento = {
-      corte: { peso: pesoMedido, valorKg: valoresKg.fabricacao.corte, valor: pesoMedido * valoresKg.fabricacao.corte },
-      fabricacao: { peso: pesoMedido, valorKg: valoresKg.fabricacao.fabricacao, valor: pesoMedido * valoresKg.fabricacao.fabricacao },
-      solda: { peso: pesoMedido, valorKg: valoresKg.fabricacao.solda, valor: pesoMedido * valoresKg.fabricacao.solda },
-      pintura: { peso: pesoMedido, valorKg: valoresKg.fabricacao.pintura, valor: pesoMedido * valoresKg.fabricacao.pintura },
-      expedicao: { peso: pesoMedido, valorKg: valoresKg.fabricacao.expedicao, valor: pesoMedido * valoresKg.fabricacao.expedicao }
-    };
-    valorBruto = pesoMedido * valoresKg.fabricacao.totalFabricacao;
-  } else {
-    detalhamento = {
-      descarga: { peso: pesoMedido, valorKg: valoresKg.montagem.descarga, valor: pesoMedido * valoresKg.montagem.descarga },
-      montagem: { peso: pesoMedido, valorKg: valoresKg.montagem.montagem, valor: pesoMedido * valoresKg.montagem.montagem },
-      torqueamento: { peso: pesoMedido, valorKg: valoresKg.montagem.torqueamento, valor: pesoMedido * valoresKg.montagem.torqueamento },
-      acabamento: { peso: pesoMedido, valorKg: valoresKg.montagem.acabamento, valor: pesoMedido * valoresKg.montagem.acabamento }
-    };
-    valorBruto = pesoMedido * valoresKg.montagem.totalMontagem;
-  }
+  // Ambas as etapas (fabricacao e montagem) usam o mesmo breakdown para Belo Vale: 5,52/kg
+  // Descarga(0,50) + Montagem(3,62) + Torqueamento(0,80) + Acabamento(0,60) = 5,52
+  const vkSection = etapa === ETAPA_MEDICAO.FABRICACAO
+    ? (valoresKg.fabricacao || valoresKg.montagem || {})
+    : (valoresKg.montagem || {});
+
+  detalhamento = {
+    descarga:     { peso: pesoMedido, valorKg: vkSection.descarga     || 0.50, valor: pesoMedido * (vkSection.descarga     || 0.50) },
+    montagem:     { peso: pesoMedido, valorKg: vkSection.montagem     || 3.62, valor: pesoMedido * (vkSection.montagem     || 3.62) },
+    torqueamento: { peso: pesoMedido, valorKg: vkSection.torqueamento || 0.80, valor: pesoMedido * (vkSection.torqueamento || 0.80) },
+    acabamento:   { peso: pesoMedido, valorKg: vkSection.acabamento   || 0.60, valor: pesoMedido * (vkSection.acabamento   || 0.60) },
+  };
+
+  const totalKey = etapa === ETAPA_MEDICAO.FABRICACAO ? 'totalFabricacao' : 'totalMontagem';
+  valorBruto = pesoMedido * (vkSection[totalKey] || 5.52);
 
   const valorISS = valorBruto * (retencoes.retencaoISS || 0.02);
   const valorINSS = valorBruto * (retencoes.retencaoINSS || 0.035);
