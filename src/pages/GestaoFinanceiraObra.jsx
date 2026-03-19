@@ -454,9 +454,11 @@ export default function GestaoFinanceiraObra() {
     }));
   }, [materiais, obra.id]);
 
-  // Total de receitas realizadas = soma de todas as medições lançadas
+  // Total de receitas realizadas = somente medições com status PAGA
   const totalReceitasRealizadas = useMemo(() =>
-    medicoes.reduce((sum, m) => sum + (m.valorBruto || 0), 0),
+    medicoes
+      .filter(m => m.status === STATUS_MEDICAO.PAGA)
+      .reduce((sum, m) => sum + (m.valorBruto || 0), 0),
     [medicoes]
   );
 
