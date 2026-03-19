@@ -2393,21 +2393,21 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
 
     let detalhamento = {};
     if (isFabricacao) {
-      // Fabricação — taxa contratada Belo Vale: R$ 5,52/kg
-      // Breakdown: Descarga(0,50) + Montagem(3,62) + Torqueamento(0,80) + Acabamento(0,60) = 5,52
+      // FABRICAÇÃO — R$ 5,52/kg (SEM descarga)
+      // Montagem(4,12) + Torqueamento(0,80) + Acabamento(0,60) = 5,52
       const vk = valoresKg.fabricacao || {};
       detalhamento = {
-        descarga:     { peso: pesoNum, valorKg: vk.descarga     || 0.50, valor: pesoNum * (vk.descarga     || 0.50) },
-        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 3.62, valor: pesoNum * (vk.montagem     || 3.62) },
+        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 4.12, valor: pesoNum * (vk.montagem     || 4.12) },
         torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
         acabamento:   { peso: pesoNum, valorKg: vk.acabamento   || 0.60, valor: pesoNum * (vk.acabamento   || 0.60) },
       };
     } else {
-      // Montagem — mesma taxa: R$ 5,52/kg
+      // MONTAGEM — R$ 6,40/kg (COM descarga)
+      // Descarga(0,50) + Montagem(4,50) + Torqueamento(0,80) + Acabamento(0,60) = 6,40
       const vk = valoresKg.montagem || {};
       detalhamento = {
         descarga:     { peso: pesoNum, valorKg: vk.descarga     || 0.50, valor: pesoNum * (vk.descarga     || 0.50) },
-        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 3.62, valor: pesoNum * (vk.montagem     || 3.62) },
+        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 4.50, valor: pesoNum * (vk.montagem     || 4.50) },
         torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
         acabamento:   { peso: pesoNum, valorKg: vk.acabamento   || 0.60, valor: pesoNum * (vk.acabamento   || 0.60) },
       };
@@ -2760,8 +2760,11 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
               Editar valores por sub-etapa manualmente (opcional)
             </summary>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              {/* Todas as medições (fabricação e montagem) usam o mesmo breakdown: Descarga/Montagem/Torqueamento/Acabamento */}
-              {['Descarga','Montagem','Torqueamento','Acabamento'].map(etapa => (
+              {/* FABRICAÇÃO: sem Descarga (5,52/kg) | MONTAGEM: com Descarga (6,40/kg) */}
+              {(isFabricacao
+                ? ['Montagem','Torqueamento','Acabamento']
+                : ['Descarga','Montagem','Torqueamento','Acabamento']
+              ).map(etapa => (
                 <div key={etapa}>
                   <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
                   <input type="number" step="0.01" value={formData[`det${etapa}`]}
