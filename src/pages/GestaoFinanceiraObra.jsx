@@ -2420,15 +2420,12 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
     });
 
     const totalBruto = Object.values(detalhamento).reduce((s, d) => s + d.valor, 0);
-    const retISS = totalBruto * (contrato?.retencaoISS || 0.02);
-    const retINSS = totalBruto * (contrato?.retencaoINSS || 0.035);
-    const retContratual = totalBruto * (contrato?.retencaoContratual || 0.05);
-
+    // Impostos NÃO abatidos — Valor Líquido = Valor Bruto
     return {
       detalhamento,
       bruto: totalBruto,
-      liquido: totalBruto - retISS - retINSS - retContratual,
-      retencoes: { iss: retISS, inss: retINSS, contratual: retContratual, total: retISS + retINSS + retContratual },
+      liquido: totalBruto,
+      retencoes: { iss: 0, inss: 0, contratual: 0, total: 0 },
     };
   }, [modo, pesoNum, isFabricacao, valoresKg, contrato, formData, valorBrutoManual]);
 
@@ -2737,17 +2734,8 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
               </div>
               <div className="pt-3 mt-2 border-t space-y-2" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
                 <div className="flex justify-between">
-                  <span className="text-sm text-white font-semibold">Valor Bruto</span>
-                  <span className="text-lg font-bold text-white">R$ {formatMoney(valoresCalculados.bruto)}</span>
-                </div>
-                <div className="flex items-center gap-4 text-[11px] text-slate-500">
-                  <span>ISS: -R$ {formatMoney(valoresCalculados.retencoes.iss)}</span>
-                  <span>INSS: -R$ {formatMoney(valoresCalculados.retencoes.inss)}</span>
-                  <span>Contratual: -R$ {formatMoney(valoresCalculados.retencoes.contratual)}</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
-                  <span className="text-sm text-emerald-400 font-semibold">Valor Líquido</span>
-                  <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.liquido)}</span>
+                  <span className="text-sm text-emerald-400 font-semibold">Valor Bruto</span>
+                  <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.bruto)}</span>
                 </div>
               </div>
             </div>

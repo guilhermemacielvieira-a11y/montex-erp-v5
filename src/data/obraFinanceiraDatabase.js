@@ -1585,20 +1585,12 @@ export function calcularMedicao(obra, setor, etapa, pesoMedido) {
     valorBruto = pesoMedido * (vkM.totalMontagem || 6.40);
   }
 
-  const valorISS = valorBruto * (retencoes.retencaoISS || 0.02);
-  const valorINSS = valorBruto * (retencoes.retencaoINSS || 0.035);
-  const valorContratual = valorBruto * (retencoes.retencaoContratual || 0.05);
-  const valorLiquido = valorBruto - valorISS - valorINSS - valorContratual;
-
+  // Impostos NÃO abatidos — Valor Líquido = Valor Bruto
   return {
     detalhamento,
     valorBruto,
-    retencoes: {
-      iss: valorISS,
-      inss: valorINSS,
-      contratual: valorContratual
-    },
-    valorLiquido
+    retencoes: { iss: 0, inss: 0, contratual: 0 },
+    valorLiquido: valorBruto
   };
 }
 
