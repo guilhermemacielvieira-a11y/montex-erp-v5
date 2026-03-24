@@ -91,29 +91,54 @@ export function buildPropostaHTML(data) {
   const escopoNaoIncluso = escopo?.naoIncluso || 'Fundações e bases de concreto; Instalações elétricas e hidráulicas; Licenças e alvarás; Terraplenagem e preparação do terreno.';
   const obrigacoes = cronograma?.obrigacoes || 'Disponibilizar acesso ao local da obra; Fornecer ponto de energia elétrica e água; Garantir fundações conforme projeto fornecido pela Montex; Aprovar o projeto executivo em até 10 dias úteis; Efetuar os pagamentos nas datas acordadas.';
 
-  // Setores HTML
-  const setoresHTML = setores.map((setor, idx) => {
-    const m = calcSetorMetrics(setor);
-    const rows = setor.itens.map((item, ri) => {
+  // Fator de markup (margem + impostos) para embutir nos valores
+  const markupFactor = totalDireto > 0 ? precoFinal / totalDireto : 1;
+
+  // Agrupar itens por categoria base e aplicar markup
+  function agruparItensSetor(setor) {
+    const grupos = {};
+    (setor.itens || []).forEach(item => {
+      const desc = (item.descricao || '').trim();
       const totalItem = (item.quantidade || 0) * ((item.precoMaterial || 0) + (item.precoInstalacao || 0));
+      // Agrupar: "Estrutura Metálica - Material/Pintura/etc" → "Estrutura Metálica"
+      // "Cobertura - Material" → "Cobertura em Telha Sanduíche"
+      let grupo;
+      if (desc.toLowerCase().startsWith('estrutura met')) {
+        grupo = 'Estrutura Metálica';
+      } else if (desc.toLowerCase().startsWith('cobertura')) {
+        grupo = 'Cobertura em Telha Sanduíche';
+      } else {
+        grupo = desc; // Calha, Rufos, etc. ficam como estão
+      }
+      if (!grupos[grupo]) grupos[grupo] = 0;
+      grupos[grupo] += totalItem;
+    });
+    // Aplicar markup (impostos + lucro embutidos)
+    const resultado = [];
+    for (const [nome, valor] of Object.entries(grupos)) {
+      resultado.push({ nome, valor: valor * markupFactor });
+    }
+    return resultado;
+  }
+
+  // Setores HTML — itens agrupados, sem preço unitário, com impostos embutidos
+  const setoresHTML = setores.map((setor, idx) => {
+    const gruposSetor = agruparItensSetor(setor);
+    const totalSetor = gruposSetor.reduce((s, g) => s + g.valor, 0);
+    const m = calcSetorMetrics(setor);
+
+    const rows = gruposSetor.map((g, ri) => {
       return `<tr style="background:${ri % 2 === 0 ? 'white' : '#f8fafb'};">
-        <td style="padding:8px 12px;border-bottom:1px solid #e8ecef;font-size:11px;">${item.descricao || ''}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e8ecef;text-align:center;font-size:11px;">${item.unidade || '-'}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e8ecef;text-align:center;font-size:11px;">${fmtN(item.quantidade)}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e8ecef;text-align:right;font-size:11px;">${fmt((item.precoMaterial||0)+(item.precoInstalacao||0))}</td>
-        <td style="padding:8px 10px;border-bottom:1px solid #e8ecef;text-align:right;font-weight:700;font-size:11px;">${fmt(totalItem)}</td>
+        <td style="padding:10px 16px;border-bottom:1px solid #e8ecef;font-size:12px;font-weight:500;">${g.nome}</td>
+        <td style="padding:10px 16px;border-bottom:1px solid #e8ecef;text-align:right;font-weight:700;font-size:12px;">${fmt(g.valor)}</td>
       </tr>`;
     }).join('');
 
-    // Analysis badges
+    // Badges: só área (sem peso/kg)
     const badges = [];
-    if (m.peso > 0) {
-      badges.push(`<span style="display:inline-block;padding:4px 10px;border:1px solid #d0d5dd;border-radius:4px;font-size:10px;font-weight:600;margin-right:8px;">${fmtN(m.peso)} kg</span>`);
-      badges.push(`<span style="display:inline-block;padding:4px 10px;border:1px solid #d0d5dd;border-radius:4px;font-size:10px;font-weight:600;margin-right:8px;">R$ ${(m.valorKg).toFixed(2).replace('.', ',')}/kg</span>`);
-    }
     if (m.area > 0) {
       badges.push(`<span style="display:inline-block;padding:4px 10px;border:1px solid #d0d5dd;border-radius:4px;font-size:10px;font-weight:600;margin-right:8px;">${fmtN(m.area)} m²</span>`);
-      badges.push(`<span style="display:inline-block;padding:4px 10px;border:1px solid #d0d5dd;border-radius:4px;font-size:10px;font-weight:600;margin-right:8px;">R$ ${(m.valorM2).toFixed(2).replace('.', ',')}/m²</span>`);
+      badges.push(`<span style="display:inline-block;padding:4px 10px;border:1px solid #d0d5dd;border-radius:4px;font-size:10px;font-weight:600;margin-right:8px;">R$ ${(totalSetor / m.area).toFixed(2).replace('.', ',')}/m²</span>`);
     }
 
     return `
@@ -123,21 +148,18 @@ export function buildPropostaHTML(data) {
           <span style="background:#2d8c7f;color:white;width:26px;height:26px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">${idx+1}</span>
           <span style="font-size:12px;font-weight:700;color:#1e293b;">${setor.nome.toUpperCase()}</span>
         </div>
-        <span style="font-size:13px;font-weight:800;color:#1e293b;">${fmt(m.total)}</span>
+        <span style="font-size:13px;font-weight:800;color:#1e293b;">${fmt(totalSetor)}</span>
       </div>
       <table style="width:100%;border-collapse:collapse;">
         <thead><tr style="background:#f0f2f5;">
-          <th style="padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">DESCRIÇÃO</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;color:#475569;">UN</th>
-          <th style="padding:8px 10px;text-align:center;font-size:10px;font-weight:700;color:#475569;">QUANTIDADE</th>
-          <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;color:#475569;">PREÇO UNIT.</th>
-          <th style="padding:8px 10px;text-align:right;font-size:10px;font-weight:700;color:#475569;">TOTAL</th>
+          <th style="padding:8px 16px;text-align:left;font-size:10px;font-weight:700;color:#475569;letter-spacing:0.5px;">DESCRIÇÃO</th>
+          <th style="padding:8px 16px;text-align:right;font-size:10px;font-weight:700;color:#475569;">VALOR</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
       <div style="background:#f0f9f7;padding:8px 16px;display:flex;justify-content:space-between;align-items:center;border-top:2px solid #2d8c7f;">
-        <span style="font-size:11px;font-weight:600;color:#475569;">Subtotal - ${setor.nome.toUpperCase()}</span>
-        <span style="font-size:12px;font-weight:800;color:#1e293b;">${fmt(m.total)}</span>
+        <span style="font-size:11px;font-weight:600;color:#475569;">Total - ${setor.nome.toUpperCase()}</span>
+        <span style="font-size:12px;font-weight:800;color:#1e293b;">${fmt(totalSetor)}</span>
       </div>
       ${badges.length > 0 ? `<div style="padding:8px 16px;background:#fafbfc;">${badges.join('')}</div>` : ''}
     </div>`;
@@ -289,11 +311,11 @@ export function buildPropostaHTML(data) {
       </div>
     </div>
 
-    <!-- ORÇAMENTO DETALHADO POR SETOR -->
+    <!-- ORÇAMENTO POR SETOR -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
       <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;display:flex;justify-content:space-between;">
-        <span>ORÇAMENTO DETALHADO POR SETOR</span>
-        <span>${setores.length} SETOR${setores.length > 1 ? 'ES' : ''} | ${totalItens} ITENS</span>
+        <span>ORÇAMENTO POR SETOR</span>
+        <span>${setores.length} SETOR${setores.length > 1 ? 'ES' : ''}</span>
       </div>
     </div>
 
@@ -308,58 +330,27 @@ export function buildPropostaHTML(data) {
   ${headerHTML(false)}
   <div class="page-content">
 
-    <!-- TOTAL GERAL -->
+    <!-- VALOR TOTAL DA PROPOSTA -->
     <div style="border:2px solid #2d8c7f;border-radius:8px;overflow:hidden;margin-bottom:18px;">
-      <div style="background:#e8f5f1;padding:12px 20px;display:flex;justify-content:space-between;align-items:center;">
-        <span style="font-size:13px;font-weight:800;color:#1e293b;letter-spacing:1px;">TOTAL GERAL DO ORÇAMENTO</span>
-        <span style="font-size:18px;font-weight:800;color:#1e293b;">${fmt(totalOrcamento)}</span>
+      <div style="background:#e8f5f1;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;">
+        <span style="font-size:14px;font-weight:800;color:#1e293b;letter-spacing:1px;">VALOR TOTAL DA PROPOSTA</span>
+        <span style="font-size:24px;font-weight:800;color:#1e293b;">${fmt(precoFinal)}</span>
       </div>
     </div>
 
-    <!-- MÉTRICAS -->
+    <!-- MÉTRICAS — somente área e preço/m² -->
     <table style="width:100%;border-collapse:separate;border-spacing:10px 0;margin-bottom:20px;margin-left:-10px;">
       <tr>
-        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
-          <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PESO TOTAL</div>
-          <div style="font-size:18px;font-weight:800;color:#1e293b;">${fmtN(totalWeight)} kg</div>
-        </td>
-        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
+        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:50%;">
           <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">ÁREA TOTAL</div>
           <div style="font-size:18px;font-weight:800;color:#1e293b;">${fmtN(totalArea)} m²</div>
         </td>
-        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
-          <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PREÇO MÉDIO / KG</div>
-          <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalWeight > 0 ? (totalOrcamento / totalWeight).toFixed(2).replace('.', ',') : '0,00'}</div>
-        </td>
-        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:25%;">
+        <td style="border:2px solid #e0e0e0;border-radius:8px;padding:12px;text-align:center;width:50%;">
           <div style="font-size:9px;font-weight:700;color:#64748b;letter-spacing:1px;margin-bottom:4px;">PREÇO MÉDIO / M²</div>
-          <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalArea > 0 ? (totalOrcamento / totalArea).toFixed(2).replace('.', ',') : '0,00'}</div>
+          <div style="font-size:18px;font-weight:800;color:#1e293b;">R$ ${totalArea > 0 ? (precoFinal / totalArea).toFixed(2).replace('.', ',') : '0,00'}</div>
         </td>
       </tr>
     </table>
-
-    <!-- COMPOSIÇÃO DO INVESTIMENTO -->
-    <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
-      <div style="background:#2d8c7f;color:white;padding:8px 16px;font-size:11px;font-weight:700;letter-spacing:2px;">COMPOSIÇÃO DO INVESTIMENTO</div>
-      <div style="padding:14px 20px;">
-        <table style="width:100%;font-size:12px;">
-          <tr>
-            <td style="width:60%;vertical-align:top;padding-right:24px;">
-              <table style="width:100%;">
-                <tr><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;">Material (s/ margem/impostos)</td><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;text-align:right;font-weight:700;">${fmt(custoMaterial)}</td></tr>
-                <tr><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;">Instalação (Fab/Pint/Transp/Mont)</td><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;text-align:right;font-weight:700;">${fmt(custoInstalacao)}</td></tr>
-                <tr><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;">Margem (${margemPct}%) s/ instalação</td><td style="padding:6px 0;border-bottom:1px dotted #d0d5dd;text-align:right;font-weight:700;">${fmt(margemVal)}</td></tr>
-                <tr><td style="padding:6px 0;">Impostos (${impostosPct}%) s/ instalação</td><td style="padding:6px 0;text-align:right;font-weight:700;">${fmt(impostosVal)}</td></tr>
-              </table>
-            </td>
-            <td style="width:40%;vertical-align:middle;text-align:center;border-left:2px solid #2d8c7f;padding-left:24px;">
-              <div style="font-size:10px;color:#64748b;letter-spacing:1px;margin-bottom:4px;">VALOR TOTAL DA PROPOSTA</div>
-              <div style="font-size:28px;font-weight:800;color:#1e293b;">${fmt(precoFinal)}</div>
-            </td>
-          </tr>
-        </table>
-      </div>
-    </div>
 
     <!-- CONDIÇÕES DE PAGAMENTO -->
     <div style="border:2px solid #e0e0e0;border-radius:8px;overflow:hidden;margin-bottom:20px;">
