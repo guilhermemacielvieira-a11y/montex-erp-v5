@@ -300,7 +300,9 @@ export async function updateUserProfile(id, updates) {
 }
 
 export async function createNewUser({ email, password, nome, role, cargo }) {
-  const { data: authData, error: authError } = await supabase.auth.admin.createUser({
+  // Usa supabaseAdmin (service_role) pois auth.admin.createUser requer Bearer token com service_role
+  const adminClient = supabaseAdmin || supabase;
+  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
     email,
     password,
     email_confirm: true,
@@ -309,7 +311,7 @@ export async function createNewUser({ email, password, nome, role, cargo }) {
 
   if (authError) throw authError;
 
-  const { data: profile, error: profileError } = await supabase
+  const { data: profile, error: profileError } = await adminClient
     .from('user_profiles')
     .insert([{
       auth_id: authData.user.id,
