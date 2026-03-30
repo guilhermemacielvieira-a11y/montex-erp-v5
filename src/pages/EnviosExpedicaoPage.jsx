@@ -107,8 +107,35 @@ export default function EnviosExpedicaoPage() {
       setPecasPinturaRaw(emPintura);
 
       // Peças já enviadas (saíram da fábrica via romaneio)
-      const enviadas = todasPecas.filter(p => p.etapa === 'enviado' || p.etapa === 'entregue');
-      setPecasEnviadasRaw(enviadas);
+      // Inclui peças com etapa 'enviado'/'entregue' E também peças parcialmente enviadas (etapa='expedido' mas com qtd enviada em expedições)
+      const enviadasDiretas = todasPecas.filter(p => p.etapa === 'enviado' || p.etapa === 'entregue');
+
+      // Calcular envios parciais para peças que ainda estão como 'expedido'
+      const qtdEnviadaParcial = {};
+      (expedicoes || []).forEach(exp => {
+        const detalhes = exp.pecas_detalhes || exp.pecasDetalhes ||
+          (Array.isArray(exp.pecas) ? exp.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
+        detalhes.forEach(d => {
+          const id = String(d.id);
+          qtdEnviadaParcial[id] = (qtdEnviadaParcial[id] || 0) + (d.qtd_enviada || d.qtdEnviada || 0);
+        });
+      });
+
+      // Adicionar peças 'expedido' que tiveram envio parcial à lista de enviadas (com qtd parcial)
+      const enviadasParciais = expedidas
+        .filter(p => {
+          const jaEnviada = qtdEnviadaParcial[String(p.id)] || 0;
+          return jaEnviada > 0; // tem pelo menos 1 unidade já enviada
+        })
+        .map(p => {
+          const jaEnviada = qtdEnviadaParcial[String(p.id)] || 0;
+          const total = parseInt(p.quantidade) || 1;
+          const pesoOriginal = parseFloat(p.peso) || 0;
+          const pesoParcial = total > 0 ? (pesoOriginal / total) * jaEnviada : 0;
+          return { ...p, quantidade: jaEnviada, peso: pesoParcial, etapa: 'enviado', _parcial: true, _qtdOriginal: total };
+        });
+
+      setPecasEnviadasRaw([...enviadasDiretas, ...enviadasParciais]);
 
       // Calcular quantidade já enviada por peça (somando todas as expedições)
       const qtdEnviadaPorPeca = {};
