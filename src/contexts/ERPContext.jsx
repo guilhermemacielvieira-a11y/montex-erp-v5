@@ -657,12 +657,21 @@ export function ERPProvider({ children }) {
   const addExpedicao = useCallback(async (expedicao) => {
     dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });
 
-    // Atualiza etapa das peças para ENVIADO (saem da fila de embarque)
+    // Determinar quais peças foram totalmente enviadas vs parcialmente enviadas
+    const detalhes = expedicao.pecas_detalhes || [];
+    const pecasParciais = new Set(
+      detalhes.filter(d => d.qtd_enviada < d.qtd_total).map(d => String(d.id))
+    );
+
+    // Só muda etapa para ENVIADO se a peça foi TOTALMENTE enviada
+    // Peças com envio parcial permanecem como 'expedido' na fila de embarque
     expedicao.pecas.forEach(pecaId => {
-      dispatch({
-        type: ACTIONS.UPDATE_PECA,
-        payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.ENVIADO || 'enviado' } }
-      });
+      if (!pecasParciais.has(String(pecaId))) {
+        dispatch({
+          type: ACTIONS.UPDATE_PECA,
+          payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.ENVIADO || 'enviado' } }
+        });
+      }
     });
 
     // Persistir no Supabase
@@ -688,9 +697,12 @@ export function ERPProvider({ children }) {
           observacoes: expedicao.observacoes || null,
         };
         await expedicoesApi.create(record);
-        // Atualizar etapa das peças no Supabase para 'enviado' (saem da fila de embarque)
+        // Atualizar etapa das peças no Supabase — só marca 'enviado' se envio total
+        // Peças com envio parcial permanecem como 'expedido' na fila de embarque
         for (const pecaId of (expedicao.pecas || [])) {
-          await pecasApi.update(pecaId, { etapa: 'enviado', status: 'enviado' }).catch(() => {});
+          if (!pecasParciais.has(String(pecaId))) {
+            await pecasApi.update(pecaId, { etapa: 'enviado', status: 'enviado' }).catch(() => {});
+          }
         }
         console.log(`✅ Expedição ${record.id} criada no Supabase`);
       } catch (err) {

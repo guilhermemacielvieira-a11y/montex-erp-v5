@@ -110,15 +110,38 @@ export default function EnviosExpedicaoPage() {
       const enviadas = todasPecas.filter(p => p.etapa === 'enviado' || p.etapa === 'entregue');
       setPecasEnviadasRaw(enviadas);
 
-      // Pegar IDs das peças já incluídas em expedições existentes
-      const pecasJaEnviadas = new Set();
+      // Calcular quantidade já enviada por peça (somando todas as expedições)
+      const qtdEnviadaPorPeca = {};
       (expedicoes || []).forEach(exp => {
+        const detalhes = exp.pecas_detalhes || exp.pecasDetalhes ||
+          (Array.isArray(exp.pecas) ? exp.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
+        detalhes.forEach(d => {
+          const id = String(d.id);
+          qtdEnviadaPorPeca[id] = (qtdEnviadaPorPeca[id] || 0) + (d.qtd_enviada || d.qtdEnviada || 0);
+        });
+        // Para peças sem detalhes (expedições antigas), considerar totalmente enviadas
         const ids = Array.isArray(exp.pecas_ids) ? exp.pecas_ids : [];
-        ids.forEach(id => pecasJaEnviadas.add(String(id)));
+        ids.forEach(id => {
+          const idStr = String(typeof id === 'object' ? (id.id || id) : id);
+          if (!(idStr in qtdEnviadaPorPeca)) {
+            qtdEnviadaPorPeca[idStr] = Infinity; // marca como totalmente enviada
+          }
+        });
       });
 
-      // Filtrar peças que ainda não foram enviadas
-      const pecasAguardando = expedidas.filter(p => !pecasJaEnviadas.has(String(p.id)));
+      // Filtrar peças com quantidade restante > 0 e ajustar quantidade disponível
+      const pecasAguardando = expedidas
+        .map(p => {
+          const jaEnviada = qtdEnviadaPorPeca[String(p.id)] || 0;
+          const total = parseInt(p.quantidade) || 1;
+          const restante = total - jaEnviada;
+          if (restante <= 0) return null; // totalmente enviada
+          // Ajustar peso proporcional à quantidade restante
+          const pesoOriginal = parseFloat(p.peso) || 0;
+          const pesoRestante = total > 0 ? (pesoOriginal / total) * restante : 0;
+          return { ...p, quantidade: restante, peso: pesoRestante, _qtdOriginal: total, _qtdJaEnviada: jaEnviada };
+        })
+        .filter(Boolean);
 
       setPecasExpedidasRaw(pecasAguardando);
     } catch (err) {
