@@ -483,7 +483,7 @@ export default function EnviosExpedicaoPage() {
           { label: 'Total Envios', value: kpis.total, icon: Package, color: 'text-blue-400' },
           { label: 'Em Trânsito', value: kpis.emTransito, icon: Truck, color: 'text-yellow-400' },
           { label: 'Entregues', value: kpis.entregues, icon: CheckCircle2, color: 'text-green-400' },
-          { label: 'Peso Total', value: kpis.pesoTotal.toFixed(1) + 'kg', icon: Weight, color: 'text-purple-400' },
+          { label: 'Peso Total', value: kpis.pesoTotal >= 1000 ? (kpis.pesoTotal / 1000).toFixed(2) + 't' : kpis.pesoTotal.toFixed(1) + 'kg', icon: Weight, color: 'text-purple-400' },
           { label: 'Prontas p/ Embarque', value: kpis.prontas, icon: SendHorizontal, color: 'text-emerald-400' },
         ].map((k, i) => (
           <div key={i} className="bg-gray-900 rounded-lg p-4 flex items-center justify-between">
@@ -634,10 +634,10 @@ export default function EnviosExpedicaoPage() {
                           </span>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-sm text-gray-400">
-                          <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {envio.obra_nome || envio.obraNome || envio.destino || envio.obra_id || envio.obraId || '-'}</span>
+                          <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {envio.obraNome || envio.obra_nome || envio.destino || envio.obraId || envio.obra_id || '-'}</span>
                           <span className="flex items-center gap-1"><Truck className="w-3 h-3" /> {envio.transportadora || '-'}</span>
-                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(parseFloat(envio.peso_total || envio.pesoTotal) || 0).toFixed(2)}kg</span>
-                          <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {(envio.pecas_ids || envio.pecasIds || (Array.isArray(envio.pecas) ? envio.pecas : [])).length} peça(s)</span>
+                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {(() => { const p = parseFloat(envio.pesoTotal || envio.peso_total) || 0; return p >= 1000 ? (p/1000).toFixed(2) + 't' : p.toFixed(2) + 'kg'; })()}</span>
+                          <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {(() => { const pecas = Array.isArray(envio.pecas) ? envio.pecas : []; const qtd = pecas.reduce((s, p) => s + (typeof p === 'object' ? (p.qtd_enviada || p.qtdEnviada || 1) : 1), 0); return `${qtd} un (${pecas.length} itens)`; })()}</span>
                         </div>
                         {(envio.data_envio || envio.dataExpedicao || envio.data_expedicao) && (
                           <p className="text-xs text-gray-500 mt-1">
