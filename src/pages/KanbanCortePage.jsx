@@ -823,6 +823,25 @@ export default function KanbanCortePage() {
 
                       {/* Acoes - com abatimento automático de estoque + persistência Supabase */}
                       <div style={{ display: 'flex', gap: 3 }} onClick={e => e.stopPropagation()}>
+                        {/* Botão funcionário - sempre visível */}
+                        <button
+                          onClick={() => {
+                            setItensLancamento([{
+                              id: item.id,
+                              nome: item.marca,
+                              marca: item.marca,
+                              tipo: item.peca || item.tipo || '',
+                              pesoTotal: item.peso || 0,
+                              obraId: item.obraId || '',
+                              obraNome: item.obraNome || ''
+                            }]);
+                            setModalLancamento(true);
+                          }}
+                          title="Ver/editar funcionário responsável"
+                          style={actionBtnStyle('#2d1b69', '#7c3aed', '#a78bfa')}
+                        >
+                          👤
+                        </button>
                         {item.status === 'aguardando' && (
                           <>
                             <button onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('iniciar'); setModalFuncionario(true); }} title="Iniciar Corte (selecionar funcionário)"
@@ -984,6 +1003,43 @@ export default function KanbanCortePage() {
                           <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
                             {formatPeso(item.peso)}
                           </div>
+                          {/* Botão lançamento de funcionário */}
+                          <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setItensLancamento([{
+                                  id: item.id,
+                                  nome: item.marca,
+                                  marca: item.marca,
+                                  tipo: item.peca || item.tipo || '',
+                                  pesoTotal: item.peso || 0,
+                                  obraId: item.obraId || '',
+                                  obraNome: item.obraNome || ''
+                                }]);
+                                setModalLancamento(true);
+                              }}
+                              style={{
+                                width: '100%',
+                                background: 'rgba(124,58,237,0.12)',
+                                border: '1px dashed rgba(124,58,237,0.45)',
+                                borderRadius: 5,
+                                padding: '4px 0',
+                                color: '#a78bfa',
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                                transition: 'all 0.15s'
+                              }}
+                              title="Ver/editar funcionário responsável por esta peça"
+                            >
+                              👤 Funcionário
+                            </button>
+                          </div>
                         </div>
                       )}
                     </Draggable>
@@ -1077,6 +1133,43 @@ export default function KanbanCortePage() {
                           <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
                             {formatPeso(item.peso)}
                           </div>
+                          {/* Botão lançamento de funcionário */}
+                          <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setItensLancamento([{
+                                  id: item.id,
+                                  nome: item.marca,
+                                  marca: item.marca,
+                                  tipo: item.peca || item.tipo || '',
+                                  pesoTotal: item.peso || 0,
+                                  obraId: item.obraId || '',
+                                  obraNome: item.obraNome || ''
+                                }]);
+                                setModalLancamento(true);
+                              }}
+                              style={{
+                                width: '100%',
+                                background: 'rgba(124,58,237,0.12)',
+                                border: '1px dashed rgba(124,58,237,0.45)',
+                                borderRadius: 5,
+                                padding: '4px 0',
+                                color: '#a78bfa',
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                                transition: 'all 0.15s'
+                              }}
+                              title="Ver/editar funcionário responsável por esta peça"
+                            >
+                              👤 Funcionário
+                            </button>
+                          </div>
                         </div>
                       )}
                     </Draggable>
@@ -1169,6 +1262,43 @@ export default function KanbanCortePage() {
                           </div>
                           <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
                             {formatPeso(item.peso)}
+                          </div>
+                          {/* Botão lançamento de funcionário */}
+                          <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setItensLancamento([{
+                                  id: item.id,
+                                  nome: item.marca,
+                                  marca: item.marca,
+                                  tipo: item.peca || item.tipo || '',
+                                  pesoTotal: item.peso || 0,
+                                  obraId: item.obraId || '',
+                                  obraNome: item.obraNome || ''
+                                }]);
+                                setModalLancamento(true);
+                              }}
+                              style={{
+                                width: '100%',
+                                background: 'rgba(124,58,237,0.12)',
+                                border: '1px dashed rgba(124,58,237,0.45)',
+                                borderRadius: 5,
+                                padding: '4px 0',
+                                color: '#a78bfa',
+                                fontSize: 9,
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                gap: 3,
+                                transition: 'all 0.15s'
+                              }}
+                              title="Ver/editar funcionário responsável por esta peça"
+                            >
+                              👤 Funcionário
+                            </button>
                           </div>
                         </div>
                       )}
