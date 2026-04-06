@@ -6,8 +6,10 @@ import { createClient } from '@supabase/supabase-js';
 // CONFIGURAÇÃO VIA VARIÁVEIS DE AMBIENTE
 // Nunca hardcode chaves no código-fonte!
 // ============================================
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+  || 'https://trxbohjcwsogthabairh.supabase.co';
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+  || 'sb_publishable_8X7bPhCGF16mgZE8Z7fuVw_6pI74veM';
 // Service Role Key: bypassa RLS em tabelas restritivas (orcamentos, compras, etc.)
 // NOTA: Em produção com auth, mover para backend. Aqui o app não usa autenticação.
 const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
