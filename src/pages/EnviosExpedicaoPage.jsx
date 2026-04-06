@@ -9,13 +9,14 @@ import {
   Truck, Package, CheckCircle2, AlertCircle, Search, Plus,
   FileText, Download, ChevronDown, Building2, Weight,
   ArrowRight, Printer, ArrowUpAZ, X, SendHorizontal, FileDown,
-  Trash2, Edit3
+  Trash2, Edit3, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Select from '@radix-ui/react-select';
+import { LancamentoProducaoModal } from '../components/kanban/LancamentoProducaoModal';
 
 // ========================================
 // CONSTANTES
@@ -68,6 +69,9 @@ export default function EnviosExpedicaoPage() {
   });
   const [modalEditarAberto, setModalEditarAberto] = useState(false);
   const [editandoEnvioId, setEditandoEnvioId] = useState(null);
+  // Modal lançamento de produção por funcionário
+  const [modalLancamento, setModalLancamento] = useState(false);
+  const [pecasLancamento, setPecasLancamento] = useState([]);
 
   // ==== SALVAR EDIÇÃO DE ENVIO ====
   const salvarEdicaoEnvio = useCallback(async () => {
@@ -580,6 +584,28 @@ export default function EnviosExpedicaoPage() {
                       <span className="flex items-center gap-1"><Package className="w-3 h-3" /> {peca.quantidade || 1} un</span>
                       {peca.obra_id && <span className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {peca.obra_nome || peca.obra_id}</span>}
                     </div>
+                    {/* Botão lançamento funcionário */}
+                    <div className="mt-2 pt-2 border-t border-gray-800/60" onClick={e => e.stopPropagation()}>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPecasLancamento([{
+                            id: peca.id,
+                            nome: peca.marca || peca.conjunto || peca.nome || 'Peça',
+                            marca: peca.marca || peca.conjunto || '',
+                            tipo: peca.tipo || peca.descricao || '',
+                            pesoTotal: parseFloat(peca.pesoTotal) || parseFloat(peca.peso) || 0,
+                            obraId: peca.obra_id || peca.obraId || '',
+                            obraNome: peca.obra_nome || peca.obraNome || '',
+                          }]);
+                          setModalLancamento(true);
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 py-1.5 text-xs font-medium rounded-lg text-purple-300 bg-purple-900/20 border border-dashed border-purple-700/40 hover:bg-purple-900/40 transition-colors"
+                        title="Ver/editar funcionário responsável por esta peça"
+                      >
+                        <UserCheck className="w-3.5 h-3.5" /> Ver Funcionário
+                      </button>
+                    </div>
                   </motion.div>
                 ))}
               </div>
@@ -775,6 +801,7 @@ export default function EnviosExpedicaoPage() {
                       <th className="py-2 px-3 text-right">Peso Total (kg)</th>
                       <th className="py-2 px-3 text-left">Obra</th>
                       <th className="py-2 px-3 text-center">Status</th>
+                      <th className="py-2 px-3 text-center">Funcionário</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -798,6 +825,26 @@ export default function EnviosExpedicaoPage() {
                           }`}>
                             {peca.etapa === 'entregue' ? 'Entregue' : 'Enviado'}
                           </span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <button
+                            onClick={() => {
+                              setPecasLancamento([{
+                                id: peca.id,
+                                nome: peca.marca || peca.nome || 'Peça',
+                                marca: peca.marca || '',
+                                tipo: peca.tipo || '',
+                                pesoTotal: parseFloat(peca.pesoTotal) || parseFloat(peca.peso) || 0,
+                                obraId: peca.obra_id || peca.obraId || '',
+                                obraNome: peca.obra_nome || peca.obraNome || '',
+                              }]);
+                              setModalLancamento(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-xs rounded-lg text-purple-300 bg-purple-900/20 border border-purple-700/30 hover:bg-purple-900/40 transition-colors"
+                            title="Ver/editar funcionário responsável"
+                          >
+                            <UserCheck className="w-3 h-3" /> Ver
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -1213,6 +1260,15 @@ export default function EnviosExpedicaoPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* Modal Lançamento de Produção por Funcionário */}
+      <LancamentoProducaoModal
+        isOpen={modalLancamento}
+        onClose={() => setModalLancamento(false)}
+        pecas={pecasLancamento}
+        defaultEtapa="expedido"
+        onSaved={() => setModalLancamento(false)}
+      />
     </div>
   );
 }

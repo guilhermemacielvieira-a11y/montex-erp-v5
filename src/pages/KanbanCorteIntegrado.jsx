@@ -13,7 +13,7 @@ import toast from 'react-hot-toast';
 import {
   Scissors, Package, Clock, CheckCircle2, AlertTriangle, ChevronDown, Search, Settings,
   User, Cpu, Pause, ArrowRight,
-  Building2, Warehouse, Eye, Edit, Zap, Box, Target, Layers
+  Building2, Warehouse, Eye, Edit, Zap, Box, Target, Layers, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +26,7 @@ import { useERP, useProducao, useEstoque, useObras } from '@/contexts/ERPContext
 import { useEstoqueReal } from '@/contexts/EstoqueRealContext';
 import { STATUS_CORTE, ETAPAS_PRODUCAO } from '@/data/database';
 import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 
 // Configuração das colunas do Kanban
@@ -46,7 +47,7 @@ const colorMap = {
 };
 
 // Card de Peça para Corte
-function PecaCard({ peca, index, onMover, maquinas, funcionarios }) {
+function PecaCard({ peca, index, onMover, maquinas, funcionarios, onLancamento }) {
   const [expanded, setExpanded] = useState(false);
   const maquina = maquinas.find(m => m.id === peca.maquinaCorte);
   const funcionario = funcionarios.find(f => f.id === peca.funcionarioCorte);
@@ -124,6 +125,17 @@ function PecaCard({ peca, index, onMover, maquinas, funcionarios }) {
             </div>
           )}
 
+          {/* Botão funcionário sempre visível */}
+          {onLancamento && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onLancamento(peca); }}
+              className="w-full flex items-center justify-center gap-1.5 mt-2 py-1 text-[10px] font-semibold text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 rounded-lg border border-dashed border-purple-700/30 hover:border-purple-600/50 transition-colors"
+              title="Ver/editar funcionário responsável"
+            >
+              <UserCheck className="w-3 h-3" /> Funcionário
+            </button>
+          )}
+
           {/* Expandir */}
           <button
             onClick={() => setExpanded(!expanded)}
@@ -170,6 +182,16 @@ function PecaCard({ peca, index, onMover, maquinas, funcionarios }) {
                       <Edit className="w-3 h-3 mr-1" /> Editar
                     </Button>
                   </div>
+                  {onLancamento && (
+                    <Button
+                      onClick={(e) => { e.stopPropagation(); onLancamento(peca); }}
+                      size="sm"
+                      variant="ghost"
+                      className="w-full text-xs h-7 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 border border-dashed border-purple-700/40"
+                    >
+                      <UserCheck className="w-3 h-3 mr-1" /> Ver/Editar Funcionário
+                    </Button>
+                  )}
                 </div>
               </motion.div>
             )}
@@ -181,7 +203,7 @@ function PecaCard({ peca, index, onMover, maquinas, funcionarios }) {
 }
 
 // Coluna do Kanban
-function ColunaKanban({ coluna, pecas, maquinas, funcionarios, onMoverPeca }) {
+function ColunaKanban({ coluna, pecas, maquinas, funcionarios, onMoverPeca, onLancamento }) {
   const colors = colorMap[coluna.color];
   const Icon = coluna.icon;
   const totalPeso = pecas.reduce((acc, p) => acc + p.peso, 0);
@@ -228,6 +250,7 @@ function ColunaKanban({ coluna, pecas, maquinas, funcionarios, onMoverPeca }) {
                 index={index}
                 maquinas={maquinas}
                 funcionarios={funcionarios}
+                onLancamento={onLancamento}
               />
             ))}
             {provided.placeholder}
@@ -328,6 +351,10 @@ export default function KanbanCorteIntegrado() {
   const [pecaPendente, setPecaPendente] = useState(null);
   const [statusPendente, setStatusPendente] = useState(null);
 
+  // Estado do modal de lançamento de produção (visualizar/editar funcionário)
+  const [modalLancamento, setModalLancamento] = useState(false);
+  const [pecasLancamento, setPecasLancamento] = useState([]);
+
   // Reconciliação retroativa: peças do ERPContext que já foram cortadas
   useEffect(() => {
     if (reconciliacaoERPRef.current) return;
@@ -403,6 +430,20 @@ export default function KanbanCorteIntegrado() {
 
     return { total, pesoTotal, emCorte, liberadas, aguardando };
   }, [pecasCorte]);
+
+  // Handler para abrir LancamentoProducaoModal em uma peça específica
+  const handleLancamento = (peca) => {
+    setPecasLancamento([{
+      id: peca.id,
+      nome: `MARCA ${peca.marca}`,
+      marca: peca.marca || '',
+      tipo: peca.tipo || peca.peca || '',
+      pesoTotal: peca.peso || 0,
+      obraId: peca.obraId || obraAtual || '',
+      obraNome: peca.obraNome || obraAtualData?.codigo || ''
+    }]);
+    setModalLancamento(true);
+  };
 
   // Máquinas de corte
   const maquinasCorte = maquinas.filter(m => m.setor === 'corte');
@@ -624,6 +665,7 @@ export default function KanbanCorteIntegrado() {
               maquinas={maquinas}
               funcionarios={funcionarios}
               onMoverPeca={updateStatusCorte}
+              onLancamento={handleLancamento}
             />
           ))}
         </div>
@@ -662,6 +704,15 @@ export default function KanbanCorteIntegrado() {
         setor="em_corte"
         etapaLabel="Corte"
         pecaInfo={pecaPendente}
+      />
+
+      {/* Modal de lançamento de produção — visualizar/editar funcionário por peça */}
+      <LancamentoProducaoModal
+        isOpen={modalLancamento}
+        onClose={() => setModalLancamento(false)}
+        pecas={pecasLancamento}
+        defaultEtapa="corte"
+        onSaved={() => setModalLancamento(false)}
       />
     </div>
   );
