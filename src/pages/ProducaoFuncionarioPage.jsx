@@ -2,7 +2,7 @@
 // Análise completa com gráficos interativos, metas dinâmicas e relatórios exportáveis
 // Dados REAIS do Supabase via useProducaoAnalytics + contabilização cumulativa
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
@@ -12,7 +12,8 @@ import {
   Scissors, Flame, Droplets, Paintbrush, ChevronDown, ChevronUp,
   RefreshCw, Loader2, BarChart3, PieChart, Activity, Zap,
   Calendar, Clock, FileSpreadsheet, Filter, Maximize2,
-  Eye, Star, Medal, Trophy
+  Eye, Star, Medal, Trophy,
+  Save, Check, Search, AlertCircle, Truck, Building2, ClipboardList
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,8 @@ import {
 
 // Hook de analytics real
 import { useProducaoAnalytics } from '@/hooks/useProducaoAnalytics';
+import { useEquipes } from '@/contexts/ERPContext';
+import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import {
   ETAPAS_LABELS, ETAPAS_CORES,
   formatKg, contabilizarCumulativo,
@@ -863,6 +866,409 @@ function DetalhesPanel({ func, onClose }) {
 }
 
 // ============ COMPONENTE PRINCIPAL ============
+// ─── Constantes de etapas para o tab de lançamentos ────────────────────────────
+const ETAPAS_LANCAMENTO = [
+  { key: 'corte',      label: 'Corte',       icon: Scissors,   text: 'text-amber-400',   border: 'border-amber-600/40',  activeBg: 'bg-amber-500/10'   },
+  { key: 'fabricacao', label: 'Fabricação',  icon: Flame,      text: 'text-purple-400',  border: 'border-purple-600/40', activeBg: 'bg-purple-500/10'  },
+  { key: 'solda',      label: 'Solda',       icon: Droplets,   text: 'text-red-400',     border: 'border-red-600/40',    activeBg: 'bg-red-500/10'     },
+  { key: 'pintura',    label: 'Pintura',     icon: Paintbrush, text: 'text-cyan-400',    border: 'border-cyan-600/40',   activeBg: 'bg-cyan-500/10'    },
+  { key: 'montagem',   label: 'Montagem',    icon: Package,    text: 'text-teal-400',    border: 'border-teal-600/40',   activeBg: 'bg-teal-500/10'    },
+  { key: 'expedido',   label: 'Expedição',   icon: Truck,      text: 'text-emerald-400', border: 'border-emerald-600/40',activeBg: 'bg-emerald-500/10' },
+];
+const ETAPA_CAMPO_FUNC_MAP = { fabricacao: 'funcionario_fabricacao', solda: 'funcionario_solda', pintura: 'funcionario_pintura', expedido: 'funcionario_expedido' };
+const ETAPA_CAMPO_DATA_MAP = { fabricacao: 'data_inicio_fabricacao', solda: 'data_inicio_solda', pintura: 'data_inicio_pintura' };
+function hojeStr() { return new Date().toISOString().split('T')[0]; }
+function gerarLancId() { return 'LANC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
+function formatPesoLanc(kg) { if (!kg) return '—'; if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`; return `${Number(kg).toFixed(1)} kg`; }
+
+// ─── Tab de Lançamentos por Obra ────────────────────────────────────────────────
+function LancamentosObraTab({ pecasAnalytics, refetch }) {
+  const { funcionarios: ctxFuncionarios } = useEquipes();
+  const [allPecas, setAllPecas] = useState([]);
+  const [lancamentos, setLancamentos] = useState({});
+  const [saving, setSaving] = useState({});
+  const [carregado, setCarregado] = useState(false);
+  const [loadingPecas, setLoadingPecas] = useState(false);
+  const [obraSelecionada, setObraSelecionada] = useState('todas');
+  const [busca, setBusca] = useState('');
+  const [expandidos, setExpandidos] = useState({});  // { [pecaId]: bool }
+
+  const funcionariosAtivos = useMemo(() =>
+    (ctxFuncionarios || []).filter(f => f.status !== 'inativo').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
+  [ctxFuncionarios]);
+
+  const chave = (pecaId, etapa) => `${pecaId}__${etapa}`;
+
+  // Carregar todas as peças de pecas_producao (sem filtro de período)
+  const carregarPecas = useCallback(async () => {
+    setLoadingPecas(true);
+    const client = supabaseAdmin || supabase;
+    try {
+      const { data, error } = await client
+        .from('pecas_producao')
+        .select('*')
+        .order('obra_nome', { ascending: true });
+      if (error) throw error;
+      setAllPecas(data || []);
+    } catch (err) {
+      console.error('[LancamentosObraTab] Erro ao carregar peças:', err);
+      // fallback para dados do analytics
+      setAllPecas(pecasAnalytics || []);
+    } finally {
+      setLoadingPecas(false);
+    }
+  }, [pecasAnalytics]);
+
+  // Carregar lançamentos existentes
+  const carregarLancamentos = useCallback(async (lista) => {
+    if (!lista.length) { setCarregado(true); return; }
+    const client = supabaseAdmin || supabase;
+    try {
+      const ids = lista.map(p => p.id);
+      const { data, error } = await client
+        .from('entity_store')
+        .select('id, data')
+        .eq('entity_type', 'producao_lancamento')
+        .in('data->>peca_id', ids);
+      if (error) throw error;
+      const mapa = {};
+      (data || []).forEach(row => {
+        const d = row.data || {};
+        const k = chave(d.peca_id, d.etapa);
+        mapa[k] = { _storeId: row.id, funcionario_id: d.funcionario_id || '', funcionario_nome: d.funcionario_nome || '', data_producao: d.data_producao || hojeStr(), observacoes: d.observacoes || '' };
+      });
+      setLancamentos(mapa);
+    } catch (err) {
+      console.error('[LancamentosObraTab] Erro ao carregar lançamentos:', err);
+    } finally {
+      setCarregado(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarPecas();
+  }, []);
+
+  useEffect(() => {
+    if (allPecas.length > 0 && !carregado) {
+      carregarLancamentos(allPecas);
+    }
+  }, [allPecas, carregado, carregarLancamentos]);
+
+  const handleReload = () => { setCarregado(false); carregarPecas().then(() => {}); };
+
+  // Obras distintas
+  const obras = useMemo(() => {
+    const map = new Map();
+    allPecas.forEach(p => {
+      const id = p.obra_id || p.obraId || 'sem-obra';
+      const nome = p.obra_nome || p.obraNome || p.obra_codigo || 'Sem Obra';
+      if (!map.has(id)) map.set(id, nome);
+    });
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [allPecas]);
+
+  // Filtro
+  const pecasFiltradas = useMemo(() => {
+    let lista = allPecas;
+    if (obraSelecionada !== 'todas') lista = lista.filter(p => (p.obra_id || p.obraId || 'sem-obra') === obraSelecionada);
+    if (busca) {
+      const q = busca.toLowerCase();
+      lista = lista.filter(p => (p.marca || '').toLowerCase().includes(q) || (p.tipo || '').toLowerCase().includes(q) || (p.nome || '').toLowerCase().includes(q) || (p.id || '').toLowerCase().includes(q));
+    }
+    return lista;
+  }, [allPecas, obraSelecionada, busca]);
+
+  // Contagem de atribuições por etapa nas peças filtradas
+  const contagemEtapas = useMemo(() => {
+    const map = {};
+    ETAPAS_LANCAMENTO.forEach(e => { map[e.key] = pecasFiltradas.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length; });
+    return map;
+  }, [pecasFiltradas, lancamentos]);
+
+  // Editar campo
+  const handleChange = (pecaId, etapa, campo, valor) => {
+    const k = chave(pecaId, etapa);
+    setLancamentos(prev => ({
+      ...prev,
+      [k]: {
+        ...prev[k],
+        funcionario_id:   campo === 'funcionario_id' ? valor : (prev[k]?.funcionario_id   || ''),
+        funcionario_nome: campo === 'funcionario_id' ? (funcionariosAtivos.find(f => f.id === valor)?.nome || '') : (prev[k]?.funcionario_nome || ''),
+        data_producao:    campo === 'data_producao'  ? valor : (prev[k]?.data_producao    || hojeStr()),
+        observacoes:      campo === 'observacoes'    ? valor : (prev[k]?.observacoes       || ''),
+      },
+    }));
+  };
+
+  // Salvar lançamento individual — replica para entity_store + producao_historico + pecas_producao
+  const salvarUm = useCallback(async (peca, etapa) => {
+    const k = chave(peca.id, etapa);
+    const lan = lancamentos[k];
+    if (!lan?.funcionario_id) { toast.error('Selecione um funcionário'); return; }
+    setSaving(prev => ({ ...prev, [k]: true }));
+    const client = supabaseAdmin || supabase;
+    try {
+      const dataLan = {
+        peca_id: peca.id, peca_nome: peca.nome || peca.marca || '',
+        etapa, funcionario_id: lan.funcionario_id, funcionario_nome: lan.funcionario_nome,
+        data_producao: lan.data_producao || hojeStr(), observacoes: lan.observacoes || '',
+        obra_id: peca.obra_id || peca.obraId || '', obra_nome: peca.obra_nome || peca.obraNome || '',
+        updated_at: new Date().toISOString(),
+      };
+      // 1. entity_store
+      if (lan._storeId) {
+        await client.from('entity_store').update({ data: dataLan }).eq('id', lan._storeId);
+      } else {
+        const novoId = gerarLancId();
+        const { error: insErr } = await client.from('entity_store').insert({ id: novoId, entity_type: 'producao_lancamento', data: dataLan, created_date: new Date().toISOString() });
+        if (insErr) throw insErr;
+        setLancamentos(prev => ({ ...prev, [k]: { ...prev[k], _storeId: novoId } }));
+      }
+      // 2. producao_historico
+      const histId = `HIST-${peca.id}-${etapa}`;
+      const etapaParaMap = { corte: 'fabricacao', fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', montagem: 'entregue', expedido: 'entregue' };
+      await client.from('producao_historico').upsert({ id: histId, peca_id: peca.id, etapa_de: etapa === 'corte' ? 'aguardando' : etapa, etapa_para: etapaParaMap[etapa] || etapa, funcionario_id: lan.funcionario_id, funcionario_nome: lan.funcionario_nome, data_inicio: lan.data_producao ? new Date(lan.data_producao).toISOString() : new Date().toISOString(), observacoes: lan.observacoes || '' }, { onConflict: 'id' });
+      // 3. pecas_producao
+      const campoFunc = ETAPA_CAMPO_FUNC_MAP[etapa];
+      const campoData = ETAPA_CAMPO_DATA_MAP[etapa];
+      if (campoFunc) {
+        const upd = { [campoFunc]: lan.funcionario_id };
+        if (campoData && lan.data_producao) upd[campoData] = new Date(lan.data_producao).toISOString();
+        await client.from('pecas_producao').update(upd).eq('id', peca.id);
+      }
+      // 4. materiais_corte (se corte)
+      if (etapa === 'corte') await client.from('materiais_corte').update({ funcionario_corte: lan.funcionario_id }).eq('peca_id', peca.id);
+
+      const etapaInfo = ETAPAS_LANCAMENTO.find(e => e.key === etapa);
+      toast.success(`${etapaInfo?.label}: ${lan.funcionario_nome} ✓`);
+      refetch?.();
+    } catch (err) {
+      console.error('[LancamentosObraTab] Erro ao salvar:', err);
+      toast.error('Erro ao salvar');
+    } finally {
+      setSaving(prev => ({ ...prev, [k]: false }));
+    }
+  }, [lancamentos, funcionariosAtivos, refetch]);
+
+  const toggleExpand = (pecaId) => setExpandidos(prev => ({ ...prev, [pecaId]: !prev[pecaId] }));
+  const expandAll = () => { const m = {}; pecasFiltradas.forEach(p => { m[p.id] = true; }); setExpandidos(m); };
+  const collapseAll = () => setExpandidos({});
+
+  const totalAtribuidos = Object.values(contagemEtapas).reduce((a, b) => a + b, 0);
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-800/40 rounded-xl border border-slate-700/50">
+        {/* Filtro de obra */}
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-slate-500" />
+          <select
+            value={obraSelecionada}
+            onChange={e => setObraSelecionada(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+          >
+            <option value="todas">Todas as Obras ({allPecas.length} peças)</option>
+            {obras.map(([id, nome]) => {
+              const cnt = allPecas.filter(p => (p.obra_id || p.obraId || 'sem-obra') === id).length;
+              return <option key={id} value={id}>{nome} ({cnt})</option>;
+            })}
+          </select>
+        </div>
+
+        {/* Busca */}
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Buscar peça..."
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            className="pl-8 pr-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-slate-500 w-44"
+          />
+        </div>
+
+        {/* Expand/Collapse */}
+        <div className="flex items-center gap-1.5">
+          <button onClick={expandAll} className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
+            Expandir Tudo
+          </button>
+          <button onClick={collapseAll} className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
+            Recolher Tudo
+          </button>
+        </div>
+
+        {/* Contagem e reload */}
+        <div className="ml-auto flex items-center gap-3">
+          <span className="text-xs text-slate-500">{pecasFiltradas.length} peça(s) · {totalAtribuidos} atribuições</span>
+          <button onClick={handleReload} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 border border-slate-700 transition-colors">
+            <RefreshCw className="h-3 w-3" /> Recarregar
+          </button>
+        </div>
+      </div>
+
+      {/* Pills de resumo por etapa */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {ETAPAS_LANCAMENTO.map(e => {
+          const EIcon = e.icon;
+          const cnt = contagemEtapas[e.key] || 0;
+          return (
+            <div key={e.key} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border ${cnt > 0 ? `${e.activeBg} ${e.border} ${e.text}` : 'bg-slate-800/50 border-slate-700/50 text-slate-500'}`}>
+              <EIcon className="h-3 w-3" />
+              {e.label}
+              <span className={`font-bold ${cnt > 0 ? '' : 'text-slate-600'}`}>{cnt}/{pecasFiltradas.length}</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Conteúdo */}
+      {loadingPecas || !carregado ? (
+        <div className="flex items-center justify-center h-48 gap-2 text-slate-400">
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Carregando peças e lançamentos...
+        </div>
+      ) : pecasFiltradas.length === 0 ? (
+        <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-500">
+          <AlertCircle className="h-8 w-8" />
+          <p>Nenhuma peça encontrada</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {pecasFiltradas.map(peca => {
+            const peso = peca.peso_total || peca.pesoTotal || peca.peso || 0;
+            const obraNome = peca.obra_nome || peca.obraNome || peca.obra_codigo || '';
+            const atribuidos = ETAPAS_LANCAMENTO.filter(e => lancamentos[chave(peca.id, e.key)]?.funcionario_id).length;
+            const isExpanded = expandidos[peca.id] !== false; // default expanded
+
+            return (
+              <div key={peca.id} className="bg-slate-800/40 rounded-xl border border-slate-700/50 overflow-hidden">
+                {/* Linha de cabeçalho da peça */}
+                <button
+                  onClick={() => toggleExpand(peca.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700/30 transition-colors text-left"
+                >
+                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${atribuidos === ETAPAS_LANCAMENTO.length ? 'bg-emerald-400' : atribuidos > 0 ? 'bg-amber-400' : 'bg-slate-600'}`} />
+                  <span className="font-bold text-white text-sm">{peca.marca || peca.nome || peca.id}</span>
+                  {peca.tipo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">{peca.tipo}</span>}
+                  <span className="text-xs text-slate-500 font-mono">{formatPesoLanc(peso)}</span>
+                  {obraNome && <span className="text-xs text-slate-500 flex items-center gap-1"><Building2 className="h-3 w-3" />{obraNome}</span>}
+                  <span className="text-xs text-slate-600 ml-auto mr-2">{atribuidos}/{ETAPAS_LANCAMENTO.length} etapas</span>
+                  {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-500 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 text-slate-500 flex-shrink-0" />}
+                </button>
+
+                {/* Tabela de etapas — expande/recolhe */}
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.18 }}
+                      className="overflow-hidden border-t border-slate-700/50"
+                    >
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-slate-900/60">
+                            <th className="text-left px-4 py-2 text-slate-500 font-medium w-32">Etapa</th>
+                            <th className="text-left px-3 py-2 text-slate-500 font-medium w-56">Funcionário</th>
+                            <th className="text-left px-3 py-2 text-slate-500 font-medium w-36">Data</th>
+                            <th className="text-left px-3 py-2 text-slate-500 font-medium">Observações</th>
+                            <th className="text-center px-3 py-2 text-slate-500 font-medium w-14">Salvar</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {ETAPAS_LANCAMENTO.map(etapa => {
+                            const k = chave(peca.id, etapa.key);
+                            const lan = lancamentos[k] || {};
+                            const temFunc = !!lan.funcionario_id;
+                            const isSavingRow = saving[k];
+                            const EtapaIcon = etapa.icon;
+
+                            return (
+                              <tr key={etapa.key} className={`transition-colors hover:bg-slate-700/20 ${temFunc ? 'bg-emerald-500/3' : ''}`}>
+                                {/* Etapa */}
+                                <td className="px-4 py-2">
+                                  <div className={`flex items-center gap-1.5 ${etapa.text}`}>
+                                    <EtapaIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                                    <span className="font-medium">{etapa.label}</span>
+                                    {temFunc && <Check className="h-3 w-3 text-emerald-400 ml-1" />}
+                                  </div>
+                                </td>
+
+                                {/* Funcionário */}
+                                <td className="px-3 py-1.5">
+                                  <div className="relative">
+                                    <User className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
+                                    <select
+                                      value={lan.funcionario_id || ''}
+                                      onChange={e => handleChange(peca.id, etapa.key, 'funcionario_id', e.target.value)}
+                                      className={`w-full pl-6 pr-2 py-1.5 text-xs bg-slate-800 border rounded-lg text-white focus:outline-none appearance-none transition-colors ${temFunc ? 'border-emerald-600/50 focus:border-emerald-500' : 'border-slate-700 focus:border-slate-500'}`}
+                                    >
+                                      <option value="">— Selecionar —</option>
+                                      {funcionariosAtivos.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
+                                    </select>
+                                  </div>
+                                </td>
+
+                                {/* Data */}
+                                <td className="px-3 py-1.5">
+                                  <div className="relative">
+                                    <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
+                                    <input
+                                      type="date"
+                                      value={lan.data_producao || hojeStr()}
+                                      onChange={e => handleChange(peca.id, etapa.key, 'data_producao', e.target.value)}
+                                      className="w-full pl-6 pr-2 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:border-slate-500"
+                                    />
+                                  </div>
+                                </td>
+
+                                {/* Obs */}
+                                <td className="px-3 py-1.5">
+                                  <input
+                                    type="text"
+                                    placeholder={`Obs. ${etapa.label.toLowerCase()}...`}
+                                    value={lan.observacoes || ''}
+                                    onChange={e => handleChange(peca.id, etapa.key, 'observacoes', e.target.value)}
+                                    className="w-full px-2 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-600 focus:outline-none focus:border-slate-500"
+                                  />
+                                </td>
+
+                                {/* Salvar */}
+                                <td className="px-3 py-1.5 text-center">
+                                  {isSavingRow ? (
+                                    <Loader2 className="h-4 w-4 animate-spin text-slate-400 mx-auto" />
+                                  ) : (
+                                    <button
+                                      onClick={() => salvarUm(peca, etapa.key)}
+                                      disabled={!temFunc}
+                                      className={`w-8 h-8 rounded-lg flex items-center justify-center mx-auto transition-colors ${temFunc ? 'bg-emerald-500/20 border border-emerald-500/40 hover:bg-emerald-500/30 text-emerald-400 cursor-pointer' : 'bg-slate-700/20 border border-slate-600/20 text-slate-600 cursor-not-allowed'}`}
+                                      title={temFunc ? `Salvar ${etapa.label}` : 'Selecione um funcionário primeiro'}
+                                    >
+                                      {temFunc ? <Check className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Página principal ────────────────────────────────────────────────────────────
 export default function ProducaoFuncionarioPage() {
   const [filtroSetor, setFiltroSetor] = useState('todos');
   const [filtroEquipe, setFiltroEquipe] = useState('todos');
@@ -1038,6 +1444,9 @@ export default function ProducaoFuncionarioPage() {
             <TabsTrigger value="funcionarios" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400">
               <Users className="h-4 w-4 mr-2" /> Funcionários
             </TabsTrigger>
+            <TabsTrigger value="lancamentos" className="data-[state=active]:bg-purple-500/20 data-[state=active]:text-purple-400">
+              <ClipboardList className="h-4 w-4 mr-2" /> Lançamentos por Obra
+            </TabsTrigger>
           </TabsList>
 
           {/* Tab Dashboard */}
@@ -1127,6 +1536,11 @@ export default function ProducaoFuncionarioPage() {
                 )}
               </div>
             </div>
+          </TabsContent>
+
+          {/* Tab Lançamentos por Obra */}
+          <TabsContent value="lancamentos" className="mt-4">
+            <LancamentosObraTab pecasAnalytics={pecas} refetch={refetch} />
           </TabsContent>
         </Tabs>
       )}
