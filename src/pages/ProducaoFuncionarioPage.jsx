@@ -931,9 +931,10 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
   const [saving, setSaving] = useState({});
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
 
-  // Paginação + busca
+  // Paginação + busca + filtro de tipo
   const [page, setPage] = useState(0);
   const [busca, setBusca] = useState('');
+  const [filtroTipo, setFiltroTipo] = useState('');
   const [expandidos, setExpandidos] = useState({});
 
   const funcionariosAtivos = useMemo(() =>
@@ -979,6 +980,7 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
     setLancamentos({});
     setPage(0);
     setBusca('');
+    setFiltroTipo('');
     setExpandidos({});
     const client = supabaseAdmin || supabase;
     try {
@@ -1023,25 +1025,44 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
     setLancamentos({});
     setPage(0);
     setBusca('');
+    setFiltroTipo('');
   };
+
+  // Lista de tipos únicos extraídos dos conjuntos da obra carregada
+  const tiposDisponiveis = useMemo(() => {
+    const set = new Set();
+    conjuntosDaObra.forEach(p => {
+      const t = (p.tipo || p.peca || '').trim();
+      if (t) set.add(t);
+    });
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [conjuntosDaObra]);
 
   // Filtro + paginação sobre os conjuntos da obra selecionada
   const conjuntosFiltrados = useMemo(() => {
-    if (!busca) return conjuntosDaObra;
-    const q = busca.toLowerCase();
-    return conjuntosDaObra.filter(p =>
-      (p.marca || '').toLowerCase().includes(q) ||
-      (p.tipo || '').toLowerCase().includes(q) ||
-      (p.nome || '').toLowerCase().includes(q)
-    );
-  }, [conjuntosDaObra, busca]);
+    let lista = conjuntosDaObra;
+    // Filtro por tipo de peça
+    if (filtroTipo) {
+      lista = lista.filter(p => (p.tipo || p.peca || '').trim() === filtroTipo);
+    }
+    // Filtro por texto livre
+    if (busca) {
+      const q = busca.toLowerCase();
+      lista = lista.filter(p =>
+        (p.marca || '').toLowerCase().includes(q) ||
+        (p.tipo || '').toLowerCase().includes(q) ||
+        (p.nome || '').toLowerCase().includes(q)
+      );
+    }
+    return lista;
+  }, [conjuntosDaObra, busca, filtroTipo]);
 
   const totalPages = Math.max(1, Math.ceil(conjuntosFiltrados.length / PAGE_SIZE));
   const conjuntosPagina = useMemo(() =>
     conjuntosFiltrados.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
   [conjuntosFiltrados, page]);
 
-  useEffect(() => { setPage(0); }, [busca]);
+  useEffect(() => { setPage(0); }, [busca, filtroTipo]);
 
   const contagemEtapas = useMemo(() => {
     const map = {};
@@ -1230,6 +1251,32 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
           );
         })}
       </div>
+
+      {/* Filtros por tipo de peça */}
+      {tiposDisponiveis.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-[10px] text-slate-500 uppercase tracking-wide font-semibold">Tipo:</span>
+          <button
+            onClick={() => setFiltroTipo('')}
+            className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${!filtroTipo ? 'bg-slate-600/40 border-slate-500/60 text-white font-semibold' : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
+          >
+            Todos <span className="opacity-60 ml-1">({conjuntosDaObra.length})</span>
+          </button>
+          {tiposDisponiveis.map(tipo => {
+            const cnt = conjuntosDaObra.filter(p => (p.tipo || p.peca || '').trim() === tipo).length;
+            const ativo = filtroTipo === tipo;
+            return (
+              <button
+                key={tipo}
+                onClick={() => setFiltroTipo(ativo ? '' : tipo)}
+                className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${ativo ? 'bg-purple-500/20 border-purple-500/50 text-purple-300 font-semibold' : 'bg-slate-800/50 border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-700/50'}`}
+              >
+                {tipo} <span className={`ml-1 ${ativo ? 'text-purple-400' : 'opacity-50'}`}>({cnt})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Barra de busca + paginação topo + expand/collapse */}
       <div className="flex flex-wrap items-center gap-3">
