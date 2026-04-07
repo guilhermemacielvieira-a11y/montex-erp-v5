@@ -58,7 +58,7 @@ const ETAPA_CAMPO_DATA = {
 function formatPeso(kg) {
   if (!kg) return '—';
   if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
-  return `${kg.toFixed(1)} kg`;
+  return `${Number(kg).toFixed(1)} kg`;
 }
 
 function hoje() {
@@ -67,6 +67,40 @@ function hoje() {
 
 function gerarId() {
   return 'LANC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+/**
+ * Expande peças com quantidade > 1 em entradas individuais por conjunto.
+ * Cada conjunto recebe peso = pesoTotal / quantidade.
+ * ID virtual: `${peca.id}__c${i}` para rastrear lançamentos independentes.
+ */
+function expandirPorQuantidade(lista) {
+  const result = [];
+  for (const peca of lista) {
+    const qtd = Math.max(1, parseInt(peca.quantidade || peca.qtd || 1, 10) || 1);
+    const pesoBase = parseFloat(peca.pesoTotal || peca.peso_total || peca.peso || 0);
+    const pesoPorConj = qtd > 1 ? pesoBase / qtd : pesoBase;
+
+    if (qtd <= 1) {
+      result.push({ ...peca, _originalId: peca.id, _conjuntoIdx: 1, _conjuntoTotal: 1 });
+    } else {
+      for (let i = 1; i <= qtd; i++) {
+        result.push({
+          ...peca,
+          id:            `${peca.id}__c${i}`,
+          _originalId:   peca.id,
+          _conjuntoIdx:  i,
+          _conjuntoTotal: qtd,
+          nome:          `${peca.nome || peca.marca || peca.id} — Conj. ${i}/${qtd}`,
+          pesoTotal:     pesoPorConj,
+          peso_total:    pesoPorConj,
+          peso:          pesoPorConj,
+          quantidade:    1,
+        });
+      }
+    }
+  }
+  return result;
 }
 
 // ─── Componente principal ───────────────────────────────────────────────────────
@@ -87,28 +121,32 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
   }, [ctxFuncionarios]);
 
+  // Expandir peças com quantidade > 1 em conjuntos independentes
+  const pecasExpandidas = useMemo(() => expandirPorQuantidade(pecas), [pecas]);
+
   // Chave composta peca_id + etapa
   const chave = (pecaId, etapa) => `${pecaId}__${etapa}`;
 
-  // Peças filtradas por busca
+  // Peças filtradas por busca (sobre a lista já expandida)
   const pecasFiltradas = useMemo(() => {
-    if (!busca) return pecas;
+    if (!busca) return pecasExpandidas;
     const q = busca.toLowerCase();
-    return pecas.filter(p =>
+    return pecasExpandidas.filter(p =>
       (p.nome || '').toLowerCase().includes(q) ||
       (p.marca || '').toLowerCase().includes(q) ||
       (p.tipo || '').toLowerCase().includes(q) ||
       (p.id || '').toLowerCase().includes(q)
     );
-  }, [pecas, busca]);
+  }, [pecasExpandidas, busca]);
 
   // Carregar lançamentos existentes do entity_store
   const carregarLancamentos = useCallback(async () => {
-    if (!pecas.length) return;
+    if (!pecasExpandidas.length) return;
     const client = supabaseAdmin || supabase;
 
     try {
-      const ids = pecas.map(p => p.id);
+      // Buscar por IDs virtuais (incluindo conjuntos expandidos) E IDs originais
+      const ids = pecasExpandidas.map(p => p.id);
       const { data, error } = await client
         .from('entity_store')
         .select('id, data')
@@ -135,7 +173,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     } finally {
       setCarregado(true);
     }
-  }, [pecas]);
+  }, [pecasExpandidas]);
 
   useEffect(() => {
     if (isOpen && !carregado) {
@@ -178,12 +216,17 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
+    // ID real no banco (sem sufixo __c1, __c2...)
+    const originalId = peca._originalId || peca.id;
+    // Label do conjunto (ex: "Conj. 2/3") para toast e histórico
+    const conjLabel = peca._conjuntoTotal > 1 ? ` (Conj. ${peca._conjuntoIdx}/${peca._conjuntoTotal})` : '';
+
     setSaving(prev => ({ ...prev, [k]: true }));
     const client = supabaseAdmin || supabase;
 
     try {
       const dataLan = {
-        peca_id:          peca.id,
+        peca_id:          peca.id,         // ID virtual — garante lançamentos independentes por conjunto
         peca_nome:        peca.nome || peca.marca || '',
         etapa,
         funcionario_id:   lan.funcionario_id,
@@ -192,10 +235,12 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         observacoes:      lan.observacoes || '',
         obra_id:          peca.obraId || peca.obra_id || '',
         obra_nome:        peca.obraNome || peca.obra_nome || '',
+        conjunto_idx:     peca._conjuntoIdx || 1,
+        conjunto_total:   peca._conjuntoTotal || 1,
         updated_at:       new Date().toISOString(),
       };
 
-      // 1. Upsert em entity_store
+      // 1. Upsert em entity_store (por ID virtual — independente por conjunto)
       if (lan._storeId) {
         await client
           .from('entity_store')
@@ -213,7 +258,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         }));
       }
 
-      // 2. Upsert em producao_historico (para analytics por funcionário)
+      // 2. Upsert em producao_historico — ID inclui conjunto para não sobrescrever
       const histId = `HIST-${peca.id}-${etapa}`;
       const etapaParaMap = { corte: 'fabricacao', fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', montagem: 'entregue', expedido: 'entregue' };
       await client
@@ -229,7 +274,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
           observacoes:      lan.observacoes || '',
         }, { onConflict: 'id' });
 
-      // 3. Atualizar pecas_producao.funcionario_X (se etapa mapeada)
+      // 3. Atualizar pecas_producao usando o ID ORIGINAL (não virtual)
+      //    para peças com múltiplos conjuntos, grava o último conjunto salvo
       const campoFunc = ETAPA_CAMPO_FUNC[etapa];
       const campoData = ETAPA_CAMPO_DATA[etapa];
       if (campoFunc) {
@@ -240,19 +286,19 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         await client
           .from('pecas_producao')
           .update(update)
-          .eq('id', peca.id);
+          .eq('id', originalId);
       }
 
-      // 4. Para corte: atualizar materiais_corte se existir
+      // 4. Para corte: atualizar materiais_corte usando ID original
       if (etapa === 'corte') {
         await client
           .from('materiais_corte')
           .update({ funcionario_corte: lan.funcionario_id })
-          .eq('peca_id', peca.id);
+          .eq('peca_id', originalId);
       }
 
       const etapaInfo = ETAPAS.find(e => e.key === etapa);
-      toast.success(`${etapaInfo?.label || etapa}: ${lan.funcionario_nome} ✓`);
+      toast.success(`${etapaInfo?.label || etapa}${conjLabel}: ${lan.funcionario_nome} ✓`);
     } catch (err) {
       console.error('[LancamentoModal] Erro ao salvar:', err);
       toast.error('Erro ao salvar lançamento');
@@ -283,14 +329,14 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     setLoading(false);
   }, [pecasFiltradas, lancamentos, salvarUm, onSaved]);
 
-  // Contagem de lançamentos com funcionário por etapa
+  // Contagem de lançamentos com funcionário por etapa (sobre lista expandida)
   const contagemPorEtapa = useMemo(() => {
     const map = {};
     ETAPAS.forEach(e => {
-      map[e.key] = pecas.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length;
+      map[e.key] = pecasExpandidas.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length;
     });
     return map;
-  }, [pecas, lancamentos]);
+  }, [pecasExpandidas, lancamentos]);
 
   const totalAtribuidos = useMemo(() =>
     Object.values(contagemPorEtapa).reduce((a, b) => a + b, 0),
@@ -454,12 +500,18 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                               className="px-4 py-3 align-top border-r border-slate-800/60"
                             >
                               <div className="flex flex-col gap-1 pt-0.5">
-                                <div className="flex items-center gap-1.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
                                   <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${atribuidos === ETAPAS.length ? 'bg-emerald-400' : atribuidos > 0 ? 'bg-amber-400' : 'bg-slate-600'}`} />
                                   <span className="font-bold text-white text-sm leading-tight">
-                                    {peca.marca || peca.nome || peca.id}
+                                    {peca.marca || (peca._originalId ? peca.nome : peca.nome) || peca.id}
                                   </span>
                                 </div>
+                                {/* Badge de conjunto quando quantidade > 1 */}
+                                {peca._conjuntoTotal > 1 && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 self-start font-semibold">
+                                    Conj. {peca._conjuntoIdx}/{peca._conjuntoTotal}
+                                  </span>
+                                )}
                                 {peca.tipo && (
                                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 self-start">{peca.tipo}</span>
                                 )}

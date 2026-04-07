@@ -881,10 +881,42 @@ function hojeStr() { return new Date().toISOString().split('T')[0]; }
 function gerarLancId() { return 'LANC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
 function formatPesoLanc(kg) { if (!kg) return '—'; if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`; return `${Number(kg).toFixed(1)} kg`; }
 
+/**
+ * Expande peças com quantidade > 1 em entradas individuais por conjunto.
+ * ID virtual: `${peca.id}__c${i}` | peso por conjunto = pesoTotal / quantidade.
+ */
+function expandirPorQtd(lista) {
+  const result = [];
+  for (const peca of lista) {
+    const qtd = Math.max(1, parseInt(peca.quantidade || peca.qtd || 1, 10) || 1);
+    const pesoBase = parseFloat(peca.peso_total || peca.pesoTotal || peca.peso || 0);
+    const pesoPorConj = qtd > 1 ? pesoBase / qtd : pesoBase;
+    if (qtd <= 1) {
+      result.push({ ...peca, _originalId: peca.id, _conjuntoIdx: 1, _conjuntoTotal: 1 });
+    } else {
+      for (let i = 1; i <= qtd; i++) {
+        result.push({
+          ...peca,
+          id:             `${peca.id}__c${i}`,
+          _originalId:    peca.id,
+          _conjuntoIdx:   i,
+          _conjuntoTotal: qtd,
+          peso:           pesoPorConj,
+          peso_total:     pesoPorConj,
+          pesoTotal:      pesoPorConj,
+          quantidade:     1,
+        });
+      }
+    }
+  }
+  return result;
+}
+
 // ─── Tab de Lançamentos por Obra ────────────────────────────────────────────────
 function LancamentosObraTab({ pecasAnalytics, refetch }) {
   const { funcionarios: ctxFuncionarios } = useEquipes();
-  const [allPecas, setAllPecas] = useState([]);
+  const [allPecas, setAllPecas] = useState([]);    // peças brutas do banco
+  const [allPecasExpandidas, setAllPecasExpandidas] = useState([]); // expandidas por quantidade
   const [lancamentos, setLancamentos] = useState({});
   const [saving, setSaving] = useState({});
   const [carregado, setCarregado] = useState(false);
@@ -899,7 +931,7 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
 
   const chave = (pecaId, etapa) => `${pecaId}__${etapa}`;
 
-  // Carregar todas as peças de pecas_producao (sem filtro de período)
+  // Carregar todas as peças de pecas_producao (sem filtro de período, todos os status)
   const carregarPecas = useCallback(async () => {
     setLoadingPecas(true);
     const client = supabaseAdmin || supabase;
@@ -909,17 +941,20 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
         .select('*')
         .order('obra_nome', { ascending: true });
       if (error) throw error;
-      setAllPecas(data || []);
+      const bruto = data || [];
+      setAllPecas(bruto);
+      setAllPecasExpandidas(expandirPorQtd(bruto));
     } catch (err) {
       console.error('[LancamentosObraTab] Erro ao carregar peças:', err);
-      // fallback para dados do analytics
-      setAllPecas(pecasAnalytics || []);
+      const bruto = pecasAnalytics || [];
+      setAllPecas(bruto);
+      setAllPecasExpandidas(expandirPorQtd(bruto));
     } finally {
       setLoadingPecas(false);
     }
   }, [pecasAnalytics]);
 
-  // Carregar lançamentos existentes
+  // Carregar lançamentos — usa IDs das peças expandidas (virtuais por conjunto)
   const carregarLancamentos = useCallback(async (lista) => {
     if (!lista.length) { setCarregado(true); return; }
     const client = supabaseAdmin || supabase;
@@ -950,12 +985,12 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
   }, []);
 
   useEffect(() => {
-    if (allPecas.length > 0 && !carregado) {
-      carregarLancamentos(allPecas);
+    if (allPecasExpandidas.length > 0 && !carregado) {
+      carregarLancamentos(allPecasExpandidas);
     }
-  }, [allPecas, carregado, carregarLancamentos]);
+  }, [allPecasExpandidas, carregado, carregarLancamentos]);
 
-  const handleReload = () => { setCarregado(false); carregarPecas().then(() => {}); };
+  const handleReload = () => { setCarregado(false); setAllPecas([]); setAllPecasExpandidas([]); carregarPecas(); };
 
   // Obras distintas
   const obras = useMemo(() => {
@@ -968,16 +1003,16 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
     return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
   }, [allPecas]);
 
-  // Filtro
+  // Filtro — sobre lista expandida por quantidade
   const pecasFiltradas = useMemo(() => {
-    let lista = allPecas;
+    let lista = allPecasExpandidas;
     if (obraSelecionada !== 'todas') lista = lista.filter(p => (p.obra_id || p.obraId || 'sem-obra') === obraSelecionada);
     if (busca) {
       const q = busca.toLowerCase();
-      lista = lista.filter(p => (p.marca || '').toLowerCase().includes(q) || (p.tipo || '').toLowerCase().includes(q) || (p.nome || '').toLowerCase().includes(q) || (p.id || '').toLowerCase().includes(q));
+      lista = lista.filter(p => (p.marca || '').toLowerCase().includes(q) || (p.tipo || '').toLowerCase().includes(q) || (p.nome || '').toLowerCase().includes(q) || (p._originalId || p.id || '').toLowerCase().includes(q));
     }
     return lista;
-  }, [allPecas, obraSelecionada, busca]);
+  }, [allPecasExpandidas, obraSelecionada, busca]);
 
   // Contagem de atribuições por etapa nas peças filtradas
   const contagemEtapas = useMemo(() => {
@@ -1006,17 +1041,22 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
     const k = chave(peca.id, etapa);
     const lan = lancamentos[k];
     if (!lan?.funcionario_id) { toast.error('Selecione um funcionário'); return; }
+    // ID real no banco (sem sufixo __c1, __c2 de conjunto virtual)
+    const originalId = peca._originalId || peca.id;
+    const conjLabel = peca._conjuntoTotal > 1 ? ` (Conj. ${peca._conjuntoIdx}/${peca._conjuntoTotal})` : '';
     setSaving(prev => ({ ...prev, [k]: true }));
     const client = supabaseAdmin || supabase;
     try {
       const dataLan = {
-        peca_id: peca.id, peca_nome: peca.nome || peca.marca || '',
+        peca_id: peca.id,   // ID virtual — independente por conjunto
+        peca_nome: peca.nome || peca.marca || '',
         etapa, funcionario_id: lan.funcionario_id, funcionario_nome: lan.funcionario_nome,
         data_producao: lan.data_producao || hojeStr(), observacoes: lan.observacoes || '',
         obra_id: peca.obra_id || peca.obraId || '', obra_nome: peca.obra_nome || peca.obraNome || '',
+        conjunto_idx: peca._conjuntoIdx || 1, conjunto_total: peca._conjuntoTotal || 1,
         updated_at: new Date().toISOString(),
       };
-      // 1. entity_store
+      // 1. entity_store (ID virtual = rastreamento independente por conjunto)
       if (lan._storeId) {
         await client.from('entity_store').update({ data: dataLan }).eq('id', lan._storeId);
       } else {
@@ -1025,23 +1065,23 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
         if (insErr) throw insErr;
         setLancamentos(prev => ({ ...prev, [k]: { ...prev[k], _storeId: novoId } }));
       }
-      // 2. producao_historico
+      // 2. producao_historico — ID inclui conjunto para não sobrescrever
       const histId = `HIST-${peca.id}-${etapa}`;
       const etapaParaMap = { corte: 'fabricacao', fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', montagem: 'entregue', expedido: 'entregue' };
       await client.from('producao_historico').upsert({ id: histId, peca_id: peca.id, etapa_de: etapa === 'corte' ? 'aguardando' : etapa, etapa_para: etapaParaMap[etapa] || etapa, funcionario_id: lan.funcionario_id, funcionario_nome: lan.funcionario_nome, data_inicio: lan.data_producao ? new Date(lan.data_producao).toISOString() : new Date().toISOString(), observacoes: lan.observacoes || '' }, { onConflict: 'id' });
-      // 3. pecas_producao
+      // 3. pecas_producao — usa ID ORIGINAL (campo único por peça no banco)
       const campoFunc = ETAPA_CAMPO_FUNC_MAP[etapa];
       const campoData = ETAPA_CAMPO_DATA_MAP[etapa];
       if (campoFunc) {
         const upd = { [campoFunc]: lan.funcionario_id };
         if (campoData && lan.data_producao) upd[campoData] = new Date(lan.data_producao).toISOString();
-        await client.from('pecas_producao').update(upd).eq('id', peca.id);
+        await client.from('pecas_producao').update(upd).eq('id', originalId);
       }
-      // 4. materiais_corte (se corte)
-      if (etapa === 'corte') await client.from('materiais_corte').update({ funcionario_corte: lan.funcionario_id }).eq('peca_id', peca.id);
+      // 4. materiais_corte (se corte) — usa ID original
+      if (etapa === 'corte') await client.from('materiais_corte').update({ funcionario_corte: lan.funcionario_id }).eq('peca_id', originalId);
 
       const etapaInfo = ETAPAS_LANCAMENTO.find(e => e.key === etapa);
-      toast.success(`${etapaInfo?.label}: ${lan.funcionario_nome} ✓`);
+      toast.success(`${etapaInfo?.label}${conjLabel}: ${lan.funcionario_nome} ✓`);
       refetch?.();
     } catch (err) {
       console.error('[LancamentosObraTab] Erro ao salvar:', err);
@@ -1069,10 +1109,10 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
             onChange={e => setObraSelecionada(e.target.value)}
             className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
           >
-            <option value="todas">Todas as Obras ({allPecas.length} peças)</option>
+            <option value="todas">Todas as Obras ({allPecasExpandidas.length} conjuntos / {allPecas.length} peças)</option>
             {obras.map(([id, nome]) => {
-              const cnt = allPecas.filter(p => (p.obra_id || p.obraId || 'sem-obra') === id).length;
-              return <option key={id} value={id}>{nome} ({cnt})</option>;
+              const cnt = allPecasExpandidas.filter(p => (p.obra_id || p.obraId || 'sem-obra') === id).length;
+              return <option key={id} value={id}>{nome} ({cnt} conjuntos)</option>;
             })}
           </select>
         </div>
@@ -1150,7 +1190,13 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700/30 transition-colors text-left"
                 >
                   <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${atribuidos === ETAPAS_LANCAMENTO.length ? 'bg-emerald-400' : atribuidos > 0 ? 'bg-amber-400' : 'bg-slate-600'}`} />
-                  <span className="font-bold text-white text-sm">{peca.marca || peca.nome || peca.id}</span>
+                  <span className="font-bold text-white text-sm">{peca.marca || peca.nome || (peca._originalId ? '' : peca.id)}</span>
+                  {/* Badge de conjunto quando quantidade > 1 */}
+                  {peca._conjuntoTotal > 1 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 font-semibold flex-shrink-0">
+                      Conj. {peca._conjuntoIdx}/{peca._conjuntoTotal}
+                    </span>
+                  )}
                   {peca.tipo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">{peca.tipo}</span>}
                   <span className="text-xs text-slate-500 font-mono">{formatPesoLanc(peso)}</span>
                   {obraNome && <span className="text-xs text-slate-500 flex items-center gap-1"><Building2 className="h-3 w-3" />{obraNome}</span>}
