@@ -913,17 +913,28 @@ function expandirPorQtd(lista) {
 }
 
 // ─── Tab de Lançamentos por Obra ────────────────────────────────────────────────
+const PAGE_SIZE = 25;
+
+// ─── Tab de Lançamentos por Obra — carregamento leve por demanda ────────────────
 function LancamentosObraTab({ pecasAnalytics, refetch }) {
   const { funcionarios: ctxFuncionarios } = useEquipes();
-  const [allPecas, setAllPecas] = useState([]);    // peças brutas do banco
-  const [allPecasExpandidas, setAllPecasExpandidas] = useState([]); // expandidas por quantidade
+
+  // Fase 1 — seleção de obra (carregamento leve: apenas contagens)
+  const [obrasResumo, setObrasResumo] = useState([]);
+  const [loadingObras, setLoadingObras] = useState(false);
+
+  // Fase 2 — detalhe da obra (carregado ao clicar)
+  const [obraAtual, setObraAtual] = useState(null);
+  const [pecasDaObra, setPecasDaObra] = useState([]);
+  const [conjuntosDaObra, setConjuntosDaObra] = useState([]);
   const [lancamentos, setLancamentos] = useState({});
   const [saving, setSaving] = useState({});
-  const [carregado, setCarregado] = useState(false);
-  const [loadingPecas, setLoadingPecas] = useState(false);
-  const [obraSelecionada, setObraSelecionada] = useState('todas');
+  const [loadingDetalhe, setLoadingDetalhe] = useState(false);
+
+  // Paginação + busca
+  const [page, setPage] = useState(0);
   const [busca, setBusca] = useState('');
-  const [expandidos, setExpandidos] = useState({});  // { [pecaId]: bool }
+  const [expandidos, setExpandidos] = useState({});
 
   const funcionariosAtivos = useMemo(() =>
     (ctxFuncionarios || []).filter(f => f.status !== 'inativo').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
@@ -931,95 +942,112 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
 
   const chave = (pecaId, etapa) => `${pecaId}__${etapa}`;
 
-  // Carregar todas as peças de pecas_producao (sem filtro de período, todos os status)
-  const carregarPecas = useCallback(async () => {
-    setLoadingPecas(true);
+  // ─── Fase 1: resumo de obras — apenas 3 colunas, muito leve ────────
+  const carregarObrasResumo = useCallback(async () => {
+    setLoadingObras(true);
     const client = supabaseAdmin || supabase;
     try {
       const { data, error } = await client
         .from('pecas_producao')
-        .select('*')
-        .order('obra_nome', { ascending: true });
+        .select('obra_id, obra_nome, quantidade');
       if (error) throw error;
-      const bruto = data || [];
-      setAllPecas(bruto);
-      setAllPecasExpandidas(expandirPorQtd(bruto));
+      const mapa = new Map();
+      for (const p of (data || [])) {
+        const id = p.obra_id || 'sem-obra';
+        const nome = p.obra_nome || 'Sem Obra';
+        const qtd = Math.max(1, parseInt(p.quantidade || 1) || 1);
+        if (!mapa.has(id)) mapa.set(id, { id, nome, totalPecas: 0, totalConjuntos: 0 });
+        const o = mapa.get(id);
+        o.totalPecas++;
+        o.totalConjuntos += qtd;
+      }
+      setObrasResumo([...mapa.values()].sort((a, b) => a.nome.localeCompare(b.nome)));
     } catch (err) {
-      console.error('[LancamentosObraTab] Erro ao carregar peças:', err);
-      const bruto = pecasAnalytics || [];
-      setAllPecas(bruto);
-      setAllPecasExpandidas(expandirPorQtd(bruto));
+      console.error('[LancamentosObraTab] Erro obras:', err);
+      toast.error('Erro ao carregar obras');
     } finally {
-      setLoadingPecas(false);
+      setLoadingObras(false);
     }
-  }, [pecasAnalytics]);
+  }, []);
 
-  // Carregar lançamentos — usa IDs das peças expandidas (virtuais por conjunto)
-  const carregarLancamentos = useCallback(async (lista) => {
-    if (!lista.length) { setCarregado(true); return; }
+  useEffect(() => { carregarObrasResumo(); }, []);
+
+  // ─── Fase 2: carregar peças + lançamentos de UMA obra ao clicar ────
+  const abrirObra = useCallback(async (obraId, obraNome) => {
+    setLoadingDetalhe(true);
+    setObraAtual({ id: obraId, nome: obraNome });
+    setLancamentos({});
+    setPage(0);
+    setBusca('');
+    setExpandidos({});
     const client = supabaseAdmin || supabase;
     try {
-      const ids = lista.map(p => p.id);
-      const { data, error } = await client
-        .from('entity_store')
-        .select('id, data')
-        .eq('entity_type', 'producao_lancamento')
-        .in('data->>peca_id', ids);
-      if (error) throw error;
-      const mapa = {};
-      (data || []).forEach(row => {
-        const d = row.data || {};
-        const k = chave(d.peca_id, d.etapa);
-        mapa[k] = { _storeId: row.id, funcionario_id: d.funcionario_id || '', funcionario_nome: d.funcionario_nome || '', data_producao: d.data_producao || hojeStr(), observacoes: d.observacoes || '' };
-      });
-      setLancamentos(mapa);
+      const { data: pecasData, error: pecasErr } = await client
+        .from('pecas_producao')
+        .select('*')
+        .eq('obra_id', obraId)
+        .order('marca');
+      if (pecasErr) throw pecasErr;
+      const bruto = pecasData || [];
+      const expandido = expandirPorQtd(bruto);
+      setPecasDaObra(bruto);
+      setConjuntosDaObra(expandido);
+      // Carregar lançamentos existentes para essa obra
+      if (expandido.length > 0) {
+        const ids = expandido.map(p => p.id);
+        const { data: lanData } = await client
+          .from('entity_store')
+          .select('id, data')
+          .eq('entity_type', 'producao_lancamento')
+          .in('data->>peca_id', ids);
+        const mapa = {};
+        (lanData || []).forEach(row => {
+          const d = row.data || {};
+          const k = chave(d.peca_id, d.etapa);
+          mapa[k] = { _storeId: row.id, funcionario_id: d.funcionario_id || '', funcionario_nome: d.funcionario_nome || '', data_producao: d.data_producao || hojeStr(), observacoes: d.observacoes || '' };
+        });
+        setLancamentos(mapa);
+      }
     } catch (err) {
-      console.error('[LancamentosObraTab] Erro ao carregar lançamentos:', err);
+      console.error('[LancamentosObraTab] Erro detalhe:', err);
+      toast.error('Erro ao carregar obra');
     } finally {
-      setCarregado(true);
+      setLoadingDetalhe(false);
     }
   }, []);
 
-  useEffect(() => {
-    carregarPecas();
-  }, []);
+  const voltarParaObras = () => {
+    setObraAtual(null);
+    setPecasDaObra([]);
+    setConjuntosDaObra([]);
+    setLancamentos({});
+    setPage(0);
+    setBusca('');
+  };
 
-  useEffect(() => {
-    if (allPecasExpandidas.length > 0 && !carregado) {
-      carregarLancamentos(allPecasExpandidas);
-    }
-  }, [allPecasExpandidas, carregado, carregarLancamentos]);
+  // Filtro + paginação sobre os conjuntos da obra selecionada
+  const conjuntosFiltrados = useMemo(() => {
+    if (!busca) return conjuntosDaObra;
+    const q = busca.toLowerCase();
+    return conjuntosDaObra.filter(p =>
+      (p.marca || '').toLowerCase().includes(q) ||
+      (p.tipo || '').toLowerCase().includes(q) ||
+      (p.nome || '').toLowerCase().includes(q)
+    );
+  }, [conjuntosDaObra, busca]);
 
-  const handleReload = () => { setCarregado(false); setAllPecas([]); setAllPecasExpandidas([]); carregarPecas(); };
+  const totalPages = Math.max(1, Math.ceil(conjuntosFiltrados.length / PAGE_SIZE));
+  const conjuntosPagina = useMemo(() =>
+    conjuntosFiltrados.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE),
+  [conjuntosFiltrados, page]);
 
-  // Obras distintas
-  const obras = useMemo(() => {
-    const map = new Map();
-    allPecas.forEach(p => {
-      const id = p.obra_id || p.obraId || 'sem-obra';
-      const nome = p.obra_nome || p.obraNome || p.obra_codigo || 'Sem Obra';
-      if (!map.has(id)) map.set(id, nome);
-    });
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
-  }, [allPecas]);
+  useEffect(() => { setPage(0); }, [busca]);
 
-  // Filtro — sobre lista expandida por quantidade
-  const pecasFiltradas = useMemo(() => {
-    let lista = allPecasExpandidas;
-    if (obraSelecionada !== 'todas') lista = lista.filter(p => (p.obra_id || p.obraId || 'sem-obra') === obraSelecionada);
-    if (busca) {
-      const q = busca.toLowerCase();
-      lista = lista.filter(p => (p.marca || '').toLowerCase().includes(q) || (p.tipo || '').toLowerCase().includes(q) || (p.nome || '').toLowerCase().includes(q) || (p._originalId || p.id || '').toLowerCase().includes(q));
-    }
-    return lista;
-  }, [allPecasExpandidas, obraSelecionada, busca]);
-
-  // Contagem de atribuições por etapa nas peças filtradas
   const contagemEtapas = useMemo(() => {
     const map = {};
-    ETAPAS_LANCAMENTO.forEach(e => { map[e.key] = pecasFiltradas.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length; });
+    ETAPAS_LANCAMENTO.forEach(e => { map[e.key] = conjuntosDaObra.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length; });
     return map;
-  }, [pecasFiltradas, lancamentos]);
+  }, [conjuntosDaObra, lancamentos]);
 
   // Editar campo
   const handleChange = (pecaId, etapa, campo, valor) => {
@@ -1092,58 +1120,98 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
   }, [lancamentos, funcionariosAtivos, refetch]);
 
   const toggleExpand = (pecaId) => setExpandidos(prev => ({ ...prev, [pecaId]: !prev[pecaId] }));
-  const expandAll = () => { const m = {}; pecasFiltradas.forEach(p => { m[p.id] = true; }); setExpandidos(m); };
+  const expandAll  = () => { const m = {}; conjuntosFiltrados.forEach(p => { m[p.id] = true; }); setExpandidos(m); };
   const collapseAll = () => setExpandidos({});
 
   const totalAtribuidos = Object.values(contagemEtapas).reduce((a, b) => a + b, 0);
 
+  // ─── Tela 1: Seleção de obra ────────────────────────────────────────────────
+  if (!obraAtual) {
+    return (
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-slate-400" />
+            Selecione uma Obra para Lançar Produção
+          </h3>
+          <button
+            onClick={carregarObrasResumo}
+            disabled={loadingObras}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 border border-slate-700 transition-colors"
+          >
+            {loadingObras ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Atualizar
+          </button>
+        </div>
+
+        {loadingObras ? (
+          <div className="flex items-center justify-center h-48 gap-2 text-slate-400">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            Carregando obras...
+          </div>
+        ) : obrasResumo.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-500">
+            <AlertCircle className="h-8 w-8" />
+            <p>Nenhuma obra encontrada</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {obrasResumo.map(obra => (
+              <button
+                key={obra.id}
+                onClick={() => abrirObra(obra.id, obra.nome)}
+                className="text-left p-4 bg-slate-800/50 border border-slate-700/50 rounded-xl hover:bg-slate-700/50 hover:border-slate-600/70 transition-all group"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Building2 className="h-4 w-4 text-slate-500 group-hover:text-slate-300 flex-shrink-0" />
+                    <span className="font-semibold text-sm text-white truncate">{obra.nome}</span>
+                  </div>
+                  <ChevronDown className="h-4 w-4 text-slate-500 group-hover:text-slate-300 rotate-[-90deg] flex-shrink-0" />
+                </div>
+                <div className="mt-3 flex items-center gap-4">
+                  <div className="flex flex-col">
+                    <span className="text-xl font-bold text-white">{obra.totalConjuntos}</span>
+                    <span className="text-[10px] text-slate-500">conjuntos</span>
+                  </div>
+                  <div className="w-px h-8 bg-slate-700" />
+                  <div className="flex flex-col">
+                    <span className="text-xl font-bold text-slate-300">{obra.totalPecas}</span>
+                    <span className="text-[10px] text-slate-500">peças distintas</span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ─── Tela 2: Peças da obra selecionada (paginado) ───────────────────────────
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
+      {/* Cabeçalho com botão Voltar */}
       <div className="flex flex-wrap items-center gap-3 p-3 bg-slate-800/40 rounded-xl border border-slate-700/50">
-        {/* Filtro de obra */}
+        <button
+          onClick={voltarParaObras}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 border border-slate-700 transition-colors"
+        >
+          <ChevronDown className="h-3.5 w-3.5 rotate-90" /> Obras
+        </button>
         <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-slate-500" />
-          <select
-            value={obraSelecionada}
-            onChange={e => setObraSelecionada(e.target.value)}
-            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+          <Building2 className="h-4 w-4 text-purple-400" />
+          <span className="font-semibold text-sm text-white">{obraAtual.nome}</span>
+          <span className="text-xs text-slate-500">— {conjuntosDaObra.length} conjuntos</span>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => abrirObra(obraAtual.id, obraAtual.nome)}
+            disabled={loadingDetalhe}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 border border-slate-700 transition-colors"
           >
-            <option value="todas">Todas as Obras ({allPecasExpandidas.length} conjuntos / {allPecas.length} peças)</option>
-            {obras.map(([id, nome]) => {
-              const cnt = allPecasExpandidas.filter(p => (p.obra_id || p.obraId || 'sem-obra') === id).length;
-              return <option key={id} value={id}>{nome} ({cnt} conjuntos)</option>;
-            })}
-          </select>
-        </div>
-
-        {/* Busca */}
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
-          <input
-            type="text"
-            placeholder="Buscar peça..."
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-            className="pl-8 pr-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-slate-500 w-44"
-          />
-        </div>
-
-        {/* Expand/Collapse */}
-        <div className="flex items-center gap-1.5">
-          <button onClick={expandAll} className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
-            Expandir Tudo
-          </button>
-          <button onClick={collapseAll} className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">
-            Recolher Tudo
-          </button>
-        </div>
-
-        {/* Contagem e reload */}
-        <div className="ml-auto flex items-center gap-3">
-          <span className="text-xs text-slate-500">{pecasFiltradas.length} peça(s) · {totalAtribuidos} atribuições</span>
-          <button onClick={handleReload} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs text-slate-400 hover:text-white hover:bg-slate-700/50 border border-slate-700 transition-colors">
-            <RefreshCw className="h-3 w-3" /> Recarregar
+            {loadingDetalhe ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+            Recarregar
           </button>
         </div>
       </div>
@@ -1157,28 +1225,57 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
             <div key={e.key} className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border ${cnt > 0 ? `${e.activeBg} ${e.border} ${e.text}` : 'bg-slate-800/50 border-slate-700/50 text-slate-500'}`}>
               <EIcon className="h-3 w-3" />
               {e.label}
-              <span className={`font-bold ${cnt > 0 ? '' : 'text-slate-600'}`}>{cnt}/{pecasFiltradas.length}</span>
+              <span className={`font-bold ${cnt > 0 ? '' : 'text-slate-600'}`}>{cnt}/{conjuntosDaObra.length}</span>
             </div>
           );
         })}
       </div>
 
+      {/* Barra de busca + paginação topo + expand/collapse */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Buscar marca / tipo..."
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            className="pl-8 pr-3 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-slate-500 w-52"
+          />
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <button onClick={expandAll}  className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">Expandir</button>
+          <button onClick={collapseAll} className="px-2.5 py-1.5 text-xs text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors">Recolher</button>
+        </div>
+
+        <div className="ml-auto flex items-center gap-3 text-xs text-slate-500">
+          <span>{conjuntosFiltrados.length} conjuntos · {totalAtribuidos} atribuições</span>
+          {totalPages > 1 && (
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 disabled:opacity-30 hover:bg-slate-700 transition-colors">‹</button>
+              <span className="px-2">{page + 1} / {totalPages}</span>
+              <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="px-2 py-1 rounded bg-slate-800 border border-slate-700 disabled:opacity-30 hover:bg-slate-700 transition-colors">›</button>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Conteúdo */}
-      {loadingPecas || !carregado ? (
+      {loadingDetalhe ? (
         <div className="flex items-center justify-center h-48 gap-2 text-slate-400">
           <Loader2 className="h-5 w-5 animate-spin" />
-          Carregando peças e lançamentos...
+          Carregando peças da obra...
         </div>
-      ) : pecasFiltradas.length === 0 ? (
+      ) : conjuntosPagina.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-48 gap-2 text-slate-500">
           <AlertCircle className="h-8 w-8" />
-          <p>Nenhuma peça encontrada</p>
+          <p>{busca ? 'Nenhuma peça com esse filtro' : 'Nenhuma peça nessa obra'}</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {pecasFiltradas.map(peca => {
+          {conjuntosPagina.map(peca => {
             const peso = peca.peso_total || peca.pesoTotal || peca.peso || 0;
-            const obraNome = peca.obra_nome || peca.obraNome || peca.obra_codigo || '';
             const atribuidos = ETAPAS_LANCAMENTO.filter(e => lancamentos[chave(peca.id, e.key)]?.funcionario_id).length;
             const isExpanded = expandidos[peca.id] !== false; // default expanded
 
@@ -1190,8 +1287,7 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                   className="w-full flex items-center gap-3 px-4 py-3 hover:bg-slate-700/30 transition-colors text-left"
                 >
                   <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${atribuidos === ETAPAS_LANCAMENTO.length ? 'bg-emerald-400' : atribuidos > 0 ? 'bg-amber-400' : 'bg-slate-600'}`} />
-                  <span className="font-bold text-white text-sm">{peca.marca || peca.nome || (peca._originalId ? '' : peca.id)}</span>
-                  {/* Badge de conjunto quando quantidade > 1 */}
+                  <span className="font-bold text-white text-sm">{peca.marca || peca.nome || peca.id}</span>
                   {peca._conjuntoTotal > 1 && (
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 font-semibold flex-shrink-0">
                       Conj. {peca._conjuntoIdx}/{peca._conjuntoTotal}
@@ -1199,7 +1295,6 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                   )}
                   {peca.tipo && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">{peca.tipo}</span>}
                   <span className="text-xs text-slate-500 font-mono">{formatPesoLanc(peso)}</span>
-                  {obraNome && <span className="text-xs text-slate-500 flex items-center gap-1"><Building2 className="h-3 w-3" />{obraNome}</span>}
                   <span className="text-xs text-slate-600 ml-auto mr-2">{atribuidos}/{ETAPAS_LANCAMENTO.length} etapas</span>
                   {isExpanded ? <ChevronUp className="h-4 w-4 text-slate-500 flex-shrink-0" /> : <ChevronDown className="h-4 w-4 text-slate-500 flex-shrink-0" />}
                 </button>
@@ -1234,7 +1329,6 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
 
                             return (
                               <tr key={etapa.key} className={`transition-colors hover:bg-slate-700/20 ${temFunc ? 'bg-emerald-500/3' : ''}`}>
-                                {/* Etapa */}
                                 <td className="px-4 py-2">
                                   <div className={`flex items-center gap-1.5 ${etapa.text}`}>
                                     <EtapaIcon className="h-3.5 w-3.5 flex-shrink-0" />
@@ -1242,8 +1336,6 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                                     {temFunc && <Check className="h-3 w-3 text-emerald-400 ml-1" />}
                                   </div>
                                 </td>
-
-                                {/* Funcionário */}
                                 <td className="px-3 py-1.5">
                                   <div className="relative">
                                     <User className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
@@ -1257,8 +1349,6 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                                     </select>
                                   </div>
                                 </td>
-
-                                {/* Data */}
                                 <td className="px-3 py-1.5">
                                   <div className="relative">
                                     <Calendar className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
@@ -1270,8 +1360,6 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                                     />
                                   </div>
                                 </td>
-
-                                {/* Obs */}
                                 <td className="px-3 py-1.5">
                                   <input
                                     type="text"
@@ -1281,8 +1369,6 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
                                     className="w-full px-2 py-1.5 text-xs bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-600 focus:outline-none focus:border-slate-500"
                                   />
                                 </td>
-
-                                {/* Salvar */}
                                 <td className="px-3 py-1.5 text-center">
                                   {isSavingRow ? (
                                     <Loader2 className="h-4 w-4 animate-spin text-slate-400 mx-auto" />
@@ -1308,6 +1394,17 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Paginação rodapé */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 pt-2">
+          <button onClick={() => setPage(0)} disabled={page === 0} className="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-30 hover:bg-slate-700 transition-colors">«</button>
+          <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} className="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-30 hover:bg-slate-700 transition-colors">‹ Anterior</button>
+          <span className="text-xs text-slate-400 px-3">Página {page + 1} de {totalPages} ({conjuntosFiltrados.length} conjuntos)</span>
+          <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} className="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-30 hover:bg-slate-700 transition-colors">Próxima ›</button>
+          <button onClick={() => setPage(totalPages - 1)} disabled={page >= totalPages - 1} className="px-2.5 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 disabled:opacity-30 hover:bg-slate-700 transition-colors">»</button>
         </div>
       )}
     </div>
