@@ -32,7 +32,7 @@ import {
 
 // Contexto ERP e Database
 import { useObras, useProducao } from '@/contexts/ERPContext';
-import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
+// FuncionarioSelectorModal removido — substituído pelo LancamentoProducaoModal completo
 import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 import { listasMaterial, obras as obrasDB } from '@/data/database';
@@ -366,24 +366,15 @@ export default function KanbanProducaoIntegrado() {
   // GESTÃO DE PRODUÇÃO
   // ========================================
 
-  // Abre modal para selecionar funcionário antes de mover
-  // Se peça tem qtd > 1, abre modal de quantidade primeiro
+  // Avançar peça → abre o modal de Lançamento de Produção por Funcionário
+  // (modal completo com todas as etapas editáveis, ao invés do
+  // FuncionarioSelectorModal antigo que mostrava só uma etapa)
   const moverConjunto = (conjuntoId, novoStatus) => {
     const conjunto = producaoFabrica.find(c => c.id === conjuntoId);
     if (!conjunto) return;
-    const qtd = parseInt(conjunto.quantidade) || 1;
-    if (qtd > 1) {
-      // Abrir modal de quantidade parcial
-      setConjuntoQtdPendente(conjunto);
-      setStatusQtdDestino(novoStatus);
-      setQtdMover(qtd); // default = todas
-      setModalQtdAberto(true);
-    } else {
-      // Quantidade = 1, ir direto para seleção de funcionário
-      setConjuntoPendente(conjunto);
-      setStatusPendenteProd(novoStatus);
-      setModalFuncionarioProd(true);
-    }
+    setPecasLancamento([conjunto]);
+    setEtapaLancamento(novoStatus || conjunto.status || 'fabricacao');
+    setModalLancamento(true);
   };
 
   // Confirmar quantidade parcial → abrir seleção de funcionário
@@ -2505,17 +2496,10 @@ export default function KanbanProducaoIntegrado() {
         </Dialog.Portal>
       </Dialog.Root>
 
-      {/* Modal de seleção de funcionário para produção */}
-      <FuncionarioSelectorModal
-        isOpen={modalFuncionarioProd}
-        onClose={() => { setModalFuncionarioProd(false); setConjuntoPendente(null); setStatusPendenteProd(null); }}
-        onConfirm={handleFuncionarioProducaoConfirm}
-        setor={statusPendenteProd || 'fabricacao'}
-        etapaLabel={COLUNAS_PRODUCAO.find(c => c.id === statusPendenteProd)?.title?.replace(/[^\w\sÀ-ú]/g, '').trim() || 'Produção'}
-        pecaInfo={conjuntoPendente ? `${conjuntoPendente.conjunto || conjuntoPendente.id} - ${conjuntoPendente.tipo || ''}` : ''}
-      />
-
       {/* ===== MODAL LANÇAMENTO DE PRODUÇÃO POR FUNCIONÁRIO ===== */}
+      {/* Substitui o antigo FuncionarioSelectorModal — agora todas as
+          etapas (Corte/Fabricação/Solda/Pintura/Montagem/Expedição) são
+          editáveis simultaneamente para uma ou várias peças. */}
       <LancamentoProducaoModal
         isOpen={modalLancamento}
         onClose={() => setModalLancamento(false)}
