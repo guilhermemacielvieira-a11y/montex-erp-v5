@@ -14,7 +14,12 @@ import {
   ChevronRight,
   Loader,
   AlertCircle,
-  CheckCircle2
+  CheckCircle2,
+  Users,
+  Package,
+  ArrowRight,
+  RefreshCw,
+  Search
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -52,6 +57,286 @@ import {
 
 const TURNOS = ['Manhã', 'Tarde', 'Noite'];
 const ETAPAS = ['corte', 'fabricacao', 'solda', 'pintura'];
+
+// Etapas reconhecidas em producao_historico (do LancamentoProducaoModal / Kanban)
+const ETAPA_HIST_LABEL = {
+  corte: '✂️ Corte',
+  fabricacao: '🔧 Fabricação',
+  solda: '⚡ Solda',
+  pintura: '🎨 Pintura',
+  montagem: '📦 Montagem',
+  expedicao: '🚚 Expedição',
+  expedido: '🚚 Expedição',
+  aguardando: '⏳ Aguardando',
+};
+
+const ETAPA_HIST_COR = {
+  corte: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  fabricacao: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
+  solda: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  pintura: 'bg-pink-500/20 text-pink-400 border-pink-500/30',
+  montagem: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
+  expedicao: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  expedido: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30',
+  aguardando: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
+};
+
+const fmtHora = (iso) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  } catch { return '—'; }
+};
+
+// ============================================================================
+// LANÇAMENTOS POR FUNCIONÁRIO  (vem de producao_historico)
+// Reflete tudo que foi lançado pelo LancamentoProducaoModal / Kanban.
+// ============================================================================
+function LancamentosPorFuncionario({ data }) {
+  const [historico, setHistorico] = useState([]);
+  const [pecasMap, setPecasMap] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [busca, setBusca] = useState('');
+  const [funcionarioExpandido, setFuncionarioExpandido] = useState(null);
+
+  const carregar = useCallback(async () => {
+    if (!isSupabaseConfigured()) return;
+    setLoading(true);
+    try {
+      // Janela do dia selecionado (00:00 → 23:59:59 UTC-aware na col. data_inicio)
+      const inicio = `${data}T00:00:00`;
+      const fim = `${data}T23:59:59`;
+
+      // 1. Histórico do dia
+      const { data: hist, error } = await supabase
+        .from('producao_historico')
+        .select('*')
+        .gte('data_inicio', inicio)
+        .lte('data_inicio', fim)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      setHistorico(hist || []);
+
+      // 2. Buscar info das peças envolvidas (peso, conjunto, obra)
+      const pecaIds = Array.from(new Set((hist || []).map(h => h.peca_id).filter(Boolean)));
+      if (pecaIds.length > 0) {
+        const { data: pecas } = await supabase
+          .from('pecas_producao')
+          .select('id,marca,tipo,peso_total,quantidade,obra_nome,obra_id')
+          .in('id', pecaIds);
+        const map = {};
+        (pecas || []).forEach(p => { map[p.id] = p; });
+        setPecasMap(map);
+      } else {
+        setPecasMap({});
+      }
+    } catch (err) {
+      console.error('[Diario] Erro ao carregar producao_historico:', err);
+      toast.error('Erro ao carregar lançamentos');
+    } finally {
+      setLoading(false);
+    }
+  }, [data]);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  // Agrupa por funcionário
+  const grupos = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    const acc = {};
+    historico.forEach(h => {
+      if (termo) {
+        const alvo = `${h.funcionario_nome || ''} ${h.peca_id || ''}`.toLowerCase();
+        if (!alvo.includes(termo)) return;
+      }
+      const key = h.funcionario_id || h.funcionario_nome || 'sem-funcionario';
+      if (!acc[key]) {
+        acc[key] = {
+          funcionarioId: h.funcionario_id,
+          funcionarioNome: h.funcionario_nome || '— sem funcionário —',
+          lancamentos: [],
+          pesoKg: 0,
+          etapas: new Set(),
+          pecas: new Set(),
+        };
+      }
+      acc[key].lancamentos.push(h);
+      const peca = pecasMap[h.peca_id];
+      if (peca?.peso_total) acc[key].pesoKg += Number(peca.peso_total) || 0;
+      if (h.etapa_para) acc[key].etapas.add(h.etapa_para);
+      if (h.peca_id) acc[key].pecas.add(h.peca_id);
+    });
+    // Ordena por nº de lançamentos desc
+    return Object.values(acc).sort((a, b) => b.lancamentos.length - a.lancamentos.length);
+  }, [historico, pecasMap, busca]);
+
+  const totalPeso = grupos.reduce((s, g) => s + g.pesoKg, 0);
+  const totalLanc = grupos.reduce((s, g) => s + g.lancamentos.length, 0);
+
+  return (
+    <Card className="bg-slate-900/60 border-slate-700/50">
+      <CardContent className="p-5">
+        {/* Header */}
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-purple-500/20">
+              <Users className="h-5 w-5 text-purple-400" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-white">Lançamentos por Funcionário</h2>
+              <p className="text-xs text-slate-400">
+                Reflete os lançamentos feitos no Kanban / Modal de Produção em <strong>{new Date(data + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>
+              </p>
+            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-2">
+            <div className="relative w-56">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
+              <Input
+                placeholder="Buscar funcionário ou peça..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+                className="pl-8 h-8 bg-slate-800 border-slate-700 text-white text-xs"
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-slate-700 text-slate-300"
+              onClick={carregar}
+              disabled={loading}
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+            </Button>
+          </div>
+        </div>
+
+        {/* Resumo */}
+        <div className="grid grid-cols-3 gap-3 mb-4">
+          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
+            <p className="text-xs text-slate-400">Funcionários ativos</p>
+            <p className="text-xl font-bold text-white">{grupos.length}</p>
+          </div>
+          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
+            <p className="text-xs text-slate-400">Lançamentos</p>
+            <p className="text-xl font-bold text-purple-300">{totalLanc}</p>
+          </div>
+          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
+            <p className="text-xs text-slate-400">Peso processado</p>
+            <p className="text-xl font-bold text-emerald-300">{formatKg(totalPeso)}</p>
+          </div>
+        </div>
+
+        {/* Lista */}
+        {loading ? (
+          <div className="text-center py-10">
+            <Loader className="h-6 w-6 text-slate-500 mx-auto animate-spin" />
+            <p className="text-slate-400 mt-3 text-sm">Carregando lançamentos…</p>
+          </div>
+        ) : grupos.length === 0 ? (
+          <div className="text-center py-10 text-slate-500">
+            <BookOpen className="h-10 w-10 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">Nenhum lançamento registrado nesta data.</p>
+            <p className="text-xs mt-1">Atribua um funcionário a uma etapa no Kanban para gerar lançamentos.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {grupos.map((g) => {
+              const aberto = funcionarioExpandido === (g.funcionarioId || g.funcionarioNome);
+              return (
+                <div key={g.funcionarioId || g.funcionarioNome}
+                  className="bg-slate-800/40 border border-slate-700/40 rounded-lg overflow-hidden">
+                  <button
+                    onClick={() => setFuncionarioExpandido(aberto ? null : (g.funcionarioId || g.funcionarioNome))}
+                    className="w-full flex items-center gap-3 p-3 hover:bg-slate-800/70 transition"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500/40 to-blue-500/40 flex items-center justify-center text-white font-semibold text-sm">
+                      {(g.funcionarioNome || '?').slice(0, 1).toUpperCase()}
+                    </div>
+                    <div className="flex-1 text-left">
+                      <p className="text-white font-medium text-sm">{g.funcionarioNome}</p>
+                      <p className="text-xs text-slate-400">
+                        {g.lancamentos.length} lançamento(s) • {g.pecas.size} peça(s) • {Array.from(g.etapas).join(', ') || '—'}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-emerald-300 font-medium text-sm">{formatKg(g.pesoKg)}</p>
+                      <p className="text-[10px] text-slate-500">peso processado</p>
+                    </div>
+                    <ChevronRight className={cn('h-4 w-4 text-slate-500 transition-transform', aberto && 'rotate-90')} />
+                  </button>
+
+                  <AnimatePresence initial={false}>
+                    {aberto && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="overflow-hidden"
+                      >
+                        <div className="px-3 pb-3 pt-1 border-t border-slate-700/40">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-slate-500">
+                                <th className="text-left py-1 font-medium">Peça</th>
+                                <th className="text-left py-1 font-medium">Conjunto</th>
+                                <th className="text-left py-1 font-medium">Etapa</th>
+                                <th className="text-right py-1 font-medium">Peso</th>
+                                <th className="text-right py-1 font-medium">Hora</th>
+                                <th className="text-left py-1 font-medium pl-3">Obs.</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/60">
+                              {g.lancamentos.map((l) => {
+                                const peca = pecasMap[l.peca_id] || {};
+                                return (
+                                  <tr key={l.id} className="text-slate-300">
+                                    <td className="py-1.5 font-mono text-[11px]">{l.peca_id}</td>
+                                    <td className="py-1.5">
+                                      <div>
+                                        <div className="text-white">{peca.marca || '—'}</div>
+                                        {peca.tipo && <div className="text-[10px] text-slate-500">{peca.tipo}</div>}
+                                      </div>
+                                    </td>
+                                    <td className="py-1.5">
+                                      <div className="flex items-center gap-1">
+                                        <span className={cn('px-1.5 py-0.5 rounded text-[10px] border', ETAPA_HIST_COR[l.etapa_de] || 'bg-slate-700 text-slate-400 border-slate-600')}>
+                                          {ETAPA_HIST_LABEL[l.etapa_de] || l.etapa_de}
+                                        </span>
+                                        <ArrowRight className="h-3 w-3 text-slate-600" />
+                                        <span className={cn('px-1.5 py-0.5 rounded text-[10px] border', ETAPA_HIST_COR[l.etapa_para] || 'bg-slate-700 text-slate-400 border-slate-600')}>
+                                          {ETAPA_HIST_LABEL[l.etapa_para] || l.etapa_para}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td className="py-1.5 text-right text-emerald-300 font-mono">
+                                      {peca.peso_total ? formatKg(peca.peso_total) : '—'}
+                                    </td>
+                                    <td className="py-1.5 text-right text-slate-400 font-mono">
+                                      {fmtHora(l.created_at)}
+                                    </td>
+                                    <td className="py-1.5 pl-3 text-slate-500 max-w-xs truncate">
+                                      {l.observacoes || '—'}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 // Componente de Card do Registro
 function DiarioRegistroCard({ registro, onEdit, onDelete, etapa }) {
@@ -686,6 +971,9 @@ export default function DiarioProducaoPage() {
           </Dialog>
         </div>
       </div>
+
+      {/* === LANÇAMENTOS POR FUNCIONÁRIO (Kanban / LancamentoProducaoModal) === */}
+      <LancamentosPorFuncionario data={selectedData} />
 
       {/* Abas de Etapas */}
       <div className="flex gap-2 overflow-x-auto pb-2">
