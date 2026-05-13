@@ -152,34 +152,126 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     );
   }, [pecasExpandidas, busca]);
 
-  // Carregar lançamentos existentes do entity_store
+  // ─── CARREGAR LANÇAMENTOS PRÉVIOS ────────────────────────────────────────────
+  // Para cada peça do modal, busca:
+  //   1. Em `entity_store` — TODOS os lançamentos cujo peca_id seja:
+  //        a) o próprio id atual da peça
+  //        b) o id-base derivado de splits (PEC-XXX__split_<etapa>_<ts> → PEC-XXX)
+  //        c) o id-virtual antigo (PEC-XXX__c<n>)
+  //      Assim, ao reabrir o modal de uma peça split, os lançamentos do
+  //      original aparecem preenchidos.
+  //   2. Em `pecas_producao` (campos funcionario_<etapa>, data_inicio_<etapa>) —
+  //      fallback para casos onde entity_store não tem registro (ex.: peça
+  //      criada via split tem os campos preenchidos mas sem registro no store).
+  // ----------------------------------------------------------------------------
   const carregarLancamentos = useCallback(async () => {
     if (!pecasExpandidas.length) return;
     const client = supabaseAdmin || supabase;
 
+    // Helper: extrai o id-base de uma peça split (ou retorna o próprio id)
+    const baseIdDe = (id) => {
+      if (!id) return id;
+      const m = String(id).match(/^(.+?)__split_/);
+      return m ? m[1] : id;
+    };
+
     try {
-      // Buscar por IDs virtuais (incluindo conjuntos expandidos) E IDs originais
-      const ids = pecasExpandidas.map(p => p.id);
-      const { data, error } = await client
-        .from('entity_store')
-        .select('id, data')
-        .eq('entity_type', 'producao_lancamento')
-        .in('data->>peca_id', ids);
+      // Conjunto de IDs a buscar (próprio + base + variantes __cN)
+      const idsSet = new Set();
+      for (const p of pecasExpandidas) {
+        if (!p.id) continue;
+        idsSet.add(p.id);
+        const base = baseIdDe(p.id);
+        if (base !== p.id) idsSet.add(base);
+      }
+      const ids = Array.from(idsSet);
 
-      if (error) throw error;
+      // 1. entity_store — também busca registros com peca_id LIKE base__c% (legados)
+      const [storeResp, basesPattern] = await Promise.all([
+        client
+          .from('entity_store')
+          .select('id, data')
+          .eq('entity_type', 'producao_lancamento')
+          .in('data->>peca_id', ids),
+        // Conjuntos legados (modo expandido antigo): peca_id LIKE base__cN
+        (async () => {
+          const baseIds = Array.from(new Set(pecasExpandidas.map(p => baseIdDe(p.id))));
+          const out = [];
+          for (const b of baseIds) {
+            const r = await client
+              .from('entity_store')
+              .select('id, data')
+              .eq('entity_type', 'producao_lancamento')
+              .like('data->>peca_id', `${b}__c%`);
+            if (r.data) out.push(...r.data);
+          }
+          return out;
+        })(),
+      ]);
+      if (storeResp.error) throw storeResp.error;
+      const storeRows = [...(storeResp.data || []), ...(basesPattern || [])];
 
+      // 2. pecas_producao — campos funcionario_<etapa> e data_inicio_<etapa>
+      const { data: pecasDb } = await client
+        .from('pecas_producao')
+        .select('id, quantidade, etapa, funcionario_fabricacao, funcionario_solda, funcionario_pintura, funcionario_expedido, data_inicio_fabricacao, data_inicio_solda, data_inicio_pintura')
+        .in('id', ids);
+      const dbById = {};
+      (pecasDb || []).forEach(p => { dbById[p.id] = p; });
+
+      // ─── Construir o mapa de lançamentos ──────────────────────────────────
       const mapa = {};
-      (data || []).forEach(row => {
+
+      // 2.1 — Preenche a partir de pecas_producao (fallback de base)
+      for (const peca of pecasExpandidas) {
+        const base = baseIdDe(peca.id);
+        const dbPeca = dbById[peca.id] || dbById[base];
+        if (!dbPeca) continue;
+        const camposEtapa = [
+          { etapa: 'fabricacao', func: dbPeca.funcionario_fabricacao, dt: dbPeca.data_inicio_fabricacao },
+          { etapa: 'solda',      func: dbPeca.funcionario_solda,      dt: dbPeca.data_inicio_solda },
+          { etapa: 'pintura',    func: dbPeca.funcionario_pintura,    dt: dbPeca.data_inicio_pintura },
+          { etapa: 'expedido',   func: dbPeca.funcionario_expedido,   dt: null },
+        ];
+        for (const ce of camposEtapa) {
+          if (!ce.func) continue;
+          const k = chave(peca.id, ce.etapa);
+          mapa[k] = {
+            funcionario_id:   ce.func,
+            funcionario_nome: '', // resolvido depois pela lista de funcionários
+            data_producao:    ce.dt ? new Date(ce.dt).toISOString().split('T')[0] : hoje(),
+            observacoes:      '',
+            quantidade:       peca._conjuntoTotal || 1,
+            _origem:          'pecas_producao',
+          };
+        }
+      }
+
+      // 2.2 — Sobrescreve/Completa com entity_store (mais detalhado, inclui qtd)
+      storeRows.forEach(row => {
         const d = row.data || {};
-        const k = chave(d.peca_id, d.etapa);
-        mapa[k] = {
-          _storeId:         row.id,
-          funcionario_id:   d.funcionario_id   || '',
-          funcionario_nome: d.funcionario_nome  || '',
-          data_producao:    d.data_producao     || hoje(),
-          observacoes:      d.observacoes       || '',
-        };
+        // Para cada peça aberta, identifica se este registro se aplica
+        for (const peca of pecasExpandidas) {
+          const base = baseIdDe(peca.id);
+          const aplica = d.peca_id === peca.id
+                       || d.peca_id === base
+                       || (typeof d.peca_id === 'string' && d.peca_id.startsWith(base + '__c'));
+          if (!aplica) continue;
+          const k = chave(peca.id, d.etapa);
+          const existente = mapa[k] || {};
+          mapa[k] = {
+            ...existente,
+            _storeId:         row.id,
+            funcionario_id:   d.funcionario_id   || existente.funcionario_id   || '',
+            funcionario_nome: d.funcionario_nome || existente.funcionario_nome || '',
+            data_producao:    d.data_producao    || existente.data_producao    || hoje(),
+            observacoes:      d.observacoes      || existente.observacoes      || '',
+            quantidade:       d.quantidade       ?? existente.quantidade       ?? (peca._conjuntoTotal || 1),
+            _origem:          'entity_store',
+          };
+        }
       });
+
       setLancamentos(mapa);
     } catch (err) {
       console.error('[LancamentoModal] Erro ao carregar:', err);
@@ -197,6 +289,26 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       setLancamentos({});
     }
   }, [isOpen, carregado, carregarLancamentos]);
+
+  // Resolve nomes dos funcionários quando a lista de funcionários chega
+  // (entradas carregadas de pecas_producao só têm o ID).
+  useEffect(() => {
+    if (!carregado || !funcionariosAtivos.length) return;
+    setLancamentos(prev => {
+      let changed = false;
+      const next = { ...prev };
+      for (const [k, v] of Object.entries(prev)) {
+        if (v?.funcionario_id && !v.funcionario_nome) {
+          const f = funcionariosAtivos.find(x => x.id === v.funcionario_id);
+          if (f?.nome) {
+            next[k] = { ...v, funcionario_nome: f.nome };
+            changed = true;
+          }
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [carregado, funcionariosAtivos]);
 
   useEffect(() => {
     if (isOpen) {
@@ -217,6 +329,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         data_producao:    campo === 'data_producao'  ? valor : (prev[k]?.data_producao    || hoje()),
         observacoes:      campo === 'observacoes'    ? valor : (prev[k]?.observacoes       || ''),
         quantidade:       campo === 'quantidade'     ? valor : (prev[k]?.quantidade        ?? null),
+        // ao editar manualmente, deixa de ser "lançamento anterior carregado"
+        _origem:          null,
       },
     }));
   };
@@ -769,6 +883,18 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                               <span className="text-xs">{etapa.label}</span>
                               {temFunc && <Check className="h-3 w-3 text-emerald-400 ml-auto" />}
                             </div>
+                            {/* Badge "lançamento anterior" — quando os dados vieram
+                                do banco (entity_store ou pecas_producao) e não
+                                de uma edição nova nesta sessão */}
+                            {temFunc && lan._origem && (
+                              <div
+                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 border border-amber-500/30 text-amber-300"
+                                title={`Lançamento prévio carregado de ${lan._origem === 'entity_store' ? 'entity_store' : 'pecas_producao'}`}
+                              >
+                                <Save className="h-2.5 w-2.5" />
+                                anterior
+                              </div>
+                            )}
                           </td>
 
                           {/* Funcionário */}
