@@ -24,7 +24,8 @@ import toast from 'react-hot-toast';
 import {
   X, Save, CheckCircle2, User, Calendar,
   Scissors, Flame, Droplets, Paintbrush, Truck, Package,
-  Loader2, RefreshCw, Search, AlertCircle, Check, ArrowRight
+  Loader2, RefreshCw, Search, AlertCircle, Check, ArrowRight,
+  Copy, Layers
 } from 'lucide-react';
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import { useEquipes } from '@/contexts/ERPContext';
@@ -355,6 +356,91 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     onSaved?.();
   }, [lancamentos, salvarUm, onSaved]);
 
+  // ─── EDIÇÃO POR QUANTIDADE — replicar valores entre conjuntos da mesma peça ──
+  //
+  // Para uma peça com qty > 1 (ex.: BC172A com 22 conjuntos), em vez de editar
+  // cada um dos 22 conjuntos manualmente em cada etapa, o usuário define UMA vez
+  // o funcionário/data/observações em um conjunto e propaga para:
+  //   - N conjuntos (qtdAplicar) DA MESMA peça, naquela etapa.
+  //
+  // Implementação: encontra todos os conjuntos expandidos com mesmo _originalId
+  // e aplica os mesmos campos do conjunto-fonte aos N primeiros que ainda não
+  // têm funcionário (ou sobrescreve se reaplicarTodos=true).
+  // ----------------------------------------------------------------------------
+  const aplicarPorQuantidade = useCallback((pecaFonte, etapa, qtdAplicar, opts = {}) => {
+    const fonte = lancamentos[chave(pecaFonte.id, etapa)];
+    if (!fonte?.funcionario_id) {
+      toast.error('Defina o funcionário neste conjunto antes de replicar');
+      return 0;
+    }
+    const originalId = pecaFonte._originalId || pecaFonte.id;
+    const total = pecaFonte._conjuntoTotal || 1;
+    const limite = Math.max(1, Math.min(qtdAplicar || total, total));
+
+    // Todos os conjuntos expandidos desta peça (ordenados por idx)
+    const irmaos = pecasExpandidas
+      .filter(p => (p._originalId || p.id) === originalId)
+      .sort((a, b) => (a._conjuntoIdx || 1) - (b._conjuntoIdx || 1));
+
+    // Mantém o conjunto-fonte e seleciona os próximos até completar limite
+    const fonteIdx = pecaFonte._conjuntoIdx || 1;
+    const candidatos = [
+      pecaFonte,
+      ...irmaos.filter(p => (p._conjuntoIdx || 1) !== fonteIdx),
+    ];
+
+    let aplicados = 0;
+    const novosValores = {};
+    for (const c of candidatos) {
+      if (aplicados >= limite) break;
+      const k = chave(c.id, etapa);
+      const atual = lancamentos[k] || {};
+      // Pula se já tem outro funcionário e opts.sobrescrever=false
+      if (atual.funcionario_id && !opts.sobrescrever && (c._conjuntoIdx || 1) !== fonteIdx) {
+        if (atual.funcionario_id === fonte.funcionario_id) {
+          aplicados++; // conta como já replicado
+          continue;
+        }
+        // Mantém valor existente, não conta
+        continue;
+      }
+      novosValores[k] = {
+        ...atual,
+        funcionario_id:   fonte.funcionario_id,
+        funcionario_nome: fonte.funcionario_nome,
+        data_producao:    fonte.data_producao,
+        observacoes:      fonte.observacoes || '',
+      };
+      aplicados++;
+    }
+    setLancamentos(prev => ({ ...prev, ...novosValores }));
+    return aplicados;
+  }, [lancamentos, pecasExpandidas]);
+
+  // Quantidade a aplicar — estado por peça×etapa (default = total da peça)
+  const [qtdAplicarPorChave, setQtdAplicarPorChave] = useState({});
+
+  // Replicar + salvar em lote — atalho de 1 clique
+  const replicarESalvar = useCallback(async (pecaFonte, etapa, qtd) => {
+    const aplicados = aplicarPorQuantidade(pecaFonte, etapa, qtd, { sobrescrever: true });
+    if (aplicados === 0) return;
+
+    // Aguarda o setLancamentos refletir antes de salvar
+    await new Promise(r => setTimeout(r, 50));
+
+    const originalId = pecaFonte._originalId || pecaFonte.id;
+    const irmaos = pecasExpandidas
+      .filter(p => (p._originalId || p.id) === originalId)
+      .sort((a, b) => (a._conjuntoIdx || 1) - (b._conjuntoIdx || 1));
+
+    let salvos = 0;
+    for (const c of irmaos.slice(0, qtd || irmaos.length)) {
+      await salvarUm(c, etapa);
+      salvos++;
+    }
+    toast.success(`${salvos} conjunto(s) atualizado(s) com ${lancamentos[chave(pecaFonte.id, etapa)]?.funcionario_nome || 'funcionário'}`);
+  }, [aplicarPorQuantidade, pecasExpandidas, salvarUm, lancamentos]);
+
   // Salvar TODOS os lançamentos com funcionário atribuído (todas as etapas)
   const salvarTodos = useCallback(async () => {
     setLoading(true);
@@ -511,6 +597,11 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                     <th className="text-left px-3 py-2.5 text-slate-500 font-medium w-36">Data</th>
                     <th className="text-left px-3 py-2.5 text-slate-500 font-medium">Observações</th>
                     <th className="text-center px-3 py-2.5 text-slate-500 font-medium w-16">Salvar</th>
+                    <th className="text-center px-3 py-2.5 text-slate-500 font-medium w-36" title="Replicar a configuração desta linha para N conjuntos da mesma peça">
+                      <div className="inline-flex items-center gap-1">
+                        <Layers className="h-3 w-3" /> Qtd
+                      </div>
+                    </th>
                     <th className="text-center px-3 py-2.5 text-slate-500 font-medium w-20">Avançar</th>
                   </tr>
                 </thead>
@@ -649,6 +740,25 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                             )}
                           </td>
 
+                          {/* Replicar p/ N conjuntos da mesma peça (só faz
+                              sentido em peças com qty > 1) */}
+                          <td className="px-2 py-2 text-center">
+                            {(peca._conjuntoTotal || 1) > 1 ? (
+                              <ReplicarPorQtdCell
+                                peca={peca}
+                                etapa={etapa.key}
+                                temFunc={temFunc}
+                                isSaving={isSavingRow}
+                                valorAtual={qtdAplicarPorChave[k]}
+                                onChange={(v) => setQtdAplicarPorChave(prev => ({ ...prev, [k]: v }))}
+                                onAplicar={(qtd) => aplicarPorQuantidade(peca, etapa.key, qtd, { sobrescrever: true })}
+                                onAplicarESalvar={(qtd) => replicarESalvar(peca, etapa.key, qtd)}
+                              />
+                            ) : (
+                              <span className="text-[10px] text-slate-700">—</span>
+                            )}
+                          </td>
+
                           {/* Avançar para próxima etapa do Kanban */}
                           {(() => {
                             const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
@@ -727,6 +837,69 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         </motion.div>
       </div>
     </AnimatePresence>
+  );
+}
+
+/**
+ * Célula compacta para replicar lançamento da linha atual para N conjuntos.
+ *
+ * Comportamento:
+ *   - Input numérico (1..total) → quantidade de conjuntos a aplicar.
+ *   - Botão "Aplicar" (azul) → só copia os valores para as linhas-alvo
+ *     (não salva — o usuário pode revisar e usar "Salvar Todos").
+ *   - Botão "▶︎" (roxo) → aplica + salva imediatamente os N lançamentos.
+ *
+ * Aparece somente em peças com mais de 1 conjunto (qty>1).
+ */
+function ReplicarPorQtdCell({ peca, etapa, temFunc, isSaving, valorAtual, onChange, onAplicar, onAplicarESalvar }) {
+  const total = peca._conjuntoTotal || 1;
+  const qtd = valorAtual ?? total;
+
+  return (
+    <div className="flex items-center justify-center gap-1">
+      <input
+        type="number"
+        min={1}
+        max={total}
+        value={qtd}
+        onChange={(e) => {
+          const v = Math.max(1, Math.min(parseInt(e.target.value || '1', 10) || 1, total));
+          onChange(v);
+        }}
+        disabled={!temFunc || isSaving}
+        title={`Aplicar a ${qtd} de ${total} conjuntos desta peça`}
+        className={`w-12 px-1 py-1 text-center text-xs bg-slate-800 border rounded-md text-white focus:outline-none ${
+          temFunc ? 'border-slate-700 focus:border-purple-500' : 'border-slate-700/40 opacity-50'
+        }`}
+      />
+      <span className="text-[9px] text-slate-500">/{total}</span>
+
+      <button
+        onClick={() => onAplicar(qtd)}
+        disabled={!temFunc || isSaving}
+        title={`Copiar funcionário/data/obs para ${qtd} conjunto(s) — sem salvar`}
+        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+          temFunc && !isSaving
+            ? 'bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/30'
+            : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
+        }`}
+      >
+        <Copy className="h-3 w-3" />
+      </button>
+
+      <button
+        onClick={() => onAplicarESalvar(qtd)}
+        disabled={!temFunc || isSaving}
+        title={`Aplicar e salvar imediatamente em ${qtd} conjunto(s)`}
+        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+          temFunc && !isSaving
+            ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300 hover:bg-purple-500/30'
+            : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
+        }`}
+      >
+        {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
+      </button>
+    </div>
   );
 }
 
