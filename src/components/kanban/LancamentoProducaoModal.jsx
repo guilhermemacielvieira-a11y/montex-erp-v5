@@ -30,13 +30,15 @@ import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import { useEquipes } from '@/contexts/ERPContext';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
+// Fluxo do Kanban Produção: Fabricação → Solda → Pintura → Expedido → Enviado
+// Corte é tratado no KanbanCortePage (peças entram aqui já como conjuntos).
+// Montagem é uma etapa externa (em obra) e não faz parte deste lançamento.
 const ETAPAS = [
-  { key: 'corte',      label: 'Corte',       icon: Scissors,   color: 'amber',   bg: 'from-amber-500/20 to-orange-500/20',   border: 'border-amber-500/30',  text: 'text-amber-400',   rowBg: 'hover:bg-amber-500/5'   },
-  { key: 'fabricacao', label: 'Fabricação',  icon: Flame,      color: 'purple',  bg: 'from-purple-500/20 to-indigo-500/20',  border: 'border-purple-500/30', text: 'text-purple-400',  rowBg: 'hover:bg-purple-500/5'  },
-  { key: 'solda',      label: 'Solda',       icon: Droplets,   color: 'red',     bg: 'from-red-500/20 to-rose-500/20',       border: 'border-red-500/30',    text: 'text-red-400',     rowBg: 'hover:bg-red-500/5'     },
-  { key: 'pintura',    label: 'Pintura',     icon: Paintbrush, color: 'cyan',    bg: 'from-cyan-500/20 to-blue-500/20',      border: 'border-cyan-500/30',   text: 'text-cyan-400',    rowBg: 'hover:bg-cyan-500/5'    },
-  { key: 'montagem',   label: 'Montagem',    icon: Package,    color: 'teal',    bg: 'from-teal-500/20 to-emerald-500/20',   border: 'border-teal-500/30',   text: 'text-teal-400',    rowBg: 'hover:bg-teal-500/5'    },
-  { key: 'expedido',   label: 'Expedição',   icon: Truck,      color: 'emerald', bg: 'from-emerald-500/20 to-green-500/20',  border: 'border-emerald-500/30',text: 'text-emerald-400', rowBg: 'hover:bg-emerald-500/5' },
+  { key: 'fabricacao', label: 'Fabricação',  icon: Flame,        color: 'purple',  bg: 'from-purple-500/20 to-indigo-500/20',  border: 'border-purple-500/30', text: 'text-purple-400',  rowBg: 'hover:bg-purple-500/5'  },
+  { key: 'solda',      label: 'Solda',       icon: Droplets,     color: 'red',     bg: 'from-red-500/20 to-rose-500/20',       border: 'border-red-500/30',    text: 'text-red-400',     rowBg: 'hover:bg-red-500/5'     },
+  { key: 'pintura',    label: 'Pintura',     icon: Paintbrush,   color: 'cyan',    bg: 'from-cyan-500/20 to-blue-500/20',      border: 'border-cyan-500/30',   text: 'text-cyan-400',    rowBg: 'hover:bg-cyan-500/5'    },
+  { key: 'expedido',   label: 'Expedido',    icon: Truck,        color: 'emerald', bg: 'from-emerald-500/20 to-green-500/20',  border: 'border-emerald-500/30',text: 'text-emerald-400', rowBg: 'hover:bg-emerald-500/5' },
+  { key: 'enviado',    label: 'Enviado',     icon: CheckCircle2, color: 'green',   bg: 'from-green-500/20 to-lime-500/20',     border: 'border-green-500/30',  text: 'text-green-400',   rowBg: 'hover:bg-green-500/5'   },
 ];
 
 // Mapeamento etapa → campo funcionario em pecas_producao
@@ -45,6 +47,7 @@ const ETAPA_CAMPO_FUNC = {
   solda:      'funcionario_solda',
   pintura:    'funcionario_pintura',
   expedido:   'funcionario_expedido',
+  // 'enviado' não tem coluna em pecas_producao — o histórico cobre essa etapa
 };
 
 // Mapeamento etapa → campo data em pecas_producao
@@ -260,13 +263,13 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
 
       // 2. Upsert em producao_historico — ID inclui conjunto para não sobrescrever
       const histId = `HIST-${peca.id}-${etapa}`;
-      const etapaParaMap = { corte: 'fabricacao', fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', montagem: 'entregue', expedido: 'entregue' };
+      const etapaParaMap = { fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', expedido: 'enviado', enviado: 'concluido' };
       await client
         .from('producao_historico')
         .upsert({
           id:               histId,
           peca_id:          peca.id,
-          etapa_de:         etapa === 'corte' ? 'aguardando' : etapa,
+          etapa_de:         etapa,
           etapa_para:       etapaParaMap[etapa] || etapa,
           funcionario_id:   lan.funcionario_id,
           funcionario_nome: lan.funcionario_nome,
@@ -323,7 +326,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     await salvarUm(peca, etapa);
 
     // 2. Determina a próxima etapa do Kanban
-    const ordemKanban = ['corte', 'fabricacao', 'solda', 'pintura', 'montagem', 'expedido'];
+    const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
     const idxAtual = ordemKanban.indexOf(etapa);
     const proxima = ordemKanban[idxAtual + 1];
 
@@ -648,7 +651,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
 
                           {/* Avançar para próxima etapa do Kanban */}
                           {(() => {
-                            const ordemKanban = ['corte', 'fabricacao', 'solda', 'pintura', 'montagem', 'expedido'];
+                            const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
                             const idxAtual = ordemKanban.indexOf(etapa.key);
                             const proxKey = ordemKanban[idxAtual + 1];
                             const proxLabel = ETAPAS.find(e => e.key === proxKey)?.label;
