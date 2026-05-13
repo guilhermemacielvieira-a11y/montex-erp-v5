@@ -125,8 +125,17 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       .sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
   }, [ctxFuncionarios]);
 
-  // Expandir peças com quantidade > 1 em conjuntos independentes
-  const pecasExpandidas = useMemo(() => expandirPorQuantidade(pecas), [pecas]);
+  // MODO COMPACTO (default): cada peça vira UMA linha — qty é editável.
+  // O split por quantidade ao salvar/avançar usa o campo Qtd da linha.
+  // Para reativar a expansão antiga (1 linha por conjunto), passe expandir=true.
+  const pecasExpandidas = useMemo(() => {
+    return pecas.map(p => ({
+      ...p,
+      _originalId: p.id,
+      _conjuntoIdx: 1,
+      _conjuntoTotal: Math.max(1, parseInt(p.quantidade || p.qtd || 1, 10) || 1),
+    }));
+  }, [pecas]);
 
   // Chave composta peca_id + etapa
   const chave = (pecaId, etapa) => `${pecaId}__${etapa}`;
@@ -207,6 +216,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         funcionario_nome: campo === 'funcionario_id' ? (funcionariosAtivos.find(f => f.id === valor)?.nome || '') : (prev[k]?.funcionario_nome || ''),
         data_producao:    campo === 'data_producao'  ? valor : (prev[k]?.data_producao    || hoje()),
         observacoes:      campo === 'observacoes'    ? valor : (prev[k]?.observacoes       || ''),
+        quantidade:       campo === 'quantidade'     ? valor : (prev[k]?.quantidade        ?? null),
       },
     }));
   };
@@ -222,15 +232,16 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
 
     // ID real no banco (sem sufixo __c1, __c2...)
     const originalId = peca._originalId || peca.id;
-    // Label do conjunto (ex: "Conj. 2/3") para toast e histórico
-    const conjLabel = peca._conjuntoTotal > 1 ? ` (Conj. ${peca._conjuntoIdx}/${peca._conjuntoTotal})` : '';
+    const qtdLan = parseInt(lan.quantidade ?? peca._conjuntoTotal ?? 1, 10) || 1;
+    // Label da quantidade: "20 de 51" quando há split
+    const conjLabel = (peca._conjuntoTotal || 1) > 1 ? ` (${qtdLan} de ${peca._conjuntoTotal})` : '';
 
     setSaving(prev => ({ ...prev, [k]: true }));
     const client = supabaseAdmin || supabase;
 
     try {
       const dataLan = {
-        peca_id:          peca.id,         // ID virtual — garante lançamentos independentes por conjunto
+        peca_id:          peca.id,
         peca_nome:        peca.nome || peca.marca || '',
         etapa,
         funcionario_id:   lan.funcionario_id,
@@ -239,8 +250,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         observacoes:      lan.observacoes || '',
         obra_id:          peca.obraId || peca.obra_id || '',
         obra_nome:        peca.obraNome || peca.obra_nome || '',
-        conjunto_idx:     peca._conjuntoIdx || 1,
-        conjunto_total:   peca._conjuntoTotal || 1,
+        quantidade:       qtdLan,
+        quantidade_total: peca._conjuntoTotal || 1,
         updated_at:       new Date().toISOString(),
       };
 
@@ -263,19 +274,20 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       }
 
       // 2. Upsert em producao_historico — ID inclui conjunto para não sobrescrever
-      const histId = `HIST-${peca.id}-${etapa}`;
+      const histId = `HIST-${originalId}-${etapa}-${Date.now()}`;
       const etapaParaMap = { fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', expedido: 'enviado', enviado: 'concluido' };
+      const obsHist = `[QTD:${qtdLan}/${peca._conjuntoTotal || 1}] ${lan.observacoes || ''}`.trim();
       await client
         .from('producao_historico')
         .upsert({
           id:               histId,
-          peca_id:          peca.id,
+          peca_id:          originalId,
           etapa_de:         etapa,
           etapa_para:       etapaParaMap[etapa] || etapa,
           funcionario_id:   lan.funcionario_id,
           funcionario_nome: lan.funcionario_nome,
           data_inicio:      lan.data_producao ? new Date(lan.data_producao).toISOString() : new Date().toISOString(),
-          observacoes:      lan.observacoes || '',
+          observacoes:      obsHist,
         }, { onConflict: 'id' });
 
       // 3. Atualizar pecas_producao usando o ID ORIGINAL (não virtual)
@@ -311,10 +323,13 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     }
   }, [lancamentos, funcionariosAtivos]);
 
-  // ─── SALVAR + AVANÇAR PEÇA PARA A PRÓXIMA ETAPA ──────────────────────────────
-  // Salva o lançamento da etapa atual e move o conjunto para a próxima coluna
-  // do Kanban (atualiza pecas_producao.etapa). Usa o ID ORIGINAL para garantir
-  // que a peça inteira seja movida (mesmo quando expandida em conjuntos).
+  // ─── SALVAR + AVANÇAR (com split por quantidade) ─────────────────────────────
+  // Comportamento:
+  //   - Lê a Qtd editada na linha.
+  //   - Se Qtd == total → move a peça inteira para a próxima etapa.
+  //   - Se Qtd < total → SPLIT: cria nova `pecas_producao` com qty=Qtd na próxima
+  //     etapa, reduz a quantidade da peça original (que fica na etapa atual).
+  //   - Se Qtd == 0 → ignora.
   const salvarEAvancar = useCallback(async (peca, etapa) => {
     const k = chave(peca.id, etapa);
     const lan = lancamentos[k];
@@ -323,7 +338,14 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
-    // 1. Persiste o lançamento desta etapa
+    const total = peca._conjuntoTotal || 1;
+    const qtdAvancar = Math.max(0, Math.min(parseInt(lan.quantidade ?? total, 10) || total, total));
+    if (qtdAvancar === 0) {
+      toast.error('Quantidade a avançar deve ser maior que 0');
+      return;
+    }
+
+    // 1. Persiste o lançamento (com a quantidade)
     await salvarUm(peca, etapa);
 
     // 2. Determina a próxima etapa do Kanban
@@ -331,22 +353,68 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     const idxAtual = ordemKanban.indexOf(etapa);
     const proxima = ordemKanban[idxAtual + 1];
 
+    const originalId = peca._originalId || peca.id;
+    const client = supabaseAdmin || supabase;
+
     if (!proxima) {
-      toast.success('Etapa final atingida — peça concluída ✓');
+      // Etapa final — apenas grava status final, sem mover
+      toast.success('Etapa final atingida — lançamento gravado ✓');
       onSaved?.();
       return;
     }
 
-    // 3. Atualiza a etapa atual da peça no Supabase (move pra próxima coluna)
-    const originalId = peca._originalId || peca.id;
-    const client = supabaseAdmin || supabase;
     try {
-      await client
-        .from('pecas_producao')
-        .update({ etapa: proxima, updated_at: new Date().toISOString() })
-        .eq('id', originalId);
-      const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
-      toast.success(`Peça ${peca.marca || peca.id} → ${proxLabel}`);
+      if (qtdAvancar >= total) {
+        // Move toda a peça
+        await client
+          .from('pecas_producao')
+          .update({ etapa: proxima, updated_at: new Date().toISOString() })
+          .eq('id', originalId);
+        const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
+        toast.success(`Peça ${peca.marca || peca.id} (${total}) → ${proxLabel}`);
+      } else {
+        // SPLIT — cria nova peça com qtdAvancar na próxima etapa
+        const { data: orig } = await client
+          .from('pecas_producao')
+          .select('*')
+          .eq('id', originalId)
+          .single();
+        if (!orig) throw new Error('Peça original não encontrada');
+
+        const pesoUnit = (orig.peso_total || 0) / (orig.quantidade || 1);
+        const pesoMovido = pesoUnit * qtdAvancar;
+        const pesoRestante = pesoUnit * (orig.quantidade - qtdAvancar);
+
+        const novaPeca = { ...orig };
+        delete novaPeca.id;
+        novaPeca.id = `${originalId}__split_${proxima}_${Date.now()}`;
+        novaPeca.quantidade = qtdAvancar;
+        novaPeca.peso_total = pesoMovido;
+        novaPeca.etapa = proxima;
+        novaPeca.created_at = new Date().toISOString();
+        novaPeca.updated_at = new Date().toISOString();
+        // Propaga funcionário/data desta etapa para a nova peça
+        const campoFunc = ETAPA_CAMPO_FUNC[etapa];
+        const campoData = ETAPA_CAMPO_DATA[etapa];
+        if (campoFunc) novaPeca[campoFunc] = lan.funcionario_id;
+        if (campoData && lan.data_producao) novaPeca[campoData] = new Date(lan.data_producao).toISOString();
+
+        const { error: insErr } = await client.from('pecas_producao').insert(novaPeca);
+        if (insErr) throw insErr;
+
+        // Reduz a peça original
+        await client
+          .from('pecas_producao')
+          .update({
+            quantidade: orig.quantidade - qtdAvancar,
+            peso_total: pesoRestante,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', originalId);
+
+        const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
+        toast.success(`Split: ${qtdAvancar} → ${proxLabel} · ${orig.quantidade - qtdAvancar} ficam em ${ETAPAS.find(e => e.key === etapa)?.label}`);
+      }
     } catch (err) {
       console.error('[LancamentoModal] Erro ao avançar etapa:', err);
       toast.error('Erro ao avançar a peça de etapa');
@@ -356,105 +424,12 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     onSaved?.();
   }, [lancamentos, salvarUm, onSaved]);
 
-  // ─── EDIÇÃO POR QUANTIDADE — replicar valores entre conjuntos da mesma peça ──
-  //
-  // Para uma peça com qty > 1 (ex.: BC172A com 22 conjuntos), em vez de editar
-  // cada um dos 22 conjuntos manualmente em cada etapa, o usuário define UMA vez
-  // o funcionário/data/observações em um conjunto e propaga para:
-  //   - N conjuntos (qtdAplicar) DA MESMA peça, naquela etapa.
-  //
-  // Implementação: encontra todos os conjuntos expandidos com mesmo _originalId
-  // e aplica os mesmos campos do conjunto-fonte aos N primeiros que ainda não
-  // têm funcionário (ou sobrescreve se reaplicarTodos=true).
-  // ----------------------------------------------------------------------------
-  const aplicarPorQuantidade = useCallback((pecaFonte, etapa, qtdAplicar, opts = {}) => {
-    const fonte = lancamentos[chave(pecaFonte.id, etapa)];
-    if (!fonte?.funcionario_id) {
-      toast.error('Defina o funcionário neste conjunto antes de replicar');
-      return 0;
-    }
-    const originalId = pecaFonte._originalId || pecaFonte.id;
-    const total = pecaFonte._conjuntoTotal || 1;
-    const limite = Math.max(1, Math.min(qtdAplicar || total, total));
-
-    // Todos os conjuntos expandidos desta peça (ordenados por idx)
-    const irmaos = pecasExpandidas
-      .filter(p => (p._originalId || p.id) === originalId)
-      .sort((a, b) => (a._conjuntoIdx || 1) - (b._conjuntoIdx || 1));
-
-    // Mantém o conjunto-fonte e seleciona os próximos até completar limite
-    const fonteIdx = pecaFonte._conjuntoIdx || 1;
-    const candidatos = [
-      pecaFonte,
-      ...irmaos.filter(p => (p._conjuntoIdx || 1) !== fonteIdx),
-    ];
-
-    let aplicados = 0;
-    const novosValores = {};
-    for (const c of candidatos) {
-      if (aplicados >= limite) break;
-      const k = chave(c.id, etapa);
-      const atual = lancamentos[k] || {};
-      // Pula se já tem outro funcionário e opts.sobrescrever=false
-      if (atual.funcionario_id && !opts.sobrescrever && (c._conjuntoIdx || 1) !== fonteIdx) {
-        if (atual.funcionario_id === fonte.funcionario_id) {
-          aplicados++; // conta como já replicado
-          continue;
-        }
-        // Mantém valor existente, não conta
-        continue;
-      }
-      novosValores[k] = {
-        ...atual,
-        funcionario_id:   fonte.funcionario_id,
-        funcionario_nome: fonte.funcionario_nome,
-        data_producao:    fonte.data_producao,
-        observacoes:      fonte.observacoes || '',
-      };
-      aplicados++;
-    }
-    setLancamentos(prev => ({ ...prev, ...novosValores }));
-    return aplicados;
-  }, [lancamentos, pecasExpandidas]);
-
-  // Quantidade a aplicar — estado por peça×etapa (default = total da peça)
-  const [qtdAplicarPorChave, setQtdAplicarPorChave] = useState({});
-
-  // Replicar + salvar em lote — atalho de 1 clique
-  const replicarESalvar = useCallback(async (pecaFonte, etapa, qtd) => {
-    const aplicados = aplicarPorQuantidade(pecaFonte, etapa, qtd, { sobrescrever: true });
-    if (aplicados === 0) return;
-
-    // Aguarda o setLancamentos refletir antes de salvar
-    await new Promise(r => setTimeout(r, 50));
-
-    const originalId = pecaFonte._originalId || pecaFonte.id;
-    const irmaos = pecasExpandidas
-      .filter(p => (p._originalId || p.id) === originalId)
-      .sort((a, b) => (a._conjuntoIdx || 1) - (b._conjuntoIdx || 1));
-
-    let salvos = 0;
-    for (const c of irmaos.slice(0, qtd || irmaos.length)) {
-      await salvarUm(c, etapa);
-      salvos++;
-    }
-    toast.success(`${salvos} conjunto(s) atualizado(s) com ${lancamentos[chave(pecaFonte.id, etapa)]?.funcionario_nome || 'funcionário'}`);
-  }, [aplicarPorQuantidade, pecasExpandidas, salvarUm, lancamentos]);
-
   // ─── SALVAR E AVANÇAR (com SPLIT por quantidade) ────────────────────────────
   //
-  // Comportamento:
-  //   1. Salva TODOS os lançamentos com funcionário atribuído (todas as etapas).
-  //   2. Para cada peça original, agrupa os conjuntos pela etapa "alvo"
-  //      (a mais avançada na ordem do Kanban onde o conjunto tem funcionário).
-  //   3. Para cada etapa-alvo diferente da etapa atual:
-  //        - Se TODOS os conjuntos da peça vão p/ a mesma etapa-alvo → move a peça.
-  //        - Se apenas N de M conjuntos vão p/ a etapa-alvo → SPLIT:
-  //            cria nova `pecas_producao` com qty=N e etapa=alvo, propagando os
-  //            campos funcionario_<etapa>; reduz `quantidade` da peça original.
-  //
-  // Resultado: cada subgrupo de conjuntos aparece na coluna correta do Kanban,
-  // mantendo o vínculo com o conjunto (mesmo número de conjuntos no total).
+  // Modelo "1 linha por peça": cada peça×etapa tem uma única atribuição com Qtd
+  // editável. Cada atribuição com etapa != etapa-atual vira um SPLIT (nova
+  // pecas_producao com aquela qtd). A peça original tem sua quantidade reduzida
+  // pelo total movido. Se tudo for movido, a original é removida.
   // ----------------------------------------------------------------------------
   const ORDEM_KANBAN = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
 
@@ -487,153 +462,84 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
-    // ─── 2. AGRUPAR conjuntos por peça-original × etapa-alvo ──────────────────
-    // grupos[originalId] = { etapaAlvo -> [_conjuntoIdx,...], totalQtd, etapaAtual }
-    const grupos = {};
-    for (const conjunto of pecasExpandidas) {
-      const originalId = conjunto._originalId || conjunto.id;
-      const totalQtd = conjunto._conjuntoTotal || 1;
+    // ─── 2. SPLIT/MOVE para cada peça baseado em Qtd das atribuições ─────────
+    for (const peca of pecasFiltradas) {
+      const originalId = peca._originalId || peca.id;
+      const total = peca._conjuntoTotal || 1;
+      const etapaAtual = peca.etapa || 'fabricacao';
 
-      // Determinar etapa-alvo deste conjunto = a mais avançada onde tem funcionário
-      let etapaAlvo = null;
-      for (let i = ORDEM_KANBAN.length - 1; i >= 0; i--) {
-        const et = ORDEM_KANBAN[i];
-        if (lancamentos[chave(conjunto.id, et)]?.funcionario_id) {
-          etapaAlvo = et;
-          break;
-        }
+      // Coleta atribuições com qtd > 0 e etapa != atual
+      const splits = [];
+      for (const e of ETAPAS) {
+        if (e.key === etapaAtual) continue;
+        const lan = lancamentos[chave(peca.id, e.key)];
+        if (!lan?.funcionario_id) continue;
+        const qtdLan = Math.max(0, Math.min(parseInt(lan.quantidade ?? total, 10) || total, total));
+        if (qtdLan > 0) splits.push({ etapa: e.key, qtd: qtdLan, lan });
       }
-      if (!etapaAlvo) continue; // conjunto sem atribuição → fica onde está
+      if (splits.length === 0) continue;
 
-      if (!grupos[originalId]) {
-        grupos[originalId] = {
-          totalQtd,
-          etapaAtual: conjunto.etapa || conjunto.statusCorte || 'fabricacao',
-          pecaRef: conjunto,
-          porEtapa: {}, // etapa → Set de _conjuntoIdx
-        };
-      }
-      const g = grupos[originalId];
-      if (!g.porEtapa[etapaAlvo]) g.porEtapa[etapaAlvo] = new Set();
-      g.porEtapa[etapaAlvo].add(conjunto._conjuntoIdx || 1);
-    }
-
-    // ─── 3. MOVER / SPLIT para cada peça ──────────────────────────────────────
-    for (const [originalId, g] of Object.entries(grupos)) {
-      const etapasAlvo = Object.keys(g.porEtapa).filter(et => et !== g.etapaAtual);
-      if (etapasAlvo.length === 0) continue;
-
-      // Caso simples: TODOS os conjuntos da peça vão para a mesma única etapa-alvo
-      const totalAtribuidoPeca = Object.values(g.porEtapa)
-        .reduce((sum, s) => sum + s.size, 0);
-
-      if (etapasAlvo.length === 1 && g.porEtapa[etapasAlvo[0]].size === g.totalQtd) {
-        // Move toda a peça
-        try {
-          await client
-            .from('pecas_producao')
-            .update({ etapa: etapasAlvo[0], updated_at: new Date().toISOString() })
-            .eq('id', originalId);
-          movsOk++;
-        } catch (e) {
-          erros.push(`mover ${originalId}→${etapasAlvo[0]}: ${e?.message || 'erro'}`);
-        }
+      const totalSaindo = splits.reduce((s, x) => s + x.qtd, 0);
+      if (totalSaindo > total) {
+        erros.push(`${peca.marca || peca.id}: qtd atribuída (${totalSaindo}) > total (${total})`);
         continue;
       }
 
-      // SPLIT — cada etapa-alvo (com N < total) vira uma nova peça
-      let qtdRestante = g.totalQtd;
-      for (const etAlvo of etapasAlvo) {
-        const qtdMover = g.porEtapa[etAlvo].size;
-        if (qtdMover <= 0) continue;
+      try {
+        // Carregar dados completos da peça original
+        const { data: orig } = await client
+          .from('pecas_producao').select('*').eq('id', originalId).single();
+        if (!orig) {
+          erros.push(`${originalId}: peça não encontrada`);
+          continue;
+        }
+        const pesoUnit = (orig.peso_total || 0) / (orig.quantidade || 1);
 
-        try {
-          // Buscar dados completos da peça original (para herdar campos)
-          const { data: orig } = await client
-            .from('pecas_producao')
-            .select('*')
-            .eq('id', originalId)
-            .single();
+        // Caso simples: 1 única atribuição cobrindo TODO o total → move a peça
+        if (splits.length === 1 && splits[0].qtd === total) {
+          const s = splits[0];
+          const update = { etapa: s.etapa, updated_at: new Date().toISOString() };
+          const cf = ETAPA_CAMPO_FUNC[s.etapa];
+          const cd = ETAPA_CAMPO_DATA[s.etapa];
+          if (cf) update[cf] = s.lan.funcionario_id;
+          if (cd && s.lan.data_producao) update[cd] = new Date(s.lan.data_producao).toISOString();
+          await client.from('pecas_producao').update(update).eq('id', originalId);
+          movsOk++;
+          continue;
+        }
 
-          if (!orig) {
-            erros.push(`split ${originalId}: peça não encontrada`);
-            continue;
-          }
-
-          // Coletar funcionários e datas dos conjuntos que estão indo p/ etAlvo
-          // (usa o primeiro funcionário não-vazio entre eles como representativo
-          //  do split — entity_store mantém o detalhe por conjunto)
-          const conjuntosNoGrupo = Array.from(g.porEtapa[etAlvo]);
-          const repIdx = conjuntosNoGrupo[0];
-          const repConjId = `${originalId}__c${repIdx}`;
-          const repLanc = lancamentos[chave(repConjId, etAlvo)];
-
-          const pesoUnit = (orig.peso_total || 0) / (orig.quantidade || 1);
-          const pesoMovido = pesoUnit * qtdMover;
-
-          // Nova peça split — herda dados + atribui funcionário/data da etapa-alvo
-          const novaPeca = {
-            ...orig,
-            id: undefined, // será gerado pelo Supabase ou usamos crypto.randomUUID
-            quantidade: qtdMover,
-            peso_total: pesoMovido,
-            etapa: etAlvo,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
+        // Senão: SPLITS — cria uma nova peça por atribuição parcial
+        for (const s of splits) {
+          const novaPeca = { ...orig };
           delete novaPeca.id;
-          // Preserva o funcionário responsável da etapa-alvo na nova peça
-          const campoFunc = ETAPA_CAMPO_FUNC[etAlvo];
-          const campoData = ETAPA_CAMPO_DATA[etAlvo];
-          if (campoFunc && repLanc?.funcionario_id) {
-            novaPeca[campoFunc] = repLanc.funcionario_id;
-          }
-          if (campoData && repLanc?.data_producao) {
-            novaPeca[campoData] = new Date(repLanc.data_producao).toISOString();
-          }
-
-          // ID determinístico para evitar duplicação em reexecução
-          novaPeca.id = `${originalId}__split_${etAlvo}_${Date.now()}`;
-
-          const { error: insErr } = await client
-            .from('pecas_producao')
-            .insert(novaPeca);
+          novaPeca.id = `${originalId}__split_${s.etapa}_${Date.now()}_${Math.floor(Math.random()*999)}`;
+          novaPeca.quantidade = s.qtd;
+          novaPeca.peso_total = pesoUnit * s.qtd;
+          novaPeca.etapa = s.etapa;
+          novaPeca.created_at = new Date().toISOString();
+          novaPeca.updated_at = new Date().toISOString();
+          const cf = ETAPA_CAMPO_FUNC[s.etapa];
+          const cd = ETAPA_CAMPO_DATA[s.etapa];
+          if (cf) novaPeca[cf] = s.lan.funcionario_id;
+          if (cd && s.lan.data_producao) novaPeca[cd] = new Date(s.lan.data_producao).toISOString();
+          const { error: insErr } = await client.from('pecas_producao').insert(novaPeca);
           if (insErr) throw insErr;
-
-          qtdRestante -= qtdMover;
           splitsOk++;
-        } catch (e) {
-          erros.push(`split ${originalId}→${etAlvo}: ${e?.message || 'erro'}`);
         }
-      }
 
-      // Reduz a quantidade da peça original (o que ficou)
-      if (qtdRestante !== g.totalQtd && qtdRestante > 0) {
-        try {
-          const { data: orig } = await client
-            .from('pecas_producao')
-            .select('peso_total,quantidade')
-            .eq('id', originalId)
-            .single();
-          const pesoUnit = orig ? (orig.peso_total || 0) / (orig.quantidade || 1) : 0;
-          await client
-            .from('pecas_producao')
-            .update({
-              quantidade: qtdRestante,
-              peso_total: pesoUnit * qtdRestante,
-              updated_at: new Date().toISOString(),
-            })
-            .eq('id', originalId);
-        } catch (e) {
-          erros.push(`ajustar qty ${originalId}: ${e?.message || 'erro'}`);
-        }
-      } else if (qtdRestante === 0) {
-        // Todos os conjuntos foram movidos — remove a peça original
-        try {
+        // Ajusta a peça original com o que sobrou
+        const qtdRestante = total - totalSaindo;
+        if (qtdRestante === 0) {
           await client.from('pecas_producao').delete().eq('id', originalId);
-        } catch (e) {
-          erros.push(`remover ${originalId}: ${e?.message || 'erro'}`);
+        } else if (qtdRestante < total) {
+          await client.from('pecas_producao').update({
+            quantidade: qtdRestante,
+            peso_total: pesoUnit * qtdRestante,
+            updated_at: new Date().toISOString(),
+          }).eq('id', originalId);
         }
+      } catch (e) {
+        erros.push(`split ${originalId}: ${e?.message || 'erro'}`);
       }
     }
 
@@ -836,10 +742,10 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                                     {peca.marca || (peca._originalId ? peca.nome : peca.nome) || peca.id}
                                   </span>
                                 </div>
-                                {/* Badge de conjunto quando quantidade > 1 */}
+                                {/* Badge de quantidade total quando peça tem qty > 1 */}
                                 {peca._conjuntoTotal > 1 && (
                                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/20 border border-violet-500/40 text-violet-300 self-start font-semibold">
-                                    Conj. {peca._conjuntoIdx}/{peca._conjuntoTotal}
+                                    {peca._conjuntoTotal} conjuntos
                                   </span>
                                 )}
                                 {peca.tipo && (
@@ -930,23 +836,32 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                             )}
                           </td>
 
-                          {/* Replicar p/ N conjuntos da mesma peça (só faz
-                              sentido em peças com qty > 1) */}
+                          {/* Quantidade editável — controla quantos conjuntos
+                              recebem este lançamento e avançam de etapa.
+                              Default = total da peça. Se editado para < total,
+                              o "Avançar" faz SPLIT (cria nova peça com a qtd). */}
                           <td className="px-2 py-2 text-center">
-                            {(peca._conjuntoTotal || 1) > 1 ? (
-                              <ReplicarPorQtdCell
-                                peca={peca}
-                                etapa={etapa.key}
-                                temFunc={temFunc}
-                                isSaving={isSavingRow}
-                                valorAtual={qtdAplicarPorChave[k]}
-                                onChange={(v) => setQtdAplicarPorChave(prev => ({ ...prev, [k]: v }))}
-                                onAplicar={(qtd) => aplicarPorQuantidade(peca, etapa.key, qtd, { sobrescrever: true })}
-                                onAplicarESalvar={(qtd) => replicarESalvar(peca, etapa.key, qtd)}
-                              />
-                            ) : (
-                              <span className="text-[10px] text-slate-700">—</span>
-                            )}
+                            {(() => {
+                              const total = peca._conjuntoTotal || 1;
+                              const valor = lan.quantidade ?? total;
+                              return (
+                                <div className="flex items-center justify-center gap-1">
+                                  <input
+                                    type="number"
+                                    min={1}
+                                    max={total}
+                                    value={valor}
+                                    onChange={e => {
+                                      const v = Math.max(1, Math.min(parseInt(e.target.value || '1', 10) || 1, total));
+                                      handleChange(peca.id, etapa.key, 'quantidade', v);
+                                    }}
+                                    title={`Quantidade que recebe este lançamento (1..${total})`}
+                                    className="w-14 px-1 py-1 text-center text-xs bg-slate-800 border border-slate-700 rounded-md text-white focus:outline-none focus:border-purple-500"
+                                  />
+                                  <span className="text-[10px] text-slate-500">/{total}</span>
+                                </div>
+                              );
+                            })()}
                           </td>
 
                           {/* Avançar para próxima etapa do Kanban */}
@@ -1027,69 +942,6 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         </motion.div>
       </div>
     </AnimatePresence>
-  );
-}
-
-/**
- * Célula compacta para replicar lançamento da linha atual para N conjuntos.
- *
- * Comportamento:
- *   - Input numérico (1..total) → quantidade de conjuntos a aplicar.
- *   - Botão "Aplicar" (azul) → só copia os valores para as linhas-alvo
- *     (não salva — o usuário pode revisar e usar "Salvar Todos").
- *   - Botão "▶︎" (roxo) → aplica + salva imediatamente os N lançamentos.
- *
- * Aparece somente em peças com mais de 1 conjunto (qty>1).
- */
-function ReplicarPorQtdCell({ peca, etapa, temFunc, isSaving, valorAtual, onChange, onAplicar, onAplicarESalvar }) {
-  const total = peca._conjuntoTotal || 1;
-  const qtd = valorAtual ?? total;
-
-  return (
-    <div className="flex items-center justify-center gap-1">
-      <input
-        type="number"
-        min={1}
-        max={total}
-        value={qtd}
-        onChange={(e) => {
-          const v = Math.max(1, Math.min(parseInt(e.target.value || '1', 10) || 1, total));
-          onChange(v);
-        }}
-        disabled={!temFunc || isSaving}
-        title={`Aplicar a ${qtd} de ${total} conjuntos desta peça`}
-        className={`w-12 px-1 py-1 text-center text-xs bg-slate-800 border rounded-md text-white focus:outline-none ${
-          temFunc ? 'border-slate-700 focus:border-purple-500' : 'border-slate-700/40 opacity-50'
-        }`}
-      />
-      <span className="text-[9px] text-slate-500">/{total}</span>
-
-      <button
-        onClick={() => onAplicar(qtd)}
-        disabled={!temFunc || isSaving}
-        title={`Copiar funcionário/data/obs para ${qtd} conjunto(s) — sem salvar`}
-        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
-          temFunc && !isSaving
-            ? 'bg-blue-500/20 border border-blue-500/40 text-blue-300 hover:bg-blue-500/30'
-            : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
-        }`}
-      >
-        <Copy className="h-3 w-3" />
-      </button>
-
-      <button
-        onClick={() => onAplicarESalvar(qtd)}
-        disabled={!temFunc || isSaving}
-        title={`Aplicar e salvar imediatamente em ${qtd} conjunto(s)`}
-        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
-          temFunc && !isSaving
-            ? 'bg-purple-500/20 border border-purple-500/40 text-purple-300 hover:bg-purple-500/30'
-            : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
-        }`}
-      >
-        {isSaving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}
-      </button>
-    </div>
   );
 }
 
