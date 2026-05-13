@@ -318,25 +318,38 @@ export default function EstoquePageV2() {
     return lista.sort((a, b) => (a.status === 'falta' ? -1 : 0) - (b.status === 'falta' ? -1 : 0));
   }, [materiaisNecessarios, estoque]);
 
-  // Hook de paginação inteligente para a tab de itens
-  const paginationItens = useSmartPagination('estoque', estoqueFiltrado, {
-    pageSize: 30,
-    orderBy: 'updated_at',
-    ascending: false,
-    filters: {},
-    search: '',
-    searchColumn: 'codigo',
-  });
+  // Paginação CLIENT-SIDE sobre o array já filtrado (estoqueFiltrado).
+  // Antes usávamos useSmartPagination, mas em modo server-side ele faz query
+  // direta ao Supabase e ignora o filtro já aplicado — por isso as outras
+  // obras "vazavam" mesmo com o filtro selecionado.
+  const PAGE_SIZE_ESTOQUE = 30;
+  const [paginaItens, setPaginaItens] = useState(0);
 
-  // Hook de paginação inteligente para itens vinculados à obra
-  const paginationVinculados = useSmartPagination('estoque', estoqueObraAtual, {
-    pageSize: 30,
-    orderBy: 'updated_at',
-    ascending: false,
-    filters: {},
-    search: '',
-    searchColumn: 'codigo',
-  });
+  // Reset de página quando o conjunto filtrado muda
+  useEffect(() => {
+    setPaginaItens(0);
+  }, [filtroObra, filtroCategoria, filtroStatus, busca]);
+
+  const paginationItens = useMemo(() => {
+    const totalCount = estoqueFiltrado.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE_ESTOQUE));
+    const page = Math.min(paginaItens, Math.max(0, totalPages - 1));
+    const start = page * PAGE_SIZE_ESTOQUE;
+    const data = estoqueFiltrado.slice(start, start + PAGE_SIZE_ESTOQUE);
+    return {
+      data,
+      loading: false,
+      page,
+      totalCount,
+      totalPages,
+      hasMore: page < totalPages - 1,
+      pageSize: PAGE_SIZE_ESTOQUE,
+      nextPage: () => setPaginaItens(p => Math.min(p + 1, totalPages - 1)),
+      prevPage: () => setPaginaItens(p => Math.max(0, p - 1)),
+      goToPage: (p) => setPaginaItens(Math.max(0, Math.min(p, totalPages - 1))),
+      refresh: () => setPaginaItens(0),
+    };
+  }, [estoqueFiltrado, paginaItens]);
 
   // Estatísticas — usam o estoque JÁ FILTRADO para refletir o filtro global
   const estatisticas = useMemo(() => {
