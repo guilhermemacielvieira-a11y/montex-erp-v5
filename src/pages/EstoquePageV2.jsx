@@ -4,7 +4,8 @@
  * Conectado ao ERPContext para integração com demais módulos
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import { motion } from 'framer-motion';
 import {
   Package, Warehouse, AlertTriangle, AlertCircle, CheckCircle2,
@@ -194,7 +195,22 @@ export default function EstoquePageV2() {
 
   // Filtra estoque
   const estoqueFiltrado = useMemo(() => {
-    let items = filtroObra === 'obra_atual' ? estoqueObraAtual : estoque;
+    let items;
+    if (filtroObra === 'todas') {
+      items = estoque;
+    } else if (filtroObra === 'obra_atual') {
+      items = estoqueObraAtual;
+    } else if (filtroObra === 'sem_obra') {
+      // Estoque genérico: itens sem vínculo a obra específica
+      items = estoque.filter(it => !it.obra_id && !it.obraId && !it.obraReservada);
+    } else {
+      // ID específico de obra → filtra pelos campos obra_id / obraId / obraReservada
+      items = estoque.filter(it =>
+        it.obra_id === filtroObra ||
+        it.obraId === filtroObra ||
+        it.obraReservada === filtroObra
+      );
+    }
 
     if (filtroCategoria !== 'todas') {
       items = items.filter(item => (item.categoria || item.tipo) === filtroCategoria);
@@ -210,13 +226,97 @@ export default function EstoquePageV2() {
     if (busca) {
       const termoBusca = busca.toLowerCase();
       items = items.filter(item =>
-        item.codigo.toLowerCase().includes(termoBusca) ||
-        item.descricao.toLowerCase().includes(termoBusca)
+        (item.codigo || '').toLowerCase().includes(termoBusca) ||
+        (item.descricao || '').toLowerCase().includes(termoBusca)
       );
     }
 
     return items;
   }, [estoque, estoqueObraAtual, filtroCategoria, filtroStatus, filtroObra, busca]);
+
+  // ─── MATERIAL NECESSÁRIO para a obra selecionada (vindo de materiais_corte) ──
+  const [materiaisNecessarios, setMateriaisNecessarios] = useState([]);
+  const [carregandoNecessarios, setCarregandoNecessarios] = useState(false);
+
+  const obraIdParaConsulta = useMemo(() => {
+    if (filtroObra === 'obra_atual') return obraAtual;
+    if (filtroObra === 'todas' || filtroObra === 'sem_obra') return null;
+    return filtroObra;
+  }, [filtroObra, obraAtual]);
+
+  const carregarMateriaisNecessarios = useCallback(async () => {
+    if (!obraIdParaConsulta) {
+      setMateriaisNecessarios([]);
+      return;
+    }
+    setCarregandoNecessarios(true);
+    try {
+      const client = supabaseAdmin || supabase;
+      const { data, error } = await client
+        .from('materiais_corte')
+        .select('id,marca,peca,quantidade,perfil,comprimento_mm,material,peso_teorico,status_corte,obra_id,peca_id,observacoes')
+        .eq('obra_id', obraIdParaConsulta)
+        .order('marca', { ascending: true });
+      if (error) throw error;
+      setMateriaisNecessarios(data || []);
+    } catch (e) {
+      console.error('[Estoque] Erro ao carregar materiais necessários:', e);
+      setMateriaisNecessarios([]);
+    } finally {
+      setCarregandoNecessarios(false);
+    }
+  }, [obraIdParaConsulta]);
+
+  useEffect(() => {
+    carregarMateriaisNecessarios();
+  }, [carregarMateriaisNecessarios]);
+
+  // Resumo: agrupado por perfil+material, mostra qtd necessária × qtd em estoque
+  const materiaisNecessariosResumo = useMemo(() => {
+    const grupo = {};
+    materiaisNecessarios.forEach(mc => {
+      const key = `${(mc.perfil || '').trim()} | ${(mc.material || '').trim()}`;
+      if (!grupo[key]) {
+        grupo[key] = {
+          perfil: mc.perfil || '—',
+          material: mc.material || '—',
+          qtd_necessaria: 0,
+          peso_necessario: 0,
+          itens: 0,
+          aguardando: 0,
+          cortando: 0,
+          finalizado: 0,
+        };
+      }
+      grupo[key].qtd_necessaria += Number(mc.quantidade) || 0;
+      grupo[key].peso_necessario += Number(mc.peso_teorico) || 0;
+      grupo[key].itens += 1;
+      const st = (mc.status_corte || 'aguardando').toLowerCase();
+      if (st === 'finalizado') grupo[key].finalizado += 1;
+      else if (st === 'cortando' || st === 'em_corte') grupo[key].cortando += 1;
+      else grupo[key].aguardando += 1;
+    });
+
+    // Compara com estoque (descricao/codigo contendo o perfil)
+    const lista = Object.values(grupo).map(g => {
+      const correspondencia = (estoque || []).find(e => {
+        const desc = `${e.descricao || ''} ${e.codigo || ''} ${e.material || ''}`.toLowerCase();
+        return desc.includes((g.perfil || '').toLowerCase().slice(0, 12));
+      });
+      const qtdEstoque = Number(correspondencia?.quantidade) || 0;
+      const status = qtdEstoque >= g.qtd_necessaria
+        ? 'ok'
+        : qtdEstoque > 0 ? 'parcial' : 'falta';
+      return {
+        ...g,
+        peso_necessario: Math.round(g.peso_necessario * 100) / 100,
+        qtd_estoque: qtdEstoque,
+        item_estoque: correspondencia,
+        status,
+      };
+    });
+    return lista.sort((a, b) => (a.status === 'falta' ? -1 : 0) - (b.status === 'falta' ? -1 : 0));
+  }, [materiaisNecessarios, estoque]);
 
   // Hook de paginação inteligente para a tab de itens
   const paginationItens = useSmartPagination('estoque', estoqueFiltrado, {
@@ -460,6 +560,7 @@ export default function EstoquePageV2() {
           {[
             { id: 'visao-geral', label: 'Visão Geral', icon: BarChart3 },
             { id: 'itens', label: 'Lista de Itens', icon: Layers },
+            { id: 'necessario', label: 'Necessário p/ Obra', icon: Building2 },
             { id: 'movimentacoes', label: 'Movimentações', icon: RefreshCw },
             { id: 'vinculados', label: 'Vinculados à Obra', icon: Link2 },
           ].map(tab => (
@@ -588,20 +689,33 @@ export default function EstoquePageV2() {
               </Select.Root>
 
               <Select.Root value={filtroObra} onValueChange={setFiltroObra}>
-                <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
+                <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[200px]">
                   <Building2 className="w-4 h-4" />
                   <Select.Value placeholder="Obra" />
-                  <ChevronDown className="w-4 h-4" />
+                  <ChevronDown className="w-4 h-4 ml-auto" />
                 </Select.Trigger>
                 <Select.Portal>
-                  <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50">
+                  <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50 max-h-72">
                     <Select.Viewport className="p-1">
-                      <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer">
-                        <Select.ItemText>Todas as Obras</Select.ItemText>
+                      <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                        <Select.ItemText>📦 Todas as Obras + Geral</Select.ItemText>
                       </Select.Item>
-                      <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer">
-                        <Select.ItemText>🔗 Obra Atual ({obraAtualData?.codigo})</Select.ItemText>
+                      <Select.Item value="sem_obra" className="px-3 py-2 text-sm text-cyan-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                        <Select.ItemText>🏢 Estoque Geral (sem obra)</Select.ItemText>
                       </Select.Item>
+                      {obraAtualData && (
+                        <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                          <Select.ItemText>🔗 Obra Atual ({obraAtualData?.codigo})</Select.ItemText>
+                        </Select.Item>
+                      )}
+                      <div className="my-1 border-t border-slate-700/60" />
+                      {(obras || []).map(o => (
+                        <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                          <Select.ItemText>
+                            {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
+                          </Select.ItemText>
+                        </Select.Item>
+                      ))}
                     </Select.Viewport>
                   </Select.Content>
                 </Select.Portal>
@@ -641,6 +755,155 @@ export default function EstoquePageV2() {
                   pageSize={paginationItens.pageSize}
                   loading={paginationItens.loading}
                 />
+              )}
+            </div>
+          </Tabs.Content>
+
+          {/* === MATERIAL NECESSÁRIO PARA A OBRA SELECIONADA === */}
+          <Tabs.Content value="necessario">
+            <div className="space-y-4">
+              {/* Header da tab */}
+              <div className="flex flex-col lg:flex-row lg:items-center gap-3 justify-between bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-orange-500/20">
+                    <Building2 className="w-5 h-5 text-orange-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-white font-semibold">Material Necessário</h3>
+                    <p className="text-xs text-slate-400">
+                      {obraIdParaConsulta
+                        ? `Obra selecionada: ${(obras || []).find(o => o.id === obraIdParaConsulta)?.codigo || obraIdParaConsulta}`
+                        : 'Selecione uma obra específica no filtro acima para ver os materiais necessários'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <div className="px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50">
+                    <span className="text-slate-400">Itens BOM:</span>
+                    <span className="text-white font-bold ml-1">{materiaisNecessarios.length}</span>
+                  </div>
+                  <div className="px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50">
+                    <span className="text-slate-400">Peso total:</span>
+                    <span className="text-orange-400 font-bold ml-1">
+                      {materiaisNecessarios.reduce((s, m) => s + (Number(m.peso_teorico) || 0), 0).toFixed(1)} kg
+                    </span>
+                  </div>
+                  <button
+                    onClick={carregarMateriaisNecessarios}
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-slate-700/50 border border-slate-600/50 text-slate-300 hover:text-white"
+                  >
+                    <RefreshCw className={cn('w-3 h-3', carregandoNecessarios && 'animate-spin')} />
+                    Atualizar
+                  </button>
+                </div>
+              </div>
+
+              {!obraIdParaConsulta ? (
+                <div className="bg-slate-800/30 border border-dashed border-slate-700 rounded-xl p-10 text-center">
+                  <Building2 className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                  <p className="text-slate-400">Filtre por uma obra específica para visualizar a lista de material necessário.</p>
+                </div>
+              ) : (
+                <>
+                  {/* RESUMO POR PERFIL (cruzamento BOM × Estoque) */}
+                  <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-700/50">
+                      <h4 className="text-sm font-semibold text-white">Resumo por Perfil — Necessário vs Estoque</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-900/60">
+                          <tr className="text-slate-400 text-xs">
+                            <th className="text-left px-4 py-2 font-medium">Perfil</th>
+                            <th className="text-left px-3 py-2 font-medium">Material</th>
+                            <th className="text-right px-3 py-2 font-medium">Qtd Necessária</th>
+                            <th className="text-right px-3 py-2 font-medium">Peso Necessário</th>
+                            <th className="text-right px-3 py-2 font-medium">Estoque atual</th>
+                            <th className="text-center px-3 py-2 font-medium">Status</th>
+                            <th className="text-center px-3 py-2 font-medium">Corte</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {materiaisNecessariosResumo.map((g, idx) => {
+                            const statusCfg = {
+                              ok:      { txt: '✓ OK',      cls: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+                              parcial: { txt: '⚠ Parcial', cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+                              falta:   { txt: '✗ Faltando', cls: 'bg-red-500/20 text-red-400 border-red-500/30' },
+                            }[g.status];
+                            return (
+                              <tr key={idx} className="hover:bg-slate-800/40">
+                                <td className="px-4 py-2 text-white font-mono text-xs">{g.perfil}</td>
+                                <td className="px-3 py-2 text-slate-300 text-xs">{g.material}</td>
+                                <td className="px-3 py-2 text-right text-white font-medium">{g.qtd_necessaria}</td>
+                                <td className="px-3 py-2 text-right text-orange-400 font-mono text-xs">{g.peso_necessario.toFixed(1)} kg</td>
+                                <td className="px-3 py-2 text-right">
+                                  <span className={cn('font-mono text-xs', g.qtd_estoque >= g.qtd_necessaria ? 'text-emerald-400' : g.qtd_estoque > 0 ? 'text-amber-400' : 'text-red-400')}>
+                                    {g.qtd_estoque} {g.item_estoque?.unidade || ''}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center">
+                                  <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border', statusCfg.cls)}>
+                                    {statusCfg.txt}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-2 text-center text-[10px] text-slate-400">
+                                  {g.finalizado}/{g.itens} · cortar {g.aguardando}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    {materiaisNecessariosResumo.length === 0 && (
+                      <div className="text-center py-10 text-slate-500 text-sm">Nenhum BOM cadastrado para esta obra.</div>
+                    )}
+                  </div>
+
+                  {/* DETALHE — BOM completo (lista de materiais_corte) */}
+                  <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-700/50">
+                      <h4 className="text-sm font-semibold text-white">BOM Detalhado — {materiaisNecessarios.length} item(ns)</h4>
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-slate-900/60">
+                          <tr className="text-slate-400">
+                            <th className="text-left px-3 py-2 font-medium">Marca</th>
+                            <th className="text-left px-3 py-2 font-medium">Conjunto</th>
+                            <th className="text-left px-3 py-2 font-medium">Perfil</th>
+                            <th className="text-right px-3 py-2 font-medium">Comp.</th>
+                            <th className="text-left px-3 py-2 font-medium">Material</th>
+                            <th className="text-right px-3 py-2 font-medium">Qtd</th>
+                            <th className="text-right px-3 py-2 font-medium">Peso</th>
+                            <th className="text-center px-3 py-2 font-medium">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-800/60">
+                          {materiaisNecessarios.map(mc => (
+                            <tr key={mc.id} className="hover:bg-slate-800/40">
+                              <td className="px-3 py-2 text-white font-mono">{mc.marca}</td>
+                              <td className="px-3 py-2 text-slate-300">{mc.peca}</td>
+                              <td className="px-3 py-2 text-slate-300">{mc.perfil}</td>
+                              <td className="px-3 py-2 text-right text-slate-400 font-mono">{mc.comprimento_mm} mm</td>
+                              <td className="px-3 py-2 text-slate-400">{mc.material}</td>
+                              <td className="px-3 py-2 text-right text-white">{mc.quantidade}</td>
+                              <td className="px-3 py-2 text-right text-orange-400 font-mono">{(Number(mc.peso_teorico) || 0).toFixed(1)} kg</td>
+                              <td className="px-3 py-2 text-center">
+                                <span className={cn(
+                                  'inline-flex px-2 py-0.5 rounded text-[10px] font-medium border',
+                                  mc.status_corte === 'finalizado' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                                  : mc.status_corte === 'cortando' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                                  : 'bg-slate-700/40 text-slate-400 border-slate-600/40'
+                                )}>{mc.status_corte || 'aguardando'}</span>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           </Tabs.Content>
