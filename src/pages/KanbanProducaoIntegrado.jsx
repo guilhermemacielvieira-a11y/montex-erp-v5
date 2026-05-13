@@ -88,7 +88,7 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
   const { obras, obraAtual } = useObras();
-  const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, updatePeca, addPecas: addPecasContext } = useProducao();
+  const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, updatePeca, addPecas: addPecasContext, reloadPecas } = useProducao();
 
   // ========================================
   // BASE DE DADOS DE PRODUÇÃO INDEPENDENTE
@@ -160,12 +160,13 @@ export default function KanbanProducaoIntegrado() {
   // Antes usava pecasProducao (arquivo estático) — agora usa pecasSupabase
   // ========================================
   useEffect(() => {
-    // Só carrega na primeira vez que pecasSupabase chegar com dados
-    if (initialLoadDone.current) return;
+    // Recarrega sempre que pecasSupabase muda — necessário para que o
+    // botão "Avançar" do LancamentoProducaoModal (que altera pecas_producao.etapa
+    // e dispara reloadPecas) reflita imediatamente o pulo de coluna.
     if (!pecasSupabase || pecasSupabase.length === 0) return;
 
     initialLoadDone.current = true;
-    console.log(`[Kanban] Carregando ${pecasSupabase.length} peças do Supabase...`);
+    console.log(`[Kanban] Sincronizando ${pecasSupabase.length} peças com Supabase...`);
 
     // Mapear etapa do Supabase → status do kanban
     // Peças com etapa 'enviado' ou 'entregue' NÃO devem aparecer no Kanban
@@ -2505,7 +2506,12 @@ export default function KanbanProducaoIntegrado() {
         onClose={() => setModalLancamento(false)}
         pecas={pecasLancamento}
         defaultEtapa={etapaLancamento}
-        onSaved={() => { setModalLancamento(false); }}
+        onSaved={async () => {
+          // Recarrega as peças do Supabase para refletir a mudança de etapa
+          // feita pelo botão "Avançar" do LancamentoProducaoModal
+          try { await reloadPecas?.(); } catch (e) { console.warn('[Kanban] reloadPecas falhou:', e); }
+          setModalLancamento(false);
+        }}
       />
     </div>
   );
