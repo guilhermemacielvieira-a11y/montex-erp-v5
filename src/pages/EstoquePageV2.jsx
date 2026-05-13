@@ -338,21 +338,22 @@ export default function EstoquePageV2() {
     searchColumn: 'codigo',
   });
 
-  // Estatísticas
+  // Estatísticas — usam o estoque JÁ FILTRADO para refletir o filtro global
   const estatisticas = useMemo(() => {
-    const total = estoque.length;
-    const normal = estoque.filter(i => getStatusEstoque(i).label === 'Normal').length;
-    const baixo = estoque.filter(i => getStatusEstoque(i).label === 'Baixo').length;
-    const critico = estoque.filter(i => getStatusEstoque(i).label === 'Crítico').length;
-    const zerado = estoque.filter(i => getStatusEstoque(i).label === 'Zerado').length;
+    const fonte = estoqueFiltrado;
+    const total = fonte.length;
+    const normal = fonte.filter(i => getStatusEstoque(i).label === 'Normal').length;
+    const baixo = fonte.filter(i => getStatusEstoque(i).label === 'Baixo').length;
+    const critico = fonte.filter(i => getStatusEstoque(i).label === 'Crítico').length;
+    const zerado = fonte.filter(i => getStatusEstoque(i).label === 'Zerado').length;
 
-    const valorTotal = estoque.reduce((acc, item) => acc + ((Number(item.quantidade) || 0) * (Number(item.preco || item.precoUnitario) || 0)), 0);
-    const itensReservados = estoque.filter(i => i.reservado > 0).length;
+    const valorTotal = fonte.reduce((acc, item) => acc + ((Number(item.quantidade) || 0) * (Number(item.preco || item.precoUnitario) || 0)), 0);
+    const itensReservados = fonte.filter(i => i.reservado > 0).length;
 
     return { total, normal, baixo, critico, zerado, valorTotal, itensReservados };
-  }, [estoque]);
+  }, [estoqueFiltrado]);
 
-  // Dados para gráficos
+  // Dados para gráficos — também respondem ao filtro global
   const dadosStatusPie = [
     { name: 'Normal', value: estatisticas.normal, color: '#10b981' },
     { name: 'Baixo', value: estatisticas.baixo, color: '#f59e0b' },
@@ -362,20 +363,40 @@ export default function EstoquePageV2() {
 
   const dadosCategoriaBar = CATEGORIAS_MATERIAL.map(cat => ({
     name: cat.nome.substring(0, 8),
-    quantidade: estoque.filter(i => (i.categoria || i.tipo) === cat.id).length,
-    valor: estoque.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.preco || i.precoUnitario) || 0)), 0) / 1000
+    quantidade: estoqueFiltrado.filter(i => (i.categoria || i.tipo) === cat.id).length,
+    valor: estoqueFiltrado.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.preco || i.precoUnitario) || 0)), 0) / 1000
   }));
 
-  // Movimentações filtradas
+  // Movimentações filtradas — também respeitam o filtro global (obra + busca)
   const movimentacoesFiltradas = useMemo(() => {
     let movs = [...(movimentacoesEstoque || [])];
 
-    // Filtro por tipo
+    // Filtro GLOBAL por obra
+    if (filtroObra && filtroObra !== 'todas') {
+      const idsEstoqueValidos = new Set((estoqueFiltrado || []).map(i => i.id));
+      movs = movs.filter(m =>
+        (m.obra_id && m.obra_id === (filtroObra === 'obra_atual' ? obraAtual : filtroObra)) ||
+        (m.obraId && m.obraId === (filtroObra === 'obra_atual' ? obraAtual : filtroObra)) ||
+        idsEstoqueValidos.has(m.itemId) || idsEstoqueValidos.has(m.estoque_id)
+      );
+    }
+
+    // Filtro GLOBAL por busca (código/descrição do material)
+    if (busca && busca.trim()) {
+      const t = busca.toLowerCase();
+      movs = movs.filter(m =>
+        (m.materialPerfil || '').toLowerCase().includes(t) ||
+        (m.itemId || '').toLowerCase().includes(t) ||
+        (m.motivo || '').toLowerCase().includes(t)
+      );
+    }
+
+    // Filtro por tipo (local da aba)
     if (filtroMovTipo !== 'todos') {
       movs = movs.filter(m => m.tipo === filtroMovTipo);
     }
 
-    // Filtro por material
+    // Filtro por material (local da aba)
     if (filtroMovMaterial.trim()) {
       const termo = filtroMovMaterial.toLowerCase();
       movs = movs.filter(m =>
@@ -554,6 +575,110 @@ export default function EstoquePageV2() {
         </motion.div>
       )}
 
+      {/* ─── FILTROS GLOBAIS — afetam TODAS as sub-tabs ──────────────────── */}
+      <div className="bg-slate-800/40 border border-slate-700/40 rounded-xl p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Filter className="w-4 h-4 text-orange-400" />
+          <h3 className="text-sm font-semibold text-white">Filtros</h3>
+          <span className="text-[10px] text-slate-500 ml-1">aplicam-se a todas as sub-páginas</span>
+          {(busca || filtroCategoria !== 'todas' || filtroStatus !== 'todos' || filtroObra !== 'todas') && (
+            <button
+              onClick={() => { setBusca(''); setFiltroCategoria('todas'); setFiltroStatus('todos'); setFiltroObra('todas'); }}
+              className="ml-auto text-[10px] px-2 py-1 rounded bg-slate-700/40 border border-slate-600/40 text-slate-400 hover:text-white"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative flex-1 min-w-[260px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+            <Input
+              placeholder="Buscar por código, descrição ou material..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              className="pl-10 bg-slate-800/50 border-slate-700 text-white"
+            />
+          </div>
+
+          <Select.Root value={filtroCategoria} onValueChange={setFiltroCategoria}>
+            <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[160px]">
+              <Filter className="w-4 h-4" />
+              <Select.Value placeholder="Categoria" />
+              <ChevronDown className="w-4 h-4 ml-auto" />
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50">
+                <Select.Viewport className="p-1">
+                  <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                    <Select.ItemText>Todas Categorias</Select.ItemText>
+                  </Select.Item>
+                  {CATEGORIAS_MATERIAL.map(cat => (
+                    <Select.Item key={cat.id} value={cat.id} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                      <Select.ItemText>{cat.icone} {cat.nome}</Select.ItemText>
+                    </Select.Item>
+                  ))}
+                </Select.Viewport>
+              </Select.Content>
+            </Select.Portal>
+          </Select.Root>
+
+          <Select.Root value={filtroStatus} onValueChange={setFiltroStatus}>
+            <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[140px]">
+              <Select.Value placeholder="Status" />
+              <ChevronDown className="w-4 h-4 ml-auto" />
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50">
+                <Select.Viewport className="p-1">
+                  <Select.Item value="todos" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                    <Select.ItemText>Todos Status</Select.ItemText>
+                  </Select.Item>
+                  {Object.entries(STATUS_ESTOQUE).map(([key, val]) => (
+                    <Select.Item key={key} value={val.label.toLowerCase()} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                      <Select.ItemText>{val.label}</Select.ItemText>
+                    </Select.Item>
+                  ))}
+                </Select.Viewport>
+              </Select.Content>
+            </Select.Portal>
+          </Select.Root>
+
+          <Select.Root value={filtroObra} onValueChange={setFiltroObra}>
+            <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[220px]">
+              <Building2 className="w-4 h-4" />
+              <Select.Value placeholder="Obra" />
+              <ChevronDown className="w-4 h-4 ml-auto" />
+            </Select.Trigger>
+            <Select.Portal>
+              <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50 max-h-72">
+                <Select.Viewport className="p-1">
+                  <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                    <Select.ItemText>📦 Todas as Obras + Geral</Select.ItemText>
+                  </Select.Item>
+                  <Select.Item value="sem_obra" className="px-3 py-2 text-sm text-cyan-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                    <Select.ItemText>🏢 Estoque Geral (sem obra)</Select.ItemText>
+                  </Select.Item>
+                  {obraAtualData && (
+                    <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                      <Select.ItemText>🔗 Obra Atual ({obraAtualData?.codigo})</Select.ItemText>
+                    </Select.Item>
+                  )}
+                  <div className="my-1 border-t border-slate-700/60" />
+                  {(obras || []).map(o => (
+                    <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                      <Select.ItemText>
+                        {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
+                      </Select.ItemText>
+                    </Select.Item>
+                  ))}
+                </Select.Viewport>
+              </Select.Content>
+            </Select.Portal>
+          </Select.Root>
+        </div>
+      </div>
+
       {/* Tabs */}
       <Tabs.Root value={tabAtiva} onValueChange={setTabAtiva}>
         <Tabs.List className="flex gap-1 bg-slate-800/50 p-1 rounded-xl w-fit">
@@ -633,95 +758,16 @@ export default function EstoquePageV2() {
 
           {/* Lista de Itens */}
           <Tabs.Content value="itens">
-            {/* Filtros */}
-            <div className="flex flex-wrap items-center gap-4 mb-6">
-              <div className="relative flex-1 min-w-[250px]">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-                <Input
-                  placeholder="Buscar por código ou descrição..."
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                  className="pl-10 bg-slate-800/50 border-slate-700"
-                />
-              </div>
-
-              <Select.Root value={filtroCategoria} onValueChange={setFiltroCategoria}>
-                <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
-                  <Filter className="w-4 h-4" />
-                  <Select.Value placeholder="Categoria" />
-                  <ChevronDown className="w-4 h-4" />
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50">
-                    <Select.Viewport className="p-1">
-                      <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer">
-                        <Select.ItemText>Todas Categorias</Select.ItemText>
-                      </Select.Item>
-                      {CATEGORIAS_MATERIAL.map(cat => (
-                        <Select.Item key={cat.id} value={cat.id} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer">
-                          <Select.ItemText>{cat.icone} {cat.nome}</Select.ItemText>
-                        </Select.Item>
-                      ))}
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
-
-              <Select.Root value={filtroStatus} onValueChange={setFiltroStatus}>
-                <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300">
-                  <Select.Value placeholder="Status" />
-                  <ChevronDown className="w-4 h-4" />
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50">
-                    <Select.Viewport className="p-1">
-                      <Select.Item value="todos" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer">
-                        <Select.ItemText>Todos Status</Select.ItemText>
-                      </Select.Item>
-                      {Object.entries(STATUS_ESTOQUE).map(([key, val]) => (
-                        <Select.Item key={key} value={val.label.toLowerCase()} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer">
-                          <Select.ItemText>{val.label}</Select.ItemText>
-                        </Select.Item>
-                      ))}
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
-
-              <Select.Root value={filtroObra} onValueChange={setFiltroObra}>
-                <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[200px]">
-                  <Building2 className="w-4 h-4" />
-                  <Select.Value placeholder="Obra" />
-                  <ChevronDown className="w-4 h-4 ml-auto" />
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50 max-h-72">
-                    <Select.Viewport className="p-1">
-                      <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                        <Select.ItemText>📦 Todas as Obras + Geral</Select.ItemText>
-                      </Select.Item>
-                      <Select.Item value="sem_obra" className="px-3 py-2 text-sm text-cyan-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                        <Select.ItemText>🏢 Estoque Geral (sem obra)</Select.ItemText>
-                      </Select.Item>
-                      {obraAtualData && (
-                        <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                          <Select.ItemText>🔗 Obra Atual ({obraAtualData?.codigo})</Select.ItemText>
-                        </Select.Item>
-                      )}
-                      <div className="my-1 border-t border-slate-700/60" />
-                      {(obras || []).map(o => (
-                        <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                          <Select.ItemText>
-                            {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
-                          </Select.ItemText>
-                        </Select.Item>
-                      ))}
-                    </Select.Viewport>
-                  </Select.Content>
-                </Select.Portal>
-              </Select.Root>
+            <div className="mb-3 text-xs text-slate-400">
+              Exibindo <strong className="text-white">{paginationItens.totalCount}</strong> de <strong className="text-white">{estoque.length}</strong> itens
+              {filtroObra !== 'todas' && (
+                <span> · obra: <strong className="text-orange-400">{
+                  filtroObra === 'sem_obra' ? 'Estoque Geral' :
+                  filtroObra === 'obra_atual' ? obraAtualData?.codigo :
+                  (obras || []).find(o => o.id === filtroObra)?.codigo || filtroObra
+                }</strong></span>
+              )}
             </div>
-
             {/* Grid de Itens */}
             <div className="space-y-4">
               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -1110,52 +1156,56 @@ export default function EstoquePageV2() {
 
           {/* Vinculados à Obra */}
           <Tabs.Content value="vinculados">
-            <div className="space-y-4">
-              <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 flex items-center gap-4">
-                <Link2 className="w-6 h-6 text-orange-400" />
-                <div>
-                  <h3 className="text-white font-semibold">Materiais Reservados para {obraAtualData?.codigo}</h3>
-                  <p className="text-slate-400 text-sm">
-                    {estoqueObraAtual.length} itens vinculados à obra atual
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {paginationVinculados.data.map(item => (
-                    <ItemEstoque
-                      key={item.id}
-                      item={item}
-                      onEdit={handleEdit}
-                      onVerMais={handleVerMais}
-                      obraAtual={obraAtualData}
-                    />
-                  ))}
-                </div>
-
-                {paginationVinculados.totalCount === 0 && (
-                  <div className="text-center py-12">
-                    <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                    <p className="text-slate-400">Nenhum material reservado para esta obra</p>
+            {(() => {
+              // Filtra estoque pela OBRA selecionada no filtro global.
+              // Se filtro = "todas" ou "sem_obra", usa a obra atual como fallback.
+              const obraFiltrada = filtroObra === 'obra_atual' ? obraAtual
+                                  : (filtroObra && filtroObra !== 'todas' && filtroObra !== 'sem_obra') ? filtroObra
+                                  : obraAtual;
+              const obraNome = (obras || []).find(o => o.id === obraFiltrada)?.codigo
+                              || obraAtualData?.codigo
+                              || '—';
+              const itensVinculados = (estoque || []).filter(i =>
+                i.obra_id === obraFiltrada ||
+                i.obraId === obraFiltrada ||
+                i.obraReservada === obraFiltrada
+              );
+              return (
+                <div className="space-y-4">
+                  <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 flex items-center gap-4">
+                    <Link2 className="w-6 h-6 text-orange-400" />
+                    <div>
+                      <h3 className="text-white font-semibold">Materiais Reservados para {obraNome}</h3>
+                      <p className="text-slate-400 text-sm">
+                        {itensVinculados.length} item(ns) vinculado(s) {obraFiltrada ? '' : '· nenhuma obra selecionada'}
+                      </p>
+                    </div>
                   </div>
-                )}
 
-                {/* Pagination Controls */}
-                {paginationVinculados.totalPages > 1 && (
-                  <PaginationControls
-                    page={paginationVinculados.page}
-                    totalPages={paginationVinculados.totalPages}
-                    totalCount={paginationVinculados.totalCount}
-                    onPrev={paginationVinculados.prevPage}
-                    onNext={paginationVinculados.nextPage}
-                    onGoToPage={paginationVinculados.goToPage}
-                    pageSize={paginationVinculados.pageSize}
-                    loading={paginationVinculados.loading}
-                  />
-                )}
-              </div>
-            </div>
+                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {itensVinculados.map(item => (
+                      <ItemEstoque
+                        key={item.id}
+                        item={item}
+                        onEdit={handleEdit}
+                        onVerMais={handleVerMais}
+                        obraAtual={(obras || []).find(o => o.id === obraFiltrada) || obraAtualData}
+                      />
+                    ))}
+                  </div>
+
+                  {itensVinculados.length === 0 && (
+                    <div className="text-center py-12">
+                      <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
+                      <p className="text-slate-400">Nenhum material reservado para esta obra</p>
+                      <p className="text-slate-500 text-xs mt-1">
+                        Selecione uma obra no filtro acima para ver seus materiais reservados.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </Tabs.Content>
         </div>
       </Tabs.Root>
