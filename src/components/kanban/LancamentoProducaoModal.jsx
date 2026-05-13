@@ -24,7 +24,7 @@ import toast from 'react-hot-toast';
 import {
   X, Save, CheckCircle2, User, Calendar,
   Scissors, Flame, Droplets, Paintbrush, Truck, Package,
-  Loader2, RefreshCw, Search, AlertCircle, Check
+  Loader2, RefreshCw, Search, AlertCircle, Check, ArrowRight
 } from 'lucide-react';
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import { useEquipes } from '@/contexts/ERPContext';
@@ -307,6 +307,51 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     }
   }, [lancamentos, funcionariosAtivos]);
 
+  // ─── SALVAR + AVANÇAR PEÇA PARA A PRÓXIMA ETAPA ──────────────────────────────
+  // Salva o lançamento da etapa atual e move o conjunto para a próxima coluna
+  // do Kanban (atualiza pecas_producao.etapa). Usa o ID ORIGINAL para garantir
+  // que a peça inteira seja movida (mesmo quando expandida em conjuntos).
+  const salvarEAvancar = useCallback(async (peca, etapa) => {
+    const k = chave(peca.id, etapa);
+    const lan = lancamentos[k];
+    if (!lan?.funcionario_id) {
+      toast.error('Selecione um funcionário antes de avançar');
+      return;
+    }
+
+    // 1. Persiste o lançamento desta etapa
+    await salvarUm(peca, etapa);
+
+    // 2. Determina a próxima etapa do Kanban
+    const ordemKanban = ['corte', 'fabricacao', 'solda', 'pintura', 'montagem', 'expedido'];
+    const idxAtual = ordemKanban.indexOf(etapa);
+    const proxima = ordemKanban[idxAtual + 1];
+
+    if (!proxima) {
+      toast.success('Etapa final atingida — peça concluída ✓');
+      onSaved?.();
+      return;
+    }
+
+    // 3. Atualiza a etapa atual da peça no Supabase (move pra próxima coluna)
+    const originalId = peca._originalId || peca.id;
+    const client = supabaseAdmin || supabase;
+    try {
+      await client
+        .from('pecas_producao')
+        .update({ etapa: proxima, updated_at: new Date().toISOString() })
+        .eq('id', originalId);
+      const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
+      toast.success(`Peça ${peca.marca || peca.id} → ${proxLabel}`);
+    } catch (err) {
+      console.error('[LancamentoModal] Erro ao avançar etapa:', err);
+      toast.error('Erro ao avançar a peça de etapa');
+      return;
+    }
+
+    onSaved?.();
+  }, [lancamentos, salvarUm, onSaved]);
+
   // Salvar TODOS os lançamentos com funcionário atribuído (todas as etapas)
   const salvarTodos = useCallback(async () => {
     setLoading(true);
@@ -463,6 +508,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                     <th className="text-left px-3 py-2.5 text-slate-500 font-medium w-36">Data</th>
                     <th className="text-left px-3 py-2.5 text-slate-500 font-medium">Observações</th>
                     <th className="text-center px-3 py-2.5 text-slate-500 font-medium w-16">Salvar</th>
+                    <th className="text-center px-3 py-2.5 text-slate-500 font-medium w-20">Avançar</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -599,6 +645,35 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                               </button>
                             )}
                           </td>
+
+                          {/* Avançar para próxima etapa do Kanban */}
+                          {(() => {
+                            const ordemKanban = ['corte', 'fabricacao', 'solda', 'pintura', 'montagem', 'expedido'];
+                            const idxAtual = ordemKanban.indexOf(etapa.key);
+                            const proxKey = ordemKanban[idxAtual + 1];
+                            const proxLabel = ETAPAS.find(e => e.key === proxKey)?.label;
+                            return (
+                              <td className="px-3 py-2 text-center">
+                                <button
+                                  onClick={() => salvarEAvancar(peca, etapa.key)}
+                                  disabled={!temFunc || isSavingRow}
+                                  className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
+                                    temFunc && !isSavingRow
+                                      ? 'bg-gradient-to-r from-purple-600/30 to-indigo-600/30 border border-purple-500/40 text-purple-200 hover:from-purple-600/50 hover:to-indigo-600/50 cursor-pointer'
+                                      : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
+                                  }`}
+                                  title={
+                                    !temFunc ? 'Selecione um funcionário primeiro'
+                                    : !proxKey ? 'Última etapa — peça concluída'
+                                    : `Salvar e avançar para ${proxLabel}`
+                                  }
+                                >
+                                  <ArrowRight className="h-3 w-3" />
+                                  {proxKey ? proxLabel : 'Final'}
+                                </button>
+                              </td>
+                            );
+                          })()}
                         </tr>
                       );
                     });
