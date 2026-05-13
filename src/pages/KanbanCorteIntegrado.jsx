@@ -26,7 +26,7 @@ import { useERP, useProducao, useEstoque, useObras } from '@/contexts/ERPContext
 import { useEstoqueReal } from '@/contexts/EstoqueRealContext';
 import { STATUS_CORTE, ETAPAS_PRODUCAO } from '@/data/database';
 import { FuncionarioSelectorModal } from '@/components/kanban/FuncionarioSelectorModal';
-import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
+// LancamentoProducaoModal removido — corte usa apenas FuncionarioSelectorModal
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 
 // Configuração das colunas do Kanban
@@ -351,9 +351,8 @@ export default function KanbanCorteIntegrado() {
   const [pecaPendente, setPecaPendente] = useState(null);
   const [statusPendente, setStatusPendente] = useState(null);
 
-  // Estado do modal de lançamento de produção (visualizar/editar funcionário)
-  const [modalLancamento, setModalLancamento] = useState(false);
-  const [pecasLancamento, setPecasLancamento] = useState([]);
+  // Estados antigos do LancamentoProducaoModal removidos — corte usa só
+  // o FuncionarioSelectorModal acima.
 
   // Reconciliação retroativa: peças do ERPContext que já foram cortadas
   useEffect(() => {
@@ -431,18 +430,13 @@ export default function KanbanCorteIntegrado() {
     return { total, pesoTotal, emCorte, liberadas, aguardando };
   }, [pecasCorte]);
 
-  // Handler para abrir LancamentoProducaoModal em uma peça específica
+  // Handler para definir/editar o funcionário responsável pelo corte de uma peça.
+  // Abre o FuncionarioSelectorModal sem trocar o status (re-aplica o status atual
+  // para que handleFuncionarioSelecionado apenas atualize funcionario_corte).
   const handleLancamento = (peca) => {
-    setPecasLancamento([{
-      id: peca.id,
-      nome: `MARCA ${peca.marca}`,
-      marca: peca.marca || '',
-      tipo: peca.tipo || peca.peca || '',
-      pesoTotal: peca.peso || 0,
-      obraId: peca.obraId || obraAtual || '',
-      obraNome: peca.obraNome || obraAtualData?.codigo || ''
-    }]);
-    setModalLancamento(true);
+    setPecaPendente(peca);
+    setStatusPendente(peca.statusCorte || STATUS_CORTE.AGUARDANDO);
+    setModalFuncionario(true);
   };
 
   // Máquinas de corte
@@ -706,14 +700,8 @@ export default function KanbanCorteIntegrado() {
         pecaInfo={pecaPendente}
       />
 
-      {/* Modal de lançamento de produção — visualizar/editar funcionário por peça */}
-      <LancamentoProducaoModal
-        isOpen={modalLancamento}
-        onClose={() => setModalLancamento(false)}
-        pecas={pecasLancamento}
-        defaultEtapa="corte"
-        onSaved={() => setModalLancamento(false)}
-      />
+      {/* LancamentoProducaoModal removido — o lançamento de funcionário do corte
+          é feito via FuncionarioSelectorModal acima. */}
     </div>
   );
 }

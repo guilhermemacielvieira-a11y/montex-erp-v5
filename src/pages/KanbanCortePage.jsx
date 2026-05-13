@@ -18,7 +18,8 @@ import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/con
 import { useEstoqueReal } from '../contexts/EstoqueRealContext';
 import { useEstoque, useObras } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
-import { LancamentoProducaoModal } from '../components/kanban/LancamentoProducaoModal';
+// LancamentoProducaoModal removido — o lançamento de funcionário no Corte é
+// feito exclusivamente pelo FuncionarioSelectorModal (setor='corte') desta página.
 import { useProducaoHistorico } from '../hooks/useProducaoHistorico';
 import { useCorteSupabase } from '../hooks/useCorteSupabase';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -117,10 +118,9 @@ export default function KanbanCortePage() {
   const [modalFuncionario, setModalFuncionario] = useState(false);
   const [itemPendenteCorte, setItemPendenteCorte] = useState(null);
 
-  // Modal Lançamento de Produção por Funcionário
-  const [modalLancamento, setModalLancamento] = useState(false);
-  const [itenslancamento, setItensLancamento] = useState([]);
-  const [acaoPendenteCorte, setAcaoPendenteCorte] = useState(null); // 'iniciar' | 'finalizar_direto' | 'finalizar' | 'resetar' | 'generico'
+  // Estados antigos do LancamentoProducaoModal — REMOVIDOS.
+  // O lançamento de funcionário no Corte usa só o FuncionarioSelectorModal abaixo.
+  const [acaoPendenteCorte, setAcaoPendenteCorte] = useState(null); // 'iniciar' | 'finalizar_direto' | 'finalizar' | 'resetar' | 'definir_responsavel' | 'generico'
   const [statusOrigemCorte, setStatusOrigemCorte] = useState(null);
   const { registrarTransicao } = useProducaoHistorico();
 
@@ -352,6 +352,19 @@ export default function KanbanCortePage() {
     } else if (acaoPendenteCorte === 'resetar') {
       resetarCorte(item.id);
       etapaPara = 'aguardando';
+    } else if (acaoPendenteCorte === 'definir_responsavel') {
+      // Apenas atualiza o funcionário responsável pelo corte, sem mudar status
+      (async () => {
+        try {
+          await supabase
+            .from('materiais_corte')
+            .update({ funcionario_corte: funcionarioId, updated_at: new Date().toISOString() })
+            .eq('id', item.id);
+        } catch (err) {
+          console.error('Erro ao definir responsável do corte:', err);
+        }
+      })();
+      etapaPara = etapaDe; // sem transição
     }
 
     // Registrar no histórico — SEMPRE, em qualquer transição
@@ -499,26 +512,8 @@ export default function KanbanCortePage() {
             </button>
           </div>
 
-          <button
-            onClick={() => {
-              const todosItens = itensFiltrados || [];
-              setItensLancamento(todosItens.map(item => ({
-                id: item.id, nome: item.nome || item.marca, marca: item.marca,
-                tipo: item.tipo || '', pesoTotal: item.pesoTotal || item.peso_total || item.pesoItem || 0,
-                obraId: item.obraId || '', obraNome: item.obraNome || ''
-              })));
-              setModalLancamento(true);
-            }}
-            style={{
-              background: 'linear-gradient(135deg, #4c1d95, #3b0764)',
-              border: '1px solid #7c3aed', borderRadius: 10,
-              padding: '10px 16px', cursor: 'pointer', color: '#c4b5fd',
-              fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6,
-              transition: 'all 0.2s'
-            }}
-          >
-            👤 Lançar Corte
-          </button>
+          {/* Botão "Lançar Corte" em lote removido — o lançamento de funcionário
+              é feito por peça via FuncionarioSelectorModal (botão 👤 em cada card). */}
 
           <button
             onClick={() => setShowPanel(!showPanel)}
@@ -826,16 +821,10 @@ export default function KanbanCortePage() {
                         {/* Botão funcionário - sempre visível */}
                         <button
                           onClick={() => {
-                            setItensLancamento([{
-                              id: item.id,
-                              nome: item.marca,
-                              marca: item.marca,
-                              tipo: item.peca || item.tipo || '',
-                              pesoTotal: item.peso || 0,
-                              obraId: item.obraId || '',
-                              obraNome: item.obraNome || ''
-                            }]);
-                            setModalLancamento(true);
+                            setItemPendenteCorte(item);
+                            setAcaoPendenteCorte('definir_responsavel');
+                            setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
+                            setModalFuncionario(true);
                           }}
                           title="Ver/editar funcionário responsável"
                           style={actionBtnStyle('#2d1b69', '#7c3aed', '#a78bfa')}
@@ -1008,16 +997,10 @@ export default function KanbanCortePage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setItensLancamento([{
-                                  id: item.id,
-                                  nome: item.marca,
-                                  marca: item.marca,
-                                  tipo: item.peca || item.tipo || '',
-                                  pesoTotal: item.peso || 0,
-                                  obraId: item.obraId || '',
-                                  obraNome: item.obraNome || ''
-                                }]);
-                                setModalLancamento(true);
+                                setItemPendenteCorte(item);
+                                setAcaoPendenteCorte('definir_responsavel');
+                                setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
+                                setModalFuncionario(true);
                               }}
                               style={{
                                 width: '100%',
@@ -1138,16 +1121,10 @@ export default function KanbanCortePage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setItensLancamento([{
-                                  id: item.id,
-                                  nome: item.marca,
-                                  marca: item.marca,
-                                  tipo: item.peca || item.tipo || '',
-                                  pesoTotal: item.peso || 0,
-                                  obraId: item.obraId || '',
-                                  obraNome: item.obraNome || ''
-                                }]);
-                                setModalLancamento(true);
+                                setItemPendenteCorte(item);
+                                setAcaoPendenteCorte('definir_responsavel');
+                                setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
+                                setModalFuncionario(true);
                               }}
                               style={{
                                 width: '100%',
@@ -1268,16 +1245,10 @@ export default function KanbanCortePage() {
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setItensLancamento([{
-                                  id: item.id,
-                                  nome: item.marca,
-                                  marca: item.marca,
-                                  tipo: item.peca || item.tipo || '',
-                                  pesoTotal: item.peso || 0,
-                                  obraId: item.obraId || '',
-                                  obraNome: item.obraNome || ''
-                                }]);
-                                setModalLancamento(true);
+                                setItemPendenteCorte(item);
+                                setAcaoPendenteCorte('definir_responsavel');
+                                setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
+                                setModalFuncionario(true);
                               }}
                               style={{
                                 width: '100%',
@@ -1467,14 +1438,7 @@ export default function KanbanCortePage() {
         select:focus, input:focus { border-color: #6366f1 !important; }
       `}</style>
 
-      {/* Modal Lançamento de Produção por Funcionário */}
-      <LancamentoProducaoModal
-        isOpen={modalLancamento}
-        onClose={() => setModalLancamento(false)}
-        pecas={itenslancamento}
-        defaultEtapa="corte"
-        onSaved={() => setModalLancamento(false)}
-      />
+      {/* LancamentoProducaoModal removido — corte usa só o FuncionarioSelectorModal abaixo */}
 
       {/* Modal de seleção de funcionário para corte */}
       <FuncionarioSelectorModal
