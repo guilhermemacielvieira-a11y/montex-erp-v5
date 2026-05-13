@@ -80,35 +80,70 @@ const ETAPA_DE_MAP = {
  * @param {Array} pecas - Registros de pecas_producao (com peso_total)
  * @returns {Object} Métricas por etapa
  */
+// Extrai o ID-base de um peca_id que pode vir com sufixos:
+//   PEC-0140__c5                        → PEC-0140  (conjunto virtual antigo)
+//   PEC-2025-36-BC118A__split_solda_... → PEC-2025-36-BC118A  (split novo)
+function baseIdDe(id) {
+  if (!id) return id;
+  const m1 = String(id).match(/^(.+?)__c\d+$/);
+  if (m1) return m1[1];
+  const m2 = String(id).match(/^(.+?)__split_/);
+  if (m2) return m2[1];
+  return id;
+}
+
+// Lê a tag [QTD:X/Y] que o LancamentoProducaoModal grava em observacoes
+function qtdDeObs(obs) {
+  if (!obs) return null;
+  const m = String(obs).match(/\[QTD:(\d+)\/\d+\]/);
+  return m ? parseInt(m[1], 10) : null;
+}
+
 export function agregarPorEtapa(historico, pecas = []) {
   const etapas = { corte: { unidades: 0, kg: 0 }, fabricacao: { unidades: 0, kg: 0 }, solda: { unidades: 0, kg: 0 }, pintura: { unidades: 0, kg: 0 } };
 
-  // Criar mapa de peças para lookup rápido de peso
+  // Mapa de peças por ID exato + ID base (para fallback quando o histórico
+  // referencia um conjunto virtual ou split)
   const pecaMap = new Map();
   pecas.forEach(p => {
-    pecaMap.set(p.id, {
-      peso: p.peso_total || p.peso_unitario || 0,
-      quantidade: p.quantidade || 1,
-    });
+    const info = {
+      peso_total:    p.peso_total || 0,
+      peso_unitario: p.peso_unitario || (p.peso_total && p.quantidade ? p.peso_total / p.quantidade : (p.peso_total || 0)),
+      quantidade:    p.quantidade || 1,
+    };
+    pecaMap.set(p.id, info);
   });
 
   historico.forEach(h => {
-    // Usar etapa_de (de onde a peça saiu) = etapa que foi CONCLUÍDA
     const etapaOrigem = h.etapa_de;
     const etapaMapeada = ETAPA_DE_MAP[etapaOrigem];
+    if (!etapaMapeada || !etapas[etapaMapeada]) return;
 
-    if (etapaMapeada && etapas[etapaMapeada]) {
-      const pecaInfo = pecaMap.get(h.peca_id);
-      // Usar quantidade REAL da peça (pode ser >1, ex: TC5B = 324 un)
-      const qtd = pecaInfo?.quantidade || 1;
-      etapas[etapaMapeada].unidades += qtd;
-      if (pecaInfo) {
-        etapas[etapaMapeada].kg += pecaInfo.peso;
-      }
+    // Lookup com fallback para ID base
+    const idHist = h.peca_id || '';
+    let pecaInfo = pecaMap.get(idHist);
+    const veioDeConjuntoVirtual = !pecaInfo && /__c\d+$/.test(idHist);
+    if (!pecaInfo) {
+      pecaInfo = pecaMap.get(baseIdDe(idHist));
     }
+    if (!pecaInfo) return; // sem dados da peça, não contabiliza (evita falsa unidade)
+
+    // Quantos conjuntos este registro representa?
+    //   - peca_id terminado em __c<N> → 1 conjunto (modo expandido antigo)
+    //   - observacoes "[QTD:X/Y]" → X conjuntos (modo novo, 1 linha por peça)
+    //   - senão → 1 (default seguro)
+    let qtd;
+    if (veioDeConjuntoVirtual) {
+      qtd = 1;
+    } else {
+      qtd = qtdDeObs(h.observacoes) ?? 1;
+    }
+
+    etapas[etapaMapeada].unidades += qtd;
+    etapas[etapaMapeada].kg       += pecaInfo.peso_unitario * qtd;
   });
 
-  // Calcular valores financeiros
+  // Arredondamento e valor financeiro
   Object.keys(etapas).forEach(etapa => {
     etapas[etapa].kg = Math.round(etapas[etapa].kg * 100) / 100;
     etapas[etapa].valor = calcularValorPorEtapa(etapas[etapa].kg, etapa);
