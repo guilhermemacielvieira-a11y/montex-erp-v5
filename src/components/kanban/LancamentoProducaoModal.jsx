@@ -459,11 +459,23 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
+    // Proteção: só avança se a etapa clicada for >= etapa atual da peça
+    // (clicar em uma etapa passada apenas grava o lançamento, não move)
+    const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
+    const etapaAtualPeca = peca.etapa || 'fabricacao';
+    const idxAtualPeca = ordemKanban.indexOf(etapaAtualPeca);
+    const idxEtapaClick = ordemKanban.indexOf(etapa);
+    if (idxEtapaClick < idxAtualPeca) {
+      // É um lançamento histórico — apenas grava, sem movimentar
+      await salvarUm(peca, etapa);
+      toast.success(`Lançamento histórico de ${ETAPAS.find(e => e.key === etapa)?.label} gravado ✓`);
+      return;
+    }
+
     // 1. Persiste o lançamento (com a quantidade)
     await salvarUm(peca, etapa);
 
     // 2. Determina a próxima etapa do Kanban
-    const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
     const idxAtual = ordemKanban.indexOf(etapa);
     const proxima = ordemKanban[idxAtual + 1];
 
@@ -581,17 +593,36 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       const originalId = peca._originalId || peca.id;
       const total = peca._conjuntoTotal || 1;
       const etapaAtual = peca.etapa || 'fabricacao';
+      const idxAtual = ORDEM_KANBAN.indexOf(etapaAtual);
 
-      // Coleta atribuições com qtd > 0 e etapa != atual
+      // Coleta atribuições com qtd > 0 SOMENTE em etapas À FRENTE da atual.
+      // Atribuições em etapas anteriores são apenas histórico (badge "anterior")
+      // — elas são gravadas no entity_store, mas NÃO disparam split/move.
       const splits = [];
       for (const e of ETAPAS) {
-        if (e.key === etapaAtual) continue;
+        const idxEtapa = ORDEM_KANBAN.indexOf(e.key);
+        if (idxEtapa <= idxAtual) continue; // só etapas futuras
         const lan = lancamentos[chave(peca.id, e.key)];
         if (!lan?.funcionario_id) continue;
         const qtdLan = Math.max(0, Math.min(parseInt(lan.quantidade ?? total, 10) || total, total));
         if (qtdLan > 0) splits.push({ etapa: e.key, qtd: qtdLan, lan });
       }
       if (splits.length === 0) continue;
+
+      // Se há múltiplas etapas-alvo, mantém só a MAIS AVANÇADA (pintura > solda...)
+      // Isso resolve o caso comum de "todos vão para a próxima e mais alguns
+      // continuam ainda mais à frente" — assume que a etapa mais avançada é
+      // a real intenção quando qty é igual. Se o usuário quiser realmente
+      // distribuir entre múltiplas etapas, as qtds somadas serão <= total.
+      const totalSomado = splits.reduce((s, x) => s + x.qtd, 0);
+      if (totalSomado > total) {
+        // Sobrescreve: usa só a etapa mais avançada com qtd=total
+        const maisAvancada = splits.sort((a, b) =>
+          ORDEM_KANBAN.indexOf(b.etapa) - ORDEM_KANBAN.indexOf(a.etapa)
+        )[0];
+        splits.length = 0;
+        splits.push({ ...maisAvancada, qtd: total });
+      }
 
       const totalSaindo = splits.reduce((s, x) => s + x.qtd, 0);
       if (totalSaindo > total) {
