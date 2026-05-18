@@ -375,6 +375,9 @@ export function calcularProgressoObra(obras, pecas) {
     pecasObra.forEach(p => {
       const etapa = p.etapa || 'aguardando';
       const peso = parseFloat(p.peso) || parseFloat(p.pesoTotal) || 0;
+      const corteOk = p.statusCorte === 'finalizado'
+                   || p.status_corte === 'finalizado'
+                   || ['solda','pintura','expedido','enviado','entregue','montagem'].includes(etapa);
       pesoTotalPecas += peso;
 
       switch (etapa) {
@@ -389,9 +392,13 @@ export function calcularProgressoObra(obras, pecas) {
         case 'solda': etapas.solda++; pesoEtapas.solda += peso;
         // falls through
         case 'fabricacao': etapas.fabricacao++; pesoEtapas.fabricacao += peso;
-        // falls through
-        case 'corte': etapas.corte++; pesoEtapas.corte += peso; break;
-        case 'aguardando': default: pesoTotalPecas += 0; break;
+        // Só conta o "corte" como concluído se o status_corte for finalizado.
+        // Peça pode estar em etapa=fabricacao mas com corte ainda aguardando
+        // (caso típico de obra recém-criada).
+        case 'corte':
+          if (corteOk) { etapas.corte++; pesoEtapas.corte += peso; }
+          break;
+        case 'aguardando': default: break;
       }
     });
 
