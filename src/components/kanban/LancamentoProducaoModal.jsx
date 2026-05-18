@@ -459,23 +459,30 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
-    // Proteção: só avança se a etapa clicada for >= etapa atual da peça
-    // (clicar em uma etapa passada apenas grava o lançamento, não move)
+    // Avanço sequencial: só move +1 etapa SE a linha clicada for a ETAPA ATUAL
+    // da peça (concluir a etapa). Linhas passadas (histórico) ou futuras
+    // (pré-atribuição) apenas gravam o lançamento sem movimentar.
     const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
     const etapaAtualPeca = peca.etapa || 'fabricacao';
     const idxAtualPeca = ordemKanban.indexOf(etapaAtualPeca);
     const idxEtapaClick = ordemKanban.indexOf(etapa);
-    if (idxEtapaClick < idxAtualPeca) {
-      // É um lançamento histórico — apenas grava, sem movimentar
+    const label = ETAPAS.find(e => e.key === etapa)?.label || etapa;
+
+    if (idxEtapaClick !== idxAtualPeca) {
+      // Não é a etapa atual → grava sem mover
       await salvarUm(peca, etapa);
-      toast.success(`Lançamento histórico de ${ETAPAS.find(e => e.key === etapa)?.label} gravado ✓`);
+      if (idxEtapaClick < idxAtualPeca) {
+        toast.success(`Lançamento histórico de ${label} gravado ✓`);
+      } else {
+        toast(`Pré-atribuição de ${label} gravada — peça avança quando concluir ${ETAPAS.find(e => e.key === etapaAtualPeca)?.label}`, { icon: '⏳' });
+      }
       return;
     }
 
-    // 1. Persiste o lançamento (com a quantidade)
+    // 1. Persiste o lançamento (com a quantidade) — etapa concluída
     await salvarUm(peca, etapa);
 
-    // 2. Determina a próxima etapa do Kanban
+    // 2. Determina a próxima etapa do Kanban (+1 da atual)
     const idxAtual = ordemKanban.indexOf(etapa);
     const proxima = ordemKanban[idxAtual + 1];
 
@@ -588,41 +595,30 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
-    // ─── 2. SPLIT/MOVE para cada peça baseado em Qtd das atribuições ─────────
+    // ─── 2. MOVE SEQUENCIAL — só +1 etapa por vez, baseado na ETAPA ATUAL ──
+    // Regra: o funcionário lançado na ETAPA ATUAL da peça significa "etapa
+    // concluída" → peça move para a PRÓXIMA etapa do Kanban. Lançamentos em
+    // etapas posteriores (Pintura quando peça está em Solda) são gravados
+    // como pré-atribuição mas NÃO disparam pulo de etapa.
     for (const peca of pecasFiltradas) {
       const originalId = peca._originalId || peca.id;
       const total = peca._conjuntoTotal || 1;
       const etapaAtual = peca.etapa || 'fabricacao';
       const idxAtual = ORDEM_KANBAN.indexOf(etapaAtual);
+      const proxima = ORDEM_KANBAN[idxAtual + 1];
 
-      // Coleta atribuições com qtd > 0 SOMENTE em etapas À FRENTE da atual.
-      // Atribuições em etapas anteriores são apenas histórico (badge "anterior")
-      // — elas são gravadas no entity_store, mas NÃO disparam split/move.
-      const splits = [];
-      for (const e of ETAPAS) {
-        const idxEtapa = ORDEM_KANBAN.indexOf(e.key);
-        if (idxEtapa <= idxAtual) continue; // só etapas futuras
-        const lan = lancamentos[chave(peca.id, e.key)];
-        if (!lan?.funcionario_id) continue;
-        const qtdLan = Math.max(0, Math.min(parseInt(lan.quantidade ?? total, 10) || total, total));
-        if (qtdLan > 0) splits.push({ etapa: e.key, qtd: qtdLan, lan });
-      }
-      if (splits.length === 0) continue;
+      // Sem próxima etapa → última do fluxo, não move
+      if (!proxima) continue;
 
-      // Se há múltiplas etapas-alvo, mantém só a MAIS AVANÇADA (pintura > solda...)
-      // Isso resolve o caso comum de "todos vão para a próxima e mais alguns
-      // continuam ainda mais à frente" — assume que a etapa mais avançada é
-      // a real intenção quando qty é igual. Se o usuário quiser realmente
-      // distribuir entre múltiplas etapas, as qtds somadas serão <= total.
-      const totalSomado = splits.reduce((s, x) => s + x.qtd, 0);
-      if (totalSomado > total) {
-        // Sobrescreve: usa só a etapa mais avançada com qtd=total
-        const maisAvancada = splits.sort((a, b) =>
-          ORDEM_KANBAN.indexOf(b.etapa) - ORDEM_KANBAN.indexOf(a.etapa)
-        )[0];
-        splits.length = 0;
-        splits.push({ ...maisAvancada, qtd: total });
-      }
+      // Atribuição da etapa atual
+      const lan = lancamentos[chave(peca.id, etapaAtual)];
+      if (!lan?.funcionario_id) continue; // sem responsável da etapa atual → não move
+
+      const qtdLan = Math.max(0, Math.min(parseInt(lan.quantidade ?? total, 10) || total, total));
+      if (qtdLan <= 0) continue;
+
+      // Apenas UMA atribuição-alvo: vai da etapa atual para a próxima
+      const splits = [{ etapa: proxima, qtd: qtdLan, lan }];
 
       const totalSaindo = splits.reduce((s, x) => s + x.qtd, 0);
       if (totalSaindo > total) {
@@ -908,25 +904,44 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                           )}
 
                           {/* Etapa */}
-                          <td className={`px-3 py-2 ${isHL ? 'font-semibold' : ''}`}>
-                            <div className={`flex items-center gap-1.5 ${etapa.text}`}>
-                              <EtapaIcon className="h-3.5 w-3.5 flex-shrink-0" />
-                              <span className="text-xs">{etapa.label}</span>
-                              {temFunc && <Check className="h-3 w-3 text-emerald-400 ml-auto" />}
-                            </div>
-                            {/* Badge "lançamento anterior" — quando os dados vieram
-                                do banco (entity_store ou pecas_producao) e não
-                                de uma edição nova nesta sessão */}
-                            {temFunc && lan._origem && (
-                              <div
-                                className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 border border-amber-500/30 text-amber-300"
-                                title={`Lançamento prévio carregado de ${lan._origem === 'entity_store' ? 'entity_store' : 'pecas_producao'}`}
-                              >
-                                <Save className="h-2.5 w-2.5" />
-                                anterior
-                              </div>
-                            )}
-                          </td>
+                          {(() => {
+                            const ordemK = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
+                            const idxL = ordemK.indexOf(etapa.key);
+                            const idxA = ordemK.indexOf(peca.etapa || 'fabricacao');
+                            const isAtual = idxL === idxA;
+                            const isPassada = idxL < idxA;
+                            return (
+                              <td className={`px-3 py-2 ${isHL ? 'font-semibold' : ''} ${isAtual ? 'bg-purple-500/5' : ''}`}>
+                                <div className={`flex items-center gap-1.5 ${etapa.text}`}>
+                                  <EtapaIcon className="h-3.5 w-3.5 flex-shrink-0" />
+                                  <span className="text-xs">{etapa.label}</span>
+                                  {temFunc && <Check className="h-3 w-3 text-emerald-400 ml-auto" />}
+                                </div>
+                                {/* Indicador: ATUAL / PASSADA / lançamento prévio */}
+                                <div className="mt-1 flex flex-wrap gap-1">
+                                  {isAtual && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-purple-500/20 border border-purple-500/40 text-purple-200 font-semibold">
+                                      ● ATUAL
+                                    </span>
+                                  )}
+                                  {isPassada && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-slate-700/40 border border-slate-600/40 text-slate-500">
+                                      ✓ concluída
+                                    </span>
+                                  )}
+                                  {temFunc && lan._origem && (
+                                    <span
+                                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 border border-amber-500/30 text-amber-300"
+                                      title={`Carregado de ${lan._origem}`}
+                                    >
+                                      <Save className="h-2.5 w-2.5" />
+                                      anterior
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          })()}
 
                           {/* Funcionário */}
                           <td className="px-3 py-2">
@@ -1021,30 +1036,43 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                             })()}
                           </td>
 
-                          {/* Avançar para próxima etapa do Kanban */}
+                          {/* Avançar para próxima etapa do Kanban —
+                              só ativo na linha da etapa atual da peça */}
                           {(() => {
                             const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
-                            const idxAtual = ordemKanban.indexOf(etapa.key);
-                            const proxKey = ordemKanban[idxAtual + 1];
+                            const etapaAtualPeca = peca.etapa || 'fabricacao';
+                            const idxLinha = ordemKanban.indexOf(etapa.key);
+                            const idxAtualPeca = ordemKanban.indexOf(etapaAtualPeca);
+                            const proxKey = ordemKanban[idxLinha + 1];
                             const proxLabel = ETAPAS.find(e => e.key === proxKey)?.label;
+                            const isEtapaAtual = idxLinha === idxAtualPeca;
+                            const isPassada = idxLinha < idxAtualPeca;
+                            const isFutura = idxLinha > idxAtualPeca;
+                            const podeAvancar = temFunc && isEtapaAtual && !isSavingRow && !!proxKey;
+
+                            let titulo;
+                            if (!temFunc) titulo = 'Selecione um funcionário primeiro';
+                            else if (isPassada) titulo = 'Esta etapa já foi concluída (lançamento histórico)';
+                            else if (isFutura) titulo = `Peça ainda está em ${ETAPAS.find(e => e.key === etapaAtualPeca)?.label} — finalize primeiro`;
+                            else if (!proxKey) titulo = 'Última etapa — peça concluída';
+                            else titulo = `Salvar e avançar para ${proxLabel}`;
+
                             return (
                               <td className="px-3 py-2 text-center">
                                 <button
                                   onClick={() => salvarEAvancar(peca, etapa.key)}
-                                  disabled={!temFunc || isSavingRow}
+                                  disabled={!podeAvancar}
                                   className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-all ${
-                                    temFunc && !isSavingRow
+                                    podeAvancar
                                       ? 'bg-gradient-to-r from-purple-600/30 to-indigo-600/30 border border-purple-500/40 text-purple-200 hover:from-purple-600/50 hover:to-indigo-600/50 cursor-pointer'
-                                      : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
+                                      : isPassada && temFunc
+                                        ? 'bg-slate-800/40 border border-slate-700/40 text-slate-500'
+                                        : 'bg-slate-800/40 border border-slate-700/40 text-slate-600 cursor-not-allowed'
                                   }`}
-                                  title={
-                                    !temFunc ? 'Selecione um funcionário primeiro'
-                                    : !proxKey ? 'Última etapa — peça concluída'
-                                    : `Salvar e avançar para ${proxLabel}`
-                                  }
+                                  title={titulo}
                                 >
                                   <ArrowRight className="h-3 w-3" />
-                                  {proxKey ? proxLabel : 'Final'}
+                                  {!proxKey ? 'Final' : isEtapaAtual ? proxLabel : isPassada ? '—' : '⏳'}
                                 </button>
                               </td>
                             );
