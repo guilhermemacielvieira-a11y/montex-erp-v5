@@ -596,44 +596,24 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
-    // ─── 2. MOVE SEQUENCIAL — só +1 etapa por vez, baseado na ETAPA ATUAL ──
-    // Regra: o funcionário lançado na ETAPA ATUAL da peça significa "etapa
-    // concluída" → peça move para a PRÓXIMA etapa do Kanban. Lançamentos em
-    // etapas posteriores (Pintura quando peça está em Solda) são gravados
-    // como pré-atribuição mas NÃO disparam pulo de etapa.
+    // ─── 2. CASCADE — desmembramento em cascata etapa-por-etapa ────────────
+    // Algoritmo: para cada peça, itera as etapas a partir da etapa-atual.
+    // A cada iteração:
+    //   - lê a Qtd da etapa atual nos lançamentos
+    //   - se qtd >= restante → move a peça inteira para a próxima etapa
+    //   - se qtd < restante → SPLIT: cria uma peça nova com qtd em next-etapa
+    //                          e reduz a quantidade da peça atual
+    //   - usa o SPLIT (ou a peça movida) como peça-corrente da próxima iteração
+    // Resultado: 70 Fab → 70 Solda, 30 das 70 → Pintura, 30 das 30 → Expedido…
+    // ----------------------------------------------------------------------
     for (const peca of pecasFiltradas) {
       const originalId = peca._originalId || peca.id;
       const total = peca._conjuntoTotal || 1;
-      // 'aguardando' e 'corte' são estados pré-Kanban Produção; no contexto
-      // do modal (que cobre apenas Fab→Solda→Pintura→Expedido→Enviado), uma
-      // peça nesses estados é tratada como se já estivesse em Fabricação
-      // (que é onde aparece visualmente no Kanban Produção).
       const etapaAtualRaw = peca.etapa || 'fabricacao';
-      const etapaAtual = ['aguardando', 'corte'].includes(etapaAtualRaw) ? 'fabricacao' : etapaAtualRaw;
-      const idxAtual = ORDEM_KANBAN.indexOf(etapaAtual);
-      const proxima = ORDEM_KANBAN[idxAtual + 1];
-
-      // Sem próxima etapa → última do fluxo, não move
-      if (!proxima) continue;
-
-      // Atribuição da etapa atual
-      const lan = lancamentos[chave(peca.id, etapaAtual)];
-      if (!lan?.funcionario_id) continue; // sem responsável da etapa atual → não move
-
-      const qtdLan = Math.max(0, Math.min(parseInt(lan.quantidade ?? total, 10) || total, total));
-      if (qtdLan <= 0) continue;
-
-      // Apenas UMA atribuição-alvo: vai da etapa atual para a próxima
-      const splits = [{ etapa: proxima, qtd: qtdLan, lan }];
-
-      const totalSaindo = splits.reduce((s, x) => s + x.qtd, 0);
-      if (totalSaindo > total) {
-        erros.push(`${peca.marca || peca.id}: qtd atribuída (${totalSaindo}) > total (${total})`);
-        continue;
-      }
+      const etapaAtualPeca = ['aguardando', 'corte'].includes(etapaAtualRaw) ? 'fabricacao' : etapaAtualRaw;
 
       try {
-        // Carregar dados completos da peça original
+        // Carrega dados completos da peça original (template para splits)
         const { data: orig } = await client
           .from('pecas_producao').select('*').eq('id', originalId).single();
         if (!orig) {
@@ -642,51 +622,82 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         }
         const pesoUnit = (orig.peso_total || 0) / (orig.quantidade || 1);
 
-        // Caso simples: 1 única atribuição cobrindo TODO o total → move a peça
-        if (splits.length === 1 && splits[0].qtd === total) {
-          const s = splits[0];
-          const update = { etapa: s.etapa, updated_at: new Date().toISOString() };
-          const cf = ETAPA_CAMPO_FUNC[s.etapa];
-          const cd = ETAPA_CAMPO_DATA[s.etapa];
-          if (cf) update[cf] = s.lan.funcionario_id;
-          if (cd && s.lan.data_producao) update[cd] = new Date(s.lan.data_producao).toISOString();
-          await client.from('pecas_producao').update(update).eq('id', originalId);
-          movsOk++;
-          continue;
+        // Estado da iteração — o "current" sempre representa a peça/sub-grupo
+        // que está sendo cascateado adiante
+        let currentId  = originalId;
+        let currentQty = total;
+        let currentEtapa = etapaAtualPeca;
+        let primeiraIteracao = true;
+
+        while (true) {
+          const idxCur = ORDEM_KANBAN.indexOf(currentEtapa);
+          const proxEtapa = ORDEM_KANBAN[idxCur + 1];
+          if (!proxEtapa) break; // chegou ao fim do fluxo
+
+          // Lê a atribuição da etapa atual nos lançamentos (sempre indexado
+          // pelo peca.id original que o usuário vê no modal)
+          const lan = lancamentos[chave(peca.id, currentEtapa)];
+          if (!lan?.funcionario_id) break; // sem responsável aqui → para de cascatear
+
+          const qtdLanRaw = parseInt(lan.quantidade ?? currentQty, 10) || currentQty;
+          const qtdAvancar = Math.max(0, Math.min(qtdLanRaw, currentQty));
+          if (qtdAvancar <= 0) break;
+
+          const cf = ETAPA_CAMPO_FUNC[currentEtapa];
+          const cd = ETAPA_CAMPO_DATA[currentEtapa];
+
+          if (qtdAvancar >= currentQty) {
+            // Move toda a peça-corrente para proxEtapa (sem split)
+            const update = {
+              etapa: proxEtapa,
+              updated_at: new Date().toISOString(),
+            };
+            if (cf) update[cf] = lan.funcionario_id;
+            if (cd && lan.data_producao) update[cd] = new Date(lan.data_producao).toISOString();
+            await client.from('pecas_producao').update(update).eq('id', currentId);
+            movsOk++;
+            // currentId continua o mesmo, currentEtapa avança
+            currentEtapa = proxEtapa;
+          } else {
+            // SPLIT: cria nova peça com qtdAvancar em proxEtapa
+            const novaPeca = { ...orig };
+            delete novaPeca.id;
+            const newId = `${originalId}__split_${proxEtapa}_${Date.now()}_${Math.floor(Math.random()*9999)}`;
+            novaPeca.id = newId;
+            novaPeca.quantidade = qtdAvancar;
+            novaPeca.peso_total = pesoUnit * qtdAvancar;
+            novaPeca.etapa = proxEtapa;
+            novaPeca.created_at = new Date().toISOString();
+            novaPeca.updated_at = new Date().toISOString();
+            if (cf) novaPeca[cf] = lan.funcionario_id;
+            if (cd && lan.data_producao) novaPeca[cd] = new Date(lan.data_producao).toISOString();
+            const { error: insErr } = await client.from('pecas_producao').insert(novaPeca);
+            if (insErr) throw insErr;
+            splitsOk++;
+
+            // Reduz a peça-corrente (que fica em currentEtapa)
+            const qtdRestanteCorrente = currentQty - qtdAvancar;
+            if (qtdRestanteCorrente === 0) {
+              await client.from('pecas_producao').delete().eq('id', currentId);
+            } else {
+              await client.from('pecas_producao').update({
+                quantidade: qtdRestanteCorrente,
+                peso_total: pesoUnit * qtdRestanteCorrente,
+                updated_at: new Date().toISOString(),
+              }).eq('id', currentId);
+            }
+
+            // O "current" agora é a peça split que acabou de ser criada
+            currentId    = newId;
+            currentQty   = qtdAvancar;
+            currentEtapa = proxEtapa;
+          }
+          primeiraIteracao = false;
         }
 
-        // Senão: SPLITS — cria uma nova peça por atribuição parcial
-        for (const s of splits) {
-          const novaPeca = { ...orig };
-          delete novaPeca.id;
-          novaPeca.id = `${originalId}__split_${s.etapa}_${Date.now()}_${Math.floor(Math.random()*999)}`;
-          novaPeca.quantidade = s.qtd;
-          novaPeca.peso_total = pesoUnit * s.qtd;
-          novaPeca.etapa = s.etapa;
-          novaPeca.created_at = new Date().toISOString();
-          novaPeca.updated_at = new Date().toISOString();
-          const cf = ETAPA_CAMPO_FUNC[s.etapa];
-          const cd = ETAPA_CAMPO_DATA[s.etapa];
-          if (cf) novaPeca[cf] = s.lan.funcionario_id;
-          if (cd && s.lan.data_producao) novaPeca[cd] = new Date(s.lan.data_producao).toISOString();
-          const { error: insErr } = await client.from('pecas_producao').insert(novaPeca);
-          if (insErr) throw insErr;
-          splitsOk++;
-        }
-
-        // Ajusta a peça original com o que sobrou
-        const qtdRestante = total - totalSaindo;
-        if (qtdRestante === 0) {
-          await client.from('pecas_producao').delete().eq('id', originalId);
-        } else if (qtdRestante < total) {
-          await client.from('pecas_producao').update({
-            quantidade: qtdRestante,
-            peso_total: pesoUnit * qtdRestante,
-            updated_at: new Date().toISOString(),
-          }).eq('id', originalId);
-        }
+        if (primeiraIteracao) continue;
       } catch (e) {
-        erros.push(`split ${originalId}: ${e?.message || 'erro'}`);
+        erros.push(`cascade ${originalId}: ${e?.message || 'erro'}`);
       }
     }
 
