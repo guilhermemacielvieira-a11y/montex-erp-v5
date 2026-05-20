@@ -32,6 +32,7 @@ import {
 
 // Contexto ERP e Database
 import { useObras, useProducao } from '@/contexts/ERPContext';
+import { supabase } from '@/api/supabaseClient';
 // FuncionarioSelectorModal removido — substituído pelo LancamentoProducaoModal completo
 import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
@@ -376,6 +377,61 @@ export default function KanbanProducaoIntegrado() {
     setPecasLancamento([conjunto]);
     setEtapaLancamento(novoStatus || conjunto.status || 'fabricacao');
     setModalLancamento(true);
+  };
+
+  // ─── DESMEMBRAR peça com qty > 1 em N peças individuais (qty=1 cada) ─────
+  // Cria N novas rows em pecas_producao herdando todos os campos da original,
+  // cada uma com quantidade=1, peso_total=peso_unitario e ID único.
+  // A peça original é apagada. Cada unidade vira um card independente no
+  // Kanban e pode seguir seu próprio fluxo de etapa.
+  const [desmembrandoId, setDesmembrandoId] = useState(null);
+  const desmembrarConjunto = async (conjuntoId) => {
+    const conjunto = producaoFabrica.find(c => c.id === conjuntoId);
+    if (!conjunto) return;
+    const qtd = parseInt(conjunto.quantidade) || 1;
+    if (qtd <= 1) {
+      toast.error('Peça já tem quantidade=1');
+      return;
+    }
+    if (!window.confirm(`Desmembrar ${conjunto.conjunto || conjuntoId} em ${qtd} peças individuais?\n\nIsso cria ${qtd} cards independentes no Kanban e remove a peça original.`)) {
+      return;
+    }
+
+    setDesmembrandoId(conjuntoId);
+    try {
+      // Buscar dados completos da peça original
+      const { data: orig, error: errOrig } = await supabase
+        .from('pecas_producao').select('*').eq('id', conjuntoId).single();
+      if (errOrig || !orig) throw new Error('Peça não encontrada');
+
+      const pesoUnit = orig.peso_unitario || (orig.peso_total / qtd) || 0;
+      const novas = [];
+      for (let i = 1; i <= qtd; i++) {
+        const nova = { ...orig };
+        delete nova.id;
+        nova.id = `${conjuntoId}__u${String(i).padStart(3, '0')}`;
+        nova.quantidade = 1;
+        nova.peso_total = pesoUnit;
+        nova.peso_unitario = pesoUnit;
+        nova.created_at = new Date().toISOString();
+        nova.updated_at = new Date().toISOString();
+        novas.push(nova);
+      }
+
+      // Inserir as novas em batch e remover a original
+      const { error: errIns } = await supabase.from('pecas_producao').insert(novas);
+      if (errIns) throw errIns;
+      const { error: errDel } = await supabase.from('pecas_producao').delete().eq('id', conjuntoId);
+      if (errDel) throw errDel;
+
+      toast.success(`${qtd} peças individuais criadas a partir de ${conjunto.conjunto || conjuntoId}`);
+      try { await reloadPecas?.(); } catch (_) {}
+    } catch (e) {
+      console.error('[Kanban] Erro ao desmembrar:', e);
+      toast.error('Erro ao desmembrar: ' + (e?.message || ''));
+    } finally {
+      setDesmembrandoId(null);
+    }
   };
 
   // Confirmar quantidade parcial → abrir seleção de funcionário
@@ -1395,6 +1451,18 @@ export default function KanbanProducaoIntegrado() {
                           </span>
                         </div>
 
+                        {/* Botão DESMEMBRAR (só peças com qty > 1) */}
+                        {(parseInt(conjunto.quantidade) || 1) > 1 && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); desmembrarConjunto(conjunto.id); }}
+                            disabled={desmembrandoId === conjunto.id}
+                            title={`Desmembrar em ${conjunto.quantidade} cards individuais (1 por unidade)`}
+                            className="w-full mt-2 px-2 py-1 rounded-md text-[10px] font-medium bg-cyan-500/15 border border-cyan-500/30 text-cyan-300 hover:bg-cyan-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
+                          >
+                            {desmembrandoId === conjunto.id ? '⏳ desmembrando...' : `⇲ Desmembrar (${conjunto.quantidade})`}
+                          </button>
+                        )}
+
                         {/* Link Detalhamento EM */}
                         {(() => {
                           const info = getEMInfoByConjunto(conjunto.conjunto);
@@ -1800,6 +1868,14 @@ export default function KanbanProducaoIntegrado() {
                                 onClick={(e) => { e.stopPropagation(); moverConjunto(conjunto.id, proximaColuna.id); }}>
                                 <ArrowRight className="h-3 w-3 mr-1" />
                                 Avançar
+                              </Button>
+                            )}
+                            {(parseInt(conjunto.quantidade) || 1) > 1 && (
+                              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs text-cyan-400 hover:text-cyan-300"
+                                disabled={desmembrandoId === conjunto.id}
+                                onClick={(e) => { e.stopPropagation(); desmembrarConjunto(conjunto.id); }}
+                                title={`Desmembrar em ${conjunto.quantidade} cards individuais`}>
+                                ⇲ Desmembrar
                               </Button>
                             )}
                           </div>
