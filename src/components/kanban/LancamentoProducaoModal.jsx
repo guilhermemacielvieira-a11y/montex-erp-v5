@@ -463,7 +463,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     // da peça (concluir a etapa). Linhas passadas (histórico) ou futuras
     // (pré-atribuição) apenas gravam o lançamento sem movimentar.
     const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
-    const etapaAtualPeca = peca.etapa || 'fabricacao';
+    const etapaRaw = peca.etapa || 'fabricacao';
+    const etapaAtualPeca = ['aguardando', 'corte'].includes(etapaRaw) ? 'fabricacao' : etapaRaw;
     const idxAtualPeca = ordemKanban.indexOf(etapaAtualPeca);
     const idxEtapaClick = ordemKanban.indexOf(etapa);
     const label = ETAPAS.find(e => e.key === etapa)?.label || etapa;
@@ -603,7 +604,12 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     for (const peca of pecasFiltradas) {
       const originalId = peca._originalId || peca.id;
       const total = peca._conjuntoTotal || 1;
-      const etapaAtual = peca.etapa || 'fabricacao';
+      // 'aguardando' e 'corte' são estados pré-Kanban Produção; no contexto
+      // do modal (que cobre apenas Fab→Solda→Pintura→Expedido→Enviado), uma
+      // peça nesses estados é tratada como se já estivesse em Fabricação
+      // (que é onde aparece visualmente no Kanban Produção).
+      const etapaAtualRaw = peca.etapa || 'fabricacao';
+      const etapaAtual = ['aguardando', 'corte'].includes(etapaAtualRaw) ? 'fabricacao' : etapaAtualRaw;
       const idxAtual = ORDEM_KANBAN.indexOf(etapaAtual);
       const proxima = ORDEM_KANBAN[idxAtual + 1];
 
@@ -907,7 +913,9 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                           {(() => {
                             const ordemK = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
                             const idxL = ordemK.indexOf(etapa.key);
-                            const idxA = ordemK.indexOf(peca.etapa || 'fabricacao');
+                            const _eRaw = peca.etapa || 'fabricacao';
+                            const _eNorm = ['aguardando', 'corte'].includes(_eRaw) ? 'fabricacao' : _eRaw;
+                            const idxA = ordemK.indexOf(_eNorm);
                             const isAtual = idxL === idxA;
                             const isPassada = idxL < idxA;
                             return (
@@ -1040,7 +1048,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                               só ativo na linha da etapa atual da peça */}
                           {(() => {
                             const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
-                            const etapaAtualPeca = peca.etapa || 'fabricacao';
+                            const _eRaw2 = peca.etapa || 'fabricacao';
+                            const etapaAtualPeca = ['aguardando', 'corte'].includes(_eRaw2) ? 'fabricacao' : _eRaw2;
                             const idxLinha = ordemKanban.indexOf(etapa.key);
                             const idxAtualPeca = ordemKanban.indexOf(etapaAtualPeca);
                             const proxKey = ordemKanban[idxLinha + 1];
