@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -8,12 +8,22 @@ import { Label } from '@/components/ui/label';
 import { AlertCircle, Eye, EyeOff, Lock, Mail, HardHat } from 'lucide-react';
 
 export default function LoginPage() {
-  const { login, isLoadingAuth } = useAuth();
+  const { login, isLoadingAuth, isAuthenticated } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // Se já está autenticado (visitou /login direto após login OK), redireciona para home
+  useEffect(() => {
+    if (isAuthenticated) {
+      const destino = location.state?.from?.pathname || '/';
+      navigate(destino, { replace: true });
+    }
+  }, [isAuthenticated, navigate, location.state]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -39,9 +49,9 @@ export default function LoginPage() {
         setError(msg);
       }
     } else {
-      // Login OK — React state já foi atualizado pelo AuthContext
-      // Não precisa de redirect, o componente re-renderiza automaticamente
-      console.log('✅ Login bem-sucedido! Dashboard carregando...');
+      // Login OK — navegar para home imediatamente (não esperar re-render passivo)
+      const destino = location.state?.from?.pathname || '/';
+      navigate(destino, { replace: true });
     }
   };
 

@@ -4,7 +4,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter as Router, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useLocation, Navigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -42,14 +42,18 @@ const AuthenticatedApp = () => {
     }
   }, [isLoadingAuth, isLoadingPublicSettings]);
 
-  // Rotas públicas
+  // Rotas públicas (forgot/reset sempre disponíveis)
   if (location.pathname === '/forgot-password') {
     return <ForgotPasswordPage />;
   }
   if (location.pathname === '/reset-password') {
     return <ResetPasswordPage />;
   }
+  // /login: se já autenticado, redireciona para home; se não, mostra LoginPage
   if (location.pathname === '/login') {
+    if (isAuthenticated) {
+      return <Navigate to="/" replace />;
+    }
     return <LoginPage />;
   }
 
