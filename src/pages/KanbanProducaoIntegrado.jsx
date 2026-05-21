@@ -379,6 +379,61 @@ export default function KanbanProducaoIntegrado() {
     setModalLancamento(true);
   };
 
+  // ─── VOLTAR ETAPA: regride a peça para a etapa anterior diretamente no banco ─────
+  // Diferente de moverConjunto (que abre modal de lançamento), esse só atualiza
+  // pecas_producao.etapa e registra em producao_historico. Sem modal.
+  const ORDEM_ETAPAS = ['aguardando', 'fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
+  const [voltandoId, setVoltandoId] = useState(null);
+  const voltarEtapaDireto = async (conjuntoId, etapaDestino = null) => {
+    const conjunto = producaoFabrica.find(c => c.id === conjuntoId)
+      || pecasEnviadasColuna?.find(c => c.id === conjuntoId);
+    if (!conjunto) { toast.error('Peça não encontrada'); return; }
+
+    const etapaAtual = conjunto.etapa || conjunto.status || 'aguardando';
+    const idxAtual = ORDEM_ETAPAS.indexOf(etapaAtual);
+    const destino = etapaDestino || (idxAtual > 0 ? ORDEM_ETAPAS[idxAtual - 1] : null);
+
+    if (!destino) { toast.error('Já está na primeira etapa'); return; }
+    if (idxAtual <= 0) { toast.error('Já está na primeira etapa'); return; }
+
+    const qtd = parseInt(conjunto.quantidade) || 1;
+    if (!window.confirm(
+      `Voltar ${conjunto.conjunto || conjuntoId} (${qtd} un) de "${etapaAtual.toUpperCase()}" para "${destino.toUpperCase()}"?\n\nA peça volta no Kanban e o histórico fica registrado.`
+    )) return;
+
+    setVoltandoId(conjuntoId);
+    try {
+      // 1) Atualizar etapa em pecas_producao
+      const { error: errUpd } = await supabase
+        .from('pecas_producao')
+        .update({ etapa: destino, status: 'em_producao', updated_at: new Date().toISOString() })
+        .eq('id', conjuntoId);
+      if (errUpd) throw errUpd;
+
+      // 2) Registrar histórico
+      try {
+        await supabase.from('producao_historico').insert([{
+          id: `HIST-VOLT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+          peca_id: conjuntoId,
+          etapa_de: etapaAtual,
+          etapa_para: destino,
+          funcionario_id: null,
+          funcionario_nome: 'Reversão manual (admin)',
+          data_inicio: new Date().toISOString(),
+          observacoes: `Voltou de ${etapaAtual} → ${destino} via botão Kanban (${qtd} un)`,
+        }]);
+      } catch (_) { /* histórico é opcional */ }
+
+      toast.success(`${conjunto.conjunto || conjuntoId} voltou para ${destino.toUpperCase()}`);
+      try { await reloadPecas?.(); } catch (_) {}
+    } catch (e) {
+      console.error('[Kanban] Erro ao voltar etapa:', e);
+      toast.error('Erro ao voltar etapa: ' + (e?.message || ''));
+    } finally {
+      setVoltandoId(null);
+    }
+  };
+
   // ─── DESMEMBRAR peça com qty > 1 em N peças individuais (qty=1 cada) ─────
   // Cria N novas rows em pecas_producao herdando todos os campos da original,
   // cada uma com quantidade=1, peso_total=peso_unitario e ID único.
@@ -1646,6 +1701,26 @@ export default function KanbanProducaoIntegrado() {
                         {peca.obraNome && (
                           <p className="text-[10px] text-slate-600 mt-1 truncate">{peca.obraNome}</p>
                         )}
+                        {/* Ações: voltar etapa (regredir manualmente) */}
+                        <div className="flex gap-1 mt-2 pt-2 border-t border-teal-700/20">
+                          <button
+                            className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 transition-colors border border-dashed border-orange-700/30 hover:border-orange-600/50 disabled:opacity-50"
+                            disabled={voltandoId === peca.id}
+                            onClick={(e) => { e.stopPropagation(); voltarEtapaDireto(peca.id, 'solda'); }}
+                            title="Voltar manualmente para etapa Solda (atualiza direto no banco)"
+                          >
+                            <ArrowLeft className="h-3 w-3" />
+                            {voltandoId === peca.id ? 'voltando...' : '↩ Voltar p/ Solda'}
+                          </button>
+                          <button
+                            className="flex items-center justify-center px-2 py-1 rounded-lg text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 transition-colors border border-dashed border-slate-600/30"
+                            disabled={voltandoId === peca.id}
+                            onClick={(e) => { e.stopPropagation(); voltarEtapaDireto(peca.id, 'pintura'); }}
+                            title="Voltar manualmente para etapa Pintura"
+                          >
+                            ↩ Pintura
+                          </button>
+                        </div>
                       </motion.div>
                     ))}
                   </AnimatePresence>
