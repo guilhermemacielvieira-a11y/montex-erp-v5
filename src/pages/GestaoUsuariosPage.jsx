@@ -583,13 +583,48 @@ function TabSenhas({ users, toast, currentUser }) {
       if (!authId) {
         throw new Error('Usuário sem auth_id vinculado — não é possível redefinir senha');
       }
-      // ✅ Método correto do SDK admin é updateUserById, não updateUser
-      const { data: updated, error } = await supabaseAdmin.auth.admin.updateUserById(
-        authId,
-        { password: newPw }
-      );
-      if (error) throw error;
-      if (!updated?.user?.id) throw new Error('Falha ao atualizar senha — resposta vazia do servidor');
+
+      console.log('[RESET-SENHA] Iniciando reset:', { email: selectedUser.email, authId, newPwLen: newPw.length });
+      console.log('[RESET-SENHA] supabaseAdmin existe?', !!supabaseAdmin);
+
+      // ✅ Método correto do SDK admin é updateUserById (não updateUser)
+      // Fallback: se SDK falhar silenciosamente, chama REST API diretamente
+      let updated = null;
+      let sdkError = null;
+      try {
+        const result = await supabaseAdmin.auth.admin.updateUserById(authId, { password: newPw });
+        updated = result.data;
+        sdkError = result.error;
+        console.log('[RESET-SENHA] Resposta SDK:', { updated, sdkError });
+      } catch (e) {
+        console.error('[RESET-SENHA] SDK lançou exception:', e);
+        sdkError = e;
+      }
+
+      // Se SDK não retornou user.id válido, tenta via REST direto como fallback
+      if (sdkError || !updated?.user?.id) {
+        console.warn('[RESET-SENHA] SDK falhou, tentando REST direto...');
+        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
+        const SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
+          || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
+        const restRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${authId}`, {
+          method: 'PUT',
+          headers: {
+            'apikey': SERVICE_KEY,
+            'Authorization': `Bearer ${SERVICE_KEY}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ password: newPw }),
+        });
+        const restJson = await restRes.json().catch(() => ({}));
+        console.log('[RESET-SENHA] REST direto:', { status: restRes.status, body: restJson });
+        if (!restRes.ok || !restJson.id) {
+          throw new Error(`Falha REST: ${restRes.status} — ${restJson.msg || restJson.error || sdkError?.message || 'sem detalhes'}`);
+        }
+        updated = { user: restJson };
+      }
+
+      console.log('[RESET-SENHA] Sucesso! User atualizado:', updated.user.email, 'updated_at:', updated.user.updated_at);
       await logAudit('reset_password', `Senha redefinida para: ${selectedUser.email}`, currentUser);
       toast(`Senha de ${selectedUser.nome || selectedUser.email} redefinida com sucesso!`, 'success');
       setNewPw(''); setConfirmPw(''); setSelectedId('');
