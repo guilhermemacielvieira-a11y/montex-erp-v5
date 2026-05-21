@@ -590,6 +590,26 @@ export default function DespesasPage() {
 
   const handleApagarDespesa = async (id) => {
     try {
+      // 🔒 TRAVA: bloqueio extra para despesas vinculadas a obras
+      // (Gestão Financeira de Obra é independente das despesas da fábrica).
+      // Se a despesa tem obra_id, exige confirmação dupla explícita.
+      const alvo = lancamentosSupabase.find(l => l.id === id);
+      const obraVinc = alvo?.obra_id || alvo?.obraId;
+      if (obraVinc) {
+        const obraNome = obrasMap?.[obraVinc] || obraVinc;
+        const ok = window.confirm(
+          `⚠️ ATENÇÃO — Despesa vinculada à obra "${obraNome}"\n\n` +
+          `Esta despesa pertence à Gestão Financeira da Obra (não é da fábrica).\n` +
+          `Confirma a exclusão definitiva?\n\n` +
+          `Descrição: ${alvo?.descricao || '?'}\n` +
+          `Valor: R$ ${(alvo?.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+        );
+        if (!ok) {
+          toast.info('Exclusão cancelada — despesa de obra preservada');
+          setDeleteConfirmId(null);
+          return;
+        }
+      }
       await deleteLancamento(id);
       toast.success('Despesa removida!');
     } catch (err) {
