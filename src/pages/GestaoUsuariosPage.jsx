@@ -584,26 +584,19 @@ function TabSenhas({ users, toast, currentUser }) {
         throw new Error('Usuário sem auth_id vinculado — não é possível redefinir senha');
       }
 
-      console.log('[RESET-SENHA] Iniciando reset:', { email: selectedUser.email, authId, newPwLen: newPw.length });
-      console.log('[RESET-SENHA] supabaseAdmin existe?', !!supabaseAdmin);
-
       // ✅ Método correto do SDK admin é updateUserById (não updateUser)
-      // Fallback: se SDK falhar silenciosamente, chama REST API diretamente
+      // Fallback REST mantido: se SDK falhar silenciosamente, chama REST API diretamente
       let updated = null;
       let sdkError = null;
       try {
         const result = await supabaseAdmin.auth.admin.updateUserById(authId, { password: newPw });
         updated = result.data;
         sdkError = result.error;
-        console.log('[RESET-SENHA] Resposta SDK:', { updated, sdkError });
       } catch (e) {
-        console.error('[RESET-SENHA] SDK lançou exception:', e);
         sdkError = e;
       }
 
-      // Se SDK não retornou user.id válido, tenta via REST direto como fallback
       if (sdkError || !updated?.user?.id) {
-        console.warn('[RESET-SENHA] SDK falhou, tentando REST direto...');
         const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
         const SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
           || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
@@ -617,14 +610,12 @@ function TabSenhas({ users, toast, currentUser }) {
           body: JSON.stringify({ password: newPw }),
         });
         const restJson = await restRes.json().catch(() => ({}));
-        console.log('[RESET-SENHA] REST direto:', { status: restRes.status, body: restJson });
         if (!restRes.ok || !restJson.id) {
           throw new Error(`Falha REST: ${restRes.status} — ${restJson.msg || restJson.error || sdkError?.message || 'sem detalhes'}`);
         }
         updated = { user: restJson };
       }
 
-      console.log('[RESET-SENHA] Sucesso! User atualizado:', updated.user.email, 'updated_at:', updated.user.updated_at);
       await logAudit('reset_password', `Senha redefinida para: ${selectedUser.email}`, currentUser);
       toast(`Senha de ${selectedUser.nome || selectedUser.email} redefinida com sucesso!`, 'success');
       setNewPw(''); setConfirmPw(''); setSelectedId('');
@@ -679,6 +670,10 @@ function TabSenhas({ users, toast, currentUser }) {
           <div className="relative">
             <input type={showPw ? 'text' : 'password'} value={newPw} onChange={e => setNewPw(e.target.value)}
               placeholder="Mínimo 6 caracteres"
+              autoComplete="new-password"
+              spellCheck={false}
+              data-lpignore="true"
+              data-1p-ignore="true"
               className="w-full bg-slate-800 border border-slate-600 rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50 pr-20"/>
             <div className="absolute right-1.5 top-1/2 -translate-y-1/2 flex gap-1">
               <button type="button" onClick={() => setShowPw(s => !s)} className="p-1.5 text-slate-400 hover:text-white rounded-lg">
@@ -705,6 +700,10 @@ function TabSenhas({ users, toast, currentUser }) {
           <label className="block text-sm font-medium text-slate-300 mb-1.5">Confirmar Senha <span className="text-red-400">*</span></label>
           <input type="password" value={confirmPw} onChange={e => setConfirmPw(e.target.value)}
             placeholder="Repita a nova senha"
+            autoComplete="new-password"
+            spellCheck={false}
+            data-lpignore="true"
+            data-1p-ignore="true"
             className={`w-full bg-slate-800 border rounded-xl px-3 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/50
               ${confirmPw && confirmPw !== newPw ? 'border-red-500' : 'border-slate-600'}`}/>
           {confirmPw && confirmPw !== newPw && <p className="text-xs text-red-400 mt-1">As senhas não conferem</p>}
