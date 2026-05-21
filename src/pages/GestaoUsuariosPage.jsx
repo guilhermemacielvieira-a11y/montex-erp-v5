@@ -575,16 +575,21 @@ function TabSenhas({ users, toast, currentUser }) {
     if (newPw !== confirmPw) { toast('As senhas não conferem', 'error'); return; }
     setLoading(true);
     try {
-      // Use supabaseAdmin for auth operations
-      const adminClient = supabaseAdmin || supabase;
-      if (selectedUser.auth_id) {
-        const { error } = await adminClient.auth.admin.updateUser(selectedUser.auth_id, { password: newPw });
-        if (error) throw error;
-      } else {
-        // No auth_id stored — update via email
-        const { error } = await adminClient.auth.admin.updateUser(selectedUser.id, { password: newPw });
-        if (error) throw error;
+      // Use supabaseAdmin para operações de auth (service_role obrigatório)
+      if (!supabaseAdmin) {
+        throw new Error('Service role key não configurada — configure VITE_SUPABASE_SERVICE_KEY no .env');
       }
+      const authId = selectedUser.auth_id || selectedUser.id;
+      if (!authId) {
+        throw new Error('Usuário sem auth_id vinculado — não é possível redefinir senha');
+      }
+      // ✅ Método correto do SDK admin é updateUserById, não updateUser
+      const { data: updated, error } = await supabaseAdmin.auth.admin.updateUserById(
+        authId,
+        { password: newPw }
+      );
+      if (error) throw error;
+      if (!updated?.user?.id) throw new Error('Falha ao atualizar senha — resposta vazia do servidor');
       await logAudit('reset_password', `Senha redefinida para: ${selectedUser.email}`, currentUser);
       toast(`Senha de ${selectedUser.nome || selectedUser.email} redefinida com sucesso!`, 'success');
       setNewPw(''); setConfirmPw(''); setSelectedId('');

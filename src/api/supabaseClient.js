@@ -282,7 +282,10 @@ export const configMedicaoApi = createCrud('config_medicao', 'id', { useAdmin: t
 // ============================================
 
 export async function getAllUserProfiles() {
-  const { data, error } = await supabase
+  // user_profiles tem RLS que esconde linhas para usuários não-admin.
+  // Usar supabaseAdmin para garantir leitura completa no módulo de Gestão.
+  const client = supabaseAdmin || supabase;
+  const { data, error } = await client
     .from('user_profiles')
     .select('*')
     .order('role', { ascending: true });
@@ -291,13 +294,17 @@ export async function getAllUserProfiles() {
 }
 
 export async function updateUserProfile(id, updates) {
-  const { data, error } = await supabase
+  // RLS em user_profiles pode bloquear update vindo do cliente anônimo.
+  // Usar supabaseAdmin (service_role) garante a persistência.
+  const client = supabaseAdmin || supabase;
+  const { data, error } = await client
     .from('user_profiles')
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq('id', id)
     .select()
     .single();
   if (error) throw error;
+  if (!data) throw new Error('Update não retornou dados — verifique RLS policies em user_profiles');
   return data;
 }
 
