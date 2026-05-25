@@ -258,8 +258,9 @@ export function useProducaoAnalytics(options = {}) {
       }
     });
 
-    // Calcular ranking (por total de unidades, decrescente)
-    comDados.sort((a, b) => b.totais.unidades - a.totais.unidades);
+    // Calcular ranking (por peças únicas trabalhadas, decrescente)
+    // Usa unidadesUnicas (sem duplicar peças que passaram por várias etapas)
+    comDados.sort((a, b) => (b.totais.unidadesUnicas || b.totais.unidades) - (a.totais.unidadesUnicas || a.totais.unidades));
     comDados.forEach((f, i) => { f.ranking = i + 1; });
 
     return { comDados, semDados };

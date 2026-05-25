@@ -114,6 +114,12 @@ export function agregarPorEtapa(historico, pecas = []) {
     pecaMap.set(p.id, info);
   });
 
+  // 🔢 Tracking de PEÇAS ÚNICAS trabalhadas (sem duplicação por etapa)
+  // qtdMaxPorPeca[pecaId] = MAX qtd movimentada (uma peça que passa por fab+solda+pintura
+  // ainda é UMA peça, não 3).
+  const qtdMaxPorPeca = {};
+  const pesoMaxPorPeca = {};
+
   historico.forEach(h => {
     const etapaOrigem = h.etapa_de;
     const etapaMapeada = ETAPA_DE_MAP[etapaOrigem];
@@ -141,6 +147,12 @@ export function agregarPorEtapa(historico, pecas = []) {
 
     etapas[etapaMapeada].unidades += qtd;
     etapas[etapaMapeada].kg       += pecaInfo.peso_unitario * qtd;
+
+    // Tracking peças únicas (key = base do peca_id para juntar splits)
+    const key = baseIdDe(idHist) || idHist;
+    const pesoUnit = pecaInfo.peso_unitario || 0;
+    qtdMaxPorPeca[key] = Math.max(qtdMaxPorPeca[key] || 0, qtd);
+    pesoMaxPorPeca[key] = Math.max(pesoMaxPorPeca[key] || 0, pesoUnit * qtd);
   });
 
   // Arredondamento e valor financeiro
@@ -148,6 +160,16 @@ export function agregarPorEtapa(historico, pecas = []) {
     etapas[etapa].kg = Math.round(etapas[etapa].kg * 100) / 100;
     etapas[etapa].valor = calcularValorPorEtapa(etapas[etapa].kg, etapa);
   });
+
+  // Metadados de peças únicas (não duplica por etapa)
+  const unidadesUnicas = Object.values(qtdMaxPorPeca).reduce((s, q) => s + q, 0);
+  const pesoUnicasKg  = Math.round(Object.values(pesoMaxPorPeca).reduce((s, p) => s + p, 0) * 100) / 100;
+
+  etapas._meta = {
+    pecasUnicas:    Object.keys(qtdMaxPorPeca).length, // nº de pecaIds distintos
+    unidadesUnicas,                                     // soma de qtd por peça única (sem duplicar)
+    pesoUnicasKg,
+  };
 
   return etapas;
 }
@@ -212,18 +234,28 @@ export function contabilizarCumulativo(pecas = []) {
  * @returns {Object} Totais consolidados
  */
 export function calcularTotais(porEtapa) {
-  let totalUnidades = 0;
+  let totalUnidades = 0;       // soma TAREFAS (1 peça x 4 etapas = 4)
   let totalKg = 0;
   let totalValor = 0;
 
-  Object.values(porEtapa).forEach(e => {
+  Object.entries(porEtapa).forEach(([key, e]) => {
+    if (key.startsWith('_')) return; // pula campos meta
     totalUnidades += e.unidades;
     totalKg += e.kg;
     totalValor += e.valor || 0;
   });
 
+  // Peças únicas (sem duplicar por etapa) — vem do meta gerado em agregarPorEtapa
+  const meta = porEtapa._meta || {};
+  const unidadesUnicas = meta.unidadesUnicas || 0;
+  const pecasUnicas   = meta.pecasUnicas || 0;
+  const pesoUnicasKg  = meta.pesoUnicasKg || 0;
+
   return {
-    unidades: totalUnidades,
+    unidades: totalUnidades,           // tarefas (compatibilidade — usado em ranking interno)
+    unidadesUnicas,                    // 🔢 peças únicas trabalhadas (sem duplicação)
+    pecasUnicas,                       // nº de peca_ids distintos
+    pesoUnicasKg,                      // peso de peças únicas
     kg: Math.round(totalKg * 100) / 100,
     valorTotal: Math.round(totalValor * 100) / 100,
   };

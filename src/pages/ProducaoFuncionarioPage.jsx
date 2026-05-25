@@ -361,7 +361,7 @@ function RankingSetorCard({ titulo, icon: Icon, color, performers, bgGradient, b
 
   const chartData = performers.slice(0, 5).map(f => ({
     nome: f.nome?.split(' ')[0] || '?',
-    unidades: f.totais?.unidades || 0,
+    unidades: f.totais?.unidadesUnicas || f.totais?.unidades || 0,
     kg: Math.round(f.totais?.kg || 0),
   }));
 
@@ -398,7 +398,7 @@ function RankingSetorCard({ titulo, icon: Icon, color, performers, bgGradient, b
                 <p className="text-[10px] text-slate-500">{f.cargo}</p>
               </div>
               <div className="text-right">
-                <p className="text-base font-black text-white">{(f.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
+                <p className="text-base font-black text-white">{(f.totais?.unidadesUnicas || f.totais?.unidades || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-slate-400 font-normal">pcs</span></p>
                 <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)}</p>
               </div>
               {getTendenciaIcon(f.tendencia)}
@@ -453,7 +453,7 @@ function TopPerformersSection({ performers }) {
   // Ranking geral
   const chartDataGeral = performers.slice(0, 8).map(f => ({
     nome: f.nome?.split(' ')[0] || '?',
-    unidades: f.totais?.unidades || 0,
+    unidades: f.totais?.unidadesUnicas || f.totais?.unidades || 0,
     kg: Math.round(f.totais?.kg || 0),
   }));
 
@@ -492,8 +492,8 @@ function TopPerformersSection({ performers }) {
                     <p className="text-[10px] text-slate-500">{f.cargo} · {f.equipeNome || f.setor || '-'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-black text-white">{(f.totais?.unidades || 0).toLocaleString('pt-BR')}</p>
-                    <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)}</p>
+                    <p className="text-lg font-black text-white">{(f.totais?.unidadesUnicas || f.totais?.unidades || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-slate-400 font-normal">pcs</span></p>
+                    <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)} · {(f.totais?.unidades || 0).toLocaleString('pt-BR')} tarefas</p>
                   </div>
                   {getTendenciaIcon(f.tendencia)}
                 </motion.div>
@@ -1540,7 +1540,7 @@ export default function ProducaoFuncionarioPage() {
     if (filtroSetor !== 'todos') lista = lista.filter(f => f.setor === filtroSetor);
     switch (ordenacao) {
       case 'ranking': lista.sort((a, b) => a.ranking - b.ranking); break;
-      case 'unidades': lista.sort((a, b) => (b.totais?.unidades || 0) - (a.totais?.unidades || 0)); break;
+      case 'unidades': lista.sort((a, b) => (b.totais?.unidadesUnicas || b.totais?.unidades || 0) - (a.totais?.unidadesUnicas || a.totais?.unidades || 0)); break;
       case 'kg': lista.sort((a, b) => (b.totais?.kg || 0) - (a.totais?.kg || 0)); break;
     }
     return lista;
