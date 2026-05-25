@@ -345,22 +345,24 @@ const CHART_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 // ==================== FORMAT CURRENCY ====================
 const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
+// ==================== GRUPOS DE OBRAS (CONSOLIDADOS) ====================
+// Permite agregar várias obras numa única análise.
+// Adicionado em escopo de módulo para garantir disponibilidade nas refs.
+export const GRUPOS_OBRAS = {
+  temec: {
+    id: 'temec',
+    label: '🏢 TEMEC Consolidado (CC027 + CC002)',
+    obraIds: ['obra-004', 'obra-005'],
+    modo: 'unidade',
+    valor: 20,
+    qtdContrato: 2000, // 500 + 1500
+  },
+};
+
 // ==================== MAIN PAGE ====================
 export default function AnaliseProducaoPage() {
   const { obraAtual, obras } = useObras();
   const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
-
-  // Grupos especiais — múltiplas obras agregadas
-  const GRUPOS_OBRAS = {
-    temec: {
-      id: 'temec',
-      label: '🏢 TEMEC Consolidado (CC027 + CC002)',
-      obraIds: ['obra-004', 'obra-005'],
-      modo: 'unidade',
-      valor: 20,
-      qtdContrato: 2000, // 500 + 1500
-    },
-  };
 
   // Filtro local de obra (independente do sidebar)
   // Aceita: 'atual' | obraId | 'temec' (grupo consolidado)

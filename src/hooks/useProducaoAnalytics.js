@@ -60,10 +60,17 @@ function lancamentoParaHistorico(lan) {
 
 /**
  * Hook principal de analytics de produção
- * @param {Object} options - { periodo: { inicio, fim }, etapaFiltro, equipeId, obraId }
+ * @param {Object} options - { periodo: { inicio, fim }, etapaFiltro, equipeId, obraId, obraIds }
+ *   - obraId: filtro por uma obra
+ *   - obraIds: array para filtrar por múltiplas obras (grupo consolidado)
  */
 export function useProducaoAnalytics(options = {}) {
-  const { periodo, etapaFiltro, equipeId, obraId } = options;
+  const { periodo, etapaFiltro, equipeId, obraId, obraIds } = options;
+  // Normaliza: se obraIds vier, usa ele; senão usa obraId
+  const obrasFiltro = Array.isArray(obraIds) && obraIds.length > 0
+    ? obraIds
+    : (obraId ? [obraId] : null);
+  const obrasFiltroKey = obrasFiltro ? obrasFiltro.slice().sort().join(',') : '';
 
   const {
     funcionarios: ctxFuncionarios,
@@ -127,13 +134,13 @@ export function useProducaoAnalytics(options = {}) {
 
       if (storeErr) console.warn('[Analytics] entity_store:', storeErr.message);
 
-      // 3. Buscar peças (para peso/kg) — agora inclui obra_id e obra_nome para filtro
+      // 3. Buscar peças (para peso/kg) — suporta filtro por uma ou múltiplas obras
       let pecasQuery = supabase
         .from('pecas_producao')
         .select('id, nome, marca, tipo, peso_total, peso_unitario, quantidade, etapa, obra_id, obra_nome, funcionario_fabricacao, funcionario_solda, funcionario_pintura, funcionario_expedido')
         .limit(5000);
-      if (obraId) {
-        pecasQuery = pecasQuery.eq('obra_id', obraId);
+      if (obrasFiltro && obrasFiltro.length > 0) {
+        pecasQuery = pecasQuery.in('obra_id', obrasFiltro);
       }
       const { data: pecasData, error: pecasErr } = await pecasQuery;
 
@@ -141,7 +148,7 @@ export function useProducaoAnalytics(options = {}) {
 
       // Filtrar histórico pelas peças da obra (quando filtro de obra ativo)
       let histFiltrado = histData || [];
-      if (obraId && Array.isArray(pecasData) && pecasData.length > 0) {
+      if (obrasFiltro && Array.isArray(pecasData) && pecasData.length > 0) {
         const idsObra = new Set(pecasData.map(p => p.id));
         histFiltrado = histFiltrado.filter(h => idsObra.has(h.peca_id));
       }
@@ -155,7 +162,7 @@ export function useProducaoAnalytics(options = {}) {
     } finally {
       setLoading(false);
     }
-  }, [periodoEfetivo, etapaFiltro, obraId]);
+  }, [periodoEfetivo, etapaFiltro, obrasFiltroKey]);
 
   useEffect(() => {
     fetchDados();

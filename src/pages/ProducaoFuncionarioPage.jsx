@@ -35,6 +35,7 @@ import {
 // Hook de analytics real
 import { useProducaoAnalytics } from '@/hooks/useProducaoAnalytics';
 import { useEquipes, useObras } from '@/contexts/ERPContext';
+import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import {
   ETAPAS_LABELS, ETAPAS_CORES,
@@ -1473,10 +1474,22 @@ export default function ProducaoFuncionarioPage() {
   const { obras } = useObras();
   const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
 
+  // Resolve filtroObra para um ou mais obraIds (suporta grupos consolidados)
+  const obraIdsEfetivosFunc = useMemo(() => {
+    if (filtroObra === 'todas') return null;
+    if (GRUPOS_OBRAS[filtroObra]) return GRUPOS_OBRAS[filtroObra].obraIds;
+    return [filtroObra];
+  }, [filtroObra]);
+  const isGrupoConsolidadoFunc = !!GRUPOS_OBRAS[filtroObra];
+
   // Detecta se a obra selecionada é "modo unidade" (TEMEC seriado).
   // Lê config do localStorage gravada pela MedicaoAutomaticaPage.
   const configObraSelecionada = useMemo(() => {
     if (filtroObra === 'todas') return null;
+    if (GRUPOS_OBRAS[filtroObra]) {
+      const g = GRUPOS_OBRAS[filtroObra];
+      return { modo: g.modo, valor: g.valor, qtdContrato: g.qtdContrato };
+    }
     try {
       const cfg = JSON.parse(localStorage.getItem('medicao_config_obras_v1') || '{}');
       const seeds = {
@@ -1510,7 +1523,8 @@ export default function ProducaoFuncionarioPage() {
     refetch,
   } = useProducaoAnalytics({
     equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined,
-    obraId: filtroObra !== 'todas' ? filtroObra : undefined,
+    // Suporta grupos consolidados (TEMEC) via obraIds (array)
+    obraIds: obraIdsEfetivosFunc || undefined,
     periodo: periodoFiltro,
   });
 
@@ -1582,12 +1596,17 @@ export default function ProducaoFuncionarioPage() {
 
         <div className="flex items-center gap-2 flex-wrap">
           <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[230px] bg-slate-800 border-slate-700">
+            <SelectTrigger className="w-[260px] bg-slate-800 border-slate-700">
               <Building2 className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
               <SelectValue placeholder="Obra" />
             </SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
               <SelectItem value="todas">🏗 Todas as Obras</SelectItem>
+              {/* Grupos Consolidados */}
+              {Object.values(GRUPOS_OBRAS).map(g => (
+                <SelectItem key={g.id} value={g.id}>{g.label}</SelectItem>
+              ))}
+              {/* Obras individuais */}
               {obrasAtivas.map(o => (
                 <SelectItem key={o.id} value={o.id}>
                   {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
@@ -1641,14 +1660,16 @@ export default function ProducaoFuncionarioPage() {
 
       {/* Banner quando obra está em modo unidade (TEMEC) */}
       {isModoUnidade && filtroObra !== 'todas' && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 flex items-center gap-3">
-          <Package className="h-5 w-5 text-emerald-400 flex-shrink-0" />
+        <div className={`${isGrupoConsolidadoFunc ? 'bg-purple-500/10 border-purple-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} border rounded-xl px-4 py-3 flex items-center gap-3`}>
+          <Package className={`h-5 w-5 ${isGrupoConsolidadoFunc ? 'text-purple-400' : 'text-emerald-400'} flex-shrink-0`} />
           <div className="flex-1">
-            <p className="text-emerald-300 text-sm font-medium">
-              Obra seriada — análise por <span className="font-bold">quantidade de peças</span>
+            <p className={`${isGrupoConsolidadoFunc ? 'text-purple-300' : 'text-emerald-300'} text-sm font-medium`}>
+              {isGrupoConsolidadoFunc ? 'Análise Consolidada — ' : 'Obra seriada — análise por '}<span className="font-bold">quantidade de peças</span>
             </p>
-            <p className="text-emerald-200/70 text-xs mt-0.5">
-              {obrasAtivas.find(o => o.id === filtroObra)?.nome || 'Obra'} · Contrato: {configObraSelecionada?.qtdContrato?.toLocaleString('pt-BR')} un × R$ {configObraSelecionada?.valor?.toFixed(2)}/un
+            <p className={`${isGrupoConsolidadoFunc ? 'text-purple-200/70' : 'text-emerald-200/70'} text-xs mt-0.5`}>
+              {isGrupoConsolidadoFunc
+                ? `${GRUPOS_OBRAS[filtroObra]?.label} · Contrato consolidado: ${configObraSelecionada?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObraSelecionada?.valor?.toFixed(2)}/un`
+                : `${obrasAtivas.find(o => o.id === filtroObra)?.nome || 'Obra'} · Contrato: ${configObraSelecionada?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObraSelecionada?.valor?.toFixed(2)}/un`}
             </p>
           </div>
         </div>
