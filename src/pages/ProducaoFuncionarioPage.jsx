@@ -1463,7 +1463,8 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
 export default function ProducaoFuncionarioPage() {
   const [filtroSetor, setFiltroSetor] = useState('todos');
   const [filtroEquipe, setFiltroEquipe] = useState('todos');
-  const [filtroObra, setFiltroObra] = useState('todas'); // 'todas' | obraId
+  const [filtroObra, setFiltroObra] = useState('todas'); // 'todas' | obraId | 'temec'
+  const [filtroEtapa, setFiltroEtapa] = useState('todas'); // 'todas' | 'corte' | 'fabricacao' | 'solda' | 'pintura'
   const [ordenacao, setOrdenacao] = useState('ranking');
   const [filtroPeriodo, setFiltroPeriodo] = useState('mes'); // 'mes' | 'trimestre' | 'ano' | 'tudo'
   const [funcSelecionado, setFuncSelecionado] = useState(null);
@@ -1525,6 +1526,7 @@ export default function ProducaoFuncionarioPage() {
     equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined,
     // Suporta grupos consolidados (TEMEC) via obraIds (array)
     obraIds: obraIdsEfetivosFunc || undefined,
+    etapaFiltro: filtroEtapa !== 'todas' ? filtroEtapa : undefined,
     periodo: periodoFiltro,
   });
 
@@ -1615,6 +1617,19 @@ export default function ProducaoFuncionarioPage() {
             </SelectContent>
           </Select>
 
+          <Select value={filtroEtapa} onValueChange={setFiltroEtapa}>
+            <SelectTrigger className="w-[160px] bg-slate-800 border-slate-700">
+              <SelectValue placeholder="Etapa" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="todas">⚙ Todas as Etapas</SelectItem>
+              <SelectItem value="corte">✂ Corte</SelectItem>
+              <SelectItem value="fabricacao">🔥 Fabricação</SelectItem>
+              <SelectItem value="solda">💧 Solda</SelectItem>
+              <SelectItem value="pintura">🎨 Pintura</SelectItem>
+            </SelectContent>
+          </Select>
+
           <Select value={filtroSetor} onValueChange={setFiltroSetor}>
             <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700">
               <SelectValue placeholder="Setor" />
@@ -1665,12 +1680,20 @@ export default function ProducaoFuncionarioPage() {
           <div className="flex-1">
             <p className={`${isGrupoConsolidadoFunc ? 'text-purple-300' : 'text-emerald-300'} text-sm font-medium`}>
               {isGrupoConsolidadoFunc ? 'Análise Consolidada — ' : 'Obra seriada — análise por '}<span className="font-bold">quantidade de peças</span>
+              {filtroEtapa !== 'todas' && <span className="ml-2 px-2 py-0.5 rounded-full bg-white/10 text-xs uppercase tracking-wider">filtro: {filtroEtapa}</span>}
             </p>
             <p className={`${isGrupoConsolidadoFunc ? 'text-purple-200/70' : 'text-emerald-200/70'} text-xs mt-0.5`}>
               {isGrupoConsolidadoFunc
                 ? `${GRUPOS_OBRAS[filtroObra]?.label} · Contrato consolidado: ${configObraSelecionada?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObraSelecionada?.valor?.toFixed(2)}/un`
                 : `${obrasAtivas.find(o => o.id === filtroObra)?.nome || 'Obra'} · Contrato: ${configObraSelecionada?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObraSelecionada?.valor?.toFixed(2)}/un`}
             </p>
+            {filtroEtapa === 'todas' && (
+              <p className="text-amber-300 text-[11px] mt-1.5 flex items-center gap-1">
+                <AlertTriangle className="h-3 w-3" />
+                Soma de funcionários &gt; total da obra é esperado: uma peça que passa por 4 etapas aparece em 4 funcionários distintos.
+                Use o filtro <strong>Etapa</strong> acima para isolar uma fase e ver a soma sem duplicação.
+              </p>
+            )}
           </div>
         </div>
       )}
