@@ -405,6 +405,7 @@ export default function AnaliseProducaoPage() {
   const [idsEntregues, setIdsEntregues] = useState(new Set());
   const [pesoEntregue, setPesoEntregue] = useState(0);
   const [historicoProducao, setHistoricoProducao] = useState([]);
+  const [materiaisCorte, setMateriaisCorte] = useState([]); // dados do Kanban Corte (preparação do material)
   const [loading, setLoading] = useState(true);
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [activeTab, setActiveTab] = useState('visao-geral');
@@ -413,7 +414,7 @@ export default function AnaliseProducaoPage() {
   // Fetch data from Supabase (filtrado por obra ou grupo de obras)
   useEffect(() => {
     if (!obraIdsEfetivos || obraIdsEfetivos.length === 0) {
-      setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setLoading(false); return;
+      setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setMateriaisCorte([]); setLoading(false); return;
     }
     const fetchData = async () => {
       try {
@@ -425,6 +426,18 @@ export default function AnaliseProducaoPage() {
           .in('obra_id', obraIdsEfetivos);
         if (error) throw error;
         setPecas(data || []);
+
+        // Buscar materiais_corte (preparação independente dos conjuntos)
+        try {
+          const { data: corteData } = await supabase
+            .from('materiais_corte')
+            .select('id, obra_id, marca, peca, perfil, comprimento_mm, quantidade, peso_teorico, status_corte, funcionario_corte, data_inicio, data_fim')
+            .in('obra_id', obraIdsEfetivos);
+          setMateriaisCorte(corteData || []);
+        } catch (corteErr) {
+          console.warn('Erro materiais_corte:', corteErr);
+          setMateriaisCorte([]);
+        }
 
         // Histórico de movimentação (para análise temporal — quem fez o quê e quando)
         try {
@@ -630,6 +643,31 @@ export default function AnaliseProducaoPage() {
     return { inicio: new Date('2020-01-01'), fim: new Date(agora.getFullYear() + 1, 0, 1), label: 'Geral' };
   }, [filtroPeriodo]);
 
+  // ----- KPIs DE CORTE (materiais_corte — independente dos conjuntos) -----
+  // Para obras seriadas, o corte prepara o MATERIAL (chapas/perfis) para depois montar o conjunto.
+  // 1 conjunto pode ter 4-10 materiais cortados. Por isso a contagem do corte é SEMPRE em materiais, não conjuntos.
+  const kpisCorte = useMemo(() => {
+    const STATUS_CORTADO = ['finalizado', 'cortado'];
+    const totalMateriais = materiaisCorte.length;
+    const qtdTotal = materiaisCorte.reduce((s, m) => s + (parseInt(m.quantidade) || 1), 0);
+    const cortados = materiaisCorte.filter(m => STATUS_CORTADO.includes(m.status_corte));
+    const qtdCortada = cortados.reduce((s, m) => s + (parseInt(m.quantidade) || 1), 0);
+    const pesoCortado = cortados.reduce((s, m) => s + (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1), 0);
+    const pesoTotalMateriais = materiaisCorte.reduce((s, m) => s + (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1), 0);
+    const pendentes = totalMateriais - cortados.length;
+    const pct = pesoTotalMateriais > 0 ? Math.round((pesoCortado / pesoTotalMateriais) * 100) : 0;
+    return {
+      totalMateriais,
+      qtdTotal,
+      cortados: cortados.length,
+      qtdCortada,
+      pesoCortado: Math.round(pesoCortado * 100) / 100,
+      pesoTotalMateriais: Math.round(pesoTotalMateriais * 100) / 100,
+      pendentes,
+      pctConcluido: pct,
+    };
+  }, [materiaisCorte]);
+
   // Eventos de produção: cada vez que uma peça avança para uma etapa
   // — somam-se as quantidades das peças (sum c.quantidade) por etapa, por dia.
   const eventosProducao = useMemo(() => {
@@ -667,8 +705,25 @@ export default function AnaliseProducaoPage() {
       if (p.data_fim_solda && !jaTemHist('solda')) eventos.push({ data: new Date(p.data_fim_solda), etapa: 'solda', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
       if (p.data_fim_pintura && !jaTemHist('pintura')) eventos.push({ data: new Date(p.data_fim_pintura), etapa: 'pintura', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
     });
+    // 3) Eventos de CORTE — vêm de materiais_corte (independente dos conjuntos)
+    //    Conta cada MATERIAL cortado (não conjunto). data_fim do corte.
+    materiaisCorte.forEach(m => {
+      if (m.status_corte !== 'finalizado' && m.status_corte !== 'cortado') return;
+      if (!m.data_fim) return; // sem data, não entra na timeline
+      const obraInfo = obrasMap[m.obra_id] || {};
+      eventos.push({
+        data: new Date(m.data_fim),
+        etapa: 'corte',
+        qtd: parseInt(m.quantidade) || 1,
+        peso: (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1),
+        pecaId: m.id,
+        tipo: m.perfil || 'Material',
+        obraId: m.obra_id,
+        obraCodigo: obraInfo.codigo || m.obra_id,
+      });
+    });
     return eventos;
-  }, [historicoProducao, pecas, pecasIdMap, obras]);
+  }, [historicoProducao, pecas, pecasIdMap, obras, materiaisCorte]);
 
   // Breakdown por obra (quando grupo consolidado) — soma pcs por obra
   const breakdownPorObra = useMemo(() => {
@@ -705,15 +760,16 @@ export default function AnaliseProducaoPage() {
     return eventosProducao.filter(e => e.data >= janelaTempo.inicio && e.data <= janelaTempo.fim);
   }, [eventosProducao, janelaTempo]);
 
-  // Série temporal agregada por dia (para gráfico)
+  // Série temporal agregada por dia (para gráfico) — inclui corte
   const serieTemporalDiaria = useMemo(() => {
     const byDay = {};
     eventosNaJanela.forEach(e => {
       const key = e.data.toISOString().slice(0, 10);
-      if (!byDay[key]) byDay[key] = { dia: key, fabricacao: 0, solda: 0, pintura: 0, expedido: 0, fabricacaoKg: 0, soldaKg: 0, pinturaKg: 0, expedidoKg: 0, total: 0 };
-      byDay[key][e.etapa] += e.qtd;
-      byDay[key][`${e.etapa}Kg`] += e.peso;
-      byDay[key].total += e.qtd;
+      if (!byDay[key]) byDay[key] = { dia: key, corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedido: 0, corteKg: 0, fabricacaoKg: 0, soldaKg: 0, pinturaKg: 0, expedidoKg: 0, total: 0 };
+      byDay[key][e.etapa] = (byDay[key][e.etapa] || 0) + e.qtd;
+      byDay[key][`${e.etapa}Kg`] = (byDay[key][`${e.etapa}Kg`] || 0) + e.peso;
+      // total = só etapas de conjunto (corte é separado, conta materiais)
+      if (e.etapa !== 'corte') byDay[key].total += e.qtd;
     });
     return Object.values(byDay)
       .sort((a, b) => a.dia.localeCompare(b.dia))
@@ -725,34 +781,41 @@ export default function AnaliseProducaoPage() {
 
   // KPIs temporais (totais e médias na janela)
   const kpisTemporais = useMemo(() => {
-    const agg = { fabricacao: { un: 0, kg: 0 }, solda: { un: 0, kg: 0 }, pintura: { un: 0, kg: 0 }, expedido: { un: 0, kg: 0 } };
+    const agg = {
+      corte: { un: 0, kg: 0 },        // unidades = materiais cortados (não conjuntos)
+      fabricacao: { un: 0, kg: 0 },
+      solda: { un: 0, kg: 0 },
+      pintura: { un: 0, kg: 0 },
+      expedido: { un: 0, kg: 0 },
+    };
     eventosNaJanela.forEach(e => {
       if (agg[e.etapa]) { agg[e.etapa].un += e.qtd; agg[e.etapa].kg += e.peso; }
     });
-    const totalUn = agg.fabricacao.un + agg.solda.un + agg.pintura.un + agg.expedido.un;
-    const totalKg = agg.fabricacao.kg + agg.solda.kg + agg.pintura.kg + agg.expedido.kg;
+    // Total CONJUNTOS = só etapas de produção (não soma corte que é em materiais)
+    const totalUnConj = agg.fabricacao.un + agg.solda.un + agg.pintura.un + agg.expedido.un;
+    const totalKgConj = agg.fabricacao.kg + agg.solda.kg + agg.pintura.kg + agg.expedido.kg;
 
-    // Dias úteis na janela (com algum evento ≥ 1)
-    const diasComProducao = serieTemporalDiaria.filter(d => d.total > 0).length || 1;
+    const diasComProducao = serieTemporalDiaria.filter(d => d.total > 0 || d.corte > 0).length || 1;
 
-    // Médias diárias
     const mediaDiaria = {
+      corte: Math.round(agg.corte.un / diasComProducao),
       fabricacao: Math.round(agg.fabricacao.un / diasComProducao),
       solda: Math.round(agg.solda.un / diasComProducao),
       pintura: Math.round(agg.pintura.un / diasComProducao),
       expedido: Math.round(agg.expedido.un / diasComProducao),
-      total: Math.round(totalUn / diasComProducao),
+      total: Math.round(totalUnConj / diasComProducao),
     };
 
-    // Melhor dia
     let melhorDia = null;
     serieTemporalDiaria.forEach(d => {
-      if (!melhorDia || d.total > melhorDia.total) melhorDia = d;
+      const tot = d.total + (d.corte || 0);
+      if (!melhorDia || tot > melhorDia.total) melhorDia = { ...d, total: tot };
     });
 
     return {
       ...agg,
-      totalUn, totalKg,
+      totalUn: totalUnConj,
+      totalKg: totalKgConj,
       diasComProducao,
       mediaDiaria,
       melhorDia: melhorDia ? { dia: melhorDia.label, total: melhorDia.total } : null,
@@ -897,6 +960,57 @@ export default function AnaliseProducaoPage() {
         </div>
       )}
 
+      {/* ===== CORTE — PREPARAÇÃO DO MATERIAL (independente dos conjuntos) ===== */}
+      {kpisCorte.totalMateriais > 0 && (
+        <div className="bg-gradient-to-br from-orange-900/20 to-amber-900/10 border border-orange-500/30 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                <span className="text-xl">✂</span>
+                Corte — Preparação do Material
+              </h2>
+              <p className="text-orange-200/70 text-xs mt-0.5">
+                Materiais individuais (chapas/perfis) cortados como insumo dos conjuntos · contagem independente
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-3xl font-bold text-orange-300">{kpisCorte.pctConcluido}%</p>
+              <p className="text-[10px] text-slate-400">concluído</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div className="rounded-lg p-3 border border-orange-500/30 bg-orange-500/10">
+              <p className="text-[10px] text-slate-500 uppercase">Materiais Cortados</p>
+              <p className="text-2xl font-bold text-white">{kpisCorte.qtdCortada.toLocaleString('pt-BR')}</p>
+              <p className="text-[10px] text-orange-300 mt-0.5">de {kpisCorte.qtdTotal.toLocaleString('pt-BR')} planejados</p>
+            </div>
+            <div className="rounded-lg p-3 border border-orange-500/30 bg-orange-500/10">
+              <p className="text-[10px] text-slate-500 uppercase">Peso Cortado</p>
+              <p className="text-2xl font-bold text-white">{kpisCorte.pesoCortado.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
+              <p className="text-[10px] text-orange-300 mt-0.5">de {kpisCorte.pesoTotalMateriais.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
+            </div>
+            <div className="rounded-lg p-3 border border-emerald-500/30 bg-emerald-500/10">
+              <p className="text-[10px] text-slate-500 uppercase">Itens Finalizados</p>
+              <p className="text-2xl font-bold text-emerald-300">{kpisCorte.cortados.toLocaleString('pt-BR')}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">linhas de corte concluídas</p>
+            </div>
+            <div className="rounded-lg p-3 border border-red-500/30 bg-red-500/10">
+              <p className="text-[10px] text-slate-500 uppercase">Pendentes</p>
+              <p className="text-2xl font-bold text-red-300">{kpisCorte.pendentes.toLocaleString('pt-BR')}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">aguardando corte</p>
+            </div>
+            <div className="rounded-lg p-3 border border-slate-700 bg-slate-800/50">
+              <p className="text-[10px] text-slate-500 uppercase">Total Linhas BOM</p>
+              <p className="text-2xl font-bold text-white">{kpisCorte.totalMateriais.toLocaleString('pt-BR')}</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{kpisCorte.qtdTotal.toLocaleString('pt-BR')} un de materiais</p>
+            </div>
+          </div>
+          <div className="mt-3 h-2 bg-slate-800/60 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full" style={{ width: `${kpisCorte.pctConcluido}%` }} />
+          </div>
+        </div>
+      )}
+
       {/* ===== ANÁLISE TEMPORAL — QUANTIDADE DE PEÇAS POR PERÍODO ===== */}
       <div className="bg-gradient-to-br from-slate-900/60 to-slate-800/30 border border-slate-700/50 rounded-xl p-5">
         <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
@@ -905,7 +1019,7 @@ export default function AnaliseProducaoPage() {
               <Activity size={18} className="text-emerald-400" />
               Produção Temporal — {janelaTempo.label}
             </h2>
-            <p className="text-slate-500 text-xs mt-0.5">Quantidade de peças produzidas por etapa no período</p>
+            <p className="text-slate-500 text-xs mt-0.5">Conjuntos completos por etapa (Fab/Solda/Pintura/Expedido) + materiais cortados separadamente · período</p>
           </div>
           <div className="flex gap-2 text-xs">
             <span className="px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400">
@@ -919,14 +1033,15 @@ export default function AnaliseProducaoPage() {
           </div>
         </div>
 
-        {/* KPIs por etapa */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+        {/* KPIs por etapa — Corte (materiais) + Conjuntos (Fab/Solda/Pintura/Expedido) */}
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
           {[
-            { label: 'Fabricação', un: kpisTemporais.fabricacao.un, kg: kpisTemporais.fabricacao.kg, media: kpisTemporais.mediaDiaria.fabricacao, color: '#10b981', icon: Factory },
-            { label: 'Solda', un: kpisTemporais.solda.un, kg: kpisTemporais.solda.kg, media: kpisTemporais.mediaDiaria.solda, color: '#3b82f6', icon: Hammer },
-            { label: 'Pintura', un: kpisTemporais.pintura.un, kg: kpisTemporais.pintura.kg, media: kpisTemporais.mediaDiaria.pintura, color: '#f59e0b', icon: Paintbrush },
-            { label: 'Expedido', un: kpisTemporais.expedido.un, kg: kpisTemporais.expedido.kg, media: kpisTemporais.mediaDiaria.expedido, color: '#06b6d4', icon: Truck },
-            { label: 'TOTAL', un: kpisTemporais.totalUn, kg: kpisTemporais.totalKg, media: kpisTemporais.mediaDiaria.total, color: '#8b5cf6', icon: Activity },
+            { label: 'Corte (materiais)', un: kpisTemporais.corte.un, kg: kpisTemporais.corte.kg, media: kpisTemporais.mediaDiaria.corte, color: '#fb923c', icon: () => <span className="text-sm">✂</span>, suffix: 'mat' },
+            { label: 'Fabricação', un: kpisTemporais.fabricacao.un, kg: kpisTemporais.fabricacao.kg, media: kpisTemporais.mediaDiaria.fabricacao, color: '#10b981', icon: Factory, suffix: 'pcs' },
+            { label: 'Solda', un: kpisTemporais.solda.un, kg: kpisTemporais.solda.kg, media: kpisTemporais.mediaDiaria.solda, color: '#3b82f6', icon: Hammer, suffix: 'pcs' },
+            { label: 'Pintura', un: kpisTemporais.pintura.un, kg: kpisTemporais.pintura.kg, media: kpisTemporais.mediaDiaria.pintura, color: '#f59e0b', icon: Paintbrush, suffix: 'pcs' },
+            { label: 'Expedido', un: kpisTemporais.expedido.un, kg: kpisTemporais.expedido.kg, media: kpisTemporais.mediaDiaria.expedido, color: '#06b6d4', icon: Truck, suffix: 'pcs' },
+            { label: 'TOTAL Conj.', un: kpisTemporais.totalUn, kg: kpisTemporais.totalKg, media: kpisTemporais.mediaDiaria.total, color: '#8b5cf6', icon: Activity, suffix: 'pcs' },
           ].map((k, i) => {
             const Icon = k.icon;
             return (
@@ -935,10 +1050,10 @@ export default function AnaliseProducaoPage() {
                   <Icon size={14} style={{ color: k.color }} />
                   <span className="text-[10px] text-slate-500 uppercase tracking-wide">{k.label}</span>
                 </div>
-                <p className="text-2xl font-bold text-white">{k.un.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal">pcs</span></p>
+                <p className="text-2xl font-bold text-white">{k.un.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal">{k.suffix || 'pcs'}</span></p>
                 <p className="text-[10px] text-slate-500 mt-1">{k.kg.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
                 {filtroPeriodo !== 'diario' && (
-                  <p className="text-[10px] mt-0.5" style={{ color: k.color }}>~{k.media} pcs/dia</p>
+                  <p className="text-[10px] mt-0.5" style={{ color: k.color }}>~{k.media} {k.suffix || 'pcs'}/dia</p>
                 )}
               </div>
             );
@@ -997,10 +1112,11 @@ export default function AnaliseProducaoPage() {
                   labelStyle={{ color: '#cbd5e1' }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="fabricacao" stackId="a" fill="#10b981" name="Fabricação" />
-                <Bar dataKey="solda" stackId="a" fill="#3b82f6" name="Solda" />
-                <Bar dataKey="pintura" stackId="a" fill="#f59e0b" name="Pintura" />
-                <Bar dataKey="expedido" stackId="a" fill="#06b6d4" name="Expedido" />
+                <Bar dataKey="corte" stackId="b" fill="#fb923c" name="Corte (materiais)" />
+                <Bar dataKey="fabricacao" stackId="a" fill="#10b981" name="Fabricação (conj)" />
+                <Bar dataKey="solda" stackId="a" fill="#3b82f6" name="Solda (conj)" />
+                <Bar dataKey="pintura" stackId="a" fill="#f59e0b" name="Pintura (conj)" />
+                <Bar dataKey="expedido" stackId="a" fill="#06b6d4" name="Expedido (conj)" />
               </BarChart>
             </ResponsiveContainer>
           </div>
