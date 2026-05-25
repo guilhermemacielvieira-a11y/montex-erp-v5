@@ -869,10 +869,18 @@ export default function KanbanProducaoIntegrado() {
     const pesoPintura = conjuntosFiltrados.filter(c => c.status === 'pintura').reduce((sum, c) => sum + c.pesoTotal, 0);
     const pesoExpedido = conjuntosFiltrados.filter(c => c.status === 'expedido').reduce((sum, c) => sum + c.pesoTotal, 0);
 
-    // Contagem por status
+    // Contagem por status (nº de cards/conjuntos)
     const qtdFabricacao = conjuntosFiltrados.filter(c => c.status === 'fabricacao').length;
     const qtdSolda = conjuntosFiltrados.filter(c => c.status === 'solda').length;
     const qtdPintura = conjuntosFiltrados.filter(c => c.status === 'pintura').length;
+
+    // ----- Quantidade de PEÇAS (unidades) por etapa = sum(c.quantidade) -----
+    const sumQty = (arr) => arr.reduce((s, c) => s + (parseInt(c.quantidade) || 1), 0);
+    const pcsFabricacao = sumQty(conjuntosFiltrados.filter(c => c.status === 'fabricacao'));
+    const pcsSolda      = sumQty(conjuntosFiltrados.filter(c => c.status === 'solda'));
+    const pcsPintura    = sumQty(conjuntosFiltrados.filter(c => c.status === 'pintura'));
+    const pcsExpedido   = sumQty(conjuntosFiltrados.filter(c => c.status === 'expedido'));
+    const pcsTotalKanban = pcsFabricacao + pcsSolda + pcsPintura + pcsExpedido;
 
     // Peso alta prioridade
     const pesoAltaPrioridade = conjuntosFiltrados
@@ -931,10 +939,16 @@ export default function KanbanProducaoIntegrado() {
       pesoExpedido,
       valorTotal,
       progressoGeral,
-      // Contagens por status
+      // Contagens por status (cards/conjuntos)
       qtdFabricacao,
       qtdSolda,
       qtdPintura,
+      // Quantidade de PEÇAS (unidades) por etapa
+      pcsFabricacao,
+      pcsSolda,
+      pcsPintura,
+      pcsExpedido,
+      pcsTotalKanban,
       // Alta prioridade peso
       pesoAltaPrioridade,
       // Enviadas
@@ -1157,11 +1171,11 @@ export default function KanbanProducaoIntegrado() {
       <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
         {[
           {
-            label: 'Total Conjuntos',
-            value: kpis.totalConjuntos.toLocaleString(),
+            label: 'Total Peças',
+            value: (kpis.pcsTotalKanban + kpis.qtdEnviadas).toLocaleString('pt-BR'),
             icon: Package,
             cor: 'blue',
-            sub: `${kpis.totalPecas.toLocaleString('pt-BR')} peças`,
+            sub: `${kpis.totalConjuntos.toLocaleString('pt-BR')} conjuntos`,
           },
           {
             label: 'Peso Total Obra',
@@ -1172,21 +1186,21 @@ export default function KanbanProducaoIntegrado() {
           },
           {
             label: 'Em Fabricação',
-            value: formatPeso(kpis.pesoFabricacao),
+            value: `${kpis.pcsFabricacao.toLocaleString('pt-BR')} pcs`,
             icon: Wrench,
             cor: 'blue',
-            sub: `${kpis.qtdFabricacao} conjuntos`,
+            sub: formatPeso(kpis.pesoFabricacao),
           },
           {
             label: 'Expedido',
-            value: formatPeso(kpis.pesoExpedido),
+            value: `${kpis.pcsExpedido.toLocaleString('pt-BR')} pcs`,
             icon: Truck,
             cor: 'emerald',
-            sub: `${kpis.expedidos} conjuntos`,
+            sub: formatPeso(kpis.pesoExpedido),
           },
           {
-            label: 'Conjuntos Enviados',
-            value: kpis.conjuntosEnviados.toLocaleString('pt-BR'),
+            label: 'Peças Enviadas',
+            value: `${kpis.qtdEnviadas.toLocaleString('pt-BR')} pcs`,
             icon: CheckCircle2,
             cor: 'cyan',
             sub: `${formatPeso(kpis.pesoEnviadas)} · ${Math.round(kpis.pesoTotal > 0 ? (kpis.pesoEnviadas / kpis.pesoTotal) * 100 : 0)}% da obra`,
@@ -1235,6 +1249,7 @@ export default function KanbanProducaoIntegrado() {
           {COLUNAS_PRODUCAO.map((col, idx) => {
             const ColIcon = col.icon;
             const conjuntosCol = conjuntosPorColuna[col.id] || [];
+            const pcsCol = conjuntosCol.reduce((sum, c) => sum + (parseInt(c.quantidade) || 1), 0);
             const pesoCol = conjuntosCol.reduce((sum, c) => sum + c.pesoTotal, 0);
             return (
               <React.Fragment key={col.id}>
@@ -1245,7 +1260,7 @@ export default function KanbanProducaoIntegrado() {
                   <ColIcon className="h-4 w-4" style={{ color: col.cor }} />
                   <div>
                     <span className="font-semibold text-white text-sm">{col.title.split(' ').slice(1).join(' ')}</span>
-                    <p className="text-xs" style={{ color: col.cor }}>{conjuntosCol.length} conjuntos</p>
+                    <p className="text-xs font-bold" style={{ color: col.cor }}>{pcsCol.toLocaleString('pt-BR')} pcs</p>
                     <p className="text-xs text-slate-500">{formatPeso(pesoCol)}</p>
                   </div>
                 </div>
@@ -1258,7 +1273,7 @@ export default function KanbanProducaoIntegrado() {
             <CheckCircle2 className="h-4 w-4 text-teal-400" />
             <div>
               <span className="font-semibold text-white text-sm">Enviadas</span>
-              <p className="text-xs text-teal-400">{kpis.conjuntosEnviados.toLocaleString('pt-BR')} conjuntos</p>
+              <p className="text-xs font-bold text-teal-400">{kpis.qtdEnviadas.toLocaleString('pt-BR')} pcs</p>
               <p className="text-xs text-slate-500">{formatPeso(kpis.pesoEnviadas)} · {kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}% da obra</p>
             </div>
           </div>
@@ -1410,7 +1425,8 @@ export default function KanbanProducaoIntegrado() {
           {COLUNAS_PRODUCAO.map((coluna, colIdx) => {
             const ColunaIcon = coluna.icon;
             const conjuntosColuna = conjuntosPorColuna[coluna.id] || [];
-            const qtdColuna = conjuntosColuna.length;
+            const qtdColuna = conjuntosColuna.length; // nº de conjuntos (cards)
+            const pcsColuna = conjuntosColuna.reduce((sum, c) => sum + (parseInt(c.quantidade) || 1), 0); // nº de peças (unidades)
             const pesoColuna = conjuntosColuna.reduce((sum, c) => sum + c.pesoTotal, 0);
             const valorColuna = pesoColuna * coluna.valorKg;
             const proximaColuna = COLUNAS_PRODUCAO[colIdx + 1];
@@ -1440,12 +1456,10 @@ export default function KanbanProducaoIntegrado() {
                       className="rounded-lg px-2.5 py-2"
                       style={{ backgroundColor: `${coluna.cor}18`, border: `1px solid ${coluna.cor}30` }}
                     >
-                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Conjuntos</p>
-                      <p className="text-white font-bold text-base mt-0.5">{qtdColuna}</p>
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peças</p>
+                      <p className="text-white font-bold text-base mt-0.5">{pcsColuna.toLocaleString('pt-BR')}</p>
                       <p className="text-slate-500 text-[10px] mt-0.5">
-                        {kpis.totalConjuntos > 0
-                          ? `${Math.round((qtdColuna / kpis.totalConjuntos) * 100)}% do total`
-                          : '—'}
+                        {qtdColuna} {qtdColuna === 1 ? 'conjunto' : 'conjuntos'}
                       </p>
                     </div>
                     <div
@@ -1648,10 +1662,11 @@ export default function KanbanProducaoIntegrado() {
 
           {/* ===== COLUNA 5: ENVIADAS ===== */}
           {(() => {
-            const qtdEnv = pecasEnviadasColuna.length; // conjuntos
+            const qtdEnv = pecasEnviadasColuna.length; // conjuntos (cards)
+            const pcsEnv = pecasEnviadasColuna.reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0); // peças (unidades)
             const pesoEnv = pecasEnviadasColuna.reduce((sum, p) => sum + p.pesoTotal, 0);
-            const totalConj = kpis.totalConjuntos + qtdEnv; // total geral incluindo enviadas
-            const pctConj = totalConj > 0 ? Math.round((qtdEnv / totalConj) * 100) : 0;
+            const totalPcsGeral = kpis.pcsTotalKanban + pcsEnv;
+            const pctConj = totalPcsGeral > 0 ? Math.round((pcsEnv / totalPcsGeral) * 100) : 0;
             const pctPeso = kpis.pesoTotal > 0 ? Math.round((pesoEnv / kpis.pesoTotal) * 100) : 0;
             return (
               <div className="bg-slate-800/30 border border-teal-700/40 rounded-xl overflow-hidden">
@@ -1666,9 +1681,9 @@ export default function KanbanProducaoIntegrado() {
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-lg px-2.5 py-2 bg-teal-500/15 border border-teal-500/30">
-                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Conjuntos</p>
-                      <p className="text-white font-bold text-base mt-0.5">{qtdEnv.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500 text-[10px] mt-0.5">{pctConj}% do total</p>
+                      <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peças</p>
+                      <p className="text-white font-bold text-base mt-0.5">{pcsEnv.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500 text-[10px] mt-0.5">{qtdEnv} {qtdEnv === 1 ? 'conjunto' : 'conjuntos'} · {pctConj}%</p>
                     </div>
                     <div className="rounded-lg px-2.5 py-2 bg-teal-500/15 border border-teal-500/30">
                       <p className="text-slate-500 text-[10px] uppercase tracking-wide">Peso</p>
@@ -1766,9 +1781,10 @@ export default function KanbanProducaoIntegrado() {
             {COLUNAS_PRODUCAO.map(col => {
               const ColIcon = col.icon;
               const conjuntosCol = (conjuntosPorColuna[col.id] || []);
-              const qtdCol = conjuntosCol.length;
+              const qtdCol = conjuntosCol.length; // nº de cards
+              const pcsCol = conjuntosCol.reduce((sum, c) => sum + (parseInt(c.quantidade) || 1), 0); // unidades
               const pesoCol = conjuntosCol.reduce((sum, c) => sum + c.pesoTotal, 0);
-              const pctQtd = kpis.totalConjuntos > 0 ? Math.round((qtdCol / kpis.totalConjuntos) * 100) : 0;
+              const pctQtd = kpis.pcsTotalKanban > 0 ? Math.round((pcsCol / kpis.pcsTotalKanban) * 100) : 0;
               return (
                 <div
                   key={col.id}
@@ -1785,9 +1801,9 @@ export default function KanbanProducaoIntegrado() {
                       style={{ backgroundColor: `${col.cor}30`, color: col.cor }}
                     >{pctQtd}%</span>
                   </div>
-                  <p className="text-xl font-bold text-white">{qtdCol}</p>
+                  <p className="text-xl font-bold text-white">{pcsCol.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal">pcs</span></p>
                   <p className="text-xs mt-0.5" style={{ color: col.cor }}>{formatPeso(pesoCol)}</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">conjuntos</p>
+                  <p className="text-[10px] text-slate-500 mt-0.5">{qtdCol} {qtdCol === 1 ? 'conjunto' : 'conjuntos'}</p>
                 </div>
               );
             })}
@@ -1802,9 +1818,9 @@ export default function KanbanProducaoIntegrado() {
                   {kpis.pesoTotal > 0 ? `${Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100)}%` : '0%'}
                 </span>
               </div>
-              <p className="text-xl font-bold text-white">{kpis.conjuntosEnviados.toLocaleString('pt-BR')}</p>
+              <p className="text-xl font-bold text-white">{kpis.qtdEnviadas.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal">pcs</span></p>
               <p className="text-xs mt-0.5 text-teal-400">{formatPeso(kpis.pesoEnviadas)}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">conjuntos · {kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}% do peso total</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">{kpis.conjuntosEnviados} {kpis.conjuntosEnviados === 1 ? 'conjunto' : 'conjuntos'} · {kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}% do peso</p>
               <div className="mt-2 w-full h-1.5 bg-slate-700/60 rounded-full overflow-hidden">
                 <div className="h-full bg-teal-500 rounded-full" style={{ width: `${kpis.pesoTotal > 0 ? Math.round((kpis.pesoEnviadas / kpis.pesoTotal) * 100) : 0}%` }} />
               </div>
