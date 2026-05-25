@@ -1,4 +1,5 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { supabase } from '../api/supabaseClient';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -81,6 +82,48 @@ export default function MedicaoAutomaticaPage() {
   }, [obraSelecionada, configObras, config.producao.valorKg, config.producao.descricao]);
 
   const isModoUnidade = configObraAtual.modo === 'unidade';
+
+  // ----- Buscar peças por etapa direto do Supabase para a obra selecionada -----
+  // Necessário para distinguir "expedido" (fila embarque) de "enviado" (saiu da fábrica)
+  // O calc agregado em transforms.js junta os dois — aqui separamos.
+  const [pesosPorEtapaReais, setPesosPorEtapaReais] = useState({ expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 });
+  useEffect(() => {
+    if (obraSelecionada === 'todas') {
+      setPesosPorEtapaReais({ expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 });
+      return;
+    }
+    let cancel = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('pecas_producao')
+          .select('etapa,quantidade,peso_total')
+          .eq('obra_id', obraSelecionada);
+        if (error || cancel) return;
+        const acc = { expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 };
+        (data || []).forEach(p => {
+          const peso = parseFloat(p.peso_total) || 0;
+          const qtd = parseInt(p.quantidade) || 0;
+          acc.total += peso; acc.qtdTotal += qtd;
+          const e = p.etapa;
+          // Quem já passou da pintura conta como "pintado/produzido"
+          if (['pintura','expedido','enviado','entregue','montagem'].includes(e)) {
+            acc.pintura += peso; acc.qtdPintura += qtd;
+          }
+          // SOMENTE 'expedido' = Fila Embarque (produzido mas ainda não embarcado)
+          if (e === 'expedido') {
+            acc.expedido += peso; acc.qtdExpedido += qtd;
+          }
+          // 'enviado' / 'entregue' / 'montagem' = realmente saiu da fábrica
+          if (['enviado','entregue','montagem'].includes(e)) {
+            acc.enviado += peso; acc.qtdEnviado += qtd;
+          }
+        });
+        setPesosPorEtapaReais(acc);
+      } catch (e) { /* silencioso */ }
+    })();
+    return () => { cancel = true; };
+  }, [obraSelecionada]);
 
   // Medições locais (criadas nesta página)
   const medicoesLocaisFiltradas = useMemo(() => {
@@ -239,10 +282,29 @@ export default function MedicaoAutomaticaPage() {
     return apenasMedicoes.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
   }, [medicoesDB, obraSelecionada]);
 
-  // Peso efetivamente entregue na obra
-  const pesoBaseEntregue = pesoEntregueReal > 0 ? pesoEntregueReal : dadosObraSelecionada.pesoExpedido;
-  // Peso produzido mas ainda não entregue
-  const pesoProduzidoNaoEntregue = Math.max(0, dadosObraSelecionada.pesoProduzido - pesoBaseEntregue);
+  // Peso efetivamente ENTREGUE na obra
+  // Ordem de prioridade:
+  //   1. expedicoes com status=ENTREGUE (registros formais de entrega na obra)
+  //   2. peças em etapa=enviado/entregue/montagem (saíram da fábrica via romaneio)
+  //   3. fallback antigo (pesoExpedido — pode incluir peças em Fila Embarque)
+  // IMPORTANTE: peças em etapa=expedido (Fila Embarque) NÃO são consideradas entregues —
+  // estão aguardando romaneio. Devem aparecer como "Produzidas s/ Entrega" (libera medição).
+  let pesoBaseEntregue = 0;
+  if (pesoEntregueReal > 0) {
+    pesoBaseEntregue = pesoEntregueReal;
+  } else if (obraSelecionada !== 'todas' && pesosPorEtapaReais.total > 0) {
+    pesoBaseEntregue = pesosPorEtapaReais.enviado;
+  } else {
+    pesoBaseEntregue = dadosObraSelecionada.pesoExpedido;
+  }
+
+  // Peso PRODUZIDO (pintado) — preferir dado real direto do banco quando disponível
+  const pesoProduzidoBase = (obraSelecionada !== 'todas' && pesosPorEtapaReais.total > 0)
+    ? pesosPorEtapaReais.pintura
+    : dadosObraSelecionada.pesoProduzido;
+
+  // Peso produzido mas ainda não entregue (libera medição)
+  const pesoProduzidoNaoEntregue = Math.max(0, pesoProduzidoBase - pesoBaseEntregue);
 
   // ----- Conversor peso → quantidade de peças (regra de 3 com peso total da obra) -----
   const pesoTotalObra = dadosObraSelecionada.pesoTotal || 0;
@@ -253,9 +315,11 @@ export default function MedicaoAutomaticaPage() {
   };
 
   // Quantidades equivalentes (modo unidade)
-  const qtdProduzida = pesoParaQtd(dadosObraSelecionada.pesoProduzido);
-  const qtdEntregue = pesoParaQtd(pesoBaseEntregue);
-  const qtdProduzidaNaoEntregue = Math.max(0, pesoParaQtd(pesoProduzidoNaoEntregue));
+  // Quando temos pecasPorEtapaReais (obra específica), usar qtd direta do banco. Senão, regra de 3.
+  const usarQtdReal = isModoUnidade && obraSelecionada !== 'todas' && pesosPorEtapaReais.total > 0;
+  const qtdProduzida = usarQtdReal ? pesosPorEtapaReais.qtdPintura : pesoParaQtd(pesoProduzidoBase);
+  const qtdEntregue = usarQtdReal ? pesosPorEtapaReais.qtdEnviado : pesoParaQtd(pesoBaseEntregue);
+  const qtdProduzidaNaoEntregue = Math.max(0, qtdProduzida - qtdEntregue);
   const qtdPrevisaoProxima = pesoParaQtd(dadosObraSelecionada.previsaoProximaMedicao);
 
   // Medição Liberada — modo "kg" usa peso × R$/kg; modo "unidade" usa qtd × R$/un
