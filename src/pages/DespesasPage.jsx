@@ -578,20 +578,27 @@ export default function DespesasPage() {
     setEditando(null);
     setFormData({
       descricao: '', fornecedor: '', categoria: '', centroCusto: '',
-      valor: '', vencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
+      valor: '', dataEmissao: new Date().toISOString().split('T')[0], dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
     });
     setDialogOpen(true);
   };
 
   const handleEditarDespesa = (despesa) => {
     setEditando(despesa);
+    // Normalizar datas para formato YYYY-MM-DD (input type=date)
+    const normalizarData = (d) => {
+      if (!d) return '';
+      if (typeof d === 'string' && d.length >= 10) return d.slice(0, 10);
+      try { return new Date(d).toISOString().split('T')[0]; } catch { return ''; }
+    };
     setFormData({
       descricao: despesa.descricao || '',
       fornecedor: despesa.fornecedor || '',
       categoria: despesa.categoria || '',
       centroCusto: despesa.centroCusto || '',
       valor: String(despesa.valor || ''),
-      vencimento: despesa.vencimento || '',
+      dataEmissao: normalizarData(despesa.dataEmissao || despesa.data_emissao || despesa.data),
+      dataVencimento: normalizarData(despesa.dataVencimento || despesa.data_vencimento || despesa.vencimento),
       formaPagto: despesa.formaPagto || '',
       notaFiscal: despesa.notaFiscal || '',
       naturezaAquisicao: despesa.naturezaAquisicao || '',
@@ -698,7 +705,10 @@ export default function DespesasPage() {
       centroCusto: formData.centroCusto || 'Produção',
       valor: parseFloat(formData.valor),
       formaPagto: formData.formaPagto || '-',
-      vencimento: formData.vencimento || '',
+      // ⚠️ IMPORTANTE: usar os nomes que o lancamentoToSupabase reconhece (camelCase mapeado em LANCAMENTOS_FIELD_MAP).
+      // O campo 'vencimento' sem prefixo é DESCARTADO silenciosamente no transform — bug histórico corrigido aqui.
+      dataEmissao: formData.dataEmissao || new Date().toISOString().split('T')[0],
+      dataVencimento: formData.dataVencimento || null,
       notaFiscal: formData.notaFiscal || '',
       naturezaAquisicao: formData.naturezaAquisicao || '',
       observacao: formData.naturezaAquisicao ? `[NAT:${formData.naturezaAquisicao}]` : '',
@@ -717,8 +727,6 @@ export default function DespesasPage() {
         await addLancamento({
           ...dados,
           id: `desp-${Date.now()}`,
-          data: new Date().toISOString().split('T')[0],
-          dataEmissao: new Date().toISOString().split('T')[0],
           status: 'pendente',
           tipo: 'despesa',
           obraId: filtroObra !== 'geral' && filtroObra !== 'fabrica' ? filtroObra : null,
@@ -782,8 +790,8 @@ export default function DespesasPage() {
             <DialogTitle className="text-white">{editando ? 'Editar Despesa' : 'Cadastrar Despesa'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 pt-4">
-            {/* Linha 1: NF + Data + Fornecedor */}
-            <div className="grid grid-cols-3 gap-4">
+            {/* Linha 1: Nº NF + Fornecedor */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-slate-300">Nº Nota Fiscal</Label>
                 <Input
@@ -802,13 +810,26 @@ export default function DespesasPage() {
                   onChange={(e) => handleFornecedorChange(e.target.value)}
                 />
               </div>
+            </div>
+
+            {/* Linha 1b: Data Emissão + Data Vencimento */}
+            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-slate-300">Vencimento</Label>
+                <Label className="text-slate-300">🧾 Data de Emissão</Label>
                 <Input
                   className="mt-1 bg-slate-800 border-slate-700"
                   type="date"
-                  value={formData.vencimento}
-                  onChange={(e) => setFormData({...formData, vencimento: e.target.value})}
+                  value={formData.dataEmissao || ''}
+                  onChange={(e) => setFormData({...formData, dataEmissao: e.target.value})}
+                />
+              </div>
+              <div>
+                <Label className="text-slate-300">📅 Data de Vencimento</Label>
+                <Input
+                  className="mt-1 bg-slate-800 border-slate-700"
+                  type="date"
+                  value={formData.dataVencimento || ''}
+                  onChange={(e) => setFormData({...formData, dataVencimento: e.target.value})}
                 />
               </div>
             </div>
