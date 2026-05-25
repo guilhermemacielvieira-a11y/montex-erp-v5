@@ -760,16 +760,35 @@ export default function AnaliseProducaoPage() {
     return eventosProducao.filter(e => e.data >= janelaTempo.inicio && e.data <= janelaTempo.fim);
   }, [eventosProducao, janelaTempo]);
 
-  // Série temporal agregada por dia (para gráfico) — inclui corte
+  // Série temporal agregada por dia (para gráfico)
+  // Deduplica por peca_id em cada (dia, etapa) — uma peça progredida 2x na mesma etapa no mesmo dia conta 1×
   const serieTemporalDiaria = useMemo(() => {
     const byDay = {};
+    // Sets para dedupe: byDaySets[dia][etapa] = Set<pecaId>
+    const byDaySets = {};
+
     eventosNaJanela.forEach(e => {
       const key = e.data.toISOString().slice(0, 10);
       if (!byDay[key]) byDay[key] = { dia: key, corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedido: 0, corteKg: 0, fabricacaoKg: 0, soldaKg: 0, pinturaKg: 0, expedidoKg: 0, total: 0 };
-      byDay[key][e.etapa] = (byDay[key][e.etapa] || 0) + e.qtd;
-      byDay[key][`${e.etapa}Kg`] = (byDay[key][`${e.etapa}Kg`] || 0) + e.peso;
-      // total = só etapas de conjunto (corte é separado, conta materiais)
-      if (e.etapa !== 'corte') byDay[key].total += e.qtd;
+      if (!byDaySets[key]) byDaySets[key] = { corte: new Set(), fabricacao: new Set(), solda: new Set(), pintura: new Set(), expedido: new Set(), total: new Set() };
+
+      if (e.etapa === 'corte') {
+        // Corte: soma direta (cada material é distinto)
+        byDay[key].corte += e.qtd;
+        byDay[key].corteKg += e.peso;
+      } else {
+        // Conjuntos: deduplicar por peca_id naquela etapa no dia
+        if (!byDaySets[key][e.etapa].has(e.pecaId)) {
+          byDaySets[key][e.etapa].add(e.pecaId);
+          byDay[key][e.etapa] = (byDay[key][e.etapa] || 0) + e.qtd;
+          byDay[key][`${e.etapa}Kg`] = (byDay[key][`${e.etapa}Kg`] || 0) + e.peso;
+        }
+        // Total = peças únicas que tiveram QUALQUER movimentação no dia
+        if (!byDaySets[key].total.has(e.pecaId)) {
+          byDaySets[key].total.add(e.pecaId);
+          byDay[key].total += e.qtd;
+        }
+      }
     });
     return Object.values(byDay)
       .sort((a, b) => a.dia.localeCompare(b.dia))
@@ -779,31 +798,63 @@ export default function AnaliseProducaoPage() {
       });
   }, [eventosNaJanela]);
 
-  // KPIs temporais (totais e médias na janela)
+  // KPIs temporais (totais SEM duplicação)
+  // Cada peça é contada NO MÁXIMO UMA VEZ por etapa (mesmo se houve várias movimentações).
+  // Cada peça é contada NO MÁXIMO UMA VEZ no TOTAL CONJ (mesmo se passou por várias etapas).
+  // Materiais de Corte são contados separadamente (independente dos conjuntos).
   const kpisTemporais = useMemo(() => {
     const agg = {
-      corte: { un: 0, kg: 0 },        // unidades = materiais cortados (não conjuntos)
+      corte:      { un: 0, kg: 0 },  // mat individuais cortados (não conjuntos)
       fabricacao: { un: 0, kg: 0 },
-      solda: { un: 0, kg: 0 },
-      pintura: { un: 0, kg: 0 },
-      expedido: { un: 0, kg: 0 },
+      solda:      { un: 0, kg: 0 },
+      pintura:    { un: 0, kg: 0 },
+      expedido:   { un: 0, kg: 0 },
     };
-    eventosNaJanela.forEach(e => {
-      if (agg[e.etapa]) { agg[e.etapa].un += e.qtd; agg[e.etapa].kg += e.peso; }
+
+    // Para corte: soma de eventos é OK (cada material é um item distinto)
+    eventosNaJanela.filter(e => e.etapa === 'corte').forEach(e => {
+      agg.corte.un += e.qtd;
+      agg.corte.kg += e.peso;
     });
-    // Total CONJUNTOS = só etapas de produção (não soma corte que é em materiais)
-    const totalUnConj = agg.fabricacao.un + agg.solda.un + agg.pintura.un + agg.expedido.un;
-    const totalKgConj = agg.fabricacao.kg + agg.solda.kg + agg.pintura.kg + agg.expedido.kg;
+
+    // Para CONJUNTOS: deduplicar por peca_id em cada etapa
+    // (uma peça que avança 2x para fabricação no mesmo período é UMA peça progredida)
+    const pecasPorEtapa = { fabricacao: new Set(), solda: new Set(), pintura: new Set(), expedido: new Set() };
+    eventosNaJanela.filter(e => e.etapa !== 'corte').forEach(e => {
+      if (pecasPorEtapa[e.etapa]) pecasPorEtapa[e.etapa].add(e.pecaId);
+    });
+    ['fabricacao', 'solda', 'pintura', 'expedido'].forEach(etapa => {
+      pecasPorEtapa[etapa].forEach(pid => {
+        const p = pecasIdMap[pid];
+        if (!p) return;
+        const qtd = parseInt(p.quantidade) || 1;
+        const peso = parseFloat(p.peso_total) || 0;
+        agg[etapa].un += qtd;
+        agg[etapa].kg += peso;
+      });
+    });
+
+    // TOTAL CONJUNTOS = peças únicas que tiveram QUALQUER avanço de etapa no período
+    const pecasUnicasMovimentadas = new Set();
+    eventosNaJanela.filter(e => e.etapa !== 'corte').forEach(e => pecasUnicasMovimentadas.add(e.pecaId));
+    let totalUnConj = 0;
+    let totalKgConj = 0;
+    pecasUnicasMovimentadas.forEach(pid => {
+      const p = pecasIdMap[pid];
+      if (!p) return;
+      totalUnConj += parseInt(p.quantidade) || 1;
+      totalKgConj += parseFloat(p.peso_total) || 0;
+    });
 
     const diasComProducao = serieTemporalDiaria.filter(d => d.total > 0 || d.corte > 0).length || 1;
 
     const mediaDiaria = {
-      corte: Math.round(agg.corte.un / diasComProducao),
+      corte:      Math.round(agg.corte.un / diasComProducao),
       fabricacao: Math.round(agg.fabricacao.un / diasComProducao),
-      solda: Math.round(agg.solda.un / diasComProducao),
-      pintura: Math.round(agg.pintura.un / diasComProducao),
-      expedido: Math.round(agg.expedido.un / diasComProducao),
-      total: Math.round(totalUnConj / diasComProducao),
+      solda:      Math.round(agg.solda.un / diasComProducao),
+      pintura:    Math.round(agg.pintura.un / diasComProducao),
+      expedido:   Math.round(agg.expedido.un / diasComProducao),
+      total:      Math.round(totalUnConj / diasComProducao),
     };
 
     let melhorDia = null;
@@ -816,11 +867,12 @@ export default function AnaliseProducaoPage() {
       ...agg,
       totalUn: totalUnConj,
       totalKg: totalKgConj,
+      pecasUnicasMovimentadas: pecasUnicasMovimentadas.size,
       diasComProducao,
       mediaDiaria,
       melhorDia: melhorDia ? { dia: melhorDia.label, total: melhorDia.total } : null,
     };
-  }, [eventosNaJanela, serieTemporalDiaria]);
+  }, [eventosNaJanela, serieTemporalDiaria, pecasIdMap]);
 
   // Production waterfall data
   const waterfallData = useMemo(() => [
@@ -1019,7 +1071,9 @@ export default function AnaliseProducaoPage() {
               <Activity size={18} className="text-emerald-400" />
               Produção Temporal — {janelaTempo.label}
             </h2>
-            <p className="text-slate-500 text-xs mt-0.5">Conjuntos completos por etapa (Fab/Solda/Pintura/Expedido) + materiais cortados separadamente · período</p>
+            <p className="text-slate-500 text-xs mt-0.5">
+              Conjuntos completos (1 peça = 1 conjunto, máx. {configObra?.qtdContrato?.toLocaleString('pt-BR') || '∞'} no contrato) · Materiais de corte contados à parte
+            </p>
           </div>
           <div className="flex gap-2 text-xs">
             <span className="px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400">
