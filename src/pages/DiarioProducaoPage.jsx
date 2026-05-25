@@ -110,44 +110,63 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
       const inicio = `${data}T00:00:00`;
       const fim = `${data}T23:59:59`;
 
-      // 1. Histórico do dia (opcionalmente filtrado por etapa de destino)
-      let histQuery = supabase
+      // 1. Histórico do dia — SEM filtro de etapa na query (mostrar tudo do dia).
+      //    O filtro de etapa será aplicado no client para também aceitar variações
+      //    (etapa_de=X ou etapa_para=X), e mostrar lançamentos relevantes mesmo quando
+      //    a etapa não bate exatamente.
+      const { data: hist, error } = await supabase
         .from('producao_historico')
         .select('*')
         .gte('data_inicio', inicio)
-        .lte('data_inicio', fim);
-
-      if (etapaFiltro && etapaFiltro !== 'todas') {
-        histQuery = histQuery.eq('etapa_para', etapaFiltro);
-      }
-
-      const { data: hist, error } = await histQuery.order('created_at', { ascending: false });
+        .lte('data_inicio', fim)
+        .order('created_at', { ascending: false });
       if (error) throw error;
 
-      // 2. Buscar peças envolvidas + filtrar por obra (se houver)
+      // 2. Buscar peças envolvidas (sem split sufix também — usa baseId)
       const pecaIds = Array.from(new Set((hist || []).map(h => h.peca_id).filter(Boolean)));
-      let pecasFiltradas = [];
-      if (pecaIds.length > 0) {
+      const baseIds = Array.from(new Set(pecaIds.map(id => id.split('__')[0])));
+      const todosIds = Array.from(new Set([...pecaIds, ...baseIds]));
+
+      let pecasData = [];
+      if (todosIds.length > 0) {
         let pecasQuery = supabase
           .from('pecas_producao')
           .select('id,marca,tipo,peso_total,quantidade,obra_nome,obra_id')
-          .in('id', pecaIds);
+          .in('id', todosIds);
         if (obraIds && obraIds.length > 0) {
           pecasQuery = pecasQuery.in('obra_id', obraIds);
         }
         const { data: pecas } = await pecasQuery;
-        pecasFiltradas = pecas || [];
+        pecasData = pecas || [];
       }
 
-      // Mapa de peças por ID
+      // Mapa: id exato → peça. Se não achou exato, tenta baseId.
+      const mapExato = {};
+      const mapBase = {};
+      pecasData.forEach(p => {
+        mapExato[p.id] = p;
+        mapBase[p.id.split('__')[0]] = p;
+      });
+      // Construir mapa final por peca_id do histórico
       const map = {};
-      pecasFiltradas.forEach(p => { map[p.id] = p; });
+      (hist || []).forEach(h => {
+        const peca = mapExato[h.peca_id] || mapBase[h.peca_id?.split('__')[0]];
+        if (peca) map[h.peca_id] = peca;
+      });
       setPecasMap(map);
 
-      // Filtrar histórico: se obra filtrada, manter só lançamentos cuja peça pertence à obra
-      const histFinal = (obraIds && obraIds.length > 0)
-        ? (hist || []).filter(h => map[h.peca_id])
-        : (hist || []);
+      // Filtrar histórico:
+      //   - se obra filtrada: manter só lançamentos cuja peça pertence à obra
+      //   - se etapa filtrada: manter lançamentos que entraram OU saíram daquela etapa
+      let histFinal = hist || [];
+      if (obraIds && obraIds.length > 0) {
+        histFinal = histFinal.filter(h => map[h.peca_id]);
+      }
+      if (etapaFiltro && etapaFiltro !== 'todas') {
+        histFinal = histFinal.filter(h =>
+          h.etapa_para === etapaFiltro || h.etapa_de === etapaFiltro
+        );
+      }
 
       setHistorico(histFinal);
     } catch (err) {
@@ -716,7 +735,7 @@ export default function DiarioProducaoPage() {
     const hoje = new Date();
     return hoje.toISOString().split('T')[0];
   });
-  const [selectedEtapa, setSelectedEtapa] = useState('corte');
+  const [selectedEtapa, setSelectedEtapa] = useState('todas'); // 'todas' por padrão (mostra todos lançamentos)
   const [filtroObra, setFiltroObra] = useState('todas'); // 'todas' | obraId | 'temec' (grupo)
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -739,12 +758,15 @@ export default function DiarioProducaoPage() {
 
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      let query = supabase
         .from('diario_producao')
         .select('*')
-        .eq('data', selectedData)
-        .eq('etapa', selectedEtapa)
-        .order('created_at', { ascending: false });
+        .eq('data', selectedData);
+      // Quando etapa é 'todas', não aplica filtro de etapa
+      if (selectedEtapa && selectedEtapa !== 'todas') {
+        query = query.eq('etapa', selectedEtapa);
+      }
+      const { data, error } = await query.order('created_at', { ascending: false });
 
       if (error) throw error;
       setRegistros(data || []);
@@ -1040,6 +1062,33 @@ export default function DiarioProducaoPage() {
           </div>
         </div>
       )}
+
+      {/* Atalho rápido: filtros de etapa para o LancamentosPorFuncionario */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-slate-400 uppercase tracking-wider">Filtrar lançamentos por:</span>
+        {[
+          { v: 'todas', label: 'Todas' },
+          { v: 'corte', label: '✂ Corte' },
+          { v: 'fabricacao', label: '🔧 Fabricação' },
+          { v: 'solda', label: '⚡ Solda' },
+          { v: 'pintura', label: '🎨 Pintura' },
+          { v: 'expedido', label: '🚚 Expedido' },
+          { v: 'enviado', label: '✅ Enviado' },
+        ].map(opt => (
+          <button
+            key={opt.v}
+            onClick={() => setSelectedEtapa(opt.v)}
+            className={cn(
+              'px-3 py-1 rounded-full text-xs font-medium transition-all',
+              selectedEtapa === opt.v
+                ? 'bg-purple-500 text-white shadow shadow-purple-500/30'
+                : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700'
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
 
       {/* === LANÇAMENTOS POR FUNCIONÁRIO (Kanban / LancamentoProducaoModal) === */}
       <LancamentosPorFuncionario
