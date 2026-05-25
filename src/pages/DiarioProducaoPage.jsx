@@ -43,7 +43,8 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
-import { useEquipes } from '@/contexts/ERPContext';
+import { useEquipes, useObras } from '@/contexts/ERPContext';
+import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import {
   ETAPAS_LABELS,
   ETAPAS_CORES,
@@ -92,52 +93,70 @@ const fmtHora = (iso) => {
 // LANÇAMENTOS POR FUNCIONÁRIO  (vem de producao_historico)
 // Reflete tudo que foi lançado pelo LancamentoProducaoModal / Kanban.
 // ============================================================================
-function LancamentosPorFuncionario({ data }) {
+function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
   const [historico, setHistorico] = useState([]);
   const [pecasMap, setPecasMap] = useState({});
   const [loading, setLoading] = useState(false);
   const [busca, setBusca] = useState('');
   const [funcionarioExpandido, setFuncionarioExpandido] = useState(null);
 
+  // Key estável para deps do useCallback (array → string)
+  const obraIdsKey = obraIds ? obraIds.slice().sort().join(',') : '';
+
   const carregar = useCallback(async () => {
     if (!isSupabaseConfigured()) return;
     setLoading(true);
     try {
-      // Janela do dia selecionado (00:00 → 23:59:59 UTC-aware na col. data_inicio)
       const inicio = `${data}T00:00:00`;
       const fim = `${data}T23:59:59`;
 
-      // 1. Histórico do dia
-      const { data: hist, error } = await supabase
+      // 1. Histórico do dia (opcionalmente filtrado por etapa de destino)
+      let histQuery = supabase
         .from('producao_historico')
         .select('*')
         .gte('data_inicio', inicio)
-        .lte('data_inicio', fim)
-        .order('created_at', { ascending: false });
+        .lte('data_inicio', fim);
 
+      if (etapaFiltro && etapaFiltro !== 'todas') {
+        histQuery = histQuery.eq('etapa_para', etapaFiltro);
+      }
+
+      const { data: hist, error } = await histQuery.order('created_at', { ascending: false });
       if (error) throw error;
-      setHistorico(hist || []);
 
-      // 2. Buscar info das peças envolvidas (peso, conjunto, obra)
+      // 2. Buscar peças envolvidas + filtrar por obra (se houver)
       const pecaIds = Array.from(new Set((hist || []).map(h => h.peca_id).filter(Boolean)));
+      let pecasFiltradas = [];
       if (pecaIds.length > 0) {
-        const { data: pecas } = await supabase
+        let pecasQuery = supabase
           .from('pecas_producao')
           .select('id,marca,tipo,peso_total,quantidade,obra_nome,obra_id')
           .in('id', pecaIds);
-        const map = {};
-        (pecas || []).forEach(p => { map[p.id] = p; });
-        setPecasMap(map);
-      } else {
-        setPecasMap({});
+        if (obraIds && obraIds.length > 0) {
+          pecasQuery = pecasQuery.in('obra_id', obraIds);
+        }
+        const { data: pecas } = await pecasQuery;
+        pecasFiltradas = pecas || [];
       }
+
+      // Mapa de peças por ID
+      const map = {};
+      pecasFiltradas.forEach(p => { map[p.id] = p; });
+      setPecasMap(map);
+
+      // Filtrar histórico: se obra filtrada, manter só lançamentos cuja peça pertence à obra
+      const histFinal = (obraIds && obraIds.length > 0)
+        ? (hist || []).filter(h => map[h.peca_id])
+        : (hist || []);
+
+      setHistorico(histFinal);
     } catch (err) {
       console.error('[Diario] Erro ao carregar producao_historico:', err);
       toast.error('Erro ao carregar lançamentos');
     } finally {
       setLoading(false);
     }
-  }, [data]);
+  }, [data, obraIdsKey, etapaFiltro]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -186,7 +205,13 @@ function LancamentosPorFuncionario({ data }) {
             <div>
               <h2 className="text-lg font-bold text-white">Lançamentos por Funcionário</h2>
               <p className="text-xs text-slate-400">
-                Reflete os lançamentos feitos no Kanban / Modal de Produção em <strong>{new Date(data + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>
+                Lançamentos do Kanban em <strong>{new Date(data + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>
+                {etapaFiltro && etapaFiltro !== 'todas' && (
+                  <> · Etapa: <strong className="text-purple-300 capitalize">{etapaFiltro}</strong></>
+                )}
+                {obraIds && obraIds.length > 0 && (
+                  <> · {obraIds.length === 1 ? 'Obra filtrada' : `${obraIds.length} obras consolidadas`}</>
+                )}
               </p>
             </div>
           </div>
@@ -683,6 +708,8 @@ function DiarioFormDialog({ open, onOpenChange, etapa, data, funcionarios, equip
 
 export default function DiarioProducaoPage() {
   const { funcionarios = [], equipes = [] } = useEquipes();
+  const { obras } = useObras();
+  const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
 
   // Estados principais
   const [selectedData, setSelectedData] = useState(() => {
@@ -690,10 +717,19 @@ export default function DiarioProducaoPage() {
     return hoje.toISOString().split('T')[0];
   });
   const [selectedEtapa, setSelectedEtapa] = useState('corte');
+  const [filtroObra, setFiltroObra] = useState('todas'); // 'todas' | obraId | 'temec' (grupo)
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRegistro, setEditingRegistro] = useState(null);
+
+  // Resolve obraIds do filtro (suporta grupo TEMEC consolidado)
+  const obraIdsFiltrados = useMemo(() => {
+    if (filtroObra === 'todas') return null;
+    if (GRUPOS_OBRAS[filtroObra]) return GRUPOS_OBRAS[filtroObra].obraIds;
+    return [filtroObra];
+  }, [filtroObra]);
+  const isGrupoConsolidado = !!GRUPOS_OBRAS[filtroObra];
 
   // Fetch de registros do Supabase
   const fetchRegistros = useCallback(async () => {
@@ -909,7 +945,25 @@ export default function DiarioProducaoPage() {
           <p className="text-slate-400 mt-1">Registro diário por etapa de produção</p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Filtro de Obra (com grupo TEMEC) */}
+          <Select value={filtroObra} onValueChange={setFiltroObra}>
+            <SelectTrigger className="w-[240px] bg-slate-800 border-slate-700 h-9">
+              <SelectValue placeholder="Obra" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="todas">🏗 Todas as Obras</SelectItem>
+              {Object.values(GRUPOS_OBRAS).map(g => (
+                <SelectItem key={g.id} value={g.id}>{g.label}</SelectItem>
+              ))}
+              {obrasAtivas.map(o => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           {/* Navegação de Data */}
           <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1">
             <Button
@@ -972,8 +1026,27 @@ export default function DiarioProducaoPage() {
         </div>
       </div>
 
+      {/* Banner do grupo TEMEC Consolidado */}
+      {isGrupoConsolidado && (
+        <div className="bg-purple-500/10 border border-purple-500/30 rounded-xl px-4 py-3 flex items-center gap-3">
+          <BookOpen className="h-5 w-5 text-purple-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-purple-300 text-sm font-medium">
+              {GRUPOS_OBRAS[filtroObra]?.label} · Análise consolidada
+            </p>
+            <p className="text-purple-200/70 text-xs mt-0.5">
+              Mostrando lançamentos de {GRUPOS_OBRAS[filtroObra]?.obraIds.length} obras agregadas — etapa <strong className="capitalize">{selectedEtapa}</strong> · dia <strong>{new Date(selectedData + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* === LANÇAMENTOS POR FUNCIONÁRIO (Kanban / LancamentoProducaoModal) === */}
-      <LancamentosPorFuncionario data={selectedData} />
+      <LancamentosPorFuncionario
+        data={selectedData}
+        obraIds={obraIdsFiltrados}
+        etapaFiltro={selectedEtapa}
+      />
 
       {/* Abas de Etapas */}
       <div className="flex gap-2 overflow-x-auto pb-2">
