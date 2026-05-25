@@ -26,6 +26,30 @@ const configInicial = {
   },
 };
 
+// ----- CONFIG POR OBRA -----
+// Cada obra pode ter modo='kg' (R$/kg × peso) ou modo='unidade' (R$/un × qtd peças)
+// Persistido em localStorage. Para obras tipo "produto seriado" usar modo='unidade'.
+const STORAGE_KEY_CONFIG_OBRAS = 'medicao_config_obras_v1';
+
+// Defaults conhecidos do contrato (sementes — usuário pode editar via UI):
+const CONFIG_OBRAS_SEED = {
+  'obra-004': { modo: 'unidade', valor: 20.00, qtdContrato: 500, descricao: 'R$/unidade contratada' }, // TMC-CC027 — 500un × R$ 20,00
+  'obra-005': { modo: 'unidade', valor: 20.00, qtdContrato: 1500, descricao: 'R$/unidade contratada' }, // TMC-CC002 — 1500un × R$ 20,00 (se existir)
+};
+
+const loadConfigObras = () => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY_CONFIG_OBRAS) || '{}');
+    return { ...CONFIG_OBRAS_SEED, ...saved };
+  } catch {
+    return { ...CONFIG_OBRAS_SEED };
+  }
+};
+
+const saveConfigObras = (cfg) => {
+  try { localStorage.setItem(STORAGE_KEY_CONFIG_OBRAS, JSON.stringify(cfg)); } catch {}
+};
+
 // Cores para gráficos
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
 
@@ -39,9 +63,24 @@ export default function MedicaoAutomaticaPage() {
   const [config, setConfig] = useState(configInicial);
   const [editandoConfig, setEditandoConfig] = useState(null);
   const [novoValorKg, setNovoValorKg] = useState('');
+  const [novoModoMedicao, setNovoModoMedicao] = useState('kg'); // 'kg' | 'unidade'
+  const [novoQtdContrato, setNovoQtdContrato] = useState('');
   const [modalNovaMedicao, setModalNovaMedicao] = useState(false);
   const [medicoes, setMedicoes] = useState([]);
   const [formMedicao, setFormMedicao] = useState({ peso: '', obra: '' });
+
+  // Config por obra (modo kg ou unidade) — carrega do localStorage
+  const [configObras, setConfigObras] = useState(() => loadConfigObras());
+
+  // Config ATUAL = se obra selecionada tem config própria, usa ela; senão usa o default kg
+  const configObraAtual = useMemo(() => {
+    if (obraSelecionada !== 'todas' && configObras[obraSelecionada]) {
+      return configObras[obraSelecionada];
+    }
+    return { modo: 'kg', valor: config.producao.valorKg, qtdContrato: 0, descricao: config.producao.descricao };
+  }, [obraSelecionada, configObras, config.producao.valorKg, config.producao.descricao]);
+
+  const isModoUnidade = configObraAtual.modo === 'unidade';
 
   // Medições locais (criadas nesta página)
   const medicoesLocaisFiltradas = useMemo(() => {
@@ -204,18 +243,74 @@ export default function MedicaoAutomaticaPage() {
   const pesoBaseEntregue = pesoEntregueReal > 0 ? pesoEntregueReal : dadosObraSelecionada.pesoExpedido;
   // Peso produzido mas ainda não entregue
   const pesoProduzidoNaoEntregue = Math.max(0, dadosObraSelecionada.pesoProduzido - pesoBaseEntregue);
-  // Medição Liberada = Produzido sem Entrega × R$/kg
-  const valorMedicaoLiberada = pesoProduzidoNaoEntregue * config.producao.valorKg;
+
+  // ----- Conversor peso → quantidade de peças (regra de 3 com peso total da obra) -----
+  const pesoTotalObra = dadosObraSelecionada.pesoTotal || 0;
+  const qtdContratoObra = configObraAtual.qtdContrato || 0;
+  const pesoParaQtd = (kg) => {
+    if (!isModoUnidade || pesoTotalObra <= 0 || qtdContratoObra <= 0) return 0;
+    return Math.round((kg / pesoTotalObra) * qtdContratoObra);
+  };
+
+  // Quantidades equivalentes (modo unidade)
+  const qtdProduzida = pesoParaQtd(dadosObraSelecionada.pesoProduzido);
+  const qtdEntregue = pesoParaQtd(pesoBaseEntregue);
+  const qtdProduzidaNaoEntregue = Math.max(0, pesoParaQtd(pesoProduzidoNaoEntregue));
+  const qtdPrevisaoProxima = pesoParaQtd(dadosObraSelecionada.previsaoProximaMedicao);
+
+  // Medição Liberada — modo "kg" usa peso × R$/kg; modo "unidade" usa qtd × R$/un
+  const valorMedicaoLiberada = isModoUnidade
+    ? qtdProduzidaNaoEntregue * configObraAtual.valor
+    : pesoProduzidoNaoEntregue * config.producao.valorKg;
+
+  // Medição prevista (próxima): peso em solda → unidades estimadas
+  const valorMedicaoPrevista = isModoUnidade
+    ? (qtdPrevisaoProxima * configObraAtual.valor) + valorMedicaoLiberada
+    : (dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg) + valorMedicaoLiberada;
 
   const salvarConfig = () => {
     const valor = parseFloat(novoValorKg);
-    if (isNaN(valor) || valor <= 0) return;
-    setConfig(prev => ({
-      ...prev,
-      producao: { ...prev.producao, valorKg: valor }
-    }));
+    if (isNaN(valor) || valor <= 0) {
+      toast.error('Valor inválido');
+      return;
+    }
+    const qtdC = parseFloat(novoQtdContrato) || 0;
+    if (novoModoMedicao === 'unidade' && qtdC <= 0) {
+      toast.error('Informe a quantidade contratada (unidades)');
+      return;
+    }
+
+    // Se obra específica está selecionada → salva config dela; senão atualiza valor global por kg
+    if (obraSelecionada !== 'todas') {
+      const nova = {
+        ...configObras,
+        [obraSelecionada]: {
+          modo: novoModoMedicao,
+          valor: valor,
+          qtdContrato: novoModoMedicao === 'unidade' ? qtdC : 0,
+          descricao: novoModoMedicao === 'unidade' ? 'R$/unidade contratada' : 'R$/kg contratado'
+        }
+      };
+      setConfigObras(nova);
+      saveConfigObras(nova);
+      toast.success(`Config salva para ${obrasAtivas.find(o => o.id === obraSelecionada)?.nome || 'obra'}`);
+    } else {
+      setConfig(prev => ({
+        ...prev,
+        producao: { ...prev.producao, valorKg: valor }
+      }));
+      toast.success('Valor por kg padrão atualizado');
+    }
     setEditandoConfig(null);
     setNovoValorKg('');
+    setNovoQtdContrato('');
+  };
+
+  const abrirEdicaoConfig = () => {
+    setEditandoConfig('producao');
+    setNovoValorKg(String(configObraAtual.valor));
+    setNovoModoMedicao(configObraAtual.modo);
+    setNovoQtdContrato(String(configObraAtual.qtdContrato || ''));
   };
 
   const formatMoney = (value) => {
@@ -334,20 +429,47 @@ export default function MedicaoAutomaticaPage() {
               <DollarSign className="h-8 w-8 text-orange-400" />
             </div>
             <div>
-              <h3 className="text-white font-semibold text-lg">Valor por KG - Produção</h3>
-              <p className="text-slate-400 text-sm">{config.producao.descricao}</p>
+              <h3 className="text-white font-semibold text-lg">
+                {isModoUnidade ? 'Valor por Unidade - Produção' : 'Valor por KG - Produção'}
+              </h3>
+              <p className="text-slate-400 text-sm">
+                {isModoUnidade
+                  ? `${configObraAtual.qtdContrato} un contratadas · ${formatMoney(configObraAtual.valor * (configObraAtual.qtdContrato || 0))} total`
+                  : configObraAtual.descricao}
+              </p>
             </div>
           </div>
           {editandoConfig === 'producao' ? (
-            <div className="flex items-center gap-3">
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">R$</span>
-                <Input type="number" step="0.01" value={novoValorKg} onChange={(e) => setNovoValorKg(e.target.value)} className="pl-10 w-32 bg-slate-900 border-slate-600 text-white" placeholder={config.producao.valorKg.toString()} autoFocus />
+            <div className="flex flex-wrap items-end gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Modo de Cálculo</label>
+                <select
+                  value={novoModoMedicao}
+                  onChange={(e) => setNovoModoMedicao(e.target.value)}
+                  className="px-3 py-2 bg-slate-900 border border-slate-600 rounded-md text-white text-sm"
+                  disabled={obraSelecionada === 'todas'}
+                >
+                  <option value="kg">📦 Por KG (peso)</option>
+                  <option value="unidade">🔢 Por Unidade (peça)</option>
+                </select>
               </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">{novoModoMedicao === 'unidade' ? 'R$ por unidade' : 'R$ por kg'}</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
+                  <Input type="number" step="0.01" value={novoValorKg} onChange={(e) => setNovoValorKg(e.target.value)} className="pl-10 w-32 bg-slate-900 border-slate-600 text-white" autoFocus />
+                </div>
+              </div>
+              {novoModoMedicao === 'unidade' && (
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1">Qtd contratada</label>
+                  <Input type="number" step="1" value={novoQtdContrato} onChange={(e) => setNovoQtdContrato(e.target.value)} className="w-32 bg-slate-900 border-slate-600 text-white" placeholder="500" />
+                </div>
+              )}
               <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={salvarConfig}>
-                <Save className="h-4 w-4" />
+                <Save className="h-4 w-4 mr-1" /> Salvar
               </Button>
-              <Button size="sm" variant="outline" className="border-slate-600" onClick={() => { setEditandoConfig(null); setNovoValorKg(''); }}>
+              <Button size="sm" variant="outline" className="border-slate-600" onClick={() => { setEditandoConfig(null); setNovoValorKg(''); setNovoQtdContrato(''); }}>
                 <X className="h-4 w-4" />
               </Button>
             </div>
@@ -355,11 +477,16 @@ export default function MedicaoAutomaticaPage() {
             <div className="flex items-center gap-4">
               <div className="text-right">
                 <p className="text-3xl font-bold text-white">
-                  {formatMoney(config.producao.valorKg)}
-                  <span className="text-lg text-slate-400 font-normal">/kg</span>
+                  {formatMoney(configObraAtual.valor)}
+                  <span className="text-lg text-slate-400 font-normal">{isModoUnidade ? '/un' : '/kg'}</span>
                 </p>
+                {isModoUnidade && (
+                  <p className="text-xs text-emerald-400 mt-1">
+                    {qtdProduzida}/{configObraAtual.qtdContrato} un produzidas · {qtdEntregue} entregues
+                  </p>
+                )}
               </div>
-              <Button variant="outline" className="border-2 border-orange-500/50 text-orange-400 hover:bg-orange-500/20" onClick={() => { setEditandoConfig('producao'); setNovoValorKg(config.producao.valorKg.toString()); }}>
+              <Button variant="outline" className="border-2 border-orange-500/50 text-orange-400 hover:bg-orange-500/20" onClick={abrirEdicaoConfig}>
                 <Edit className="h-4 w-4 mr-2" />
                 Editar Valor
               </Button>
@@ -370,13 +497,21 @@ export default function MedicaoAutomaticaPage() {
 
       <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
         {[
-          { label: 'Peso Entregue', value: formatPeso(pesoBaseEntregue), icon: Truck, cor: 'emerald' },
+          {
+            label: isModoUnidade ? 'Qtd Entregue' : 'Peso Entregue',
+            value: isModoUnidade ? `${qtdEntregue} un` : formatPeso(pesoBaseEntregue),
+            icon: Truck, cor: 'emerald'
+          },
           { label: 'Medição Liberada', value: formatMoney(valorMedicaoLiberada), icon: DollarSign, cor: 'green' },
-          { label: 'Produzido s/ Entrega', value: formatPeso(pesoProduzidoNaoEntregue), icon: Weight, cor: 'amber' },
+          {
+            label: isModoUnidade ? 'Produzidas s/ Entrega' : 'Produzido s/ Entrega',
+            value: isModoUnidade ? `${qtdProduzidaNaoEntregue} un` : formatPeso(pesoProduzidoNaoEntregue),
+            icon: Weight, cor: 'amber'
+          },
           { label: 'Já Medido (R$)', value: formatMoney(totalMedicoesLancadas), icon: Target, cor: 'purple' },
           { label: 'Medições Aprovadas', value: totais.aprovadas, icon: CheckCircle2, cor: 'emerald' },
           { label: 'Em Processo', value: formatPeso(dadosObraSelecionada.pesoEmProcesso), icon: Layers, cor: 'cyan' },
-          { label: 'Medição Prevista (R$)', value: formatMoney((dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg) + valorMedicaoLiberada), icon: DollarSign, cor: 'orange' },
+          { label: 'Medição Prevista (R$)', value: formatMoney(valorMedicaoPrevista), icon: DollarSign, cor: 'orange' },
         ].map((kpi, idx) => (
           <motion.div key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
             <div className="flex items-center justify-between">
