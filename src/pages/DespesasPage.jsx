@@ -219,7 +219,7 @@ export default function DespesasPage() {
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
-  const [filtroDataTipo, setFiltroDataTipo] = useState('emissao'); // 'emissao' | 'vencimento'
+  const [filtroDataTipo, setFiltroDataTipo] = useState('vencimento'); // 'emissao' | 'vencimento' — default por vencimento (contas a pagar)
   const [filtroObra, setFiltroObra] = useState('fabrica'); // 'fabrica' | obraId | 'geral'
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
@@ -520,8 +520,19 @@ export default function DespesasPage() {
       if (filtroCentro !== 'todos' && d.centroCusto !== filtroCentro) return false;
       return true;
     });
-    return filtrarPorPeriodo(resultado);
-  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtrarPorPeriodo]);
+    const filtrados = filtrarPorPeriodo(resultado);
+    // Ordenação automática: por data de vencimento (asc) quando "Por Vencimento"; senão por emissão (desc)
+    return [...filtrados].sort((a, b) => {
+      if (filtroDataTipo === 'vencimento') {
+        const av = a.dataVencimento || a.vencimento || '9999-12-31';
+        const bv = b.dataVencimento || b.vencimento || '9999-12-31';
+        return String(av).localeCompare(String(bv)); // asc: vencimentos mais próximos primeiro
+      }
+      const ae = a.dataEmissao || a.data || '';
+      const be = b.dataEmissao || b.data || '';
+      return String(be).localeCompare(String(ae)); // desc: emissões mais recentes primeiro
+    });
+  }, [despesas, searchTerm, filtroStatus, filtroCategoria, filtroCentro, filtrarPorPeriodo, filtroDataTipo]);
 
   // === EXPORTAR EXCEL (modelo Natureza de Aquisição) ===
   const handleExportExcel = useCallback(() => {
@@ -1023,18 +1034,16 @@ export default function DespesasPage() {
               {p.label}
             </button>
           ))}
-          {/* Seletor: filtrar por Emissão ou Vencimento */}
-          {filtroPeriodo !== 'geral' && (
-            <Select value={filtroDataTipo} onValueChange={setFiltroDataTipo}>
-              <SelectTrigger className="w-[140px] bg-slate-800 border-slate-700 text-sm h-8">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="emissao">Por Emissão</SelectItem>
-                <SelectItem value="vencimento">Por Vencimento</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
+          {/* Seletor: filtrar/ordenar por Emissão ou Vencimento — sempre visível */}
+          <Select value={filtroDataTipo} onValueChange={setFiltroDataTipo}>
+            <SelectTrigger className="w-[160px] bg-slate-800 border-slate-700 text-sm h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="vencimento">📅 Por Vencimento</SelectItem>
+              <SelectItem value="emissao">🧾 Por Emissão</SelectItem>
+            </SelectContent>
+          </Select>
           {filtroPeriodo === 'personalizado' && (
             <div className="flex items-center gap-2">
               <input
