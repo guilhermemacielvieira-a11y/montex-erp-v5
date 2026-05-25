@@ -350,25 +350,53 @@ export default function AnaliseProducaoPage() {
   const { obraAtual, obras } = useObras();
   const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
 
+  // Grupos especiais — múltiplas obras agregadas
+  const GRUPOS_OBRAS = {
+    temec: {
+      id: 'temec',
+      label: '🏢 TEMEC Consolidado (CC027 + CC002)',
+      obraIds: ['obra-004', 'obra-005'],
+      modo: 'unidade',
+      valor: 20,
+      qtdContrato: 2000, // 500 + 1500
+    },
+  };
+
   // Filtro local de obra (independente do sidebar)
-  const [filtroObraLocal, setFiltroObraLocal] = useState('atual'); // 'atual' | obraId
-  const obraIdEfetivo = filtroObraLocal === 'atual' ? obraAtual : filtroObraLocal;
+  // Aceita: 'atual' | obraId | 'temec' (grupo consolidado)
+  const [filtroObraLocal, setFiltroObraLocal] = useState('atual');
+
+  // Resolve para um ou mais obraIds dependendo do filtro
+  const obraIdsEfetivos = useMemo(() => {
+    if (filtroObraLocal === 'atual') return obraAtual ? [obraAtual] : [];
+    if (GRUPOS_OBRAS[filtroObraLocal]) return GRUPOS_OBRAS[filtroObraLocal].obraIds;
+    return [filtroObraLocal];
+  }, [filtroObraLocal, obraAtual]);
+
+  // ID único para keys de cache (string das obras ordenadas)
+  const obraIdEfetivo = useMemo(() => obraIdsEfetivos.join(','), [obraIdsEfetivos]);
+  const isGrupoConsolidado = !!GRUPOS_OBRAS[filtroObraLocal];
 
   // Filtro de período temporal
   const [filtroPeriodo, setFiltroPeriodo] = useState('mensal'); // 'diario' | 'semanal' | 'mensal' | 'geral'
 
-  // Detectar se obra é "modo unidade" (TEMEC seriado) — config no localStorage
+  // Detectar se obra é "modo unidade" (TEMEC seriado) — config no localStorage ou grupo
   const configObra = useMemo(() => {
-    if (!obraIdEfetivo) return null;
+    if (GRUPOS_OBRAS[filtroObraLocal]) {
+      const g = GRUPOS_OBRAS[filtroObraLocal];
+      return { modo: g.modo, valor: g.valor, qtdContrato: g.qtdContrato };
+    }
+    if (obraIdsEfetivos.length !== 1) return null;
+    const obraId = obraIdsEfetivos[0];
     try {
       const cfg = JSON.parse(localStorage.getItem('medicao_config_obras_v1') || '{}');
       const seeds = {
         'obra-004': { modo: 'unidade', valor: 20, qtdContrato: 500 },
         'obra-005': { modo: 'unidade', valor: 20, qtdContrato: 1500 },
       };
-      return { ...seeds, ...cfg }[obraIdEfetivo] || null;
+      return { ...seeds, ...cfg }[obraId] || null;
     } catch { return null; }
-  }, [obraIdEfetivo]);
+  }, [filtroObraLocal, obraIdsEfetivos]);
   const isModoUnidade = configObra?.modo === 'unidade';
 
   const [pecas, setPecas] = useState([]);
@@ -380,17 +408,19 @@ export default function AnaliseProducaoPage() {
   const [activeTab, setActiveTab] = useState('visao-geral');
   const [showFilter, setShowFilter] = useState(false);
 
-  // Fetch data from Supabase (filtrado por obra selecionada)
+  // Fetch data from Supabase (filtrado por obra ou grupo de obras)
   useEffect(() => {
-    if (!obraIdEfetivo) { setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setLoading(false); return; }
+    if (!obraIdsEfetivos || obraIdsEfetivos.length === 0) {
+      setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setLoading(false); return;
+    }
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Buscar peças de produção
+        // Buscar peças de produção — usa .in() para suportar múltiplas obras (grupo TEMEC)
         const { data, error } = await supabase
           .from('pecas_producao')
           .select('*')
-          .eq('obra_id', obraIdEfetivo);
+          .in('obra_id', obraIdsEfetivos);
         if (error) throw error;
         setPecas(data || []);
 
@@ -416,8 +446,8 @@ export default function AnaliseProducaoPage() {
         try {
           const { data: exps } = await supabase
             .from('expedicoes')
-            .select('id, status, pecas, peso_total')
-            .eq('obra_id', obraIdEfetivo)
+            .select('id, status, pecas, peso_total, obra_id')
+            .in('obra_id', obraIdsEfetivos)
             .eq('status', 'ENTREGUE');
           const entregues = exps || [];
           const ids = new Set();
@@ -444,7 +474,7 @@ export default function AnaliseProducaoPage() {
       }
     };
     fetchData();
-  }, [obraIdEfetivo]);
+  }, [obraIdEfetivo]); // obraIdEfetivo é string serializada dos ids — muda quando a seleção muda
 
   // Filtered data
   const pecasFiltradas = useMemo(() => {
@@ -601,13 +631,17 @@ export default function AnaliseProducaoPage() {
   // Eventos de produção: cada vez que uma peça avança para uma etapa
   // — somam-se as quantidades das peças (sum c.quantidade) por etapa, por dia.
   const eventosProducao = useMemo(() => {
-    const eventos = []; // { data: Date, etapa: 'fabricacao'|'solda'|'pintura'|'expedido', qtd: int, peso: number, pecaId, tipo }
+    const eventos = []; // { data, etapa, qtd, peso, pecaId, tipo, obraId, obraCodigo }
+    const obrasMap = {};
+    (obras || []).forEach(o => { obrasMap[o.id] = o; });
+
     // 1) producao_historico
     historicoProducao.forEach(h => {
       const peca = pecasIdMap[h.peca_id];
       if (!peca) return;
-      const etapa = h.etapa_para; // 'fabricacao' | 'solda' | 'pintura' | 'expedido' | 'enviado'
+      const etapa = h.etapa_para;
       if (!['fabricacao', 'solda', 'pintura', 'expedido'].includes(etapa)) return;
+      const obraInfo = obrasMap[peca.obra_id] || {};
       eventos.push({
         data: new Date(h.data_inicio),
         etapa,
@@ -615,6 +649,8 @@ export default function AnaliseProducaoPage() {
         peso: parseFloat(peca.peso_total) || 0,
         pecaId: peca.id,
         tipo: peca.tipo || 'Sem tipo',
+        obraId: peca.obra_id,
+        obraCodigo: obraInfo.codigo || peca.obra_id,
       });
     });
     // 2) Fallback: data_fim_* das peças (quando não há histórico)
@@ -622,13 +658,45 @@ export default function AnaliseProducaoPage() {
       const qtd = parseInt(p.quantidade) || 1;
       const peso = parseFloat(p.peso_total) || 0;
       const tipo = p.tipo || 'Sem tipo';
+      const obraInfo = obrasMap[p.obra_id] || {};
+      const obraCodigo = obraInfo.codigo || p.obra_id;
       const jaTemHist = (etapa) => historicoProducao.some(h => h.peca_id === p.id && h.etapa_para === etapa);
-      if (p.data_fim_fabricacao && !jaTemHist('fabricacao')) eventos.push({ data: new Date(p.data_fim_fabricacao), etapa: 'fabricacao', qtd, peso, pecaId: p.id, tipo });
-      if (p.data_fim_solda && !jaTemHist('solda')) eventos.push({ data: new Date(p.data_fim_solda), etapa: 'solda', qtd, peso, pecaId: p.id, tipo });
-      if (p.data_fim_pintura && !jaTemHist('pintura')) eventos.push({ data: new Date(p.data_fim_pintura), etapa: 'pintura', qtd, peso, pecaId: p.id, tipo });
+      if (p.data_fim_fabricacao && !jaTemHist('fabricacao')) eventos.push({ data: new Date(p.data_fim_fabricacao), etapa: 'fabricacao', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
+      if (p.data_fim_solda && !jaTemHist('solda')) eventos.push({ data: new Date(p.data_fim_solda), etapa: 'solda', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
+      if (p.data_fim_pintura && !jaTemHist('pintura')) eventos.push({ data: new Date(p.data_fim_pintura), etapa: 'pintura', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
     });
     return eventos;
-  }, [historicoProducao, pecas, pecasIdMap]);
+  }, [historicoProducao, pecas, pecasIdMap, obras]);
+
+  // Breakdown por obra (quando grupo consolidado) — soma pcs por obra
+  const breakdownPorObra = useMemo(() => {
+    if (!isGrupoConsolidado) return null;
+    const map = {};
+    pecas.forEach(p => {
+      const obraId = p.obra_id;
+      if (!map[obraId]) {
+        const obraInfo = (obras || []).find(o => o.id === obraId);
+        map[obraId] = {
+          obraId,
+          codigo: obraInfo?.codigo || obraId,
+          nome: obraInfo?.nome || obraId,
+          pcsTotal: 0,
+          pcsFab: 0, pcsSolda: 0, pcsPintura: 0, pcsExpedido: 0, pcsEnviado: 0,
+          pesoTotal: 0,
+        };
+      }
+      const qtd = parseInt(p.quantidade) || 1;
+      const peso = parseFloat(p.peso_total) || 0;
+      map[obraId].pcsTotal += qtd;
+      map[obraId].pesoTotal += peso;
+      if (['fabricacao', 'solda', 'pintura', 'expedido', 'enviado', 'entregue'].includes(p.etapa)) map[obraId].pcsFab += qtd;
+      if (['solda', 'pintura', 'expedido', 'enviado', 'entregue'].includes(p.etapa)) map[obraId].pcsSolda += qtd;
+      if (['pintura', 'expedido', 'enviado', 'entregue'].includes(p.etapa)) map[obraId].pcsPintura += qtd;
+      if (p.etapa === 'expedido') map[obraId].pcsExpedido += qtd;
+      if (['enviado', 'entregue', 'montagem'].includes(p.etapa)) map[obraId].pcsEnviado += qtd;
+    });
+    return Object.values(map);
+  }, [isGrupoConsolidado, pecas, obras]);
 
   // Eventos filtrados pela janela de tempo
   const eventosNaJanela = useMemo(() => {
@@ -733,16 +801,24 @@ export default function AnaliseProducaoPage() {
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Obra Filter (local) */}
+          {/* Obra Filter (local) — inclui grupos consolidados */}
           <select
             value={filtroObraLocal}
             onChange={(e) => setFiltroObraLocal(e.target.value)}
-            className="px-3 py-2 bg-slate-800/80 rounded-lg border border-slate-700/50 text-slate-300 hover:text-white hover:border-slate-600 transition-all text-sm focus:outline-none"
+            className="px-3 py-2 bg-slate-800/80 rounded-lg border border-slate-700/50 text-slate-300 hover:text-white hover:border-slate-600 transition-all text-sm focus:outline-none min-w-[280px]"
           >
             <option value="atual">🏗 Obra Ativa (sidebar)</option>
-            {obrasAtivas.map(o => (
-              <option key={o.id} value={o.id}>{o.codigo ? `${o.codigo} · ` : ''}{o.nome}</option>
-            ))}
+            {/* Grupos consolidados */}
+            <optgroup label="── Grupos Consolidados ──">
+              {Object.values(GRUPOS_OBRAS).map(g => (
+                <option key={g.id} value={g.id}>{g.label}</option>
+              ))}
+            </optgroup>
+            <optgroup label="── Obras Individuais ──">
+              {obrasAtivas.map(o => (
+                <option key={o.id} value={o.id}>{o.codigo ? `${o.codigo} · ` : ''}{o.nome}</option>
+              ))}
+            </optgroup>
           </select>
 
           {/* Período Filter */}
@@ -797,16 +873,25 @@ export default function AnaliseProducaoPage() {
 
       {/* Banner: Modo Unidade (obras seriadas TEMEC) */}
       {isModoUnidade && (
-        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 flex items-center gap-3">
-          <Activity size={20} className="text-emerald-400 flex-shrink-0" />
+        <div className={`${isGrupoConsolidado ? 'bg-purple-500/10 border-purple-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} border rounded-xl px-4 py-3 flex items-center gap-3`}>
+          <Activity size={20} className={isGrupoConsolidado ? 'text-purple-400' : 'text-emerald-400'} />
           <div className="flex-1">
-            <p className="text-emerald-300 text-sm font-medium">
-              Obra seriada — análise por <span className="font-bold">quantidade de peças</span>
+            <p className={`${isGrupoConsolidado ? 'text-purple-300' : 'text-emerald-300'} text-sm font-medium`}>
+              {isGrupoConsolidado ? 'Análise Consolidada — ' : 'Obra seriada — análise por '}<span className="font-bold">quantidade de peças</span>
             </p>
-            <p className="text-emerald-200/70 text-xs mt-0.5">
-              {obrasAtivas.find(o => o.id === obraIdEfetivo)?.nome || 'Obra'} · Contrato: {configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ {configObra?.valor?.toFixed(2)}/un
+            <p className={`${isGrupoConsolidado ? 'text-purple-200/70' : 'text-emerald-200/70'} text-xs mt-0.5`}>
+              {isGrupoConsolidado
+                ? `${GRUPOS_OBRAS[filtroObraLocal]?.label} · Contrato consolidado: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un = R$ ${(configObra?.qtdContrato * configObra?.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                : `${obrasAtivas.find(o => o.id === obraIdsEfetivos[0])?.nome || 'Obra'} · Contrato: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un`}
             </p>
           </div>
+          {isGrupoConsolidado && (
+            <div className="flex gap-2 text-xs">
+              <span className="px-2 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                {GRUPOS_OBRAS[filtroObraLocal]?.obraIds.length} obras
+              </span>
+            </div>
+          )}
         </div>
       )}
 
@@ -857,6 +942,45 @@ export default function AnaliseProducaoPage() {
             );
           })}
         </div>
+
+        {/* Breakdown por Obra (modo consolidado) */}
+        {breakdownPorObra && breakdownPorObra.length > 0 && (
+          <div className="mb-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3">
+            <p className="text-xs text-purple-300 font-semibold uppercase tracking-wide mb-2">Distribuição por Obra (acumulado)</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {breakdownPorObra.map(b => (
+                <div key={b.obraId} className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/40">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-white text-sm font-semibold">{b.codigo}</span>
+                    <span className="text-xs text-purple-300">{b.pcsTotal.toLocaleString('pt-BR')} pcs · {b.pesoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
+                  </div>
+                  <div className="grid grid-cols-5 gap-1 text-[10px]">
+                    <div className="text-center bg-emerald-500/10 rounded p-1">
+                      <p className="text-emerald-400 font-bold">{b.pcsFab.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500">Fab</p>
+                    </div>
+                    <div className="text-center bg-blue-500/10 rounded p-1">
+                      <p className="text-blue-400 font-bold">{b.pcsSolda.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500">Solda</p>
+                    </div>
+                    <div className="text-center bg-amber-500/10 rounded p-1">
+                      <p className="text-amber-400 font-bold">{b.pcsPintura.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500">Pint</p>
+                    </div>
+                    <div className="text-center bg-cyan-500/10 rounded p-1">
+                      <p className="text-cyan-400 font-bold">{b.pcsExpedido.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500">Exped</p>
+                    </div>
+                    <div className="text-center bg-teal-500/10 rounded p-1">
+                      <p className="text-teal-400 font-bold">{b.pcsEnviado.toLocaleString('pt-BR')}</p>
+                      <p className="text-slate-500">Env</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Gráfico Temporal — Barras por dia */}
         {serieTemporalDiaria.length > 0 ? (
