@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { exportToExcel, exportRomaneioPDF } from '@/utils/exportUtils';
+import { exportToExcel, exportRomaneioPDF, exportFilaEmbarquePDF } from '@/utils/exportUtils';
 import { useExpedicao, useObras } from '../contexts/ERPContext';
 import { pecasApi } from '../api/supabaseClient';
 import { transformPecaArray } from '../contexts/transforms';
@@ -558,12 +558,42 @@ export default function EnviosExpedicaoPage() {
             </div>
           ) : (
             <>
-              <div className="flex justify-between items-center mb-4">
-                <p className="text-sm text-gray-400">{pecasFiltradas.length} peça(s) prontas para embarque</p>
-                <Button size="sm" onClick={() => { setModalAberto(true); setPecasSelecionadas([]); setQuantidadesEnvio({}); }}
-                  className="bg-emerald-600 hover:bg-emerald-700">
-                  <Plus className="w-4 h-4 mr-1" /> Criar Carga com Seleção
-                </Button>
+              <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
+                <p className="text-sm text-gray-400">
+                  {pecasFiltradas.length} conjunto(s) ·{' '}
+                  <span className="text-emerald-400 font-semibold">
+                    {pecasFiltradas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0).toLocaleString('pt-BR')} peça(s)
+                  </span>{' '}
+                  prontas para embarque
+                </p>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-rose-700/60 text-rose-300 hover:bg-rose-500/10"
+                    onClick={() => {
+                      if (!pecasFiltradas.length) {
+                        toast.error('Nenhuma peça para exportar');
+                        return;
+                      }
+                      const obrasMap = {};
+                      (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.codigo || o.id; });
+                      const obraNome = obraFiltro === 'todas' ? 'Todas as obras' : (obrasMap[obraFiltro] || obraFiltro);
+                      const r = exportFilaEmbarquePDF(pecasFiltradas, obrasMap, obraNome);
+                      if (r.success) {
+                        toast.success(`Relatório gerado: ${r.filename}`);
+                      } else {
+                        toast.error('Erro ao gerar PDF');
+                      }
+                    }}
+                  >
+                    <FileDown className="w-4 h-4 mr-1" /> Exportar PDF
+                  </Button>
+                  <Button size="sm" onClick={() => { setModalAberto(true); setPecasSelecionadas([]); setQuantidadesEnvio({}); }}
+                    className="bg-emerald-600 hover:bg-emerald-700">
+                    <Plus className="w-4 h-4 mr-1" /> Criar Carga com Seleção
+                  </Button>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {pecasFiltradas.map(peca => (

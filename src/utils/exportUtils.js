@@ -604,6 +604,204 @@ function _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pag
 }
 
 // ========================================
+// RELATÓRIO FILA DE EMBARQUE — PDF
+// Lista as peças prontas para embarque (etapa=expedido) com totais por obra
+// ========================================
+export function exportFilaEmbarquePDF(pecas, obrasMap = {}, obraFiltroNome = 'Todas as obras') {
+  try {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 12;
+    let y = margin;
+
+    // ===== CABEÇALHO =====
+    doc.setFillColor(15, 23, 42);
+    doc.rect(0, 0, pageWidth, 28, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(18);
+    doc.setFont(undefined, 'bold');
+    doc.text('GRUPO MONTEX', margin, 11);
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(148, 163, 184);
+    doc.text('SOLUÇÕES EM AÇO', margin, 16);
+
+    doc.setFontSize(13);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(255, 255, 255);
+    doc.text('RELATÓRIO — FILA DE EMBARQUE', pageWidth - margin, 11, { align: 'right' });
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(148, 163, 184);
+    const now = new Date();
+    const dataStr = now.toLocaleDateString('pt-BR') + ' ' + now.toLocaleTimeString('pt-BR').slice(0, 5);
+    doc.text(`Emitido em ${dataStr}`, pageWidth - margin, 16, { align: 'right' });
+    doc.text(`Obra: ${obraFiltroNome}`, pageWidth - margin, 21, { align: 'right' });
+
+    y = 36;
+
+    // ===== RESUMO POR OBRA =====
+    const porObra = {};
+    pecas.forEach(p => {
+      const obraId = p.obraId || p.obra_id || 'sem-obra';
+      const obraNome = obrasMap[obraId] || p.obraNome || p.obra_nome || obraId;
+      if (!porObra[obraNome]) porObra[obraNome] = { pcs: 0, peso: 0, reg: 0 };
+      porObra[obraNome].pcs += parseInt(p.quantidade) || 1;
+      porObra[obraNome].peso += parseFloat(p.peso || p.pesoTotal || p.peso_total) || 0;
+      porObra[obraNome].reg += 1;
+    });
+    const totalPcs = pecas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const totalPeso = pecas.reduce((s, p) => s + (parseFloat(p.peso || p.pesoTotal || p.peso_total) || 0), 0);
+
+    doc.setTextColor(30, 41, 59);
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.text('Resumo Geral', margin, y);
+    y += 5;
+
+    // Cartões de resumo
+    const cards = [
+      { label: 'Conjuntos', value: pecas.length.toLocaleString('pt-BR') },
+      { label: 'Peças (un)', value: totalPcs.toLocaleString('pt-BR') },
+      { label: 'Peso Total', value: `${totalPeso.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg` },
+    ];
+    const cardW = (pageWidth - margin * 2 - 8) / 3;
+    cards.forEach((c, i) => {
+      const cx = margin + i * (cardW + 4);
+      doc.setFillColor(241, 245, 249);
+      doc.setDrawColor(203, 213, 225);
+      doc.roundedRect(cx, y, cardW, 14, 1.5, 1.5, 'FD');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.setFont(undefined, 'normal');
+      doc.text(c.label.toUpperCase(), cx + 3, y + 5);
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.setFont(undefined, 'bold');
+      doc.text(c.value, cx + 3, y + 11);
+    });
+    y += 20;
+
+    // ===== POR OBRA (se mais de uma) =====
+    if (Object.keys(porObra).length > 1) {
+      doc.setFontSize(10);
+      doc.setFont(undefined, 'bold');
+      doc.setTextColor(30, 41, 59);
+      doc.text('Distribuição por Obra', margin, y); y += 5;
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'normal');
+      Object.entries(porObra).forEach(([obra, v]) => {
+        doc.setTextColor(71, 85, 105);
+        doc.text(`• ${obra}`, margin, y);
+        doc.text(`${v.pcs.toLocaleString('pt-BR')} pcs · ${v.peso.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg · ${v.reg} conj`, pageWidth - margin, y, { align: 'right' });
+        y += 4.5;
+      });
+      y += 3;
+    }
+
+    // ===== TABELA DE PEÇAS =====
+    doc.setFontSize(11);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('Relação de Peças Prontas para Embarque', margin, y); y += 5;
+
+    // Header da tabela
+    const cols = [
+      { label: 'Marca', x: margin, w: 28, align: 'left' },
+      { label: 'Tipo / Descrição', x: margin + 28, w: 60, align: 'left' },
+      { label: 'Obra', x: margin + 88, w: 50, align: 'left' },
+      { label: 'Qtd', x: margin + 138, w: 14, align: 'right' },
+      { label: 'P.Unit (kg)', x: margin + 152, w: 17, align: 'right' },
+      { label: 'P.Total (kg)', x: margin + 169, w: pageWidth - margin - (margin + 169), align: 'right' },
+    ];
+
+    const drawHeader = () => {
+      doc.setFillColor(15, 23, 42);
+      doc.rect(margin, y, pageWidth - margin * 2, 6, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(8);
+      doc.setFont(undefined, 'bold');
+      cols.forEach(c => {
+        const tx = c.align === 'right' ? c.x + c.w - 2 : c.x + 2;
+        doc.text(c.label, tx, y + 4, { align: c.align });
+      });
+      y += 6;
+    };
+    drawHeader();
+
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(30, 41, 59);
+    let altLine = false;
+
+    pecas.forEach((p) => {
+      if (y > pageHeight - 18) {
+        doc.setFontSize(7);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`GRUPO MONTEX · Fila de Embarque · Pág ${doc.internal.getCurrentPageInfo().pageNumber}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
+        doc.addPage();
+        y = margin;
+        drawHeader();
+        doc.setFontSize(8);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(30, 41, 59);
+      }
+      if (altLine) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(margin, y, pageWidth - margin * 2, 5.5, 'F');
+      }
+      const qtd = parseInt(p.quantidade) || 1;
+      const peso = parseFloat(p.peso || p.pesoTotal || p.peso_total) || 0;
+      const pUnit = qtd > 0 ? peso / qtd : peso;
+      const obraId = p.obraId || p.obra_id || '';
+      const obraNome = obrasMap[obraId] || p.obraNome || p.obra_nome || '-';
+
+      const linha = [
+        p.marca || p.conjunto || '-',
+        ((p.tipo || '') + (p.perfil ? ' / ' + p.perfil : '')).slice(0, 40) || (p.descricao || '').slice(0, 40),
+        obraNome.slice(0, 30),
+        qtd.toLocaleString('pt-BR'),
+        pUnit.toFixed(2),
+        peso.toLocaleString('pt-BR', { maximumFractionDigits: 2 }),
+      ];
+      cols.forEach((c, i) => {
+        const tx = c.align === 'right' ? c.x + c.w - 2 : c.x + 2;
+        doc.text(String(linha[i]), tx, y + 4, { align: c.align });
+      });
+      y += 5.5;
+      altLine = !altLine;
+    });
+
+    // Linha de total
+    y += 2;
+    doc.setDrawColor(15, 23, 42);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+    y += 4;
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(15, 23, 42);
+    doc.text('TOTAL', margin + 2, y);
+    doc.text(`${totalPcs.toLocaleString('pt-BR')} pcs`, margin + 138 + 14 - 2, y, { align: 'right' });
+    doc.text(`${totalPeso.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} kg`, pageWidth - margin - 2, y, { align: 'right' });
+
+    // Rodapé
+    doc.setFontSize(7);
+    doc.setTextColor(148, 163, 184);
+    doc.setFont(undefined, 'normal');
+    doc.text(`GRUPO MONTEX · Fila de Embarque · Pág ${doc.internal.getCurrentPageInfo().pageNumber}`, pageWidth / 2, pageHeight - 6, { align: 'center' });
+
+    const filename = `Fila_Embarque_${now.toISOString().split('T')[0]}.pdf`;
+    doc.save(filename);
+    return { success: true, filename };
+  } catch (err) {
+    console.error('Erro ao gerar PDF de Fila de Embarque:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+// ========================================
 // HELPER: Format Date
 // ========================================
 export function formatDate(date) {
