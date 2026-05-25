@@ -60,10 +60,10 @@ function lancamentoParaHistorico(lan) {
 
 /**
  * Hook principal de analytics de produção
- * @param {Object} options - { periodo: { inicio, fim }, etapaFiltro, equipeId }
+ * @param {Object} options - { periodo: { inicio, fim }, etapaFiltro, equipeId, obraId }
  */
 export function useProducaoAnalytics(options = {}) {
-  const { periodo, etapaFiltro, equipeId } = options;
+  const { periodo, etapaFiltro, equipeId, obraId } = options;
 
   const {
     funcionarios: ctxFuncionarios,
@@ -127,15 +127,26 @@ export function useProducaoAnalytics(options = {}) {
 
       if (storeErr) console.warn('[Analytics] entity_store:', storeErr.message);
 
-      // 3. Buscar peças (para peso/kg)
-      const { data: pecasData, error: pecasErr } = await supabase
+      // 3. Buscar peças (para peso/kg) — agora inclui obra_id e obra_nome para filtro
+      let pecasQuery = supabase
         .from('pecas_producao')
-        .select('id, nome, marca, tipo, peso_total, peso_unitario, quantidade, etapa, funcionario_fabricacao, funcionario_solda, funcionario_pintura, funcionario_expedido')
+        .select('id, nome, marca, tipo, peso_total, peso_unitario, quantidade, etapa, obra_id, obra_nome, funcionario_fabricacao, funcionario_solda, funcionario_pintura, funcionario_expedido')
         .limit(5000);
+      if (obraId) {
+        pecasQuery = pecasQuery.eq('obra_id', obraId);
+      }
+      const { data: pecasData, error: pecasErr } = await pecasQuery;
 
       if (pecasErr) console.warn('[Analytics] pecas_producao:', pecasErr.message);
 
-      setHistoricoBase(histData || []);
+      // Filtrar histórico pelas peças da obra (quando filtro de obra ativo)
+      let histFiltrado = histData || [];
+      if (obraId && Array.isArray(pecasData) && pecasData.length > 0) {
+        const idsObra = new Set(pecasData.map(p => p.id));
+        histFiltrado = histFiltrado.filter(h => idsObra.has(h.peca_id));
+      }
+
+      setHistoricoBase(histFiltrado);
       setLancamentosStore(storeData || []);
       setPecas(pecasData || []);
     } catch (err) {
@@ -144,7 +155,7 @@ export function useProducaoAnalytics(options = {}) {
     } finally {
       setLoading(false);
     }
-  }, [periodoEfetivo, etapaFiltro]);
+  }, [periodoEfetivo, etapaFiltro, obraId]);
 
   useEffect(() => {
     fetchDados();

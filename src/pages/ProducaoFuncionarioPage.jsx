@@ -34,7 +34,7 @@ import {
 
 // Hook de analytics real
 import { useProducaoAnalytics } from '@/hooks/useProducaoAnalytics';
-import { useEquipes } from '@/contexts/ERPContext';
+import { useEquipes, useObras } from '@/contexts/ERPContext';
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import {
   ETAPAS_LABELS, ETAPAS_CORES,
@@ -1462,11 +1462,31 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
 export default function ProducaoFuncionarioPage() {
   const [filtroSetor, setFiltroSetor] = useState('todos');
   const [filtroEquipe, setFiltroEquipe] = useState('todos');
+  const [filtroObra, setFiltroObra] = useState('todas'); // 'todas' | obraId
   const [ordenacao, setOrdenacao] = useState('ranking');
   const [filtroPeriodo, setFiltroPeriodo] = useState('mes'); // 'mes' | 'trimestre' | 'ano' | 'tudo'
   const [funcSelecionado, setFuncSelecionado] = useState(null);
   const [showPendentes, setShowPendentes] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  // Obras disponíveis
+  const { obras } = useObras();
+  const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
+
+  // Detecta se a obra selecionada é "modo unidade" (TEMEC seriado).
+  // Lê config do localStorage gravada pela MedicaoAutomaticaPage.
+  const configObraSelecionada = useMemo(() => {
+    if (filtroObra === 'todas') return null;
+    try {
+      const cfg = JSON.parse(localStorage.getItem('medicao_config_obras_v1') || '{}');
+      const seeds = {
+        'obra-004': { modo: 'unidade', valor: 20, qtdContrato: 500 }, // TMC-CC027
+        'obra-005': { modo: 'unidade', valor: 20, qtdContrato: 1500 }, // TMC-CC002
+      };
+      return { ...seeds, ...cfg }[filtroObra] || null;
+    } catch { return null; }
+  }, [filtroObra]);
+  const isModoUnidade = configObraSelecionada?.modo === 'unidade';
 
   // Calcular período com base no filtro
   const periodoFiltro = useMemo(() => {
@@ -1488,7 +1508,11 @@ export default function ProducaoFuncionarioPage() {
     funcionariosComDados, funcionariosSemDados,
     kpis, topPerformers, pecas,
     refetch,
-  } = useProducaoAnalytics({ equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined, periodo: periodoFiltro });
+  } = useProducaoAnalytics({
+    equipeId: filtroEquipe !== 'todos' ? filtroEquipe : undefined,
+    obraId: filtroObra !== 'todas' ? filtroObra : undefined,
+    periodo: periodoFiltro,
+  });
 
   // Setores únicos
   const setoresUnicos = useMemo(() => {
@@ -1557,6 +1581,21 @@ export default function ProducaoFuncionarioPage() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <Select value={filtroObra} onValueChange={setFiltroObra}>
+            <SelectTrigger className="w-[230px] bg-slate-800 border-slate-700">
+              <Building2 className="h-3.5 w-3.5 mr-1.5 text-slate-400" />
+              <SelectValue placeholder="Obra" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="todas">🏗 Todas as Obras</SelectItem>
+              {obrasAtivas.map(o => (
+                <SelectItem key={o.id} value={o.id}>
+                  {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           <Select value={filtroSetor} onValueChange={setFiltroSetor}>
             <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700">
               <SelectValue placeholder="Setor" />
@@ -1573,7 +1612,7 @@ export default function ProducaoFuncionarioPage() {
             </SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
               <SelectItem value="ranking">Ranking</SelectItem>
-              <SelectItem value="unidades">Unidades</SelectItem>
+              <SelectItem value="unidades">{isModoUnidade ? 'Peças' : 'Unidades'}</SelectItem>
               <SelectItem value="kg">KG</SelectItem>
             </SelectContent>
           </Select>
@@ -1599,6 +1638,21 @@ export default function ProducaoFuncionarioPage() {
           </Button>
         </div>
       </div>
+
+      {/* Banner quando obra está em modo unidade (TEMEC) */}
+      {isModoUnidade && filtroObra !== 'todas' && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 flex items-center gap-3">
+          <Package className="h-5 w-5 text-emerald-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-emerald-300 text-sm font-medium">
+              Obra seriada — análise por <span className="font-bold">quantidade de peças</span>
+            </p>
+            <p className="text-emerald-200/70 text-xs mt-0.5">
+              {obrasAtivas.find(o => o.id === filtroObra)?.nome || 'Obra'} · Contrato: {configObraSelecionada?.qtdContrato?.toLocaleString('pt-BR')} un × R$ {configObraSelecionada?.valor?.toFixed(2)}/un
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Loading */}
       {loading && (
