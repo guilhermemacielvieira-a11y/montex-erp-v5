@@ -118,10 +118,20 @@ const formatCurrency = (value) => {
   }).format(value || 0);
 };
 
+// 🐛 BUG TIMEZONE: new Date('2026-05-25').toLocaleDateString('pt-BR')
+//    => '24/05/2026' no Brasil (UTC-3), porque a string ISO sem hora é interpretada como UTC midnight.
+//    Solução: para strings no formato YYYY-MM-DD (data pura sem hora), montar a saída manualmente.
 const formatDate = (date) => {
   if (!date || date === '-') return '-';
-  try { return new Date(date).toLocaleDateString('pt-BR'); }
-  catch { return '-'; }
+  try {
+    // Caso 1: string no formato YYYY-MM-DD (ou começa com ele, ex: 2026-05-25T00:00:00)
+    if (typeof date === 'string') {
+      const m = date.match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (m) return `${m[3]}/${m[2]}/${m[1]}`; // monta dd/mm/yyyy sem passar pelo Date
+    }
+    // Caso 2: Date object ou timestamp — formato local normal
+    return new Date(date).toLocaleDateString('pt-BR');
+  } catch { return '-'; }
 };
 
 const getStatusColor = (status) => {
