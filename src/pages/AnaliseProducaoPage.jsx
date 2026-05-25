@@ -643,30 +643,82 @@ export default function AnaliseProducaoPage() {
     return { inicio: new Date('2020-01-01'), fim: new Date(agora.getFullYear() + 1, 0, 1), label: 'Geral' };
   }, [filtroPeriodo]);
 
-  // ----- KPIs DE CORTE (materiais_corte — independente dos conjuntos) -----
-  // Para obras seriadas, o corte prepara o MATERIAL (chapas/perfis) para depois montar o conjunto.
-  // 1 conjunto pode ter 4-10 materiais cortados. Por isso a contagem do corte é SEMPRE em materiais, não conjuntos.
+  // ----- KPIs DE CORTE (materiais_corte) com DEDUÇÃO automática -----
+  // Regra: cada linha de materiais_corte tem `quantidade` = total daquele material na obra
+  //   (ex: tubo Ø1" × 1500 = 1500 unidades para 1500 conjuntos).
+  // Se um conjunto AVANÇOU para fabricação ou além, é porque seus materiais JÁ FORAM CORTADOS.
+  // Portanto, qtd_cortada_efetiva = qtd_total × (conjuntos_em_fab / conjuntos_totais) na obra.
+  // O status_corte do banco pode estar desatualizado (operadores não marcam um a um), então
+  // usamos a dedução dos conjuntos como fonte primária + status finalizado como override (100%).
+  const ETAPAS_POS_CORTE = new Set(['fabricacao', 'solda', 'pintura', 'expedido', 'enviado', 'entregue', 'montagem']);
+
+  // Ratio de avanço por obra: % de conjuntos que já saíram do corte
+  const ratioCortePorObra = useMemo(() => {
+    const map = {};
+    obraIdsEfetivos.forEach(oid => { map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 }; });
+    pecas.forEach(p => {
+      const oid = p.obra_id;
+      if (!map[oid]) map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 };
+      const qtd = parseInt(p.quantidade) || 1;
+      map[oid].totalConj += qtd;
+      if (ETAPAS_POS_CORTE.has(p.etapa)) map[oid].conjEmFab += qtd;
+    });
+    Object.keys(map).forEach(oid => {
+      const r = map[oid];
+      r.ratio = r.totalConj > 0 ? r.conjEmFab / r.totalConj : 0;
+    });
+    return map;
+  }, [pecas, obraIdsEfetivos]);
+
   const kpisCorte = useMemo(() => {
     const STATUS_CORTADO = ['finalizado', 'cortado'];
     const totalMateriais = materiaisCorte.length;
     const qtdTotal = materiaisCorte.reduce((s, m) => s + (parseInt(m.quantidade) || 1), 0);
-    const cortados = materiaisCorte.filter(m => STATUS_CORTADO.includes(m.status_corte));
-    const qtdCortada = cortados.reduce((s, m) => s + (parseInt(m.quantidade) || 1), 0);
-    const pesoCortado = cortados.reduce((s, m) => s + (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1), 0);
-    const pesoTotalMateriais = materiaisCorte.reduce((s, m) => s + (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1), 0);
-    const pendentes = totalMateriais - cortados.length;
-    const pct = pesoTotalMateriais > 0 ? Math.round((pesoCortado / pesoTotalMateriais) * 100) : 0;
+    const pesoTotalMateriais = materiaisCorte.reduce((s, m) =>
+      s + (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1), 0);
+
+    // Dedução automática
+    let qtdCortadaEfetiva = 0;
+    let pesoCortadoEfetivo = 0;
+    let linhasComCorteParcial = 0;
+    let linhasTotalmenteCortadas = 0;
+    let linhasComStatusFinalizado = 0;
+
+    materiaisCorte.forEach(m => {
+      const qtdMat = parseInt(m.quantidade) || 1;
+      const pesoUnit = parseFloat(m.peso_teorico) || 0;
+      const ratio = ratioCortePorObra[m.obra_id]?.ratio || 0;
+      const statusFinalizado = STATUS_CORTADO.includes(m.status_corte);
+
+      // Se status do banco diz finalizado → 100%. Senão usa ratio dos conjuntos.
+      const ratioEfetivo = statusFinalizado ? 1 : ratio;
+      const qtdCortada = Math.round(qtdMat * ratioEfetivo);
+      const pesoCortado = pesoUnit * qtdCortada;
+
+      qtdCortadaEfetiva += qtdCortada;
+      pesoCortadoEfetivo += pesoCortado;
+
+      if (statusFinalizado) linhasComStatusFinalizado += 1;
+      if (ratioEfetivo >= 1) linhasTotalmenteCortadas += 1;
+      else if (ratioEfetivo > 0) linhasComCorteParcial += 1;
+    });
+
+    const pct = pesoTotalMateriais > 0 ? Math.round((pesoCortadoEfetivo / pesoTotalMateriais) * 100) : 0;
+    const pendentes = qtdTotal - qtdCortadaEfetiva;
+
     return {
       totalMateriais,
       qtdTotal,
-      cortados: cortados.length,
-      qtdCortada,
-      pesoCortado: Math.round(pesoCortado * 100) / 100,
+      cortados: linhasTotalmenteCortadas,
+      cortadosParciais: linhasComCorteParcial,
+      qtdCortada: qtdCortadaEfetiva,
+      pesoCortado: Math.round(pesoCortadoEfetivo * 100) / 100,
       pesoTotalMateriais: Math.round(pesoTotalMateriais * 100) / 100,
-      pendentes,
+      pendentes: Math.max(0, pendentes),
       pctConcluido: pct,
+      linhasComStatusFinalizado,
     };
-  }, [materiaisCorte]);
+  }, [materiaisCorte, ratioCortePorObra]);
 
   // Eventos de produção: cada vez que uma peça avança para uma etapa
   // — somam-se as quantidades das peças (sum c.quantidade) por etapa, por dia.
@@ -1042,9 +1094,9 @@ export default function AnaliseProducaoPage() {
               <p className="text-[10px] text-orange-300 mt-0.5">de {kpisCorte.pesoTotalMateriais.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
             </div>
             <div className="rounded-lg p-3 border border-emerald-500/30 bg-emerald-500/10">
-              <p className="text-[10px] text-slate-500 uppercase">Itens Finalizados</p>
+              <p className="text-[10px] text-slate-500 uppercase">Linhas Totalmente Cortadas</p>
               <p className="text-2xl font-bold text-emerald-300">{kpisCorte.cortados.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">linhas de corte concluídas</p>
+              <p className="text-[10px] text-slate-500 mt-0.5">+ {kpisCorte.cortadosParciais} parciais (em prod)</p>
             </div>
             <div className="rounded-lg p-3 border border-red-500/30 bg-red-500/10">
               <p className="text-[10px] text-slate-500 uppercase">Pendentes</p>
@@ -1057,6 +1109,9 @@ export default function AnaliseProducaoPage() {
               <p className="text-[10px] text-slate-500 mt-0.5">{kpisCorte.qtdTotal.toLocaleString('pt-BR')} un de materiais</p>
             </div>
           </div>
+          <p className="text-[10px] text-orange-200/60 mt-2 italic">
+            💡 Dedução automática: se um conjunto avançou para fabricação, seus materiais foram cortados — mesmo que o status no Kanban Corte ainda esteja como "aguardando".
+          </p>
           <div className="mt-3 h-2 bg-slate-800/60 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full" style={{ width: `${kpisCorte.pctConcluido}%` }} />
           </div>
