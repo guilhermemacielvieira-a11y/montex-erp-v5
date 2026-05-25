@@ -347,10 +347,34 @@ const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency'
 
 // ==================== MAIN PAGE ====================
 export default function AnaliseProducaoPage() {
-  const { obraAtual } = useObras();
+  const { obraAtual, obras } = useObras();
+  const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
+
+  // Filtro local de obra (independente do sidebar)
+  const [filtroObraLocal, setFiltroObraLocal] = useState('atual'); // 'atual' | obraId
+  const obraIdEfetivo = filtroObraLocal === 'atual' ? obraAtual : filtroObraLocal;
+
+  // Filtro de período temporal
+  const [filtroPeriodo, setFiltroPeriodo] = useState('mensal'); // 'diario' | 'semanal' | 'mensal' | 'geral'
+
+  // Detectar se obra é "modo unidade" (TEMEC seriado) — config no localStorage
+  const configObra = useMemo(() => {
+    if (!obraIdEfetivo) return null;
+    try {
+      const cfg = JSON.parse(localStorage.getItem('medicao_config_obras_v1') || '{}');
+      const seeds = {
+        'obra-004': { modo: 'unidade', valor: 20, qtdContrato: 500 },
+        'obra-005': { modo: 'unidade', valor: 20, qtdContrato: 1500 },
+      };
+      return { ...seeds, ...cfg }[obraIdEfetivo] || null;
+    } catch { return null; }
+  }, [obraIdEfetivo]);
+  const isModoUnidade = configObra?.modo === 'unidade';
+
   const [pecas, setPecas] = useState([]);
   const [idsEntregues, setIdsEntregues] = useState(new Set());
   const [pesoEntregue, setPesoEntregue] = useState(0);
+  const [historicoProducao, setHistoricoProducao] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [activeTab, setActiveTab] = useState('visao-geral');
@@ -358,7 +382,7 @@ export default function AnaliseProducaoPage() {
 
   // Fetch data from Supabase (filtrado por obra selecionada)
   useEffect(() => {
-    if (!obraAtual) { setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setLoading(false); return; }
+    if (!obraIdEfetivo) { setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setLoading(false); return; }
     const fetchData = async () => {
       try {
         setLoading(true);
@@ -366,16 +390,34 @@ export default function AnaliseProducaoPage() {
         const { data, error } = await supabase
           .from('pecas_producao')
           .select('*')
-          .eq('obra_id', obraAtual);
+          .eq('obra_id', obraIdEfetivo);
         if (error) throw error;
         setPecas(data || []);
+
+        // Histórico de movimentação (para análise temporal — quem fez o quê e quando)
+        try {
+          const ids = (data || []).map(p => p.id);
+          if (ids.length > 0) {
+            const { data: hist } = await supabase
+              .from('producao_historico')
+              .select('peca_id, etapa_de, etapa_para, data_inicio, funcionario_id, funcionario_nome')
+              .in('peca_id', ids)
+              .order('data_inicio', { ascending: true });
+            setHistoricoProducao(hist || []);
+          } else {
+            setHistoricoProducao([]);
+          }
+        } catch (histErr) {
+          console.warn('Erro ao buscar histórico:', histErr);
+          setHistoricoProducao([]);
+        }
 
         // Buscar expedições ENTREGUE para identificar peças já entregues em obra
         try {
           const { data: exps } = await supabase
             .from('expedicoes')
             .select('id, status, pecas, peso_total')
-            .eq('obra_id', obraAtual)
+            .eq('obra_id', obraIdEfetivo)
             .eq('status', 'ENTREGUE');
           const entregues = exps || [];
           const ids = new Set();
@@ -402,7 +444,7 @@ export default function AnaliseProducaoPage() {
       }
     };
     fetchData();
-  }, [obraAtual]);
+  }, [obraIdEfetivo]);
 
   // Filtered data
   const pecasFiltradas = useMemo(() => {
@@ -529,6 +571,124 @@ export default function AnaliseProducaoPage() {
     };
   }, [kpis]);
 
+  // ==================== ANÁLISE TEMPORAL ====================
+  // Fonte 1: producao_historico (movimentações etapa_de → etapa_para)
+  // Fonte 2: campos data_fim_fabricacao / data_fim_solda / data_fim_pintura em pecas_producao
+  //   (fallback quando histórico ainda não foi populado)
+  const pecasIdMap = useMemo(() => {
+    const m = {};
+    pecas.forEach(p => { m[p.id] = p; });
+    return m;
+  }, [pecas]);
+
+  // Janela de tempo conforme filtro
+  const janelaTempo = useMemo(() => {
+    const agora = new Date();
+    const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 0, 0, 0);
+    if (filtroPeriodo === 'diario') return { inicio: hoje, fim: new Date(hoje.getTime() + 86400000 - 1), label: 'Hoje' };
+    if (filtroPeriodo === 'semanal') {
+      const inicioSem = new Date(hoje); inicioSem.setDate(hoje.getDate() - 6);
+      return { inicio: inicioSem, fim: new Date(hoje.getTime() + 86400000 - 1), label: 'Últimos 7 dias' };
+    }
+    if (filtroPeriodo === 'mensal') {
+      const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
+      const fimMes = new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59);
+      return { inicio: inicioMes, fim: fimMes, label: 'Este Mês' };
+    }
+    return { inicio: new Date('2020-01-01'), fim: new Date(agora.getFullYear() + 1, 0, 1), label: 'Geral' };
+  }, [filtroPeriodo]);
+
+  // Eventos de produção: cada vez que uma peça avança para uma etapa
+  // — somam-se as quantidades das peças (sum c.quantidade) por etapa, por dia.
+  const eventosProducao = useMemo(() => {
+    const eventos = []; // { data: Date, etapa: 'fabricacao'|'solda'|'pintura'|'expedido', qtd: int, peso: number, pecaId, tipo }
+    // 1) producao_historico
+    historicoProducao.forEach(h => {
+      const peca = pecasIdMap[h.peca_id];
+      if (!peca) return;
+      const etapa = h.etapa_para; // 'fabricacao' | 'solda' | 'pintura' | 'expedido' | 'enviado'
+      if (!['fabricacao', 'solda', 'pintura', 'expedido'].includes(etapa)) return;
+      eventos.push({
+        data: new Date(h.data_inicio),
+        etapa,
+        qtd: parseInt(peca.quantidade) || 1,
+        peso: parseFloat(peca.peso_total) || 0,
+        pecaId: peca.id,
+        tipo: peca.tipo || 'Sem tipo',
+      });
+    });
+    // 2) Fallback: data_fim_* das peças (quando não há histórico)
+    pecas.forEach(p => {
+      const qtd = parseInt(p.quantidade) || 1;
+      const peso = parseFloat(p.peso_total) || 0;
+      const tipo = p.tipo || 'Sem tipo';
+      const jaTemHist = (etapa) => historicoProducao.some(h => h.peca_id === p.id && h.etapa_para === etapa);
+      if (p.data_fim_fabricacao && !jaTemHist('fabricacao')) eventos.push({ data: new Date(p.data_fim_fabricacao), etapa: 'fabricacao', qtd, peso, pecaId: p.id, tipo });
+      if (p.data_fim_solda && !jaTemHist('solda')) eventos.push({ data: new Date(p.data_fim_solda), etapa: 'solda', qtd, peso, pecaId: p.id, tipo });
+      if (p.data_fim_pintura && !jaTemHist('pintura')) eventos.push({ data: new Date(p.data_fim_pintura), etapa: 'pintura', qtd, peso, pecaId: p.id, tipo });
+    });
+    return eventos;
+  }, [historicoProducao, pecas, pecasIdMap]);
+
+  // Eventos filtrados pela janela de tempo
+  const eventosNaJanela = useMemo(() => {
+    return eventosProducao.filter(e => e.data >= janelaTempo.inicio && e.data <= janelaTempo.fim);
+  }, [eventosProducao, janelaTempo]);
+
+  // Série temporal agregada por dia (para gráfico)
+  const serieTemporalDiaria = useMemo(() => {
+    const byDay = {};
+    eventosNaJanela.forEach(e => {
+      const key = e.data.toISOString().slice(0, 10);
+      if (!byDay[key]) byDay[key] = { dia: key, fabricacao: 0, solda: 0, pintura: 0, expedido: 0, fabricacaoKg: 0, soldaKg: 0, pinturaKg: 0, expedidoKg: 0, total: 0 };
+      byDay[key][e.etapa] += e.qtd;
+      byDay[key][`${e.etapa}Kg`] += e.peso;
+      byDay[key].total += e.qtd;
+    });
+    return Object.values(byDay)
+      .sort((a, b) => a.dia.localeCompare(b.dia))
+      .map(d => {
+        const dt = new Date(d.dia + 'T12:00:00');
+        return { ...d, label: dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) };
+      });
+  }, [eventosNaJanela]);
+
+  // KPIs temporais (totais e médias na janela)
+  const kpisTemporais = useMemo(() => {
+    const agg = { fabricacao: { un: 0, kg: 0 }, solda: { un: 0, kg: 0 }, pintura: { un: 0, kg: 0 }, expedido: { un: 0, kg: 0 } };
+    eventosNaJanela.forEach(e => {
+      if (agg[e.etapa]) { agg[e.etapa].un += e.qtd; agg[e.etapa].kg += e.peso; }
+    });
+    const totalUn = agg.fabricacao.un + agg.solda.un + agg.pintura.un + agg.expedido.un;
+    const totalKg = agg.fabricacao.kg + agg.solda.kg + agg.pintura.kg + agg.expedido.kg;
+
+    // Dias úteis na janela (com algum evento ≥ 1)
+    const diasComProducao = serieTemporalDiaria.filter(d => d.total > 0).length || 1;
+
+    // Médias diárias
+    const mediaDiaria = {
+      fabricacao: Math.round(agg.fabricacao.un / diasComProducao),
+      solda: Math.round(agg.solda.un / diasComProducao),
+      pintura: Math.round(agg.pintura.un / diasComProducao),
+      expedido: Math.round(agg.expedido.un / diasComProducao),
+      total: Math.round(totalUn / diasComProducao),
+    };
+
+    // Melhor dia
+    let melhorDia = null;
+    serieTemporalDiaria.forEach(d => {
+      if (!melhorDia || d.total > melhorDia.total) melhorDia = d;
+    });
+
+    return {
+      ...agg,
+      totalUn, totalKg,
+      diasComProducao,
+      mediaDiaria,
+      melhorDia: melhorDia ? { dia: melhorDia.label, total: melhorDia.total } : null,
+    };
+  }, [eventosNaJanela, serieTemporalDiaria]);
+
   // Production waterfall data
   const waterfallData = useMemo(() => [
     { name: 'Total Obra', value: kpis.pesoTotal, fill: '#6366f1', total: kpis.pesoTotal },
@@ -572,7 +732,37 @@ export default function AnaliseProducaoPage() {
             <p className="text-slate-400 text-sm">Dashboard interativo com graficos 3D</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Obra Filter (local) */}
+          <select
+            value={filtroObraLocal}
+            onChange={(e) => setFiltroObraLocal(e.target.value)}
+            className="px-3 py-2 bg-slate-800/80 rounded-lg border border-slate-700/50 text-slate-300 hover:text-white hover:border-slate-600 transition-all text-sm focus:outline-none"
+          >
+            <option value="atual">🏗 Obra Ativa (sidebar)</option>
+            {obrasAtivas.map(o => (
+              <option key={o.id} value={o.id}>{o.codigo ? `${o.codigo} · ` : ''}{o.nome}</option>
+            ))}
+          </select>
+
+          {/* Período Filter */}
+          <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg border border-slate-700/50 p-0.5">
+            {[
+              { v: 'diario', l: 'Diário' },
+              { v: 'semanal', l: 'Semanal' },
+              { v: 'mensal', l: 'Mensal' },
+              { v: 'geral', l: 'Geral' },
+            ].map(opt => (
+              <button
+                key={opt.v}
+                onClick={() => setFiltroPeriodo(opt.v)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${filtroPeriodo === opt.v ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                {opt.l}
+              </button>
+            ))}
+          </div>
+
           {/* Category Filter */}
           <div className="relative">
             <button onClick={() => setShowFilter(!showFilter)}
@@ -600,10 +790,100 @@ export default function AnaliseProducaoPage() {
             </AnimatePresence>
           </div>
           <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-medium rounded-full border border-emerald-500/30">
-            {pecas.length} pecas
+            {pecas.length} conj · {pecas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0).toLocaleString('pt-BR')} pcs
           </span>
         </div>
       </motion.div>
+
+      {/* Banner: Modo Unidade (obras seriadas TEMEC) */}
+      {isModoUnidade && (
+        <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 flex items-center gap-3">
+          <Activity size={20} className="text-emerald-400 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="text-emerald-300 text-sm font-medium">
+              Obra seriada — análise por <span className="font-bold">quantidade de peças</span>
+            </p>
+            <p className="text-emerald-200/70 text-xs mt-0.5">
+              {obrasAtivas.find(o => o.id === obraIdEfetivo)?.nome || 'Obra'} · Contrato: {configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ {configObra?.valor?.toFixed(2)}/un
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ===== ANÁLISE TEMPORAL — QUANTIDADE DE PEÇAS POR PERÍODO ===== */}
+      <div className="bg-gradient-to-br from-slate-900/60 to-slate-800/30 border border-slate-700/50 rounded-xl p-5">
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              <Activity size={18} className="text-emerald-400" />
+              Produção Temporal — {janelaTempo.label}
+            </h2>
+            <p className="text-slate-500 text-xs mt-0.5">Quantidade de peças produzidas por etapa no período</p>
+          </div>
+          <div className="flex gap-2 text-xs">
+            <span className="px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400">
+              {kpisTemporais.diasComProducao} {kpisTemporais.diasComProducao === 1 ? 'dia ativo' : 'dias ativos'}
+            </span>
+            {kpisTemporais.melhorDia && (
+              <span className="px-2 py-1 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400">
+                🏆 Melhor dia: {kpisTemporais.melhorDia.dia} · {kpisTemporais.melhorDia.total} pcs
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* KPIs por etapa */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-5">
+          {[
+            { label: 'Fabricação', un: kpisTemporais.fabricacao.un, kg: kpisTemporais.fabricacao.kg, media: kpisTemporais.mediaDiaria.fabricacao, color: '#10b981', icon: Factory },
+            { label: 'Solda', un: kpisTemporais.solda.un, kg: kpisTemporais.solda.kg, media: kpisTemporais.mediaDiaria.solda, color: '#3b82f6', icon: Hammer },
+            { label: 'Pintura', un: kpisTemporais.pintura.un, kg: kpisTemporais.pintura.kg, media: kpisTemporais.mediaDiaria.pintura, color: '#f59e0b', icon: Paintbrush },
+            { label: 'Expedido', un: kpisTemporais.expedido.un, kg: kpisTemporais.expedido.kg, media: kpisTemporais.mediaDiaria.expedido, color: '#06b6d4', icon: Truck },
+            { label: 'TOTAL', un: kpisTemporais.totalUn, kg: kpisTemporais.totalKg, media: kpisTemporais.mediaDiaria.total, color: '#8b5cf6', icon: Activity },
+          ].map((k, i) => {
+            const Icon = k.icon;
+            return (
+              <div key={i} className="rounded-xl p-3 border" style={{ backgroundColor: `${k.color}12`, borderColor: `${k.color}40` }}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <Icon size={14} style={{ color: k.color }} />
+                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">{k.label}</span>
+                </div>
+                <p className="text-2xl font-bold text-white">{k.un.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal">pcs</span></p>
+                <p className="text-[10px] text-slate-500 mt-1">{k.kg.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
+                {filtroPeriodo !== 'diario' && (
+                  <p className="text-[10px] mt-0.5" style={{ color: k.color }}>~{k.media} pcs/dia</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Gráfico Temporal — Barras por dia */}
+        {serieTemporalDiaria.length > 0 ? (
+          <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-700/40">
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={serieTemporalDiaria} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="label" stroke="#64748b" style={{ fontSize: 11 }} />
+                <YAxis stroke="#64748b" style={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
+                  labelStyle={{ color: '#cbd5e1' }}
+                />
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="fabricacao" stackId="a" fill="#10b981" name="Fabricação" />
+                <Bar dataKey="solda" stackId="a" fill="#3b82f6" name="Solda" />
+                <Bar dataKey="pintura" stackId="a" fill="#f59e0b" name="Pintura" />
+                <Bar dataKey="expedido" stackId="a" fill="#06b6d4" name="Expedido" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        ) : (
+          <div className="text-center py-10 text-slate-500 text-sm border border-dashed border-slate-700 rounded-lg">
+            Sem movimentações de produção no período selecionado.
+          </div>
+        )}
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
