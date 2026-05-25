@@ -194,50 +194,105 @@ export function useProducaoAnalytics(options = {}) {
   }, [historicoBase, lancamentosStore]);
 
   // ============ CLASSIFICAR FUNCIONÁRIOS ============
+  // 🔑 NOVA LÓGICA DE ATRIBUIÇÃO DIRETA:
+  // Cada peça já tem funcionario_fabricacao, funcionario_solda, etc.
+  // Uma peça em etapa "expedido" tem 4 funcionários atribuídos (um por etapa).
+  // Aqui contamos: para cada etapa X, soma de qtd das peças onde:
+  //   - p[funcionario_X] === f.id
+  //   - peça já AVANÇOU dessa etapa (etapa_atual > X)
+  // Assim cada peça é atribuída a UM funcionário por etapa.
+  const ORDEM_ETAPAS = ['aguardando', 'corte', 'fabricacao', 'solda', 'pintura', 'expedido', 'enviado', 'entregue', 'montagem'];
+  const ETAPAS_PRODUCAO = ['corte', 'fabricacao', 'solda', 'pintura'];
+  // Para considerar "fez a etapa", peça deve estar em etapa >= próxima etapa
+  const PROXIMA_ETAPA = { corte: 'fabricacao', fabricacao: 'solda', solda: 'pintura', pintura: 'expedido' };
+
+  function porEtapaDireto(funcId) {
+    const result = {};
+    ETAPAS_PRODUCAO.forEach(e => { result[e] = { unidades: 0, kg: 0, valor: 0 }; });
+    const pecasPorEtapa = {};
+    ETAPAS_PRODUCAO.forEach(e => { pecasPorEtapa[e] = new Set(); });
+
+    for (const etapa of ETAPAS_PRODUCAO) {
+      // Pula etapas que não interessam quando há filtroEtapa ativo
+      if (etapaFiltro && etapaFiltro !== etapa) continue;
+      const campo = `funcionario_${etapa}`;
+      const proxima = PROXIMA_ETAPA[etapa];
+      const minIdx = ORDEM_ETAPAS.indexOf(proxima);
+      pecas.forEach(p => {
+        if (p[campo] !== funcId) return;
+        const idx = ORDEM_ETAPAS.indexOf(p.etapa);
+        if (idx < minIdx) return; // peça ainda não avançou desta etapa
+        const qtd = parseInt(p.quantidade) || 1;
+        const peso = parseFloat(p.peso_total) || 0;
+        result[etapa].unidades += qtd;
+        result[etapa].kg += peso;
+        pecasPorEtapa[etapa].add(p.id);
+      });
+    }
+    return { result, pecasPorEtapa };
+  }
+
   const funcionariosClassificados = useMemo(() => {
     const funcionarios = ctxFuncionarios || [];
     const equipes = ctxEquipes || [];
 
-    // IDs de funcionários que aparecem no histórico (base + store)
-    const idsComHistorico = new Set();
-    historico.forEach(h => {
-      if (h.funcionario_id) idsComHistorico.add(h.funcionario_id);
-    });
-
-    // IDs de funcionários que aparecem em peças (como responsáveis)
+    // IDs de funcionários que aparecem como responsáveis em alguma peça
+    const idsComAtribuicao = new Set();
     pecas.forEach(p => {
-      if (p.funcionario_fabricacao) idsComHistorico.add(p.funcionario_fabricacao);
-      if (p.funcionario_solda) idsComHistorico.add(p.funcionario_solda);
-      if (p.funcionario_pintura) idsComHistorico.add(p.funcionario_pintura);
-      if (p.funcionario_expedido) idsComHistorico.add(p.funcionario_expedido);
+      ETAPAS_PRODUCAO.forEach(e => {
+        const campo = `funcionario_${e}`;
+        if (p[campo]) idsComAtribuicao.add(p[campo]);
+      });
+      if (p.funcionario_expedido) idsComAtribuicao.add(p.funcionario_expedido);
+    });
+    // Também incluir os do histórico (compat)
+    historico.forEach(h => {
+      if (h.funcionario_id) idsComAtribuicao.add(h.funcionario_id);
     });
 
-    // Classificar cada funcionário
     const comDados = [];
     const semDados = [];
 
     funcionarios.forEach(f => {
       const equipe = equipes.find(e => e.id === f.equipeId);
-
-      // Filtrar por equipe se especificado
       if (equipeId && f.equipeId !== equipeId) return;
+      const temDados = idsComAtribuicao.has(f.id);
 
-      const temDados = idsComHistorico.has(f.id);
+      // === ATRIBUIÇÃO DIRETA pelas peças ===
+      const { result: porEtapa, pecasPorEtapa } = porEtapaDireto(f.id);
 
-      // Histórico deste funcionário (incluindo lancamentos store convertidos)
+      // Totais (unidades únicas no time deste funcionário)
+      const pecasUnicasIds = new Set();
+      ETAPAS_PRODUCAO.forEach(e => {
+        pecasPorEtapa[e].forEach(id => pecasUnicasIds.add(id));
+      });
+      // Soma qtd das peças únicas atribuídas a esse funcionário (em qualquer etapa)
+      let unidadesUnicas = 0;
+      let pesoUnicasKg = 0;
+      pecasUnicasIds.forEach(pid => {
+        const p = pecas.find(pp => pp.id === pid);
+        if (p) {
+          unidadesUnicas += parseInt(p.quantidade) || 1;
+          pesoUnicasKg += parseFloat(p.peso_total) || 0;
+        }
+      });
+      // Soma total de "tarefas" (cada etapa conta separadamente)
+      const totalUnidadesTarefas = ETAPAS_PRODUCAO.reduce((s, e) => s + (porEtapa[e]?.unidades || 0), 0);
+      const totalKgTarefas       = ETAPAS_PRODUCAO.reduce((s, e) => s + (porEtapa[e]?.kg || 0), 0);
+
+      const totais = {
+        unidades:      totalUnidadesTarefas,       // soma de tarefas (1 peça em 4 etapas = 4)
+        unidadesUnicas,                            // peças únicas trabalhadas pelo funcionário
+        pecasUnicas:   pecasUnicasIds.size,
+        pesoUnicasKg:  Math.round(pesoUnicasKg * 100) / 100,
+        kg:            Math.round(totalKgTarefas * 100) / 100,
+        valorTotal:    0,
+      };
+
+      // Histórico de movimentação (para tendência diária)
       const histFunc = historico.filter(h => h.funcionario_id === f.id);
-      const porEtapa = agregarPorEtapa(histFunc, pecas);
-      const totais = calcularTotais(porEtapa);
       const dadosDiarios = agregarPorDia(histFunc);
       const tendencia = calcularTendencia(dadosDiarios);
-
-      // Contagem de peças diretamente vinculadas ao funcionário nas pecas_producao
-      const pecasVinculadas = pecas.filter(p =>
-        p.funcionario_fabricacao === f.id ||
-        p.funcionario_solda === f.id ||
-        p.funcionario_pintura === f.id ||
-        p.funcionario_expedido === f.id
-      );
 
       const dados = {
         ...f,
@@ -247,11 +302,11 @@ export function useProducaoAnalytics(options = {}) {
         totais,
         dadosDiarios,
         tendencia,
-        pecasVinculadas: pecasVinculadas.length,
-        ranking: 0, // calculado depois
+        pecasVinculadas: pecasUnicasIds.size,
+        ranking: 0,
       };
 
-      if (temDados) {
+      if (temDados && (unidadesUnicas > 0 || totalUnidadesTarefas > 0)) {
         comDados.push(dados);
       } else {
         semDados.push(dados);
@@ -264,7 +319,7 @@ export function useProducaoAnalytics(options = {}) {
     comDados.forEach((f, i) => { f.ranking = i + 1; });
 
     return { comDados, semDados };
-  }, [ctxFuncionarios, ctxEquipes, historico, pecas, equipeId]);
+  }, [ctxFuncionarios, ctxEquipes, historico, pecas, equipeId, etapaFiltro]);
 
   // ============ KPIs GLOBAIS (CUMULATIVO) ============
   const kpis = useMemo(() => {

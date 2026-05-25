@@ -492,8 +492,17 @@ function TopPerformersSection({ performers }) {
                     <p className="text-[10px] text-slate-500">{f.cargo} · {f.equipeNome || f.setor || '-'}</p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-black text-white">{(f.totais?.unidadesUnicas || f.totais?.unidades || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-slate-400 font-normal">pcs</span></p>
-                    <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)} · {(f.totais?.unidades || 0).toLocaleString('pt-BR')} tarefas</p>
+                    {filtroEtapa !== 'todas' ? (
+                      <>
+                        <p className="text-lg font-black text-white">{(f.porEtapa?.[filtroEtapa]?.unidades || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-slate-400 font-normal">pcs</span></p>
+                        <p className="text-[10px] text-cyan-400">{formatKg(f.porEtapa?.[filtroEtapa]?.kg)} · {filtroEtapa}</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-lg font-black text-white">{(f.totais?.unidadesUnicas || 0).toLocaleString('pt-BR')} <span className="text-[10px] text-slate-400 font-normal">pcs</span></p>
+                        <p className="text-[10px] text-cyan-400">{formatKg(f.totais?.kg)} · {(f.totais?.unidades || 0).toLocaleString('pt-BR')} tarefas</p>
+                      </>
+                    )}
                   </div>
                   {getTendenciaIcon(f.tendencia)}
                 </motion.div>
@@ -1536,13 +1545,34 @@ export default function ProducaoFuncionarioPage() {
     return [...s].sort();
   }, [funcionariosComDados, funcionariosSemDados]);
 
+  // Resumo: soma dos funcionários no filtro atual
+  const somaFuncionarios = useMemo(() => {
+    if (filtroEtapa !== 'todas') {
+      const total = funcionariosComDados.reduce((s, f) => s + (f.porEtapa?.[filtroEtapa]?.unidades || 0), 0);
+      const peso = funcionariosComDados.reduce((s, f) => s + (f.porEtapa?.[filtroEtapa]?.kg || 0), 0);
+      return { pcs: total, kg: Math.round(peso * 100) / 100, label: `Σ etapa ${filtroEtapa}` };
+    }
+    // Sem filtro de etapa: soma de unidadesUnicas (peças trabalhadas por funcionário)
+    const total = funcionariosComDados.reduce((s, f) => s + (f.totais?.unidadesUnicas || 0), 0);
+    const tarefas = funcionariosComDados.reduce((s, f) => s + (f.totais?.unidades || 0), 0);
+    return { pcs: total, tarefas, label: 'Σ peças únicas (todas etapas)' };
+  }, [funcionariosComDados, filtroEtapa]);
+
   // Filtrar e ordenar
   const funcsFiltrados = useMemo(() => {
     let lista = [...funcionariosComDados];
     if (filtroSetor !== 'todos') lista = lista.filter(f => f.setor === filtroSetor);
+    // Quando filtro de etapa ativo, ordenar pelas peças daquela etapa
+    const pcsDeFunc = (f) => {
+      if (filtroEtapa !== 'todas') {
+        return f.porEtapa?.[filtroEtapa]?.unidades || 0;
+      }
+      return f.totais?.unidadesUnicas || f.totais?.unidades || 0;
+    };
+
     switch (ordenacao) {
       case 'ranking': lista.sort((a, b) => a.ranking - b.ranking); break;
-      case 'unidades': lista.sort((a, b) => (b.totais?.unidadesUnicas || b.totais?.unidades || 0) - (a.totais?.unidadesUnicas || a.totais?.unidades || 0)); break;
+      case 'unidades': lista.sort((a, b) => pcsDeFunc(b) - pcsDeFunc(a)); break;
       case 'kg': lista.sort((a, b) => (b.totais?.kg || 0) - (a.totais?.kg || 0)); break;
     }
     return lista;
@@ -1690,9 +1720,20 @@ export default function ProducaoFuncionarioPage() {
             {filtroEtapa === 'todas' && (
               <p className="text-amber-300 text-[11px] mt-1.5 flex items-center gap-1">
                 <AlertTriangle className="h-3 w-3" />
-                Soma de funcionários &gt; total da obra é esperado: uma peça que passa por 4 etapas aparece em 4 funcionários distintos.
-                Use o filtro <strong>Etapa</strong> acima para isolar uma fase e ver a soma sem duplicação.
+                <span>
+                  Atribuição direta — cada peça é vinculada a UM funcionário por etapa (Corte/Fab/Solda/Pintura).
+                  Soma de tarefas = peças × etapas concluídas. Para somar peças únicas trabalhadas, use o filtro <strong>Etapa</strong> acima.
+                </span>
               </p>
+            )}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className={`text-2xl font-bold ${isGrupoConsolidadoFunc ? 'text-purple-300' : 'text-emerald-300'}`}>
+              {somaFuncionarios.pcs.toLocaleString('pt-BR')} <span className="text-xs font-normal">pcs</span>
+            </p>
+            <p className="text-[10px] text-slate-400">{somaFuncionarios.label}</p>
+            {configObraSelecionada?.qtdContrato > 0 && (
+              <p className="text-[10px] text-slate-500 mt-0.5">de {configObraSelecionada.qtdContrato.toLocaleString('pt-BR')} contratadas</p>
             )}
           </div>
         </div>
