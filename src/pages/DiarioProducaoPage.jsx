@@ -397,7 +397,12 @@ function DiarioRegistroCard({ registro, onEdit, onDelete, etapa }) {
     return calcularValorPorEtapa(registro.kg_processados, etapa);
   }, [registro.kg_processados, etapa]);
 
-  const cores = ETAPAS_CORES[etapa];
+  // Fallback de cores quando etapa é desconhecida (ex: 'todas' filtro global)
+  const cores = ETAPAS_CORES[etapa] || {
+    bg: 'from-slate-500/20 to-slate-600/20',
+    text: 'text-slate-300',
+    border: 'border-slate-500/30',
+  };
 
   return (
     <motion.div
@@ -948,7 +953,12 @@ export default function DiarioProducaoPage() {
     );
   }
 
-  const cores = ETAPAS_CORES[selectedEtapa];
+  // Fallback de cores quando selectedEtapa é 'todas' ou desconhecida
+  const cores = ETAPAS_CORES[selectedEtapa] || {
+    bg: 'from-slate-500/20 to-slate-600/20',
+    text: 'text-slate-300',
+    border: 'border-slate-500/30',
+  };
 
   return (
     <div className="space-y-6">
@@ -1196,7 +1206,7 @@ export default function DiarioProducaoPage() {
             <BookOpen className="h-12 w-12 text-slate-600 mx-auto mb-4" />
             <h3 className="text-lg font-semibold text-slate-300">Nenhum registro encontrado</h3>
             <p className="text-slate-500 mt-1">
-              Não há registros para {ETAPAS_LABELS[selectedEtapa]} nesta data.
+              Não há registros para {ETAPAS_LABELS[selectedEtapa] || 'esta etapa'} nesta data.
             </p>
             <Button
               className={cn(
