@@ -81,6 +81,7 @@ export function useProducaoAnalytics(options = {}) {
   const [historicoBase, setHistoricoBase] = useState([]);
   const [lancamentosStore, setLancamentosStore] = useState([]);
   const [pecas, setPecas] = useState([]);
+  const [materiaisCorte, setMateriaisCorte] = useState([]); // dados do Kanban Corte
   const [error, setError] = useState(null);
 
   // Período padrão: mês atual
@@ -156,6 +157,23 @@ export function useProducaoAnalytics(options = {}) {
       setHistoricoBase(histFiltrado);
       setLancamentosStore(storeData || []);
       setPecas(pecasData || []);
+
+      // 4. Buscar materiais_corte (dados do Kanban Corte) — para análise da etapa CORTE
+      try {
+        let corteQuery = supabase
+          .from('materiais_corte')
+          .select('id, obra_id, marca, peca, perfil, comprimento_mm, quantidade, peso_teorico, status_corte, funcionario_corte, data_inicio, data_fim')
+          .limit(5000);
+        if (obrasFiltro && obrasFiltro.length > 0) {
+          corteQuery = corteQuery.in('obra_id', obrasFiltro);
+        }
+        const { data: corteData, error: corteErr } = await corteQuery;
+        if (corteErr) console.warn('[Analytics] materiais_corte:', corteErr.message);
+        setMateriaisCorte(corteData || []);
+      } catch (corteErr) {
+        console.warn('[Analytics] erro ao buscar materiais_corte:', corteErr);
+        setMateriaisCorte([]);
+      }
     } catch (err) {
       console.error('[Analytics] Erro ao buscar dados:', err);
       setError(err.message);
@@ -212,8 +230,24 @@ export function useProducaoAnalytics(options = {}) {
     const pecasPorEtapa = {};
     ETAPAS_PRODUCAO.forEach(e => { pecasPorEtapa[e] = new Set(); });
 
+    // ===== CORTE: dados vêm da tabela materiais_corte (Kanban Corte) =====
+    // Cada material com status_corte='finalizado' e funcionario_corte=funcId conta como produzido por esse funcionário
+    if (!etapaFiltro || etapaFiltro === 'corte') {
+      materiaisCorte.forEach(m => {
+        if (m.funcionario_corte !== funcId) return;
+        // Só conta peças efetivamente cortadas (status finalizado)
+        if (m.status_corte !== 'finalizado' && m.status_corte !== 'cortado') return;
+        const qtd = parseInt(m.quantidade) || 1;
+        const peso = (parseFloat(m.peso_teorico) || 0) * qtd;
+        result.corte.unidades += qtd;
+        result.corte.kg += peso;
+        pecasPorEtapa.corte.add(m.id);
+      });
+    }
+
+    // ===== FABRICACAO / SOLDA / PINTURA: pecas_producao.funcionario_X =====
     for (const etapa of ETAPAS_PRODUCAO) {
-      // Pula etapas que não interessam quando há filtroEtapa ativo
+      if (etapa === 'corte') continue; // já tratado acima
       if (etapaFiltro && etapaFiltro !== etapa) continue;
       const campo = `funcionario_${etapa}`;
       const proxima = PROXIMA_ETAPA[etapa];
@@ -244,6 +278,10 @@ export function useProducaoAnalytics(options = {}) {
         if (p[campo]) idsComAtribuicao.add(p[campo]);
       });
       if (p.funcionario_expedido) idsComAtribuicao.add(p.funcionario_expedido);
+    });
+    // Funcionários que cortaram material (Kanban Corte)
+    materiaisCorte.forEach(m => {
+      if (m.funcionario_corte) idsComAtribuicao.add(m.funcionario_corte);
     });
     // Também incluir os do histórico (compat)
     historico.forEach(h => {
@@ -319,7 +357,7 @@ export function useProducaoAnalytics(options = {}) {
     comDados.forEach((f, i) => { f.ranking = i + 1; });
 
     return { comDados, semDados };
-  }, [ctxFuncionarios, ctxEquipes, historico, pecas, equipeId, etapaFiltro]);
+  }, [ctxFuncionarios, ctxEquipes, historico, pecas, materiaisCorte, equipeId, etapaFiltro]);
 
   // ============ KPIs GLOBAIS (CUMULATIVO) ============
   const kpis = useMemo(() => {
