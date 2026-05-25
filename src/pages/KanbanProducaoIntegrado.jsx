@@ -888,7 +888,28 @@ export default function KanbanProducaoIntegrado() {
 
     // Peso total REAL da obra = kanban ativo + enviadas
     const pesoKanban = conjuntosFiltrados.reduce((sum, c) => sum + c.pesoTotal, 0);
-    const pesoTotal = pesoKanban + pesoEnviadas;
+    const pesoPecas = pesoKanban + pesoEnviadas;
+
+    // Peso CADASTRADO da obra (do registro em obras) — usado como referência se maior que peso de peças
+    // Quando obraFiltro === 'todas', soma todas as obras; caso contrário, busca a obra pelo nome
+    let pesoCadastroObra = 0;
+    if (Array.isArray(obras) && obras.length > 0) {
+      if (obraFiltro === 'todas') {
+        const obraAtivaObj = obras.find(o => o.id === obraAtual);
+        // Quando "Todas" no filtro mas há obra ativa no sidebar, ainda usamos a obra ativa como referência
+        if (obraAtivaObj) {
+          pesoCadastroObra = parseFloat(obraAtivaObj.pesoTotal || obraAtivaObj.peso_total) || 0;
+        } else {
+          pesoCadastroObra = obras.reduce((s, o) => s + (parseFloat(o.pesoTotal || o.peso_total) || 0), 0);
+        }
+      } else {
+        const obraObj = obras.find(o => (o.nome || '') === obraFiltro || o.id === obraFiltro);
+        pesoCadastroObra = obraObj ? (parseFloat(obraObj.pesoTotal || obraObj.peso_total) || 0) : 0;
+      }
+    }
+
+    // Usa o MAIOR: cadastro da obra (planejado) OU soma real das peças (produzido)
+    const pesoTotal = Math.max(pesoCadastroObra, pesoPecas);
 
     // Valor de medição
     const valorFabricacao = pesoFabricacao * 2.50;
@@ -921,7 +942,7 @@ export default function KanbanProducaoIntegrado() {
       qtdEnviadas,
       pesoEnviadas,
     };
-  }, [producaoFabrica, obraFiltro, pecasSupabase]);
+  }, [producaoFabrica, obraFiltro, pecasSupabase, obras, obraAtual]);
 
   // Dados para gráfico
   const dadosGrafico = COLUNAS_PRODUCAO.map((col, idx) => {
@@ -1356,8 +1377,8 @@ export default function KanbanProducaoIntegrado() {
         </div>
       </div>
 
-      {/* Mensagem se não há conjuntos */}
-      {producaoFabrica.length === 0 && (
+      {/* Mensagem se não há conjuntos ativos NEM enviados */}
+      {producaoFabrica.length === 0 && pecasEnviadasColuna.length === 0 && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -1383,8 +1404,8 @@ export default function KanbanProducaoIntegrado() {
         </motion.div>
       )}
 
-      {/* Kanban Board */}
-      {producaoFabrica.length > 0 && modoVisualizacao === 'kanban' && (
+      {/* Kanban Board — renderiza se houver produção ativa OU peças enviadas */}
+      {(producaoFabrica.length > 0 || pecasEnviadasColuna.length > 0) && modoVisualizacao === 'kanban' && (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
           {COLUNAS_PRODUCAO.map((coluna, colIdx) => {
             const ColunaIcon = coluna.icon;
