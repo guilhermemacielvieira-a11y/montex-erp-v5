@@ -18,6 +18,7 @@ import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { useObras, useExpedicao, useMedicoes } from '../contexts/ERPContext';
+import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 
 // Configurações de valores por kg (editáveis) - vinculado ao contrato
 const configInicial = {
@@ -61,6 +62,14 @@ export default function MedicaoAutomaticaPage() {
   const obrasAtivas = obras.filter(o => o.status !== 'cancelada');
 
   const [obraSelecionada, setObraSelecionada] = useState('todas');
+
+  // Resolve obraIds (suporta grupo consolidado TEMEC)
+  const obraIdsEfetivos = useMemo(() => {
+    if (obraSelecionada === 'todas') return null; // null = todas obras
+    if (GRUPOS_OBRAS[obraSelecionada]) return GRUPOS_OBRAS[obraSelecionada].obraIds;
+    return [obraSelecionada];
+  }, [obraSelecionada]);
+  const isGrupoConsolidado = !!GRUPOS_OBRAS[obraSelecionada];
   const [config, setConfig] = useState(configInicial);
   const [editandoConfig, setEditandoConfig] = useState(null);
   const [novoValorKg, setNovoValorKg] = useState('');
@@ -73,8 +82,13 @@ export default function MedicaoAutomaticaPage() {
   // Config por obra (modo kg ou unidade) — carrega do localStorage
   const [configObras, setConfigObras] = useState(() => loadConfigObras());
 
-  // Config ATUAL = se obra selecionada tem config própria, usa ela; senão usa o default kg
+  // Config ATUAL = se obra/grupo selecionada tem config própria, usa ela; senão usa o default kg
   const configObraAtual = useMemo(() => {
+    // Grupo consolidado (TEMEC): usa config do grupo direto
+    if (GRUPOS_OBRAS[obraSelecionada]) {
+      const g = GRUPOS_OBRAS[obraSelecionada];
+      return { modo: g.modo, valor: g.valor, qtdContrato: g.qtdContrato, descricao: 'R$/unidade · análise consolidada' };
+    }
     if (obraSelecionada !== 'todas' && configObras[obraSelecionada]) {
       return configObras[obraSelecionada];
     }
@@ -88,7 +102,7 @@ export default function MedicaoAutomaticaPage() {
   // O calc agregado em transforms.js junta os dois — aqui separamos.
   const [pesosPorEtapaReais, setPesosPorEtapaReais] = useState({ expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 });
   useEffect(() => {
-    if (obraSelecionada === 'todas') {
+    if (!obraIdsEfetivos || obraIdsEfetivos.length === 0) {
       setPesosPorEtapaReais({ expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 });
       return;
     }
@@ -97,8 +111,8 @@ export default function MedicaoAutomaticaPage() {
       try {
         const { data, error } = await supabase
           .from('pecas_producao')
-          .select('etapa,quantidade,peso_total')
-          .eq('obra_id', obraSelecionada);
+          .select('etapa,quantidade,peso_total,obra_id')
+          .in('obra_id', obraIdsEfetivos);
         if (error || cancel) return;
         const acc = { expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 };
         (data || []).forEach(p => {
@@ -123,16 +137,22 @@ export default function MedicaoAutomaticaPage() {
       } catch (e) { /* silencioso */ }
     })();
     return () => { cancel = true; };
-  }, [obraSelecionada]);
+  }, [obraSelecionada, obraIdsEfetivos?.join(',')]);
+
+  // Helper: testa se um obraId está nos filtros atuais
+  const matchObra = (oid) => {
+    if (!obraIdsEfetivos) return true; // sem filtro = todas
+    return obraIdsEfetivos.includes(oid);
+  };
 
   // Medições locais (criadas nesta página)
   const medicoesLocaisFiltradas = useMemo(() => {
     return medicoes.filter(m => {
       if (m.tipo !== 'producao') return false;
-      if (obraSelecionada !== 'todas' && m.obraId !== obraSelecionada) return false;
+      if (!matchObra(m.obraId)) return false;
       return true;
     });
-  }, [medicoes, obraSelecionada]);
+  }, [medicoes, obraIdsEfetivos]);
 
   // Medições do Supabase (Gestão Financeira Obra) formatadas para a tabela
   const medicoesDBFormatadas = useMemo(() => {
@@ -141,7 +161,7 @@ export default function MedicaoAutomaticaPage() {
     (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.name || o.id; });
 
     return medicoesDB
-      .filter(m => obraSelecionada === 'todas' || (m.obraId || m.obra_id) === obraSelecionada)
+      .filter(m => matchObra(m.obraId || m.obra_id))
       .map(m => {
         const obraId = m.obraId || m.obra_id;
         return {
@@ -196,7 +216,7 @@ export default function MedicaoAutomaticaPage() {
     if (!expedicoes || expedicoes.length === 0) return 0;
     const expedicoesComRomaneio = expedicoes.filter(e =>
       e.status !== 'PREPARANDO' &&
-      (obraSelecionada === 'todas' || e.obra_id === obraSelecionada)
+      matchObra(e.obra_id)
     );
     return expedicoesComRomaneio.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
   }, [expedicoes, obraSelecionada]);
@@ -206,7 +226,7 @@ export default function MedicaoAutomaticaPage() {
     if (!expedicoes || expedicoes.length === 0) return 0;
     const entregues = expedicoes.filter(e =>
       e.status === 'ENTREGUE' &&
-      (obraSelecionada === 'todas' || e.obra_id === obraSelecionada)
+      matchObra(e.obra_id)
     );
     return entregues.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
   }, [expedicoes, obraSelecionada]);
@@ -260,6 +280,20 @@ export default function MedicaoAutomaticaPage() {
       });
       return consolidado;
     }
+    // Grupo consolidado: somar peças das obras do grupo
+    if (GRUPOS_OBRAS[obraSelecionada]) {
+      const obrasGrupo = obrasAtivas.filter(o => GRUPOS_OBRAS[obraSelecionada].obraIds.includes(o.id));
+      const consolidado = {
+        pesoProduzido: 0, pesoExpedido: 0, pesoPintado: 0,
+        pesoEmCorte: 0, pesoEmFabricacao: 0, pesoEmSolda: 0, pesoEmProcesso: 0,
+        pesoTotal: 0, previsaoProximaMedicao: 0
+      };
+      obrasGrupo.forEach(obra => {
+        const p = calcPesos(obra);
+        Object.keys(consolidado).forEach(k => { consolidado[k] += p[k] || 0; });
+      });
+      return consolidado;
+    }
     const obraSel = obrasAtivas.find(o => o.id === obraSelecionada);
     return calcPesos(obraSel);
   }, [obraSelecionada, obrasAtivas]);
@@ -268,9 +302,7 @@ export default function MedicaoAutomaticaPage() {
   // EXCLUI adiantamentos / entradas de contrato — apenas medições de produção são subtraídas
   const totalMedicoesLancadas = useMemo(() => {
     if (!medicoesDB || medicoesDB.length === 0) return 0;
-    const filtradas = obraSelecionada === 'todas'
-      ? medicoesDB
-      : medicoesDB.filter(m => (m.obraId || m.obra_id) === obraSelecionada);
+    const filtradas = medicoesDB.filter(m => matchObra(m.obraId || m.obra_id));
 
     // Filtra apenas medições de produção (exclui entradas de contrato / adiantamentos)
     const apenasMedicoes = filtradas.filter(m => {
@@ -292,14 +324,14 @@ export default function MedicaoAutomaticaPage() {
   let pesoBaseEntregue = 0;
   if (pesoEntregueReal > 0) {
     pesoBaseEntregue = pesoEntregueReal;
-  } else if (obraSelecionada !== 'todas' && pesosPorEtapaReais.total > 0) {
+  } else if (obraIdsEfetivos && pesosPorEtapaReais.total > 0) {
     pesoBaseEntregue = pesosPorEtapaReais.enviado;
   } else {
     pesoBaseEntregue = dadosObraSelecionada.pesoExpedido;
   }
 
   // Peso PRODUZIDO (pintado) — preferir dado real direto do banco quando disponível
-  const pesoProduzidoBase = (obraSelecionada !== 'todas' && pesosPorEtapaReais.total > 0)
+  const pesoProduzidoBase = (obraIdsEfetivos && pesosPorEtapaReais.total > 0)
     ? pesosPorEtapaReais.pintura
     : dadosObraSelecionada.pesoProduzido;
 
@@ -316,7 +348,7 @@ export default function MedicaoAutomaticaPage() {
 
   // Quantidades equivalentes (modo unidade)
   // Quando temos pecasPorEtapaReais (obra específica), usar qtd direta do banco. Senão, regra de 3.
-  const usarQtdReal = isModoUnidade && obraSelecionada !== 'todas' && pesosPorEtapaReais.total > 0;
+  const usarQtdReal = isModoUnidade && obraIdsEfetivos && pesosPorEtapaReais.total > 0;
   const qtdProduzida = usarQtdReal ? pesosPorEtapaReais.qtdPintura : pesoParaQtd(pesoProduzidoBase);
   const qtdEntregue = usarQtdReal ? pesosPorEtapaReais.qtdEnviado : pesoParaQtd(pesoBaseEntregue);
   const qtdProduzidaNaoEntregue = Math.max(0, qtdProduzida - qtdEntregue);
@@ -467,8 +499,14 @@ export default function MedicaoAutomaticaPage() {
               <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
                 <Select.Viewport className="p-1">
                   <Select.Item value="todas" className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>Todas as Obras (Consolidado)</Select.ItemText>
+                    <Select.ItemText>🏗 Todas as Obras (Consolidado)</Select.ItemText>
                   </Select.Item>
+                  {/* Grupos consolidados */}
+                  {Object.values(GRUPOS_OBRAS).map(g => (
+                    <Select.Item key={g.id} value={g.id} className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none border-l-2 border-purple-500/40">
+                      <Select.ItemText>{g.label}</Select.ItemText>
+                    </Select.Item>
+                  ))}
                   {obrasAtivas.map(obra => (
                     <Select.Item key={obra.id} value={obra.id} className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
                       <Select.ItemText>{obra.nome}</Select.ItemText>
@@ -480,7 +518,20 @@ export default function MedicaoAutomaticaPage() {
           </Select.Root>
           {obraSelecionada !== 'todas' && (
             <div className="text-sm text-slate-400">
-              Peso Total: <span className="text-white">{((obrasAtivas.find(o => o.id === obraSelecionada)?.pesoTotal || 0) / 1000).toFixed(1)}t</span>
+              {isGrupoConsolidado ? (
+                <>
+                  Peso Total: <span className="text-purple-300 font-semibold">
+                    {(obrasAtivas
+                      .filter(o => GRUPOS_OBRAS[obraSelecionada]?.obraIds.includes(o.id))
+                      .reduce((s, o) => s + (o.pesoTotal || 0), 0) / 1000).toFixed(1)}t
+                  </span>
+                  <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                    {GRUPOS_OBRAS[obraSelecionada]?.obraIds.length} obras
+                  </span>
+                </>
+              ) : (
+                <>Peso Total: <span className="text-white">{((obrasAtivas.find(o => o.id === obraSelecionada)?.pesoTotal || 0) / 1000).toFixed(1)}t</span></>
+              )}
             </div>
           )}
         </div>
