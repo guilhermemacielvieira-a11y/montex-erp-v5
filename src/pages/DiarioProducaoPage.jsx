@@ -180,6 +180,13 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // Lê tag [QTD:X/Y] das observações (gerada pelo LancamentoProducaoModal em modo qtd)
+  const qtdFromObs = (obs) => {
+    if (!obs) return null;
+    const m = String(obs).match(/\[QTD:(\d+)\/\d+\]/);
+    return m ? parseInt(m[1], 10) : null;
+  };
+
   // Agrupa por funcionário
   const grupos = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -196,22 +203,36 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
           funcionarioNome: h.funcionario_nome || '— sem funcionário —',
           lancamentos: [],
           pesoKg: 0,
+          qtdConjuntos: 0,           // total de conjuntos (peças) trabalhados
           etapas: new Set(),
           pecas: new Set(),
         };
       }
       acc[key].lancamentos.push(h);
       const peca = pecasMap[h.peca_id];
-      if (peca?.peso_total) acc[key].pesoKg += Number(peca.peso_total) || 0;
+
+      // Quantidade efetivamente movimentada neste lançamento:
+      //  - se há tag [QTD:X/Y] em observacoes, usa X
+      //  - senão usa peca.quantidade (ou 1 se ausente)
+      const qtdLanc = qtdFromObs(h.observacoes) ?? (parseInt(peca?.quantidade) || 1);
+      acc[key].qtdConjuntos += qtdLanc;
+
+      // Peso: usa peso_unitario × qtdLanc quando possível para refletir parciais
+      if (peca?.peso_total) {
+        const pesoUnit = (parseFloat(peca.peso_total) || 0) / (parseInt(peca.quantidade) || 1);
+        acc[key].pesoKg += pesoUnit * qtdLanc;
+      }
+
       if (h.etapa_para) acc[key].etapas.add(h.etapa_para);
       if (h.peca_id) acc[key].pecas.add(h.peca_id);
     });
-    // Ordena por nº de lançamentos desc
-    return Object.values(acc).sort((a, b) => b.lancamentos.length - a.lancamentos.length);
+    // Ordena por nº de conjuntos desc
+    return Object.values(acc).sort((a, b) => b.qtdConjuntos - a.qtdConjuntos);
   }, [historico, pecasMap, busca]);
 
   const totalPeso = grupos.reduce((s, g) => s + g.pesoKg, 0);
   const totalLanc = grupos.reduce((s, g) => s + g.lancamentos.length, 0);
+  const totalConjuntos = grupos.reduce((s, g) => s + g.qtdConjuntos, 0);
 
   return (
     <Card className="bg-slate-900/60 border-slate-700/50">
@@ -270,10 +291,14 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
         </div>
 
         {/* Resumo */}
-        <div className="grid grid-cols-3 gap-3 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
             <p className="text-xs text-slate-400">Funcionários ativos</p>
             <p className="text-xl font-bold text-white">{grupos.length}</p>
+          </div>
+          <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
+            <p className="text-xs text-slate-400">Conjuntos trabalhados</p>
+            <p className="text-xl font-bold text-cyan-300">{totalConjuntos.toLocaleString('pt-BR')} <span className="text-xs font-normal text-slate-400">pcs</span></p>
           </div>
           <div className="bg-slate-800/60 rounded-lg p-3 border border-slate-700/50">
             <p className="text-xs text-slate-400">Lançamentos</p>
@@ -320,8 +345,14 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
                     <div className="flex-1 text-left">
                       <p className="text-white font-medium text-sm">{g.funcionarioNome}</p>
                       <p className="text-xs text-slate-400">
-                        {g.lancamentos.length} lançamento(s) • {g.pecas.size} peça(s) • {Array.from(g.etapas).join(', ') || '—'}
+                        {g.lancamentos.length} lançamento(s) • {g.pecas.size} marca(s) • {Array.from(g.etapas).join(', ') || '—'}
                       </p>
+                    </div>
+                    <div className="text-right pr-2">
+                      <p className="text-cyan-300 font-semibold text-base">
+                        {g.qtdConjuntos.toLocaleString('pt-BR')} <span className="text-[10px] text-slate-400 font-normal">conj</span>
+                      </p>
+                      <p className="text-[10px] text-slate-500">conjuntos trabalhados</p>
                     </div>
                     <div className="text-right">
                       <p className="text-emerald-300 font-medium text-sm">{formatKg(g.pesoKg)}</p>
@@ -342,9 +373,9 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
                           <table className="w-full text-xs">
                             <thead>
                               <tr className="text-slate-500">
-                                <th className="text-left py-1 font-medium">Peça</th>
-                                <th className="text-left py-1 font-medium">Conjunto</th>
-                                <th className="text-left py-1 font-medium">Etapa</th>
+                                <th className="text-left py-1 font-medium">Marca / Tipo</th>
+                                <th className="text-right py-1 font-medium">Qtd</th>
+                                <th className="text-left py-1 font-medium pl-3">Etapa</th>
                                 <th className="text-right py-1 font-medium">Peso</th>
                                 <th className="text-right py-1 font-medium">Hora</th>
                                 <th className="text-left py-1 font-medium pl-3">Obs.</th>
@@ -353,16 +384,24 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
                             <tbody className="divide-y divide-slate-800/60">
                               {g.lancamentos.map((l) => {
                                 const peca = pecasMap[l.peca_id] || {};
+                                const qtdLanc = qtdFromObs(l.observacoes) ?? (parseInt(peca?.quantidade) || 1);
+                                const pesoUnit = peca.peso_total && peca.quantidade
+                                  ? (parseFloat(peca.peso_total) || 0) / (parseInt(peca.quantidade) || 1)
+                                  : (parseFloat(peca.peso_total) || 0);
+                                const pesoLanc = pesoUnit * qtdLanc;
                                 return (
                                   <tr key={l.id} className="text-slate-300">
-                                    <td className="py-1.5 font-mono text-[11px]">{l.peca_id}</td>
                                     <td className="py-1.5">
                                       <div>
                                         <div className="text-white">{peca.marca || '—'}</div>
                                         {peca.tipo && <div className="text-[10px] text-slate-500">{peca.tipo}</div>}
                                       </div>
                                     </td>
-                                    <td className="py-1.5">
+                                    <td className="py-1.5 text-right">
+                                      <span className="text-cyan-300 font-semibold">{qtdLanc.toLocaleString('pt-BR')}</span>
+                                      <span className="text-[9px] text-slate-500 ml-0.5">conj</span>
+                                    </td>
+                                    <td className="py-1.5 pl-3">
                                       <div className="flex items-center gap-1">
                                         <span className={cn('px-1.5 py-0.5 rounded text-[10px] border', ETAPA_HIST_COR[l.etapa_de] || 'bg-slate-700 text-slate-400 border-slate-600')}>
                                           {ETAPA_HIST_LABEL[l.etapa_de] || l.etapa_de}
@@ -374,7 +413,7 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
                                       </div>
                                     </td>
                                     <td className="py-1.5 text-right text-emerald-300 font-mono">
-                                      {peca.peso_total ? formatKg(peca.peso_total) : '—'}
+                                      {pesoLanc > 0 ? formatKg(pesoLanc) : '—'}
                                     </td>
                                     <td className="py-1.5 text-right text-slate-400 font-mono">
                                       {fmtHora(l.created_at)}
