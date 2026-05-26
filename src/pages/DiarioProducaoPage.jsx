@@ -98,7 +98,8 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
   const [pecasMap, setPecasMap] = useState({});
   const [loading, setLoading] = useState(false);
   const [busca, setBusca] = useState('');
-  const [funcionarioExpandido, setFuncionarioExpandido] = useState(null);
+  // Padrão: TODOS expandidos. Set com IDs colapsados (inverso para UX).
+  const [funcionariosColapsados, setFuncionariosColapsados] = useState(new Set());
 
   // Key estável para deps do useCallback (array → string)
   const obraIdsKey = obraIds ? obraIds.slice().sort().join(',') : '';
@@ -234,7 +235,7 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
               </p>
             </div>
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
             <div className="relative w-56">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
               <Input
@@ -244,6 +245,18 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
                 className="pl-8 h-8 bg-slate-800 border-slate-700 text-white text-xs"
               />
             </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 border-slate-700 text-slate-300 text-xs"
+              onClick={() => {
+                const todasKeys = grupos.map(g => g.funcionarioId || g.funcionarioNome);
+                const todasAbertas = todasKeys.every(k => !funcionariosColapsados.has(k));
+                setFuncionariosColapsados(todasAbertas ? new Set(todasKeys) : new Set());
+              }}
+            >
+              {grupos.every(g => !funcionariosColapsados.has(g.funcionarioId || g.funcionarioNome)) ? '▼ Colapsar' : '▶ Expandir'} todos
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -287,12 +300,18 @@ function LancamentosPorFuncionario({ data, obraIds, etapaFiltro }) {
         ) : (
           <div className="space-y-2">
             {grupos.map((g) => {
-              const aberto = funcionarioExpandido === (g.funcionarioId || g.funcionarioNome);
+              const key = g.funcionarioId || g.funcionarioNome;
+              const aberto = !funcionariosColapsados.has(key); // default: aberto
+              const toggle = () => setFuncionariosColapsados(prev => {
+                const next = new Set(prev);
+                if (next.has(key)) next.delete(key); else next.add(key);
+                return next;
+              });
               return (
-                <div key={g.funcionarioId || g.funcionarioNome}
+                <div key={key}
                   className="bg-slate-800/40 border border-slate-700/40 rounded-lg overflow-hidden">
                   <button
-                    onClick={() => setFuncionarioExpandido(aberto ? null : (g.funcionarioId || g.funcionarioNome))}
+                    onClick={toggle}
                     className="w-full flex items-center gap-3 p-3 hover:bg-slate-800/70 transition"
                   >
                     <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-500/40 to-blue-500/40 flex items-center justify-center text-white font-semibold text-sm">
@@ -1107,7 +1126,13 @@ export default function DiarioProducaoPage() {
         etapaFiltro={selectedEtapa}
       />
 
-      {/* Abas de Etapas */}
+      {/* Separador entre componentes */}
+      <div className="bg-slate-800/30 border border-slate-700/40 rounded-lg px-4 py-2 text-xs text-slate-400">
+        ⬇ Abaixo: registros manuais (tabela legada <code className="text-slate-300">diario_producao</code>) — usar apenas se quiser anotar valores extras.
+        Os <strong className="text-purple-300">lançamentos reais</strong> do Kanban estão acima nesta página.
+      </div>
+
+      {/* Abas de Etapas (para tabela legada diario_producao) */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {ETAPAS.map(etapa => (
           <motion.button
@@ -1119,7 +1144,7 @@ export default function DiarioProducaoPage() {
             className={cn(
               "px-4 py-2 rounded-lg font-semibold text-sm whitespace-nowrap transition-all",
               selectedEtapa === etapa
-                ? cn("bg-gradient-to-r text-white", ETAPAS_CORES[etapa].bg)
+                ? cn("bg-gradient-to-r text-white", ETAPAS_CORES[etapa]?.bg || 'from-slate-500 to-slate-600')
                 : "bg-slate-800 text-slate-400 hover:bg-slate-700"
             )}
             whileTap={{ scale: 0.95 }}
