@@ -198,6 +198,10 @@ export default function ReceitasPage() {
           vencimento: r.vencimento,
           formaPagto: r.formaPagto,
           status: r.status,
+          // 🔧 Persistir vínculo de obra também (para receitas de Obra editadas)
+          obraId: r.obraId || null,
+          obraNome: r.obraNome || null,
+          obraCodigo: r.obraCodigo || null,
         };
       });
       localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
@@ -883,14 +887,28 @@ export default function ReceitasPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className="text-sm">
-                      {receita.origemObra ? (
-                        <span className="text-blue-400 flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />
-                          {receita.obraNome || '-'}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500">-</span>
-                      )}
+                      {/* 🔧 FIX: mostrar obra quando obraId vinculado, mesmo em receita manual editada */}
+                      {(() => {
+                        const obraIdVinc = receita.obraId || receita.obra_id;
+                        const nomeObra = receita.obraNome || receita.obra_nome || obrasMap[obraIdVinc];
+                        const codigoObra = receita.obraCodigo || receita.obra_codigo
+                          || (obrasAtivasReceita.find(o => o.id === obraIdVinc)?.codigo);
+                        if (obraIdVinc || nomeObra) {
+                          return (
+                            <span className={cn(
+                              "flex items-center gap-1",
+                              receita.origemObra ? "text-blue-400" : "text-cyan-400"
+                            )}>
+                              <Building2 className="h-3 w-3" />
+                              <div className="flex flex-col">
+                                {codigoObra && <span className="text-[10px] font-mono opacity-70">{codigoObra}</span>}
+                                <span className="text-xs">{nomeObra || obraIdVinc || '-'}</span>
+                              </div>
+                            </span>
+                          );
+                        }
+                        return <span className="text-slate-500">-</span>;
+                      })()}
                     </TableCell>
                     <TableCell className="text-slate-400 text-sm">
                       {receita.vencimento && receita.vencimento !== '-' ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : '-'}
