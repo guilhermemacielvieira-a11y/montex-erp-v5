@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel, exportRomaneioPDF, exportFilaEmbarquePDF } from '@/utils/exportUtils';
 import { useExpedicao, useObras } from '../contexts/ERPContext';
+import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { pecasApi } from '../api/supabaseClient';
 import { transformPecaArray } from '../contexts/transforms';
 import {
@@ -41,6 +42,14 @@ export default function EnviosExpedicaoPage() {
 
   // ==== FILTRO DE OBRA ====
   const [obraFiltro, setObraFiltro] = useState('todas');
+
+  // Helper: testa obra_id contra filtro (suporta grupo TEMEC consolidado)
+  const matchObraExp = useCallback((oid) => {
+    if (obraFiltro === 'todas') return true;
+    if (GRUPOS_OBRAS[obraFiltro]) return GRUPOS_OBRAS[obraFiltro].obraIds.includes(oid);
+    return oid === obraFiltro;
+  }, [obraFiltro]);
+  const isGrupoExp = !!GRUPOS_OBRAS[obraFiltro];
 
   // Obra ativa para criação de envios (fallback se nenhuma selecionada)
   const obraAtiva = useMemo(() => {
@@ -190,24 +199,24 @@ export default function EnviosExpedicaoPage() {
   // ==== FILTRAR PEÇAS POR OBRA SELECIONADA ====
   const pecasExpedidas = useMemo(() => {
     if (!obraFiltro || obraFiltro === 'todas') return pecasExpedidasRaw;
-    return pecasExpedidasRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
-  }, [pecasExpedidasRaw, obraFiltro]);
+    return pecasExpedidasRaw.filter(p => matchObraExp(p.obraId || p.obra_id));
+  }, [pecasExpedidasRaw, obraFiltro, matchObraExp]);
 
   const pecasPintura = useMemo(() => {
     if (!obraFiltro || obraFiltro === 'todas') return pecasPinturaRaw;
-    return pecasPinturaRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
-  }, [pecasPinturaRaw, obraFiltro]);
+    return pecasPinturaRaw.filter(p => matchObraExp(p.obraId || p.obra_id));
+  }, [pecasPinturaRaw, obraFiltro, matchObraExp]);
 
   const pecasEnviadas = useMemo(() => {
     if (!obraFiltro || obraFiltro === 'todas') return pecasEnviadasRaw;
-    return pecasEnviadasRaw.filter(p => (p.obraId || p.obra_id) === obraFiltro);
-  }, [pecasEnviadasRaw, obraFiltro]);
+    return pecasEnviadasRaw.filter(p => matchObraExp(p.obraId || p.obra_id));
+  }, [pecasEnviadasRaw, obraFiltro, matchObraExp]);
 
   // ==== EXPEDIÇÕES FILTRADAS POR OBRA ====
   const expedicoesFiltradas = useMemo(() => {
     if (!obraFiltro || obraFiltro === 'todas') return expedicoes || [];
-    return (expedicoes || []).filter(e => (e.obra_id || e.obraId) === obraFiltro);
-  }, [expedicoes, obraFiltro]);
+    return (expedicoes || []).filter(e => matchObraExp(e.obra_id || e.obraId));
+  }, [expedicoes, obraFiltro, matchObraExp]);
 
   // ==== KPIs ====
   const kpis = useMemo(() => {
@@ -460,8 +469,14 @@ export default function EnviosExpedicaoPage() {
               <Select.Content className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
                 <Select.Viewport className="p-1">
                   <Select.Item value="todas" className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none">
-                    <Select.ItemText>Todas as Obras</Select.ItemText>
+                    <Select.ItemText>🏗 Todas as Obras</Select.ItemText>
                   </Select.Item>
+                  {/* Grupos consolidados (TEMEC) */}
+                  {Object.values(GRUPOS_OBRAS).map(g => (
+                    <Select.Item key={g.id} value={g.id} className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none border-l-2 border-purple-500/40">
+                      <Select.ItemText>{g.label}</Select.ItemText>
+                    </Select.Item>
+                  ))}
                   {(obras || []).map(o => (
                     <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none">
                       <Select.ItemText>{o.nome || o.name || `Obra ${o.id?.slice(0, 6)}`}</Select.ItemText>
@@ -578,7 +593,9 @@ export default function EnviosExpedicaoPage() {
                       }
                       const obrasMap = {};
                       (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.codigo || o.id; });
-                      const obraNome = obraFiltro === 'todas' ? 'Todas as obras' : (obrasMap[obraFiltro] || obraFiltro);
+                      const obraNome = obraFiltro === 'todas'
+                        ? 'Todas as obras'
+                        : (GRUPOS_OBRAS[obraFiltro]?.label || obrasMap[obraFiltro] || obraFiltro);
                       const r = exportFilaEmbarquePDF(pecasFiltradas, obrasMap, obraNome);
                       if (r.success) {
                         toast.success(`Relatório gerado: ${r.filename}`);

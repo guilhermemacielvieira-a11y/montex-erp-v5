@@ -32,6 +32,7 @@ import {
 
 // Contexto ERP e Database
 import { useObras, useProducao } from '@/contexts/ERPContext';
+import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { supabase } from '@/api/supabaseClient';
 // FuncionarioSelectorModal removido — substituído pelo LancamentoProducaoModal completo
 import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
@@ -100,6 +101,20 @@ export default function KanbanProducaoIntegrado() {
 
   // Estados de filtro
   const [obraFiltro, setObraFiltro] = useState('todas');
+
+  // Helper: testa se peça/conjunto pertence ao filtro de obra (suporta grupo consolidado)
+  // c.obraNome ou c.obraId pode ser usado pra match.
+  const matchObraFiltroFn = useCallback((c) => {
+    if (obraFiltro === 'todas') return true;
+    // Grupo consolidado: aceita peças cuja obraId pertence ao grupo
+    if (GRUPOS_OBRAS[obraFiltro]) {
+      const obraIdsGrupo = GRUPOS_OBRAS[obraFiltro].obraIds;
+      return obraIdsGrupo.includes(c?.obraId);
+    }
+    // Obra individual: match por nome (legado)
+    return c?.obraNome === obraFiltro;
+  }, [obraFiltro]);
+  const isGrupoConsolidadoFiltro = !!GRUPOS_OBRAS[obraFiltro];
   const [prioridadeFiltro, setPrioridadeFiltro] = useState('todas');
   const [tipoFiltro, setTipoFiltro] = useState('todos');
   const [busca, setBusca] = useState('');
@@ -830,7 +845,7 @@ export default function KanbanProducaoIntegrado() {
   // Agrupar conjuntos por coluna
   const conjuntosPorColuna = useMemo(() => {
     const conjuntosFiltrados = producaoFabrica.filter(c => {
-      if (obraFiltro !== 'todas' && c.obraNome !== obraFiltro) return false;
+      if (!matchObraFiltroFn(c)) return false;
       if (prioridadeFiltro !== 'todas' && c.prioridade !== prioridadeFiltro) return false;
       if (tipoFiltro !== 'todos' && c.tipo !== tipoFiltro) return false;
       if (busca) {
@@ -854,7 +869,7 @@ export default function KanbanProducaoIntegrado() {
   // KPIs
   const kpis = useMemo(() => {
     const conjuntosFiltrados = producaoFabrica.filter(c => {
-      if (obraFiltro !== 'todas' && c.obraNome !== obraFiltro) return false;
+      if (!matchObraFiltroFn(c)) return false;
       return true;
     });
 
@@ -899,12 +914,16 @@ export default function KanbanProducaoIntegrado() {
     const pesoPecas = pesoKanban + pesoEnviadas;
 
     // Peso CADASTRADO da obra (do registro em obras) — usado como referência se maior que peso de peças
-    // Quando obraFiltro === 'todas', soma todas as obras; caso contrário, busca a obra pelo nome
     let pesoCadastroObra = 0;
     if (Array.isArray(obras) && obras.length > 0) {
-      if (obraFiltro === 'todas') {
+      if (GRUPOS_OBRAS[obraFiltro]) {
+        // Grupo consolidado: somar peso de todas as obras do grupo
+        const ids = GRUPOS_OBRAS[obraFiltro].obraIds;
+        pesoCadastroObra = obras
+          .filter(o => ids.includes(o.id))
+          .reduce((s, o) => s + (parseFloat(o.pesoTotal || o.peso_total) || 0), 0);
+      } else if (obraFiltro === 'todas') {
         const obraAtivaObj = obras.find(o => o.id === obraAtual);
-        // Quando "Todas" no filtro mas há obra ativa no sidebar, ainda usamos a obra ativa como referência
         if (obraAtivaObj) {
           pesoCadastroObra = parseFloat(obraAtivaObj.pesoTotal || obraAtivaObj.peso_total) || 0;
         } else {
@@ -974,7 +993,13 @@ export default function KanbanProducaoIntegrado() {
     const ETAPAS_ENVIADAS = ['enviado', 'entregue', 'montagem'];
     return (pecasSupabase || [])
       .filter(p => ETAPAS_ENVIADAS.includes(p.etapa))
-      .filter(p => obraFiltro === 'todas' || (p.obraNome || '') === obraFiltro)
+      .filter(p => {
+        if (obraFiltro === 'todas') return true;
+        if (GRUPOS_OBRAS[obraFiltro]) {
+          return GRUPOS_OBRAS[obraFiltro].obraIds.includes(p.obraId);
+        }
+        return (p.obraNome || '') === obraFiltro;
+      })
       .map(p => ({
         id: p.id,
         conjunto: p.marca || p.nome || '',
@@ -1009,7 +1034,7 @@ export default function KanbanProducaoIntegrado() {
   // Lista filtrada para modo Lista
   const listaFiltrada = useMemo(() => {
     let conjuntosFiltrados = producaoFabrica.filter(c => {
-      if (obraFiltro !== 'todas' && c.obraNome !== obraFiltro) return false;
+      if (!matchObraFiltroFn(c)) return false;
       if (prioridadeFiltro !== 'todas' && c.prioridade !== prioridadeFiltro) return false;
       if (tipoFiltro !== 'todos' && c.tipo !== tipoFiltro) return false;
       if (busca) {
@@ -1303,8 +1328,14 @@ export default function KanbanProducaoIntegrado() {
             <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
               <Select.Viewport className="p-1">
                 <Select.Item value="todas" className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                  <Select.ItemText>Todas as Obras</Select.ItemText>
+                  <Select.ItemText>🏗 Todas as Obras</Select.ItemText>
                 </Select.Item>
+                {/* Grupos consolidados (TEMEC) */}
+                {Object.values(GRUPOS_OBRAS).map(g => (
+                  <Select.Item key={g.id} value={g.id} className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded cursor-pointer outline-none border-l-2 border-purple-500/40">
+                    <Select.ItemText>{g.label}</Select.ItemText>
+                  </Select.Item>
+                ))}
                 {obrasUnicas.map(obraNome => (
                   <Select.Item key={obraNome} value={obraNome} className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
                     <Select.ItemText>{obraNome}</Select.ItemText>
