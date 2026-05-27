@@ -244,6 +244,8 @@ export default function GestaoFinanceiraObra() {
   // Estados
   const [obra, setObra] = useState(OBRA_MODELO);
   const [obraFiltro, setObraFiltro] = useState(OBRA_MODELO.id);
+  // Tick para forçar re-leitura do localStorage (receitas editadas em outras abas/páginas)
+  const [receitasRefreshTick, setReceitasRefreshTick] = useState(0);
 
   // 🐛 BUG fix: quando o select de obraFiltro muda, sincronizar o objeto `obra`
   // — todos os filtros usam `obra.id` mas o select só mudava `obraFiltro`.
@@ -377,40 +379,72 @@ export default function GestaoFinanceiraObra() {
       isAvulsa: m.isAvulsa || m.is_avulsa || false,
     }));
 
-    // 🔗 NOVO: ler receitas manuais (ReceitasPage localStorage) vinculadas a esta obra
-    // e adicioná-las como "medições/receitas" desta obra
-    const receitasManuaisVinculadas = [];
+    // 🔗 LER LOCALSTORAGE: receitas manuais + overrides de receitas de Obra
+    let receitasManuaisLS = [];
+    let overridesLS = {};
     try {
-      const receitasLS = JSON.parse(localStorage.getItem('montex_receitas_manuais') || '[]');
-      receitasLS.forEach(r => {
-        if (r.obraId === obra.id) {
-          receitasManuaisVinculadas.push({
-            id: `RECMAN-${r.id}`,
-            numero: 0,
-            obraId: obra.id,
-            setor: '',
-            etapa: 'avulsa',
-            tipo: 'manual',
-            pesoMedido: 0,
-            dataMedicao: r.data || r.vencimento || '',
-            dataReferencia: r.vencimento || '',
-            valorBruto: parseFloat(r.valor) || 0,
-            valorLiquido: parseFloat(r.valor) || 0,
-            status: r.status === 'paga' ? 'pago' : (r.status || 'pendente'),
-            descricao: r.descricao || 'Receita manual',
-            observacao: `Vinculada via ReceitasPage · ${r.cliente || ''}`,
-            retencoes: {},
-            detalhamento: {},
-            isAvulsa: true,
-            _origem: 'receitas-manuais',
-          });
-        }
-      });
+      receitasManuaisLS = JSON.parse(localStorage.getItem('montex_receitas_manuais') || '[]');
+      overridesLS = JSON.parse(localStorage.getItem('montex_receitas_overrides') || '{}');
     } catch (e) { /* localStorage falhou */ }
 
-    const estaticasDaObra = obra.id === OBRA_MODELO.id ? MEDICOES : [];
+    // Receitas MANUAIS vinculadas a esta obra
+    const receitasManuaisVinculadas = receitasManuaisLS
+      .filter(r => r.obraId === obra.id)
+      .map(r => ({
+        id: `RECMAN-${r.id}`,
+        numero: 0,
+        obraId: obra.id,
+        setor: '',
+        etapa: 'avulsa',
+        tipo: 'manual',
+        pesoMedido: 0,
+        dataMedicao: r.data || r.vencimento || '',
+        dataReferencia: r.vencimento || '',
+        valorBruto: parseFloat(r.valor) || 0,
+        valorLiquido: parseFloat(r.valor) || 0,
+        status: r.status === 'paga' ? 'pago' : (r.status || 'pendente'),
+        descricao: r.descricao || 'Receita manual',
+        observacao: `Vinculada via ReceitasPage · ${r.cliente || ''}`,
+        retencoes: {},
+        detalhamento: {},
+        isAvulsa: true,
+        _origem: 'receitas-manuais',
+      }));
+
+    // 🔗 OVERRIDES: receitas estáticas (MEDICOES) que foram editadas e vinculadas a outra obra
+    // Para cada MEDICAO estática, aplicar override e verificar obraId final
+    const estaticasComOverride = MEDICOES.map(m => {
+      const ov = overridesLS[m.id];
+      if (!ov) return { ...m, _obraIdFinal: m.obraId || OBRA_MODELO.id };
+      return {
+        ...m,
+        ...ov,
+        // Quando override não define obraId, mantém o original
+        _obraIdFinal: (ov.obraId !== undefined && ov.obraId !== null) ? ov.obraId : (m.obraId || OBRA_MODELO.id),
+      };
+    });
+
+    // Filtrar pela obra atual (incluindo overrides que movem para esta obra)
+    const estaticasDaObra = estaticasComOverride.filter(m => m._obraIdFinal === obra.id);
+
     setMedicoes([...estaticasDaObra, ...novosDoSupabase, ...receitasManuaisVinculadas]);
-  }, [todasMedicoes, obra.id]);
+  }, [todasMedicoes, obra.id, receitasRefreshTick]);
+
+  // Force-refresh quando a aba é focalizada ou localStorage muda (ex: receita editada em outra aba)
+  React.useEffect(() => {
+    const handleStorage = (e) => {
+      if (!e || ['montex_receitas_manuais', 'montex_receitas_overrides'].includes(e.key)) {
+        setReceitasRefreshTick(t => t + 1);
+      }
+    };
+    const handleFocus = () => setReceitasRefreshTick(t => t + 1);
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleFocus);
+    return () => {
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, []);
 
   // Cálculos principais
   const saldo = useMemo(() =>
