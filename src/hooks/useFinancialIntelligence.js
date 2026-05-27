@@ -12,6 +12,30 @@
 
 import { useMemo } from 'react';
 import { useLancamentos, useObras, useProducao, useMedicoes, useEstoque } from '@/contexts/ERPContext';
+import { GRUPOS_OBRAS } from '@/pages/AnaliseProducaoPage';
+
+// Helper: aplica filtro de obra (aceita 'todas' | obraId | grupo consolidado tipo 'temec')
+function matchObraFiltroFn(filtroObra, obraIdItem) {
+  if (!filtroObra || filtroObra === 'todas') return true;
+  const grupo = GRUPOS_OBRAS?.[filtroObra];
+  if (grupo) return grupo.obraIds.includes(obraIdItem);
+  return obraIdItem === filtroObra;
+}
+
+// ==========================================
+// LOCALSTORAGE: RECEITAS MANUAIS + OVERRIDES
+// ==========================================
+function lerReceitasLocalStorage() {
+  try {
+    const manuaisRaw = localStorage.getItem('montex_receitas_manuais');
+    const overridesRaw = localStorage.getItem('montex_receitas_overrides');
+    const manuais = manuaisRaw ? JSON.parse(manuaisRaw) : [];
+    const overrides = overridesRaw ? JSON.parse(overridesRaw) : {};
+    return { manuais, overrides };
+  } catch (e) {
+    return { manuais: [], overrides: {} };
+  }
+}
 
 // ==========================================
 // DADOS DE RH POR CENTRO DE CUSTO (salários reais Fev/2026)
@@ -243,14 +267,24 @@ export function useFinancialIntelligence(filtros = {}) {
   const { pecas } = useProducao();
   const { medicoes } = useMedicoes();
 
-  const { periodo = 'geral', categoria: filtroCat, centroCusto: filtroCentro } = filtros;
+  const { periodo = 'geral', categoria: filtroCat, centroCusto: filtroCentro, obraId: filtroObra = 'todas' } = filtros;
 
   return useMemo(() => {
+    const isFiltroObraAtivo = filtroObra && filtroObra !== 'todas';
+
     // ========================================
-    // 1. PREPARAR DESPESAS (SOMENTE GERAIS - sem vínculo a obra)
+    // 1. PREPARAR DESPESAS
+    //   - SEM filtro de obra → somente despesas SEM obraId (overhead/geral)
+    //   - COM filtro de obra → somente despesas DAQUELA obra (ou grupo)
+    //   Regra: nunca misturar despesas com/sem obra na mesma análise
     // ========================================
     const despesas = (lancamentosDespesas || [])
-      .filter(l => l.tipo !== 'receita' && !l.obraId && !l.obra_id)
+      .filter(l => l.tipo !== 'receita')
+      .filter(l => {
+        const obraIdItem = l.obraId || l.obra_id || null;
+        if (!isFiltroObraAtivo) return !obraIdItem; // sem filtro: só geral
+        return obraIdItem && matchObraFiltroFn(filtroObra, obraIdItem);
+      })
       .map(l => ({
         ...l,
         valor: parseFloat(l.valor) || 0,
@@ -260,6 +294,60 @@ export function useFinancialIntelligence(filtros = {}) {
         semana: getSemanaAno(l.dataEmissao || l.data_emissao || l.data || l.createdAt)
       }))
       .filter(l => l.valor > 0 && l.data);
+
+    // ========================================
+    // 1b. PREPARAR RECEITAS REAIS (Supabase medicoes + localStorage manuais/overrides)
+    // ========================================
+    const { manuais: receitasManuaisLS, overrides: receitasOverridesLS } = lerReceitasLocalStorage();
+    // Aplicar overrides nas medições do Supabase (vincular obraId quando user editou)
+    const medicoesComOverrides = (medicoes || []).map(m => {
+      const override = receitasOverridesLS[m.id] || {};
+      return {
+        ...m,
+        obraId: override.obraId || m.obraId || m.obra_id || null,
+        obraNome: override.obraNome || m.obraNome || m.obra_nome || null,
+      };
+    });
+    // Receitas manuais do localStorage como medições virtuais
+    const receitasManuaisVirtuais = (receitasManuaisLS || []).map(r => ({
+      id: r.id || `RECMAN-${r.data}-${r.valor}`,
+      obraId: r.obraId || null,
+      obraNome: r.obraNome || null,
+      valorBruto: parseFloat(r.valor) || 0,
+      valorLiquido: parseFloat(r.valor) || 0,
+      dataMedicao: r.data || r.dataPagamento || r.dataReferencia,
+      dataPagamento: r.dataPagamento || r.data,
+      status: r.status || 'paga',
+      descricao: r.descricao || '',
+      isManual: true,
+    }));
+    // Combinar Supabase + manuais
+    const todasReceitas = [...medicoesComOverrides, ...receitasManuaisVirtuais];
+    // Filtrar por obra
+    const receitasFiltradasObra = todasReceitas.filter(m => {
+      if (!isFiltroObraAtivo) return true; // sem filtro: tudo
+      return matchObraFiltroFn(filtroObra, m.obraId);
+    });
+    // Normalizar para timeline mensal
+    const receitasReais = receitasFiltradasObra
+      .map(m => {
+        const dataRef = m.dataPagamento || m.dataAprovacao || m.dataMedicao || m.dataReferencia || m.data_medicao || m.data_pagamento;
+        if (!dataRef) return null;
+        const valor = parseFloat(m.valorLiquido) || parseFloat(m.valorBruto) || parseFloat(m.valor_liquido) || parseFloat(m.valor_bruto) || 0;
+        if (valor <= 0) return null;
+        return {
+          id: m.id,
+          valor,
+          data: dataRef,
+          obraId: m.obraId,
+          obraNome: m.obraNome,
+          status: m.status,
+          mes: formatMesAno(dataRef),
+        };
+      })
+      .filter(Boolean);
+
+    const receitasReaisTotal = receitasReais.reduce((s, r) => s + r.valor, 0);
 
     // ========================================
     // 2. FILTRAR POR PERÍODO
@@ -397,11 +485,29 @@ export function useFinancialIntelligence(filtros = {}) {
       ? ultimos3MesesCompletos.reduce((sum, m) => sum + (mesesMap[m]?.custo || 0), 0) / ultimos3MesesCompletos.length
       : (numMeses > 0 ? custoTotalGeral / numMeses : 0);
 
-    const evolucaoMensal = mesesOrdenados.map(mes => {
-      const custoMes = mesesMap[mes].custo;
-      const fatProducao = faturamentoProducaoMensal;
-      const fatMontagem = faturamentoMontagemMensal;
-      const fatTotal = fatProducao + fatMontagem;
+    // ========================================
+    // 6c. RECEITAS REAIS POR MÊS (medições + manuais)
+    // ========================================
+    const receitasMesMap = {};
+    receitasReais.forEach(r => {
+      if (!receitasMesMap[r.mes]) receitasMesMap[r.mes] = 0;
+      receitasMesMap[r.mes] += r.valor;
+    });
+
+    // Conjunto de meses que devem aparecer no gráfico (despesas OU receitas)
+    const mesesCompletoSet = new Set([...mesesOrdenados, ...Object.keys(receitasMesMap)]);
+    const mesesUnificados = Array.from(mesesCompletoSet).sort();
+
+    const evolucaoMensal = mesesUnificados.map(mes => {
+      const custoMes = mesesMap[mes]?.custo || 0;
+      // Faturamento REAL do mês = soma de receitas/medições daquele mês
+      const fatRealMes = receitasMesMap[mes] || 0;
+      // Faturamento TEÓRICO (para referência) = producaoMensal × R$/kg
+      const fatProducaoTeorico = faturamentoProducaoMensal;
+      const fatMontagemTeorico = faturamentoMontagemMensal;
+      const fatTotalTeorico = fatProducaoTeorico + fatMontagemTeorico;
+      // Se temos receita real, usa ela como base de faturamento; senão usa teórico
+      const fatTotal = fatRealMes > 0 ? fatRealMes : fatTotalTeorico;
       const custoPerKg = producaoMensal > 0 ? custoMes / producaoMensal : 0;
       const margem = fatTotal > 0 ? ((fatTotal - custoMes) / fatTotal) * 100 : 0;
 
@@ -409,8 +515,11 @@ export function useFinancialIntelligence(filtros = {}) {
         mes,
         mesLabel: getMesLabel(mes),
         custo: custoMes,
-        faturamentoProducao: fatProducao,
-        faturamentoMontagem: fatMontagem,
+        // Faturamento real e teórico em chaves separadas
+        faturamentoReal: fatRealMes,
+        faturamentoTeorico: fatTotalTeorico,
+        faturamentoProducao: fatProducaoTeorico,
+        faturamentoMontagem: fatMontagemTeorico,
         faturamentoTotal: fatTotal,
         faturamentoMeta: FATURAMENTO_META_MENSAL,
         metaProducao: META_FATURAMENTO_PRODUCAO,
@@ -418,7 +527,7 @@ export function useFinancialIntelligence(filtros = {}) {
         producaoKg: producaoMensal,
         custoPerKg,
         margem,
-        count: mesesMap[mes].count
+        count: mesesMap[mes]?.count || 0
       };
     });
 
@@ -627,6 +736,25 @@ export function useFinancialIntelligence(filtros = {}) {
     // Despesa mensal média = média últimos 3 meses COMPLETOS lançados no módulo Despesas
     const despesaMensalMedia = despesaMedia3Meses;
 
+    // ===== RECEITA REAL MÉDIA (últimos 3 meses completos) =====
+    const ultimos3MesesComReceita = mesesCompletos.slice(-3);
+    const receitaMedia3Meses = ultimos3MesesComReceita.length > 0
+      ? ultimos3MesesComReceita.reduce((s, m) => s + (receitasMesMap[m] || 0), 0) / ultimos3MesesComReceita.length
+      : 0;
+    const receitaTotalAcum = receitasReaisTotal;
+    // Receita mensal real do mês corrente (ou média 3M se vazio)
+    const receitaMesAtual = receitasMesMap[mesAtualKey] || 0;
+    const faturamentoRealMes = receitaMesAtual > 0 ? receitaMesAtual : receitaMedia3Meses;
+
+    // ===== METAS DINÂMICAS (baseadas em histórico real) =====
+    // Meta receita = média 3M × 1.10 (crescimento alvo 10%)
+    // Meta despesa = média 3M × 0.95 (redução alvo 5%)
+    // Meta margem = 25% (alvo fixo)
+    const metaReceitaDinamica = receitaMedia3Meses > 0 ? receitaMedia3Meses * 1.10 : FATURAMENTO_META_MENSAL;
+    const metaDespesaDinamica = despesaMensalMedia > 0 ? despesaMensalMedia * 0.95 : (FATURAMENTO_META_MENSAL * 0.75);
+    const metaMargemDinamica = 25;
+    const metaSaldoDinamico = metaReceitaDinamica - metaDespesaDinamica;
+
     // % produção real MENSAL vs meta MENSAL
     const percentProducaoVsMeta = META_PRODUCAO_MENSAL_KG > 0 ? (producaoMensalKg / META_PRODUCAO_MENSAL_KG) * 100 : 0;
     const percentMontagemVsMeta = META_MONTAGEM_MENSAL_KG > 0 ? (montagemMensalKg / META_MONTAGEM_MENSAL_KG) * 100 : 0;
@@ -634,12 +762,15 @@ export function useFinancialIntelligence(filtros = {}) {
     const percentFatProducaoVsMeta = META_FATURAMENTO_PRODUCAO > 0 ? (faturamentoProducaoMes / META_FATURAMENTO_PRODUCAO) * 100 : 0;
     const percentFatMontagemVsMeta = META_FATURAMENTO_MONTAGEM > 0 ? (faturamentoMontagemMes / META_FATURAMENTO_MONTAGEM) * 100 : 0;
 
-    // Margem MENSAL = (Faturamento mensal - Despesa média 3 meses) / Faturamento mensal
+    // Margem MENSAL TEÓRICA = (Faturamento teórico - Despesa) / Faturamento teórico
     const margemOperacional = faturamentoTotalMes > 0 ? ((faturamentoTotalMes - despesaMensalMedia) / faturamentoTotalMes) * 100 : 0;
+    // Margem MENSAL REAL = (Receita real - Despesa) / Receita real
+    const margemReal = faturamentoRealMes > 0 ? ((faturamentoRealMes - despesaMensalMedia) / faturamentoRealMes) * 100 : 0;
     const maiorCategoria = custosPorCategoria[0] || { categoria: '-', valor: 0, percentual: 0 };
 
     // Saldo MENSAL = Faturamento mensal - Despesa média mensal (3 meses)
     const saldoOperacional = faturamentoTotalMes - despesaMensalMedia;
+    const saldoReal = faturamentoRealMes - despesaMensalMedia;
 
     const kpisGerais = {
       // ===== METAS MENSAIS (constantes) =====
@@ -686,6 +817,23 @@ export function useFinancialIntelligence(filtros = {}) {
       margem: margemOperacional,
       custoKg: custoPerKgGeral,
       custoProducaoKg: custoProducaoPerKg,
+
+      // ===== RECEITAS REAIS (medições + receitas manuais) =====
+      receitaTotalAcum,
+      receitaMedia3Meses,
+      receitaMesAtual,
+      faturamentoRealMes,
+      qtdReceitasLancadas: receitasReais.length,
+      // Saldo e margem REAIS (com receitas lançadas)
+      saldoReal,
+      margemReal,
+      // Metas dinâmicas
+      metaReceitaDinamica,
+      metaDespesaDinamica,
+      metaMargemDinamica,
+      metaSaldoDinamico,
+      progressoMetaReceita: metaReceitaDinamica > 0 ? (faturamentoRealMes / metaReceitaDinamica) * 100 : 0,
+      progressoMetaDespesa: metaDespesaDinamica > 0 ? (despesaMensalMedia / metaDespesaDinamica) * 100 : 0,
 
       // ===== INFO =====
       valorTotalContratos: valorTotalContratosAtivos,
@@ -763,6 +911,31 @@ export function useFinancialIntelligence(filtros = {}) {
         meta: 25,
         real: margemOperacional,
         progresso: margemOperacional > 0 ? (margemOperacional / 25) * 100 : 0
+      },
+      // ===== METAS DINÂMICAS (baseadas em histórico real de receitas × despesas) =====
+      receitaReal: {
+        meta: metaReceitaDinamica,
+        real: faturamentoRealMes,
+        progresso: metaReceitaDinamica > 0 ? (faturamentoRealMes / metaReceitaDinamica) * 100 : 0,
+        descricao: `Meta dinâmica: média 3M × 1.10 (crescimento 10%)`
+      },
+      despesaReal: {
+        meta: metaDespesaDinamica,
+        real: despesaMensalMedia,
+        progresso: metaDespesaDinamica > 0 ? (despesaMensalMedia / metaDespesaDinamica) * 100 : 0,
+        descricao: `Meta dinâmica: média 3M × 0.95 (redução 5%)`
+      },
+      saldoReal: {
+        meta: metaSaldoDinamico,
+        real: saldoReal,
+        progresso: metaSaldoDinamico > 0 ? (saldoReal / metaSaldoDinamico) * 100 : 0,
+        descricao: `Receita real - Despesa real`
+      },
+      margemReal: {
+        meta: metaMargemDinamica,
+        real: margemReal,
+        progresso: metaMargemDinamica > 0 ? (margemReal / metaMargemDinamica) * 100 : 0,
+        descricao: `Margem com receitas reais lançadas`
       }
     };
     metas.producao.progresso = metas.producao.meta > 0 ? (metas.producao.real / metas.producao.meta) * 100 : 0;
@@ -886,6 +1059,24 @@ export function useFinancialIntelligence(filtros = {}) {
       despesaMedia3Meses,
       ultimos3MesesCompletos,
 
+      // ===== RECEITAS REAIS (medições + receitas manuais filtradas por obra) =====
+      receitasReais,
+      receitasReaisTotal,
+      receitaMedia3Meses,
+      receitaMesAtual,
+      faturamentoRealMes,
+      receitasMesMap,
+      // Filtros aplicados (para debug e UI)
+      filtroObraAtivo: filtroObra,
+      isFiltroObraAtivo,
+      // Metas dinâmicas
+      metaReceitaDinamica,
+      metaDespesaDinamica,
+      metaMargemDinamica,
+      metaSaldoDinamico,
+      saldoReal,
+      margemReal,
+
       evolucaoMensal,
       evolucaoSemanal,
 
@@ -921,7 +1112,7 @@ export function useFinancialIntelligence(filtros = {}) {
       formatCurrency: (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v),
       formatPercent: (v) => `${(v || 0).toFixed(1)}%`
     };
-  }, [lancamentosDespesas, obras, pecas, medicoes, periodo, filtroCat, filtroCentro]);
+  }, [lancamentosDespesas, obras, pecas, medicoes, periodo, filtroCat, filtroCentro, filtroObra]);
 }
 
 // Export constants and helpers

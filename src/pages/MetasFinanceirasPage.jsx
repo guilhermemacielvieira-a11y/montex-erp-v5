@@ -75,6 +75,8 @@ import {
   ComposedChart
 } from 'recharts';
 import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
+import { useObras } from '@/contexts/ERPContext';
+import { GRUPOS_OBRAS } from '@/pages/AnaliseProducaoPage';
 
 // Componente de KPI
 function KPICard({ title, value, subtitle, icon: Icon, color, trend, trendLabel, isNegativeTrendGood = false }) {
@@ -218,8 +220,16 @@ function EstagioCard({ etapa, formatCurrency }) {
 
 export default function MetasFinanceirasPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [filtroObra, setFiltroObra] = useState('todas');
+  const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
 
-  const fi = useFinancialIntelligence();
+  const { obras } = useObras();
+  const obrasAtivas = useMemo(
+    () => (obras || []).filter(o => !['cancelada', 'orcamento'].includes(o.status)),
+    [obras]
+  );
+
+  const fi = useFinancialIntelligence({ obraId: filtroObra, periodo: filtroPeriodo });
 
   // Dados para radial chart
   const radialData = useMemo(() => [
@@ -324,81 +334,132 @@ export default function MetasFinanceirasPage() {
         </div>
       </div>
 
-      {/* KPIs Principais - 6 cards (TUDO MENSAL) */}
+      {/* Barra de Filtros */}
+      <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-4">
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-3 md:gap-4">
+          <div className="flex items-center gap-2 text-slate-300 text-sm font-medium">
+            <Flag className="h-4 w-4 text-amber-400" />
+            Filtros:
+          </div>
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <Label className="text-xs text-slate-400 mb-1 block">Período</Label>
+              <Select value={filtroPeriodo} onValueChange={setFiltroPeriodo}>
+                <SelectTrigger className="bg-slate-800 border-slate-700 text-white h-9">
+                  <SelectValue placeholder="Geral" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="geral">Geral (todo histórico)</SelectItem>
+                  <SelectItem value="mensal">Mês Atual</SelectItem>
+                  <SelectItem value="trimestral">Trimestre Atual</SelectItem>
+                  <SelectItem value="anual">Ano Atual</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label className="text-xs text-slate-400 mb-1 block">Obra</Label>
+              <Select value={filtroObra} onValueChange={setFiltroObra}>
+                <SelectTrigger className="bg-slate-800 border-slate-700 text-white h-9">
+                  <SelectValue placeholder="Todas (geral / sem obra)" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="todas">Todas (geral — sem vínculo a obra)</SelectItem>
+                  {Object.values(GRUPOS_OBRAS || {}).map(g => (
+                    <SelectItem key={g.id} value={g.id}>{g.label}</SelectItem>
+                  ))}
+                  {obrasAtivas.map(o => (
+                    <SelectItem key={o.id} value={o.id}>
+                      {o.codigo || o.id} — {o.nome || o.nome_cliente || 'Sem nome'}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          {fi.isFiltroObraAtivo && (
+            <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30 text-xs">
+              Mostrando dados da obra selecionada
+            </Badge>
+          )}
+        </div>
+      </div>
+
+      {/* KPIs REAIS (Receitas + Despesas lançadas) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
         <KPICard
-          title="Fat. Produção /mês"
-          value={fi.formatCurrency(fi.kpisGerais.faturamentoProducaoMes)}
-          subtitle={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton × R$ ${fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'}/kg`}
-          icon={Factory}
+          title="Receita Real /mês"
+          value={fi.formatCurrency(fi.kpisGerais.faturamentoRealMes || 0)}
+          subtitle={`${fi.kpisGerais.qtdReceitasLancadas || 0} lançamentos · média ${fi.formatCurrency(fi.kpisGerais.receitaMedia3Meses || 0)}`}
+          icon={DollarSign}
           color="from-emerald-500 to-green-500"
-          trend={fi.kpisGerais.percentFatProducaoVsMeta - 100}
-          trendLabel={`vs meta ${fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}`}
+          trend={fi.kpisGerais.progressoMetaReceita - 100}
+          trendLabel={`vs meta ${fi.formatCurrency(fi.kpisGerais.metaReceitaDinamica)}`}
         />
         <KPICard
-          title="Fat. Montagem /mês"
-          value={fi.formatCurrency(fi.kpisGerais.faturamentoMontagemMes)}
-          subtitle={`${(fi.kpisGerais.montagemMensalKg / 1000).toFixed(1)} ton × R$ ${fi.kpisGerais.precoMontagemKg?.toFixed(2) || '3,00'}/kg`}
-          icon={HardHat}
-          color="from-blue-500 to-cyan-500"
-          trend={fi.kpisGerais.percentFatMontagemVsMeta - 100}
-          trendLabel={`vs meta ${fi.formatCurrency(fi.kpisGerais.metaFaturamentoMontagem)}`}
-        />
-        <KPICard
-          title="Despesa Média /mês"
+          title="Despesa Real /mês"
           value={fi.formatCurrency(fi.kpisGerais.despesaMensalMedia)}
           subtitle={`Últ. ${fi.kpisGerais.mesesBaseCalculo || 0} meses: ${fi.kpisGerais.mesesBaseNomes?.join(', ') || '—'}`}
-          icon={DollarSign}
+          icon={TrendingDown}
           color="from-rose-500 to-pink-500"
+          trend={fi.kpisGerais.progressoMetaDespesa - 100}
+          trendLabel={`vs meta ${fi.formatCurrency(fi.kpisGerais.metaDespesaDinamica)}`}
           isNegativeTrendGood={true}
         />
         <KPICard
-          title="Produção Mensal"
-          value={`${(fi.kpisGerais.producaoMensalKg / 1000).toFixed(1)} ton`}
-          subtitle={`Meta: 45 ton/mês (R$ ${fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'}/kg)`}
-          icon={Award}
-          color="from-violet-500 to-purple-500"
-          trend={fi.kpisGerais.percentProducaoVsMeta - 100}
-          trendLabel="vs meta 45 ton"
-        />
-        <KPICard
-          title="Saldo Mensal"
-          value={fi.formatCurrency(fi.kpisGerais.saldo)}
-          subtitle="Faturamento - Desp. Média"
+          title="Saldo Real /mês"
+          value={fi.formatCurrency(fi.kpisGerais.saldoReal || 0)}
+          subtitle="Receita real - Despesa"
           icon={TrendingUp}
-          color={fi.kpisGerais.saldo >= 0 ? "from-emerald-500 to-green-500" : "from-red-500 to-rose-500"}
+          color={(fi.kpisGerais.saldoReal || 0) >= 0 ? "from-emerald-500 to-green-500" : "from-red-500 to-rose-500"}
         />
         <KPICard
-          title="Margem Operacional"
-          value={fi.formatPercent(fi.margemOperacional)}
-          subtitle="Meta: 25%"
+          title="Margem Real"
+          value={fi.formatPercent(fi.kpisGerais.margemReal || 0)}
+          subtitle={`Meta: ${fi.formatPercent(fi.kpisGerais.metaMargemDinamica)}`}
           icon={Target}
           color="from-amber-500 to-orange-500"
-          trend={fi.margemOperacional - 25}
-          trendLabel="vs meta 25%"
+          trend={(fi.kpisGerais.margemReal || 0) - (fi.kpisGerais.metaMargemDinamica || 25)}
+          trendLabel={`vs meta ${fi.kpisGerais.metaMargemDinamica || 25}%`}
+        />
+        <KPICard
+          title="Receita Acumulada"
+          value={fi.formatCurrency(fi.kpisGerais.receitaTotalAcum || 0)}
+          subtitle={`${fi.kpisGerais.qtdReceitasLancadas || 0} medições/receitas lançadas`}
+          icon={Award}
+          color="from-violet-500 to-purple-500"
+        />
+        <KPICard
+          title="Produção (kg)"
+          value={`${((fi.kpisGerais.producaoMensalKg || 0) / 1000).toFixed(1)} ton`}
+          subtitle={`Fat. teórico: ${fi.formatCurrency(fi.kpisGerais.faturamentoProducaoMes)}`}
+          icon={Factory}
+          color="from-cyan-500 to-blue-500"
         />
       </div>
 
-      {/* Banner Produção × Despesa (desmembrado) */}
-      <div className="bg-gradient-to-r from-blue-900/30 to-emerald-900/30 rounded-xl border border-blue-700/20 p-4">
+      {/* Banner Análise Real (receitas × despesas lançadas) */}
+      <div className="bg-gradient-to-r from-emerald-900/30 to-rose-900/30 rounded-xl border border-emerald-700/20 p-4">
         <div className="flex items-center gap-3 flex-wrap">
-          <Factory className="h-5 w-5 text-emerald-400" />
-          <span className="text-sm font-semibold text-emerald-300">Análise Independente</span>
+          <Zap className="h-5 w-5 text-emerald-400" />
+          <span className="text-sm font-semibold text-emerald-300">Análise Real (receitas × despesas lançadas)</span>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <Badge variant="outline" className="text-[10px] text-emerald-400 border-emerald-700">
-            Fábrica: 45t × R$ {fi.kpisGerais.precoProducaoKg?.toFixed(2) || '5,50'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoProducao)}/mês
+            Receita média 3M: {fi.formatCurrency(fi.kpisGerais.receitaMedia3Meses || 0)}
           </Badge>
-          <Badge variant="outline" className="text-[10px] text-blue-400 border-blue-700">
-            Montagem: 25t × R$ {fi.kpisGerais.precoMontagemKg?.toFixed(2) || '3,00'} = {fi.formatCurrency(fi.kpisGerais.metaFaturamentoMontagem)}/mês
+          <Badge variant="outline" className="text-[10px] text-rose-400 border-rose-700">
+            Despesa média 3M: {fi.formatCurrency(fi.kpisGerais.despesaMensalMedia || 0)}
           </Badge>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <span className="text-xs text-slate-400">
-            Meta Total: <span className="text-amber-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.faturamentoMetaMensal)}/mês</span>
+            Meta Receita (10% crescimento): <span className="text-emerald-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.metaReceitaDinamica || 0)}/mês</span>
           </span>
           <span className="text-xs text-slate-400 mx-1">|</span>
           <span className="text-xs text-slate-400">
-            Despesa Média: <span className="text-red-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.despesaMensalMedia)}/mês</span>
-            <span className="text-slate-500 ml-1">({fi.kpisGerais.mesesBaseNomes?.join(', ') || '—'})</span>
+            Meta Despesa (5% redução): <span className="text-rose-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.metaDespesaDinamica || 0)}/mês</span>
+          </span>
+          <span className="text-xs text-slate-400 mx-1">|</span>
+          <span className="text-xs text-slate-400">
+            Saldo Meta: <span className="text-amber-400 font-semibold">{fi.formatCurrency(fi.kpisGerais.metaSaldoDinamico || 0)}/mês</span>
           </span>
         </div>
       </div>
@@ -416,20 +477,20 @@ export default function MetasFinanceirasPage() {
         {/* Visão Geral */}
         <TabsContent value="visao-geral" className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Faturamento Produção vs Despesa Mensal */}
+            {/* Receita Real vs Despesa Mensal */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">
                   <BarChart3 className="h-5 w-5 text-emerald-400" />
-                  Faturamento vs Despesa (mensal)
+                  Receita Real × Despesa (mensal)
                 </CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={300}>
                   <ComposedChart data={fi.evolucaoMensal || []}>
                     <defs>
-                      <linearGradient id="colorRecMeta" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.3}/>
+                      <linearGradient id="colorRecReal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                       </linearGradient>
                     </defs>
@@ -441,8 +502,8 @@ export default function MetasFinanceirasPage() {
                       formatter={(value) => fi.formatCurrency(value)}
                     />
                     <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                    <Area type="monotone" dataKey="faturamentoProducao" stroke="#10b981" strokeWidth={2} fill="url(#colorRecMeta)" name="Fat. Produção (R$5,50)" />
-                    <Line type="monotone" dataKey="faturamentoMeta" stroke="#f59e0b" strokeWidth={1} strokeDasharray="5 5" name="Meta Total (R$322k)" dot={false} />
+                    <Area type="monotone" dataKey="faturamentoReal" stroke="#10b981" strokeWidth={2} fill="url(#colorRecReal)" name="Receita Real" />
+                    <Line type="monotone" dataKey="faturamentoTeorico" stroke="#06b6d4" strokeWidth={1} strokeDasharray="3 3" name="Fat. Teórico (kg×R$)" dot={false} />
                     <Bar dataKey="custo" fill="#ef4444" fillOpacity={0.7} name="Despesa Real" radius={[4, 4, 0, 0]} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -506,6 +567,60 @@ export default function MetasFinanceirasPage() {
 
         {/* Metas por Centro */}
         <TabsContent value="metas" className="space-y-6">
+          {/* Metas DINÂMICAS — receitas/despesas reais */}
+          <div>
+            <h3 className="text-sm font-semibold text-emerald-300 mb-3 flex items-center gap-2">
+              <Zap className="h-4 w-4" /> Metas Dinâmicas (baseadas em histórico real)
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <MetaProgressCard
+                titulo="Receita Mensal Real"
+                descricao={fi.metas.receitaReal?.descricao || 'Crescimento 10%'}
+                meta={fi.metas.receitaReal?.meta || 0}
+                real={fi.metas.receitaReal?.real || 0}
+                progresso={fi.metas.receitaReal?.progresso || 0}
+                icon={DollarSign}
+                cor="emerald"
+                formatCurrency={fi.formatCurrency}
+              />
+              <MetaProgressCard
+                titulo="Despesa Mensal Real"
+                descricao={fi.metas.despesaReal?.descricao || 'Redução 5%'}
+                meta={fi.metas.despesaReal?.meta || 0}
+                real={fi.metas.despesaReal?.real || 0}
+                progresso={fi.metas.despesaReal?.progresso || 0}
+                icon={TrendingDown}
+                cor="rose"
+                formatCurrency={fi.formatCurrency}
+                isNegativeTrendGood={true}
+              />
+              <MetaProgressCard
+                titulo="Saldo Real"
+                descricao={fi.metas.saldoReal?.descricao || 'Receita - Despesa'}
+                meta={fi.metas.saldoReal?.meta || 0}
+                real={fi.metas.saldoReal?.real || 0}
+                progresso={fi.metas.saldoReal?.progresso || 0}
+                icon={TrendingUp}
+                cor="amber"
+                formatCurrency={fi.formatCurrency}
+              />
+              <MetaProgressCard
+                titulo="Margem Real"
+                descricao={fi.metas.margemReal?.descricao || 'Meta: 25%'}
+                meta={fi.metas.margemReal?.meta || 25}
+                real={fi.metas.margemReal?.real || 0}
+                progresso={fi.metas.margemReal?.progresso || 0}
+                icon={Target}
+                cor="violet"
+                formatCurrency={fi.formatCurrency}
+                isPercent={true}
+              />
+            </div>
+          </div>
+
+          <h3 className="text-sm font-semibold text-blue-300 mt-6 mb-3 flex items-center gap-2">
+            <Factory className="h-4 w-4" /> Metas de Produção (teóricas — kg × R$/kg)
+          </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             <MetaProgressCard
               titulo="Produção Fábrica (KG)"
@@ -678,26 +793,29 @@ export default function MetasFinanceirasPage() {
                   <TableHeader>
                     <TableRow className="border-slate-700/50">
                       <TableHead className="text-slate-400">Mês</TableHead>
-                      <TableHead className="text-slate-400 text-right">Fat. Prod. (R$5,50)</TableHead>
-                      <TableHead className="text-slate-400 text-right">Fat. Mont. (R$3,00)</TableHead>
+                      <TableHead className="text-slate-400 text-right">Receita Real</TableHead>
+                      <TableHead className="text-slate-400 text-right">Fat. Teórico (kg×R$)</TableHead>
                       <TableHead className="text-slate-400 text-right">Despesa</TableHead>
+                      <TableHead className="text-slate-400 text-right">Saldo Real</TableHead>
                       <TableHead className="text-slate-400 text-right">Margem</TableHead>
-                      <TableHead className="text-slate-400 text-right">Custo/kg</TableHead>
                       <TableHead className="text-slate-400 text-right">Produção</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {(fi.evolucaoMensal || []).map((mes, idx) => (
-                      <TableRow key={idx} className="border-slate-700/50 hover:bg-slate-800/30">
-                        <TableCell className="text-slate-300">{mes.mesLabel}</TableCell>
-                        <TableCell className="text-right text-emerald-400 font-semibold">{fi.formatCurrency(mes.faturamentoProducao)}</TableCell>
-                        <TableCell className="text-right text-blue-400">{fi.formatCurrency(mes.faturamentoMontagem)}</TableCell>
-                        <TableCell className="text-right text-red-400 font-semibold">{fi.formatCurrency(mes.custo)}</TableCell>
-                        <TableCell className={cn("text-right font-semibold", mes.margem >= 0 ? "text-emerald-400" : "text-red-400")}>{fi.formatPercent(mes.margem)}</TableCell>
-                        <TableCell className="text-right text-slate-300">R$ {(mes.custoPerKg || 0).toFixed(2)}</TableCell>
-                        <TableCell className="text-right text-cyan-400">{((mes.producaoKg || 0) / 1000).toFixed(1)} ton</TableCell>
-                      </TableRow>
-                    ))}
+                    {(fi.evolucaoMensal || []).map((mes, idx) => {
+                      const saldoReal = (mes.faturamentoReal || 0) - (mes.custo || 0);
+                      return (
+                        <TableRow key={idx} className="border-slate-700/50 hover:bg-slate-800/30">
+                          <TableCell className="text-slate-300">{mes.mesLabel}</TableCell>
+                          <TableCell className="text-right text-emerald-400 font-semibold">{fi.formatCurrency(mes.faturamentoReal || 0)}</TableCell>
+                          <TableCell className="text-right text-cyan-400">{fi.formatCurrency(mes.faturamentoTeorico || 0)}</TableCell>
+                          <TableCell className="text-right text-red-400 font-semibold">{fi.formatCurrency(mes.custo)}</TableCell>
+                          <TableCell className={cn("text-right font-semibold", saldoReal >= 0 ? "text-emerald-400" : "text-red-400")}>{fi.formatCurrency(saldoReal)}</TableCell>
+                          <TableCell className={cn("text-right font-semibold", mes.margem >= 0 ? "text-emerald-400" : "text-red-400")}>{fi.formatPercent(mes.margem)}</TableCell>
+                          <TableCell className="text-right text-cyan-400">{((mes.producaoKg || 0) / 1000).toFixed(1)} ton</TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               </div>
@@ -708,7 +826,7 @@ export default function MetasFinanceirasPage() {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <BarChart3 className="h-5 w-5 text-amber-400" />
-                Faturamento Produção vs Custo
+                Receita Real vs Despesa (mensal)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -722,8 +840,8 @@ export default function MetasFinanceirasPage() {
                     formatter={(value) => fi.formatCurrency(value)}
                   />
                   <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                  <Bar dataKey="faturamentoProducao" fill="#10b981" name="Faturamento Produção" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="custo" fill="#ef4444" name="Custo" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="faturamentoReal" fill="#10b981" name="Receita Real" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="custo" fill="#ef4444" name="Despesa Real" radius={[8, 8, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
