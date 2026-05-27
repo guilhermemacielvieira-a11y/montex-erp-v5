@@ -244,6 +244,48 @@ export default function GestaoFinanceiraObra() {
   // Estados
   const [obra, setObra] = useState(OBRA_MODELO);
   const [obraFiltro, setObraFiltro] = useState(OBRA_MODELO.id);
+
+  // 🐛 BUG fix: quando o select de obraFiltro muda, sincronizar o objeto `obra`
+  // — todos os filtros usam `obra.id` mas o select só mudava `obraFiltro`.
+  React.useEffect(() => {
+    if (!obraFiltro) return;
+    if (obraFiltro === OBRA_MODELO.id) {
+      setObra(OBRA_MODELO);
+      return;
+    }
+    // Buscar a obra real do contexto (Supabase)
+    const obraReal = (obrasERP || []).find(o => o.id === obraFiltro);
+    if (obraReal) {
+      // Construir objeto compatível com OBRA_MODELO (mantém estrutura aninhada `contrato`)
+      const valorContrato = obraReal.contratoValorTotal || obraReal.contrato_valor_total || obraReal.valorContrato || 0;
+      const pesoContrato = obraReal.contratoPesoTotal || obraReal.contrato_peso_total || obraReal.pesoTotal || 0;
+      const clienteNome = typeof obraReal.cliente === 'string' ? obraReal.cliente : (obraReal.cliente?.nome || obraReal.clienteNome || '-');
+      setObra({
+        ...OBRA_MODELO,
+        id: obraReal.id,
+        nome: obraReal.nome || obraReal.name || obraReal.codigo || obraReal.id,
+        codigo: obraReal.codigo || '',
+        cliente: {
+          ...(OBRA_MODELO.cliente || {}),
+          nome: clienteNome,
+        },
+        // Sobrescrever contrato aninhado com dados reais (mantém demais campos do modelo)
+        contrato: {
+          ...(OBRA_MODELO.contrato || {}),
+          numero: obraReal.contratoNumero || `CT-${obraReal.codigo || obraReal.id}`,
+          dataInicio: obraReal.dataInicio || OBRA_MODELO.contrato?.dataInicio || '',
+          dataPrevisaoTermino: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || OBRA_MODELO.contrato?.dataPrevisaoTermino || '',
+          valorTotal: valorContrato || OBRA_MODELO.contrato?.valorTotal || 0,
+          pesoTotal: pesoContrato || OBRA_MODELO.contrato?.pesoTotal || 0,
+        },
+        valorContrato,
+        pesoTotal: pesoContrato,
+        dataInicio: obraReal.dataInicio || '',
+        dataPrevistaFim: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || '',
+        status: obraReal.status || 'ativo',
+      });
+    }
+  }, [obraFiltro, obrasERP]);
   // Mesclar dados estáticos do modelo com dados reais do Supabase
   const [lancamentos, setLancamentos] = useState(LANCAMENTOS_DESPESAS);
   const [pedidosFuturos, setPedidosFuturos] = useState(PEDIDOS_PRE_APROVADOS);
