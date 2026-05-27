@@ -384,25 +384,37 @@ export default function GestaoFinanceiraObra() {
     // 🔧 FIX: Medições estáticas (MEDICOES) só fazem sentido para Belo Vale.
     // Para outras obras, usar APENAS as do Supabase (não misturar com estáticas de outra obra).
     const idsEstaticos = new Set(MEDICOES.map(m => m.id));
-    const novosDoSupabase = medicoesDoSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => ({
-      id: m.id,
-      numero: m.numero || 0,
-      obraId: m.obraId || m.obra_id || obra.id,
-      setor: m.setor || '',
-      etapa: m.etapa || 'fabricacao',
-      tipo: m.tipo || 'peso',
-      pesoMedido: m.pesoMedido || m.peso_medido || 0,
-      dataMedicao: m.dataMedicao || m.data_medicao || '',
-      dataReferencia: m.dataReferencia || m.data_referencia || '',
-      valorBruto: m.valorBruto || m.valor_bruto || 0,
-      valorLiquido: m.valorLiquido || m.valor_liquido || 0,
-      status: m.status || 'aguardando',
-      descricao: m.descricao || '',
-      observacao: m.observacoes || m.observacao || '',
-      retencoes: typeof m.retencoes === 'string' ? JSON.parse(m.retencoes) : (m.retencoes || {}),
-      detalhamento: typeof m.detalhamento === 'string' ? JSON.parse(m.detalhamento) : (m.detalhamento || {}),
-      isAvulsa: m.isAvulsa || m.is_avulsa || false,
-    }));
+    const novosDoSupabase = medicoesDoSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => {
+      const dataRef = m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '';
+      const statusFinal = m.status || 'aguardando';
+      // Para medições PAGAS sem dataPagamento explícito, usar dataMedicao como fallback
+      // (necessário pro calcularFluxoCaixa que filtra por dataPagamento/dataAprovacao)
+      const isPaga = ['paga', 'pago', 'recebido'].includes(statusFinal);
+      const dataPagamentoFallback = isPaga ? dataRef : null;
+      const dataAprovacaoFallback = (statusFinal === 'aprovado' || isPaga) ? dataRef : null;
+      return {
+        id: m.id,
+        numero: m.numero || 0,
+        obraId: m.obraId || m.obra_id || obra.id,
+        setor: m.setor || '',
+        etapa: m.etapa || 'fabricacao',
+        tipo: m.tipo || 'peso',
+        pesoMedido: m.pesoMedido || m.peso_medido || 0,
+        dataMedicao: dataRef,
+        dataReferencia: m.dataReferencia || m.data_referencia || dataRef,
+        // 🔧 Fallback para FluxoCaixa: usa dataMedicao quando status=paga
+        dataPagamento: m.dataPagamento || m.data_pagamento || dataPagamentoFallback,
+        dataAprovacao: m.dataAprovacao || m.data_aprovacao || dataAprovacaoFallback,
+        valorBruto: m.valorBruto || m.valor_bruto || 0,
+        valorLiquido: m.valorLiquido || m.valor_liquido || 0,
+        status: statusFinal,
+        descricao: m.descricao || '',
+        observacao: m.observacoes || m.observacao || '',
+        retencoes: typeof m.retencoes === 'string' ? JSON.parse(m.retencoes) : (m.retencoes || {}),
+        detalhamento: typeof m.detalhamento === 'string' ? JSON.parse(m.detalhamento) : (m.detalhamento || {}),
+        isAvulsa: m.isAvulsa || m.is_avulsa || false,
+      };
+    });
 
     // 🔗 LER LOCALSTORAGE: receitas manuais + overrides de receitas de Obra
     let receitasManuaisLS = [];

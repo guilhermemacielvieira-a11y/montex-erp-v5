@@ -1629,7 +1629,9 @@ export function calcularFluxoCaixa(lancamentos, medicoes, mesesFuturos = 6) {
 
     // Receitas do mês (medições pagas ou aprovadas)
     const receitasMes = medicoes.filter(m => {
-      const dataRef = m.dataPagamento || m.dataAprovacao;
+      // Fallback: usa dataMedicao/dataReferencia quando dataPagamento/Aprovacao faltam
+      // (medições vindas do Supabase sem essas colunas)
+      const dataRef = m.dataPagamento || m.dataAprovacao || m.dataMedicao || m.dataReferencia || m.data_medicao;
       if (!dataRef) return false;
       const d = new Date(dataRef);
       return d.getFullYear() === mes.getFullYear() && d.getMonth() === mes.getMonth();
@@ -1911,8 +1913,11 @@ export function calcularFluxoCaixaCompleto(lancamentos, medicoesReceitas, mesesF
     const mesStr = mes.toISOString().slice(0, 7);
 
     // Receitas do mês (medições)
+    // Fallback: dataMedicao/dataReferencia quando dataPagamento/Aprovacao faltam
     const receitasMes = medicoesReceitas.filter(r => {
-      const data = new Date(r.dataPagamento || r.dataAprovacao);
+      const dataRef = r.dataPagamento || r.dataAprovacao || r.dataMedicao || r.dataReferencia || r.data_medicao;
+      if (!dataRef) return false;
+      const data = new Date(dataRef);
       return data.getFullYear() === mes.getFullYear() &&
         data.getMonth() === mes.getMonth();
     });
