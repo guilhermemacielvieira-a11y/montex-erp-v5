@@ -338,8 +338,13 @@ export default function GestaoFinanceiraObra() {
         formaPagto: l.formaPagto || '',
         pesoKg: l.pesoKg || null,
       }));
-      // Mesclar: modelo estático da obra + novos do Supabase DESTA OBRA
-      setLancamentos([...LANCAMENTOS_DESPESAS, ...novosDoSupabase]);
+      // 🔧 FIX: só incluir LANCAMENTOS_DESPESAS estático quando obra=Belo Vale (modelo).
+      // Para outras obras, usar SOMENTE os lançamentos do Supabase desta obra.
+      const estaticosDaObra = obra.id === OBRA_MODELO.id ? LANCAMENTOS_DESPESAS : [];
+      setLancamentos([...estaticosDaObra, ...novosDoSupabase]);
+    } else if (obra.id !== OBRA_MODELO.id) {
+      // Sem lançamentos do Supabase para esta obra (não Belo Vale): zera
+      setLancamentos([]);
     }
   }, [lancamentosSupabase, obra.id]);
 
@@ -349,29 +354,30 @@ export default function GestaoFinanceiraObra() {
       const mObraId = m.obraId || m.obra_id;
       return mObraId === obra.id;
     });
-    if (medicoesDoSupabase.length > 0) {
-      const idsEstaticos = new Set(MEDICOES.map(m => m.id));
-      const novosDoSupabase = medicoesDoSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => ({
-        id: m.id,
-        numero: m.numero || 0,
-        obraId: m.obraId || m.obra_id || obra.id,
-        setor: m.setor || '',
-        etapa: m.etapa || 'fabricacao',
-        tipo: m.tipo || 'peso',
-        pesoMedido: m.pesoMedido || m.peso_medido || 0,
-        dataMedicao: m.dataMedicao || m.data_medicao || '',
-        dataReferencia: m.dataReferencia || m.data_referencia || '',
-        valorBruto: m.valorBruto || m.valor_bruto || 0,
-        valorLiquido: m.valorLiquido || m.valor_liquido || 0,
-        status: m.status || 'aguardando',
-        descricao: m.descricao || '',
-        observacao: m.observacoes || m.observacao || '',
-        retencoes: typeof m.retencoes === 'string' ? JSON.parse(m.retencoes) : (m.retencoes || {}),
-        detalhamento: typeof m.detalhamento === 'string' ? JSON.parse(m.detalhamento) : (m.detalhamento || {}),
-        isAvulsa: m.isAvulsa || m.is_avulsa || false,
-      }));
-      setMedicoes([...MEDICOES, ...novosDoSupabase]);
-    }
+    // 🔧 FIX: Medições estáticas (MEDICOES) só fazem sentido para Belo Vale.
+    // Para outras obras, usar APENAS as do Supabase (não misturar com estáticas de outra obra).
+    const idsEstaticos = new Set(MEDICOES.map(m => m.id));
+    const novosDoSupabase = medicoesDoSupabase.filter(m => !idsEstaticos.has(m.id)).map(m => ({
+      id: m.id,
+      numero: m.numero || 0,
+      obraId: m.obraId || m.obra_id || obra.id,
+      setor: m.setor || '',
+      etapa: m.etapa || 'fabricacao',
+      tipo: m.tipo || 'peso',
+      pesoMedido: m.pesoMedido || m.peso_medido || 0,
+      dataMedicao: m.dataMedicao || m.data_medicao || '',
+      dataReferencia: m.dataReferencia || m.data_referencia || '',
+      valorBruto: m.valorBruto || m.valor_bruto || 0,
+      valorLiquido: m.valorLiquido || m.valor_liquido || 0,
+      status: m.status || 'aguardando',
+      descricao: m.descricao || '',
+      observacao: m.observacoes || m.observacao || '',
+      retencoes: typeof m.retencoes === 'string' ? JSON.parse(m.retencoes) : (m.retencoes || {}),
+      detalhamento: typeof m.detalhamento === 'string' ? JSON.parse(m.detalhamento) : (m.detalhamento || {}),
+      isAvulsa: m.isAvulsa || m.is_avulsa || false,
+    }));
+    const estaticasDaObra = obra.id === OBRA_MODELO.id ? MEDICOES : [];
+    setMedicoes([...estaticasDaObra, ...novosDoSupabase]);
   }, [todasMedicoes, obra.id]);
 
   // Cálculos principais
@@ -419,9 +425,16 @@ export default function GestaoFinanceiraObra() {
   // Calcular saldo do contrato (abatendo medições lançadas como receitas)
   const saldoContrato = useMemo(() => {
     const valorContrato = obra.contrato?.valorTotal || 2700000;
-    // Total de medições lançadas = receitas realizadas (abate do contrato)
-    const totalMedicoesBruto = medicoes.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
-    const totalMedicoesLiquido = medicoes.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
+    // 🔧 FIX: filtrar medições pela obra atual (antes somava TODAS, incluindo Belo Vale estático)
+    const medicoesDaObra = medicoes.filter(m => {
+      const mObraId = m.obraId || m.obra_id;
+      // Se medição tem obraId, deve ser igual à obra atual.
+      // Se não tem, considera como "da obra Belo Vale" (modelo estático).
+      if (!mObraId) return obra.id === OBRA_MODELO.id;
+      return mObraId === obra.id;
+    });
+    const totalMedicoesBruto = medicoesDaObra.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
+    const totalMedicoesLiquido = medicoesDaObra.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
     // Total de despesas pagas
     const despesasPagas = lancamentos
       .filter(l => l.obraId === obra.id && l.status === 'pago')
