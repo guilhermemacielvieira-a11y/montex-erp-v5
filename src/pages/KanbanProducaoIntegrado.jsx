@@ -237,7 +237,14 @@ export default function KanbanProducaoIntegrado() {
     });
 
     const conjuntosValidos = conjuntosConvertidos.filter(Boolean);
-    console.log(`[Kanban] ✅ ${conjuntosValidos.length} peças carregadas do Supabase (${pecasSupabase.length - conjuntosValidos.length} enviadas/entregues excluídas)`);
+    const somaQtd = conjuntosValidos.reduce((s, c) => s + (parseInt(c.quantidade) || 1), 0);
+    console.log(`[Kanban] ✅ ${conjuntosValidos.length} peças carregadas, soma qtd=${somaQtd} (${pecasSupabase.length - conjuntosValidos.length} excluídas: enviadas/entregues)`);
+    // DEBUG: detalhar peças TMC-CC027
+    const cc027 = conjuntosValidos.filter(c => c.obraId === 'obra-004');
+    if (cc027.length > 0) {
+      console.log(`[Kanban DEBUG] TMC-CC027: ${cc027.length} peças, soma=${cc027.reduce((s,c) => s + (parseInt(c.quantidade)||1), 0)}`);
+      cc027.forEach(c => console.log(`  ${c.id.slice(0, 70)} | qtd=${c.quantidade} | status=${c.status} | etapa=${c.statusProducao?.etapa || '?'}`));
+    }
     setProducaoFabrica(conjuntosValidos);
   }, [pecasSupabase]);
 
