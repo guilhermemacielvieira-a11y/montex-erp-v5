@@ -376,8 +376,40 @@ export default function GestaoFinanceiraObra() {
       detalhamento: typeof m.detalhamento === 'string' ? JSON.parse(m.detalhamento) : (m.detalhamento || {}),
       isAvulsa: m.isAvulsa || m.is_avulsa || false,
     }));
+
+    // 🔗 NOVO: ler receitas manuais (ReceitasPage localStorage) vinculadas a esta obra
+    // e adicioná-las como "medições/receitas" desta obra
+    const receitasManuaisVinculadas = [];
+    try {
+      const receitasLS = JSON.parse(localStorage.getItem('montex_receitas_manuais') || '[]');
+      receitasLS.forEach(r => {
+        if (r.obraId === obra.id) {
+          receitasManuaisVinculadas.push({
+            id: `RECMAN-${r.id}`,
+            numero: 0,
+            obraId: obra.id,
+            setor: '',
+            etapa: 'avulsa',
+            tipo: 'manual',
+            pesoMedido: 0,
+            dataMedicao: r.data || r.vencimento || '',
+            dataReferencia: r.vencimento || '',
+            valorBruto: parseFloat(r.valor) || 0,
+            valorLiquido: parseFloat(r.valor) || 0,
+            status: r.status === 'paga' ? 'pago' : (r.status || 'pendente'),
+            descricao: r.descricao || 'Receita manual',
+            observacao: `Vinculada via ReceitasPage · ${r.cliente || ''}`,
+            retencoes: {},
+            detalhamento: {},
+            isAvulsa: true,
+            _origem: 'receitas-manuais',
+          });
+        }
+      });
+    } catch (e) { /* localStorage falhou */ }
+
     const estaticasDaObra = obra.id === OBRA_MODELO.id ? MEDICOES : [];
-    setMedicoes([...estaticasDaObra, ...novosDoSupabase]);
+    setMedicoes([...estaticasDaObra, ...novosDoSupabase, ...receitasManuaisVinculadas]);
   }, [todasMedicoes, obra.id]);
 
   // Cálculos principais

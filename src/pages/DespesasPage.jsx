@@ -589,6 +589,7 @@ export default function DespesasPage() {
     setFormData({
       descricao: '', fornecedor: '', categoria: '', centroCusto: '',
       valor: '', dataEmissao: new Date().toISOString().split('T')[0], dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
+      obraId: '', // Vínculo opcional com obra
     });
     setDialogOpen(true);
   };
@@ -612,6 +613,7 @@ export default function DespesasPage() {
       formaPagto: despesa.formaPagto || '',
       notaFiscal: despesa.notaFiscal || '',
       naturezaAquisicao: despesa.naturezaAquisicao || '',
+      obraId: despesa.obraId || despesa.obra_id || '',
     });
     setDialogOpen(true);
   };
@@ -708,6 +710,11 @@ export default function DespesasPage() {
       );
     }
 
+    // 🔗 Vínculo com obra: usa o select do form (prioridade) ou o filtroObra atual
+    const obraIdVinculo = formData.obraId
+      ? formData.obraId
+      : (filtroObra !== 'geral' && filtroObra !== 'fabrica' ? filtroObra : null);
+
     const dados = {
       descricao: formData.descricao,
       fornecedor: formData.fornecedor || '-',
@@ -716,18 +723,24 @@ export default function DespesasPage() {
       valor: parseFloat(formData.valor),
       formaPagto: formData.formaPagto || '-',
       // ⚠️ IMPORTANTE: usar os nomes que o lancamentoToSupabase reconhece (camelCase mapeado em LANCAMENTOS_FIELD_MAP).
-      // O campo 'vencimento' sem prefixo é DESCARTADO silenciosamente no transform — bug histórico corrigido aqui.
       dataEmissao: formData.dataEmissao || new Date().toISOString().split('T')[0],
       dataVencimento: formData.dataVencimento || null,
       notaFiscal: formData.notaFiscal || '',
       naturezaAquisicao: formData.naturezaAquisicao || '',
       observacao: formData.naturezaAquisicao ? `[NAT:${formData.naturezaAquisicao}]` : '',
+      // 🔗 obraId sempre incluído nos dados — null limpa o vínculo se necessário
+      obraId: obraIdVinculo,
     };
 
     if (editando) {
       try {
         await updateLancamento(editando.id, dados);
-        toast.success('Despesa atualizada!');
+        if (obraIdVinculo) {
+          const nomeObra = obrasMap?.[obraIdVinculo] || 'obra selecionada';
+          toast.success(`Despesa atualizada e vinculada à ${nomeObra}!`);
+        } else {
+          toast.success('Despesa atualizada!');
+        }
       } catch (err) {
         console.error('Erro ao atualizar:', err);
         toast.error('Erro ao atualizar despesa');
@@ -739,9 +752,8 @@ export default function DespesasPage() {
           id: `desp-${Date.now()}`,
           status: 'pendente',
           tipo: 'despesa',
-          obraId: filtroObra !== 'geral' && filtroObra !== 'fabrica' ? filtroObra : null,
         });
-        toast.success('Despesa criada!');
+        toast.success(obraIdVinculo ? 'Despesa criada e vinculada à obra!' : 'Despesa criada!');
       } catch (err) {
         console.error('Erro ao salvar:', err);
         toast.error('Erro ao salvar despesa');
@@ -853,6 +865,40 @@ export default function DespesasPage() {
                 value={formData.descricao}
                 onChange={(e) => setFormData({...formData, descricao: e.target.value})}
               />
+            </div>
+
+            {/* 🔗 Linha 3: Vincular a Obra */}
+            <div>
+              <Label className="text-slate-300 flex items-center gap-2">
+                <Building2 className="h-3.5 w-3.5 text-blue-400" />
+                Vincular à Obra
+              </Label>
+              <Select
+                value={formData.obraId || 'nenhuma'}
+                onValueChange={(value) => setFormData({...formData, obraId: value === 'nenhuma' ? '' : value})}
+              >
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                  <SelectValue placeholder="Despesa da Fábrica (sem vínculo)" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700 max-h-64">
+                  <SelectItem value="nenhuma">🏭 Despesa da Fábrica (sem vínculo)</SelectItem>
+                  {(obras || []).filter(o => o.status !== 'cancelada').map(o => (
+                    <SelectItem key={o.id} value={o.id}>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-3 w-3 text-blue-400" />
+                        <span className="font-mono text-xs text-blue-300">{o.codigo || o.id}</span>
+                        <span>·</span>
+                        <span>{o.nome || o.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {formData.obraId && (
+                <p className="text-[10px] text-blue-300 mt-1">
+                  💡 Esta despesa aparecerá no painel financeiro da obra (Gestão Financeira da Obra).
+                </p>
+              )}
             </div>
 
             {/* Linha 3: Categoria + Centro de Custo */}
