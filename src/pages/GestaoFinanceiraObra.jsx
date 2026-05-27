@@ -524,8 +524,24 @@ export default function GestaoFinanceiraObra() {
       if (!mObraId) return obra.id === OBRA_MODELO.id;
       return mObraId === obra.id;
     });
-    const totalMedicoesBruto = medicoesDaObra.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
-    const totalMedicoesLiquido = medicoesDaObra.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
+    let totalMedicoesBruto = medicoesDaObra.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
+    let totalMedicoesLiquido = medicoesDaObra.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
+
+    // 🔗 FALLBACK: ler receitas manuais DIRETO do localStorage e somar (caso state esteja desatualizado)
+    // Isso garante que receita criada/editada com vínculo aparece imediatamente após salvar.
+    try {
+      const receitasManuaisLS = JSON.parse(localStorage.getItem('montex_receitas_manuais') || '[]');
+      const idsJaContados = new Set(medicoesDaObra.map(m => m.id));
+      receitasManuaisLS.forEach(r => {
+        if (r.obraId !== obra.id) return;
+        const virtualId = `RECMAN-${r.id}`;
+        if (idsJaContados.has(virtualId)) return; // já foi contado via state
+        const valor = parseFloat(r.valor) || 0;
+        totalMedicoesBruto += valor;
+        totalMedicoesLiquido += valor;
+      });
+    } catch (e) { /* ignore */ }
+
     // Total de despesas pagas
     const despesasPagas = lancamentos
       .filter(l => l.obraId === obra.id && l.status === 'pago')
@@ -549,7 +565,7 @@ export default function GestaoFinanceiraObra() {
       resultado: totalMedicoesLiquido - despesasPagas,
       margemReal: totalMedicoesLiquido > 0 ? ((totalMedicoesLiquido - despesasPagas) / totalMedicoesLiquido) * 100 : 0,
     };
-  }, [obra, lancamentos, medicoes]);
+  }, [obra, lancamentos, medicoes, receitasRefreshTick]);
 
   // Calcular composição do contrato dinâmica (puxando dos lançamentos reais)
   const composicaoCalculada = useMemo(() => {
@@ -582,7 +598,7 @@ export default function GestaoFinanceiraObra() {
       custos: { realizados: totalDespesas, previstos: totalDespesas },
       resultado: { lucroBruto, margemBruta }
     };
-  }, [obra, lancamentos, medicoes]);
+  }, [obra, lancamentos, medicoes, receitasRefreshTick]);
 
   // Calcular resumo de materiais (Pedido x Entrega)
   const resumoMateriais = useMemo(() =>
