@@ -352,7 +352,32 @@ export default function GestaoFinanceiraObra() {
 
   // Mesclar medições do Supabase quando disponíveis (filtra pela obra atual)
   React.useEffect(() => {
-    const medicoesDoSupabase = (todasMedicoes || []).filter(m => {
+    // 🔗 Ler overrides PRIMEIRO para usar na filtragem do Supabase
+    let overridesPreLS = {};
+    try {
+      overridesPreLS = JSON.parse(localStorage.getItem('montex_receitas_overrides') || '{}');
+    } catch (e) { /* ignore */ }
+
+    // Aplicar overrides nas medições do Supabase ANTES de filtrar por obra.
+    // Override pode redefinir obraId (vincula a outra obra) e valor (edição do valor).
+    const medicoesDoSupabase = (todasMedicoes || []).map(m => {
+      const ov = overridesPreLS[m.id];
+      if (!ov) return m;
+      const obraIdNovo = (ov.obraId !== undefined && ov.obraId !== null) ? ov.obraId : (m.obraId || m.obra_id);
+      // Se override tem `valor`, propaga para valorBruto e valorLiquido (campos que a GFO usa)
+      const valorOverride = ov.valor !== undefined ? parseFloat(ov.valor) : null;
+      return {
+        ...m,
+        obraId: obraIdNovo,
+        obra_id: obraIdNovo,
+        valor: valorOverride !== null ? valorOverride : m.valor,
+        valorBruto: valorOverride !== null ? valorOverride : (m.valorBruto || m.valor_bruto),
+        valorLiquido: valorOverride !== null ? valorOverride : (m.valorLiquido || m.valor_liquido),
+        descricao: ov.descricao || m.descricao,
+        status: ov.status || m.status,
+        _editadoLocal: true,
+      };
+    }).filter(m => {
       const mObraId = m.obraId || m.obra_id;
       return mObraId === obra.id;
     });
