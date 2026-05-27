@@ -164,7 +164,11 @@ export default function ReceitasPage() {
     vencimento: '',
     formaPagto: '',
     status: 'pendente',
+    obraId: '',
   });
+
+  // Obras ativas do sistema (para o select de vinculação)
+  const obrasAtivasReceita = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
 
   // Lookup de nomes de obra por ID
   const obrasMap = useMemo(() => {
@@ -344,7 +348,7 @@ export default function ReceitasPage() {
   // Abrir form para cadastrar nova receita
   const handleNovaReceita = () => {
     setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente' });
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
     setDialogOpen(true);
   };
 
@@ -359,6 +363,7 @@ export default function ReceitasPage() {
       vencimento: receita.vencimento && receita.vencimento !== '-' ? receita.vencimento : '',
       formaPagto: receita.formaPagto || '',
       status: receita.status || 'pendente',
+      obraId: receita.obraId || '',
     });
     setDialogOpen(true);
   };
@@ -372,6 +377,9 @@ export default function ReceitasPage() {
 
     if (editando) {
       // Editando receita existente
+      const obraSelecionadaEdit = formData.obraId
+        ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
+        : null;
       const novaLista = receitas.map(r => {
         if (r.id !== editando.id) return r;
         return {
@@ -383,6 +391,9 @@ export default function ReceitasPage() {
           vencimento: formData.vencimento || r.vencimento,
           formaPagto: formData.formaPagto || '-',
           status: formData.status || r.status,
+          obraId: formData.obraId || r.obraId || null,
+          obraNome: obraSelecionadaEdit?.nome || r.obraNome || null,
+          obraCodigo: obraSelecionadaEdit?.codigo || r.obraCodigo || null,
           _editadoLocal: r.origemObra ? true : r._editadoLocal, // marca para persistir override
         };
       });
@@ -391,16 +402,22 @@ export default function ReceitasPage() {
       toast.success('Receita atualizada!');
     } else {
       // Nova receita manual
+      const obraSelecionada = formData.obraId
+        ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
+        : null;
       const novaReceita = {
         id: `REC-${Date.now()}`,
         data: formData.vencimento || new Date().toISOString().split('T')[0],
         descricao: formData.descricao,
-        cliente: formData.cliente || '-',
+        cliente: formData.cliente || obraSelecionada?.cliente || '-',
         categoria: formData.categoria || 'Outros',
         valor: parseFloat(formData.valor),
         status: formData.status || 'pendente',
         formaPagto: formData.formaPagto || '-',
         vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
+        obraId: formData.obraId || null,
+        obraNome: obraSelecionada?.nome || obraSelecionada?.name || null,
+        obraCodigo: obraSelecionada?.codigo || null,
         origemObra: false,
       };
       const novaLista = [...receitas, novaReceita];
@@ -411,7 +428,7 @@ export default function ReceitasPage() {
 
     setDialogOpen(false);
     setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente' });
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
   };
 
   // Apagar receita
@@ -514,6 +531,48 @@ export default function ReceitasPage() {
                 </Select>
               </div>
             </div>
+            {/* Vínculo com Obra */}
+            <div>
+              <Label className="text-slate-300 flex items-center gap-2">
+                <Building2 className="h-3.5 w-3.5 text-blue-400" />
+                Vincular à Obra
+              </Label>
+              <Select
+                value={formData.obraId || 'nenhuma'}
+                onValueChange={(value) => {
+                  const obraSel = obrasAtivasReceita.find(o => o.id === value);
+                  setFormData({
+                    ...formData,
+                    obraId: value === 'nenhuma' ? '' : value,
+                    // Auto-preencher cliente quando obra selecionada (se cliente vazio)
+                    cliente: (!formData.cliente && obraSel?.cliente) ? obraSel.cliente : formData.cliente,
+                  });
+                }}
+              >
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                  <SelectValue placeholder="Selecione uma obra (opcional)" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700 max-h-64">
+                  <SelectItem value="nenhuma">— Sem vínculo (receita avulsa) —</SelectItem>
+                  {obrasAtivasReceita.map(o => (
+                    <SelectItem key={o.id} value={o.id}>
+                      <div className="flex items-center gap-2">
+                        <Building2 className="h-3 w-3 text-blue-400" />
+                        <span className="font-mono text-xs text-blue-300">{o.codigo || o.id}</span>
+                        <span>·</span>
+                        <span>{o.nome || o.name}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {formData.obraId && (
+                <p className="text-[10px] text-blue-300 mt-1">
+                  💡 Esta receita será vinculada à obra acima — aparecerá no painel financeiro da obra.
+                </p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-slate-300">Valor *</Label>
