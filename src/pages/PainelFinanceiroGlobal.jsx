@@ -136,7 +136,26 @@ const CORES_CATEGORIAS = {
   'Serviço Avulso': '#ec4899',
   'Material Faturado': '#06b6d4',
   'Outros': '#64748b',
+  // ===== DESPESAS EXTRAS / FINANCEIRAS =====
+  'Juros de Cheque': '#dc2626',
+  'Juros de Atraso': '#b91c1c',
+  'Cheque Especial': '#991b1b',
+  'Empréstimo': '#7c2d12',
+  'Financiamento': '#9a3412',
+  'Renegociação': '#c2410c',
+  'IOF/Taxas Bancárias': '#dc2626',
+  'Desconto de Cheques': '#ea580c',
+  // ===== RECEITAS DE OPERAÇÃO =====
+  'Cheque Trocado (face)': '#0891b2',
+  'Cheque Trocado (Líquido)': '#0e7490',
 };
+
+// Categorias consideradas "DESPESA EXTRA / FINANCEIRA" para análise dedicada
+const CATEGORIAS_FINANCEIRAS = [
+  'Juros de Cheque','Juros de Atraso','Cheque Especial',
+  'Empréstimo','Financiamento','Renegociação',
+  'IOF/Taxas Bancárias','Desconto de Cheques',
+];
 
 const lerLS = (key, defaultVal) => {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : defaultVal; }
@@ -240,6 +259,21 @@ export default function PainelFinanceiroGlobal() {
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '',
   });
   const [metasForm, setMetasForm] = useState(metas);
+
+  // ===== ESTADO MODAL OPERAÇÃO FINANCEIRA (cheques trocados / empréstimos / juros) =====
+  const [opFinDialogOpen, setOpFinDialogOpen] = useState(false);
+  const [opFin, setOpFin] = useState({
+    tipo: 'cheque_trocado', // cheque_trocado | emprestimo | financiamento | renegociacao
+    descricao: '',
+    fornecedor: '',
+    valorFace: '',          // valor de face do cheque OU principal do empréstimo
+    valorLiquido: '',       // valor líquido recebido
+    parcelas: 3,
+    primeiroVencimento: new Date().toISOString().split('T')[0],
+    intervaloDias: 30,
+    dataOperacao: new Date().toISOString().split('T')[0],
+    obraId: '',
+  });
 
   // ===== ESTADO DO SIMULADOR DE CENÁRIOS =====
   const [cenario, setCenario] = useState({
@@ -1026,9 +1060,166 @@ export default function PainelFinanceiroGlobal() {
     }
   };
 
+  // ===== ANÁLISE DE DESPESAS FINANCEIRAS =====
+  const despesasFinanceiras = useMemo(() => {
+    const items = todasMovs.filter(m =>
+      m.tipo === 'despesa' && CATEGORIAS_FINANCEIRAS.includes(m.categoria)
+    );
+    const total = items.reduce((s, m) => s + (m.valor || 0), 0);
+    const porCategoria = {};
+    items.forEach(m => {
+      porCategoria[m.categoria] = (porCategoria[m.categoria] || 0) + (m.valor || 0);
+    });
+    // Calcula % do total geral de despesas
+    const pctDoTotal = kpis.totD > 0 ? (total / kpis.totD * 100) : 0;
+    return {
+      items, total, porCategoria, pctDoTotal,
+      qtd: items.length,
+      categorias: Object.entries(porCategoria).map(([nome, valor]) => ({
+        nome, valor, cor: CORES_CATEGORIAS[nome] || '#dc2626',
+      })).sort((a, b) => b.valor - a.valor),
+    };
+  }, [todasMovs, kpis.totD]);
+
+  // ===== CÁLCULO DA OPERAÇÃO FINANCEIRA (preview em tempo real) =====
+  const opFinCalc = useMemo(() => {
+    const face = parseFloat(opFin.valorFace) || 0;
+    const liquido = parseFloat(opFin.valorLiquido) || 0;
+    const juros = face - liquido;
+    const taxaPct = face > 0 ? (juros / face * 100) : 0;
+    const valorParcela = opFin.parcelas > 0 ? face / opFin.parcelas : 0;
+
+    // Calcular datas das parcelas
+    const datasParcelas = [];
+    if (opFin.primeiroVencimento) {
+      for (let i = 0; i < opFin.parcelas; i++) {
+        const d = new Date(opFin.primeiroVencimento);
+        d.setDate(d.getDate() + (i * opFin.intervaloDias));
+        datasParcelas.push({
+          numero: i + 1,
+          data: d.toISOString().split('T')[0],
+          dataLabel: d.toLocaleDateString('pt-BR'),
+          valor: valorParcela,
+        });
+      }
+    }
+    // Custo efetivo anualizado aproximado (taxa × 12 / (prazoMedio em meses))
+    const prazoMedio = opFin.parcelas > 0 ? ((opFin.parcelas + 1) / 2) * (opFin.intervaloDias / 30) : 1;
+    const taxaAnualizada = prazoMedio > 0 ? (taxaPct * 12 / prazoMedio) : 0;
+
+    return { face, liquido, juros, taxaPct, valorParcela, datasParcelas, prazoMedio, taxaAnualizada };
+  }, [opFin]);
+
+  const handleCriarOperacaoFinanceira = () => {
+    if (!opFin.descricao || !opFin.valorFace) {
+      toast.error('Descrição e valor de face são obrigatórios');
+      return;
+    }
+    if (opFinCalc.face <= 0) {
+      toast.error('Valor de face deve ser maior que zero');
+      return;
+    }
+
+    const novos = [];
+    const baseId = `OPFIN-${Date.now()}`;
+    const opLabel = {
+      cheque_trocado: 'Cheque Trocado',
+      emprestimo: 'Empréstimo',
+      financiamento: 'Financiamento',
+      renegociacao: 'Renegociação',
+    }[opFin.tipo] || 'Operação Financeira';
+
+    // 1. Receita líquida recebida (entrada de caixa hoje)
+    if (opFinCalc.liquido > 0) {
+      novos.push({
+        id: `${baseId}-receita-liq`,
+        tipo: 'receita',
+        descricao: `${opLabel} — Líquido recebido: ${opFin.descricao}`,
+        fornecedor: opFin.fornecedor || '-',
+        categoria: opFin.tipo === 'cheque_trocado' ? 'Cheque Trocado (Líquido)' : 'Outros',
+        valor: opFinCalc.liquido,
+        formaPagto: 'Transferência',
+        vencimento: opFin.dataOperacao,
+        data: opFin.dataOperacao,
+        status: 'pago',
+        obraId: opFin.obraId || null,
+        operacaoFinanceiraId: baseId,
+        operacaoLabel: opLabel,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // 2. Despesa de Juros (diferença entre face e líquido)
+    if (opFinCalc.juros > 0) {
+      const catJuros = opFin.tipo === 'cheque_trocado' ? 'Juros de Cheque'
+        : opFin.tipo === 'emprestimo' ? 'Empréstimo'
+        : opFin.tipo === 'financiamento' ? 'Financiamento'
+        : 'Renegociação';
+      novos.push({
+        id: `${baseId}-juros`,
+        tipo: 'despesa',
+        descricao: `${opLabel} — Juros/IOF: ${opFin.descricao} (${opFinCalc.taxaPct.toFixed(2)}%, ~${opFinCalc.taxaAnualizada.toFixed(1)}% a.a.)`,
+        fornecedor: opFin.fornecedor || '-',
+        categoria: catJuros,
+        valor: opFinCalc.juros,
+        formaPagto: 'Operação Bancária',
+        vencimento: opFin.dataOperacao,
+        data: opFin.dataOperacao,
+        status: 'pago',
+        obraId: opFin.obraId || null,
+        operacaoFinanceiraId: baseId,
+        operacaoLabel: opLabel,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // 3. Para CHEQUES TROCADOS: criar N parcelas FUTURAS como despesa (compromisso de pagamento)
+    //    Para EMPRÉSTIMOS/FINANCIAMENTOS: idem (parcelas a pagar)
+    opFinCalc.datasParcelas.forEach(p => {
+      const isReceberDeCheque = opFin.tipo === 'cheque_trocado';
+      novos.push({
+        id: `${baseId}-parcela-${p.numero}`,
+        tipo: isReceberDeCheque ? 'despesa' : 'despesa',
+        // Cheque trocado: parcela é DESPESA (eu vou pagar de volta ao banco quando o cheque do cliente compensar — na prática é meu passivo)
+        // Empréstimo: parcela a pagar
+        descricao: `${opLabel} — Parcela ${p.numero}/${opFin.parcelas}: ${opFin.descricao}`,
+        fornecedor: opFin.fornecedor || '-',
+        categoria: opFin.tipo === 'cheque_trocado' ? 'Cheque Trocado (face)' : 'Empréstimo',
+        valor: p.valor,
+        formaPagto: opFin.tipo === 'cheque_trocado' ? 'Cheque' : 'Boleto',
+        vencimento: p.data,
+        data: p.data,
+        status: 'pendente',
+        obraId: opFin.obraId || null,
+        operacaoFinanceiraId: baseId,
+        operacaoLabel: opLabel,
+        createdAt: new Date().toISOString(),
+      });
+    });
+
+    setMovsLocais(prev => [...prev, ...novos]);
+    toast.success(`${opLabel} criado: ${novos.length} lançamentos gerados`);
+    setOpFinDialogOpen(false);
+    // Reset form
+    setOpFin({
+      tipo: 'cheque_trocado', descricao: '', fornecedor: '',
+      valorFace: '', valorLiquido: '',
+      parcelas: 3, primeiroVencimento: new Date().toISOString().split('T')[0],
+      intervaloDias: 30, dataOperacao: new Date().toISOString().split('T')[0],
+      obraId: '',
+    });
+  };
+
   const categoriasDisponiveis = [
+    // Operacionais
     'Matéria Prima','Mão de Obra','Energia/Utilidades','Manutenção',
-    'Transporte','Administrativo','Impostos','Medição','Serviço Avulso','Outros'
+    'Transporte','Administrativo','Impostos','Medição','Serviço Avulso',
+    // Despesas Extras / Financeiras
+    'Juros de Cheque','Juros de Atraso','Cheque Especial',
+    'Empréstimo','Financiamento','Renegociação','IOF/Taxas Bancárias','Desconto de Cheques',
+    // Receitas de operação
+    'Cheque Trocado (face)','Cheque Trocado (Líquido)',
+    'Outros',
   ];
 
   // ============================================================
@@ -1093,6 +1284,9 @@ export default function PainelFinanceiroGlobal() {
           </Button>
           <Button variant="outline" className="border-slate-700 text-slate-300 hover:text-white" onClick={() => setResetDialogOpen(true)} disabled={movsLocais.length === 0 && Object.keys(overridesLocais).length === 0 && hiddenLocais.length === 0}>
             <RotateCcw className="h-4 w-4 mr-2" />Reset
+          </Button>
+          <Button variant="outline" className="border-amber-700/40 text-amber-300 hover:bg-amber-900/20" onClick={() => setOpFinDialogOpen(true)}>
+            <Percent className="h-4 w-4 mr-2" />Operação Financeira
           </Button>
           <Button className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600" onClick={() => handleNova('despesa')}>
             <Plus className="h-4 w-4 mr-2" />Nova Movimentação
@@ -1430,6 +1624,56 @@ export default function PainelFinanceiroGlobal() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Card de Despesas Financeiras (juros, cheques, empréstimos) */}
+          {despesasFinanceiras.qtd > 0 && (
+            <Card className="bg-gradient-to-br from-rose-900/20 to-amber-900/20 border-rose-700/40">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Percent className="h-5 w-5 text-rose-400" />Despesas Financeiras (juros, cheques, empréstimos)
+                  <Badge className="bg-rose-500/30 text-rose-200 ml-2">{despesasFinanceiras.qtd} lançamentos</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                  <div className="bg-slate-900/40 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">Total Despesas Financeiras</p>
+                    <p className="text-2xl font-bold text-rose-400 mt-1">{formatCurrency(despesasFinanceiras.total)}</p>
+                    <p className="text-xs text-slate-500">{despesasFinanceiras.pctDoTotal.toFixed(1)}% das despesas totais</p>
+                  </div>
+                  <div className="bg-slate-900/40 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">Categoria com maior impacto</p>
+                    <p className="text-base font-bold text-amber-400 mt-1 truncate">{despesasFinanceiras.categorias[0]?.nome || '-'}</p>
+                    <p className="text-xs text-slate-500">{despesasFinanceiras.categorias[0] ? formatCurrency(despesasFinanceiras.categorias[0].valor) : '-'}</p>
+                  </div>
+                  <div className="bg-slate-900/40 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">Equivalente em produção</p>
+                    <p className="text-base font-bold text-orange-400 mt-1">{(despesasFinanceiras.total / metas.fabricacaoPrecoKg / 1000).toFixed(2)} ton</p>
+                    <p className="text-xs text-slate-500">de fabricação para zerar</p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {despesasFinanceiras.categorias.map((c, i) => {
+                    const pct = despesasFinanceiras.total > 0 ? (c.valor / despesasFinanceiras.total * 100) : 0;
+                    return (
+                      <div key={i}>
+                        <div className="flex justify-between text-xs mb-1">
+                          <span className="text-slate-300 flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.cor }} />
+                            {c.nome}
+                          </span>
+                          <span className="text-white font-semibold">{formatCurrency(c.valor)} <span className="text-slate-500 ml-1">({pct.toFixed(0)}%)</span></span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${pct}%`, backgroundColor: c.cor }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           <Card className="bg-slate-900/60 border-slate-700/50">
             <CardHeader><CardTitle className="text-white">Top 10 Fornecedores</CardTitle></CardHeader>
@@ -2044,6 +2288,149 @@ export default function PainelFinanceiroGlobal() {
             </div>
             <Button className="w-full bg-gradient-to-r from-purple-500 to-indigo-500" onClick={handleSalvar}>
               {editando ? 'Salvar Alterações (local)' : 'Cadastrar Localmente'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== DIALOG: Operação Financeira (cheques trocados, empréstimos, etc) ===== */}
+      <Dialog open={opFinDialogOpen} onOpenChange={setOpFinDialogOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Percent className="h-5 w-5 text-amber-400" />
+              Operação Financeira — Cheques Trocados / Empréstimos / Renegociação
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto pr-2">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
+              <strong>Como funciona:</strong> Informe o valor de face (cheque que você descontou ou empréstimo solicitado) e o valor líquido recebido. O sistema gera automaticamente:
+              <ul className="mt-1.5 ml-4 list-disc text-amber-200/80">
+                <li>1 receita de entrada (valor líquido)</li>
+                <li>1 despesa de juros (diferença face−líquido) com taxa anualizada calculada</li>
+                <li>N parcelas pendentes a pagar no futuro</li>
+              </ul>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-slate-300 text-xs">Tipo de Operação</Label>
+                <Select value={opFin.tipo} onValueChange={(v) => setOpFin({...opFin, tipo: v})}>
+                  <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    <SelectItem value="cheque_trocado">🏦 Cheque Trocado / Desconto de Cheques</SelectItem>
+                    <SelectItem value="emprestimo">💰 Empréstimo</SelectItem>
+                    <SelectItem value="financiamento">📋 Financiamento</SelectItem>
+                    <SelectItem value="renegociacao">🔄 Renegociação de Dívida</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Data da Operação</Label>
+                <Input type="date" className="mt-1 bg-slate-800 border-slate-700" value={opFin.dataOperacao} onChange={(e) => setOpFin({...opFin, dataOperacao: e.target.value})} />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-slate-300 text-xs">Descrição da Operação *</Label>
+              <Input className="mt-1 bg-slate-800 border-slate-700" placeholder="Ex: Desconto cheque cliente Walter — 150k em 3x" value={opFin.descricao} onChange={(e) => setOpFin({...opFin, descricao: e.target.value})} />
+            </div>
+
+            <div>
+              <Label className="text-slate-300 text-xs">Banco / Fornecedor</Label>
+              <Input className="mt-1 bg-slate-800 border-slate-700" placeholder="Banco do Brasil, Bradesco..." value={opFin.fornecedor} onChange={(e) => setOpFin({...opFin, fornecedor: e.target.value})} />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1">
+                  <ArrowDownRight className="h-3 w-3 text-cyan-400" />Valor de Face (R$) *
+                </Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" placeholder="150000" value={opFin.valorFace} onChange={(e) => setOpFin({...opFin, valorFace: e.target.value})} />
+                <p className="text-[10px] text-slate-500 mt-1">Valor total do cheque ou principal do empréstimo</p>
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1">
+                  <ArrowUpRight className="h-3 w-3 text-emerald-400" />Valor Líquido Recebido (R$)
+                </Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" placeholder="120000" value={opFin.valorLiquido} onChange={(e) => setOpFin({...opFin, valorLiquido: e.target.value})} />
+                <p className="text-[10px] text-slate-500 mt-1">Quanto entrou efetivamente na conta</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <Label className="text-slate-300 text-xs">Nº Parcelas</Label>
+                <Input type="number" min="1" max="36" className="mt-1 bg-slate-800 border-slate-700" value={opFin.parcelas} onChange={(e) => setOpFin({...opFin, parcelas: parseInt(e.target.value) || 1})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">1º Vencimento</Label>
+                <Input type="date" className="mt-1 bg-slate-800 border-slate-700" value={opFin.primeiroVencimento} onChange={(e) => setOpFin({...opFin, primeiroVencimento: e.target.value})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Intervalo (dias)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={opFin.intervaloDias} onChange={(e) => setOpFin({...opFin, intervaloDias: parseInt(e.target.value) || 30})} />
+              </div>
+            </div>
+
+            <div>
+              <Label className="text-slate-300 text-xs">Vincular à Obra (opcional)</Label>
+              <Select value={opFin.obraId || 'none'} onValueChange={(v) => setOpFin({...opFin, obraId: v === 'none' ? '' : v})}>
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="none">Sem vínculo</SelectItem>
+                  {(obras || []).map(o => (
+                    <SelectItem key={o.id} value={o.id}>{o.nome || o.name || o.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* PREVIEW DO RESULTADO */}
+            <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4 space-y-3">
+              <p className="text-sm font-semibold text-amber-300 flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />Pré-visualização do impacto
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <p className="text-[10px] text-slate-500">Valor Face</p>
+                  <p className="text-sm font-bold text-cyan-400">{formatCurrency(opFinCalc.face)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Líquido Recebido</p>
+                  <p className="text-sm font-bold text-emerald-400">+{formatCurrency(opFinCalc.liquido)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Juros/IOF (despesa)</p>
+                  <p className="text-sm font-bold text-rose-400">-{formatCurrency(opFinCalc.juros)}</p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-slate-500">Taxa Efetiva</p>
+                  <p className="text-sm font-bold text-amber-400">{opFinCalc.taxaPct.toFixed(2)}%</p>
+                  <p className="text-[9px] text-slate-500">~{opFinCalc.taxaAnualizada.toFixed(1)}% a.a.</p>
+                </div>
+              </div>
+              {opFinCalc.datasParcelas.length > 0 && (
+                <div className="border-t border-slate-700 pt-3">
+                  <p className="text-xs text-slate-400 mb-2">Parcelas a pagar:</p>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {opFinCalc.datasParcelas.map(p => (
+                      <div key={p.numero} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-300">Parcela {p.numero}/{opFin.parcelas} • {p.dataLabel}</span>
+                        <span className="text-rose-400 font-semibold">{formatCurrency(p.valor)}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="border-t border-slate-700 mt-2 pt-2 flex justify-between text-xs">
+                    <span className="text-slate-400">Total a pagar (face):</span>
+                    <span className="text-white font-bold">{formatCurrency(opFinCalc.face)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Button className="w-full bg-gradient-to-r from-amber-500 to-orange-500" onClick={handleCriarOperacaoFinanceira}>
+              <Plus className="h-4 w-4 mr-2" />Criar Operação ({2 + opFinCalc.datasParcelas.length} lançamentos)
             </Button>
           </div>
         </DialogContent>
