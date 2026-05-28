@@ -271,6 +271,9 @@ export default function PainelFinanceiroGlobal() {
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroObra, setFiltroObra] = useState('geral');
+  const [filtroMes, setFiltroMes] = useState('todos');         // YYYY-MM ou 'todos'
+  const [filtroStatusTab, setFiltroStatusTab] = useState('todos'); // todos | pendente | atrasado | pago
+  const [ordenarPor, setOrdenarPor] = useState('vencimento');  // vencimento | data | valor
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [metasDialogOpen, setMetasDialogOpen] = useState(false);
@@ -808,10 +811,61 @@ export default function PainelFinanceiroGlobal() {
     };
   }, [metasReal, futuro, metas, alertas]);
 
+  // ===== MESES DISPONÍVEIS (extraídos das movimentações para o seletor) =====
+  const mesesDisponiveis = useMemo(() => {
+    const set = new Set();
+    todasMovs.forEach(m => {
+      const venc = m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data;
+      const d = parseLocalDate(venc);
+      if (d && !isNaN(d.getTime())) {
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        set.add(key);
+      }
+    });
+    return Array.from(set).sort((a, b) => b.localeCompare(a)); // mais recente primeiro
+  }, [todasMovs]);
+
+  const formatMesLabel = (mesKey) => {
+    if (!mesKey || mesKey === 'todos') return 'Todos os meses';
+    const [ano, mes] = mesKey.split('-');
+    const meses = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+    return `${meses[parseInt(mes) - 1]}/${ano}`;
+  };
+
   // ===== TABELA FILTRADA =====
   const movsTabela = useMemo(() => {
     let lista = todasMovs;
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+
+    // Filtro tipo (receita/despesa/todos)
     if (filtroTipo !== 'todos') lista = lista.filter(m => m.tipo === filtroTipo);
+
+    // Filtro Mês (por data de vencimento)
+    if (filtroMes !== 'todos') {
+      lista = lista.filter(m => {
+        const venc = m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data;
+        const d = parseLocalDate(venc);
+        if (!d || isNaN(d.getTime())) return false;
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        return key === filtroMes;
+      });
+    }
+
+    // Filtro Status — considera "atrasado" dinâmico (pendente + venc < hoje)
+    if (filtroStatusTab !== 'todos') {
+      lista = lista.filter(m => {
+        const ehPago = ['recebido','pago','paga','faturado','confirmado'].includes(m.status);
+        const venc = m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data;
+        const dVenc = parseLocalDate(venc);
+        const isVencido = dVenc && !isNaN(dVenc.getTime()) && dVenc < hoje && !ehPago;
+        if (filtroStatusTab === 'pago') return ehPago;
+        if (filtroStatusTab === 'atrasado') return isVencido || m.status === 'atrasado';
+        if (filtroStatusTab === 'pendente') return !ehPago && !isVencido;
+        return true;
+      });
+    }
+
+    // Busca textual
     if (searchTerm) {
       const s = searchTerm.toLowerCase();
       lista = lista.filter(m =>
@@ -820,8 +874,23 @@ export default function PainelFinanceiroGlobal() {
         (m.origemLabel || '').toLowerCase().includes(s)
       );
     }
-    return filtrarPorPeriodo(lista);
-  }, [todasMovs, filtroTipo, searchTerm, filtrarPorPeriodo]);
+
+    // Aplicar filtro de período global (7d/30d/90d)
+    lista = filtrarPorPeriodo(lista);
+
+    // Ordenação
+    return [...lista].sort((a, b) => {
+      if (ordenarPor === 'valor') return (b.valor || 0) - (a.valor || 0);
+      if (ordenarPor === 'vencimento') {
+        const dA = parseLocalDate(a.vencimento && a.vencimento !== '-' ? a.vencimento : a.data);
+        const dB = parseLocalDate(b.vencimento && b.vencimento !== '-' ? b.vencimento : b.data);
+        if (!dA) return 1; if (!dB) return -1;
+        return dA - dB; // ASC: próximos primeiro
+      }
+      // default: data emissão DESC
+      return parseLocalDate(b.data || 0) - parseLocalDate(a.data || 0);
+    });
+  }, [todasMovs, filtroTipo, filtroMes, filtroStatusTab, searchTerm, ordenarPor, filtrarPorPeriodo]);
 
   // ============================================================
   // HANDLERS
@@ -1973,22 +2042,23 @@ export default function PainelFinanceiroGlobal() {
 
           {/* Tabela Movimentações */}
           <Card className="bg-slate-900/60 border-slate-700/50">
-            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
-              <CardTitle className="text-white">Movimentações</CardTitle>
-              <div className="flex items-center gap-2 flex-wrap">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                  <Input placeholder="Buscar..." className="pl-10 w-[180px] bg-slate-800 border-slate-700" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+            <CardHeader className="flex flex-col gap-3">
+              <div className="flex flex-row items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-white">Movimentações</CardTitle>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                    <Input placeholder="Buscar..." className="pl-10 w-[160px] bg-slate-800 border-slate-700 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  </div>
                 </div>
-                <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-                  <SelectTrigger className="w-[120px] bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="todos">Todos</SelectItem>
-                    <SelectItem value="receita">Receitas</SelectItem>
-                    <SelectItem value="despesa">Despesas</SelectItem>
-                  </SelectContent>
-                </Select>
               </div>
+              <FiltrosMovs
+                filtroTipo={filtroTipo} setFiltroTipo={setFiltroTipo}
+                filtroMes={filtroMes} setFiltroMes={setFiltroMes}
+                filtroStatusTab={filtroStatusTab} setFiltroStatusTab={setFiltroStatusTab}
+                ordenarPor={ordenarPor} setOrdenarPor={setOrdenarPor}
+                mesesDisponiveis={mesesDisponiveis} formatMesLabel={formatMesLabel}
+              />
             </CardHeader>
             <CardContent>
               <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} />
@@ -2048,11 +2118,27 @@ export default function PainelFinanceiroGlobal() {
           </div>
 
           <Card className="bg-slate-900/60 border-slate-700/50">
-            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
-              <CardTitle className="text-white">Lista de Receitas</CardTitle>
-              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleNova('receita')}>
-                <Plus className="h-4 w-4 mr-2" />Nova Receita
-              </Button>
+            <CardHeader className="flex flex-col gap-3">
+              <div className="flex flex-row items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-white">Lista de Receitas</CardTitle>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                    <Input placeholder="Buscar..." className="pl-10 w-[160px] bg-slate-800 border-slate-700 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  </div>
+                  <Button className="bg-emerald-600 hover:bg-emerald-700 h-9" onClick={() => handleNova('receita')}>
+                    <Plus className="h-4 w-4 mr-2" />Nova Receita
+                  </Button>
+                </div>
+              </div>
+              <FiltrosMovs
+                filtroTipo="receita" setFiltroTipo={() => {}}
+                filtroMes={filtroMes} setFiltroMes={setFiltroMes}
+                filtroStatusTab={filtroStatusTab} setFiltroStatusTab={setFiltroStatusTab}
+                ordenarPor={ordenarPor} setOrdenarPor={setOrdenarPor}
+                mesesDisponiveis={mesesDisponiveis} formatMesLabel={formatMesLabel}
+                hideTipo
+              />
             </CardHeader>
             <CardContent>
               <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
@@ -2437,11 +2523,27 @@ export default function PainelFinanceiroGlobal() {
           </Card>
 
           <Card className="bg-slate-900/60 border-slate-700/50">
-            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
-              <CardTitle className="text-white">Lista de Despesas</CardTitle>
-              <Button className="bg-red-600 hover:bg-red-700" onClick={() => handleNova('despesa')}>
-                <Plus className="h-4 w-4 mr-2" />Nova Despesa
-              </Button>
+            <CardHeader className="flex flex-col gap-3">
+              <div className="flex flex-row items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-white">Lista de Despesas</CardTitle>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                    <Input placeholder="Buscar..." className="pl-10 w-[160px] bg-slate-800 border-slate-700 h-9" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                  </div>
+                  <Button className="bg-red-600 hover:bg-red-700 h-9" onClick={() => handleNova('despesa')}>
+                    <Plus className="h-4 w-4 mr-2" />Nova Despesa
+                  </Button>
+                </div>
+              </div>
+              <FiltrosMovs
+                filtroTipo="despesa" setFiltroTipo={() => {}}
+                filtroMes={filtroMes} setFiltroMes={setFiltroMes}
+                filtroStatusTab={filtroStatusTab} setFiltroStatusTab={setFiltroStatusTab}
+                ordenarPor={ordenarPor} setOrdenarPor={setOrdenarPor}
+                mesesDisponiveis={mesesDisponiveis} formatMesLabel={formatMesLabel}
+                hideTipo
+              />
             </CardHeader>
             <CardContent>
               <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
@@ -3626,6 +3728,84 @@ export default function PainelFinanceiroGlobal() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// ============================================================
+// SUB-COMPONENTE: Filtros de tabela (Tipo / Mês / Status / Ordenação)
+// ============================================================
+function FiltrosMovs({
+  filtroTipo, setFiltroTipo,
+  filtroMes, setFiltroMes,
+  filtroStatusTab, setFiltroStatusTab,
+  ordenarPor, setOrdenarPor,
+  mesesDisponiveis = [], formatMesLabel,
+  hideTipo = false,
+}) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap bg-slate-800/40 rounded-lg p-2.5">
+      {!hideTipo && (
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] text-slate-500 font-semibold uppercase">Tipo</span>
+          <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+            <SelectTrigger className="w-[120px] bg-slate-800 border-slate-700 h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value="todos">Todos</SelectItem>
+              <SelectItem value="receita">Receitas</SelectItem>
+              <SelectItem value="despesa">Despesas</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+      <div className="flex items-center gap-1.5">
+        <span className="text-[10px] text-slate-500 font-semibold uppercase">Mês</span>
+        <Select value={filtroMes} onValueChange={setFiltroMes}>
+          <SelectTrigger className="w-[150px] bg-slate-800 border-slate-700 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent className="bg-slate-800 border-slate-700 max-h-[300px]">
+            <SelectItem value="todos">Todos os meses</SelectItem>
+            {mesesDisponiveis.map(m => (
+              <SelectItem key={m} value={m}>{formatMesLabel(m)}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex items-center gap-1">
+        <span className="text-[10px] text-slate-500 font-semibold uppercase mr-1">Status</span>
+        {[
+          { v: 'todos', l: 'Todos', cor: 'slate' },
+          { v: 'pendente', l: 'Pendente', cor: 'amber' },
+          { v: 'atrasado', l: 'Atrasado', cor: 'red' },
+          { v: 'pago', l: 'Pago/Recebido', cor: 'emerald' },
+        ].map(s => (
+          <button
+            key={s.v}
+            onClick={() => setFiltroStatusTab(s.v)}
+            className={cn(
+              "px-2.5 py-1 rounded text-[11px] font-medium transition-all border",
+              filtroStatusTab === s.v
+                ? s.cor === 'amber' ? 'bg-amber-500/30 border-amber-500/60 text-amber-200'
+                : s.cor === 'red' ? 'bg-red-500/30 border-red-500/60 text-red-200'
+                : s.cor === 'emerald' ? 'bg-emerald-500/30 border-emerald-500/60 text-emerald-200'
+                : 'bg-slate-700 border-slate-600 text-white'
+                : 'bg-slate-800/40 border-slate-700 text-slate-400 hover:bg-slate-700/50'
+            )}
+          >
+            {s.l}
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-1.5 ml-auto">
+        <span className="text-[10px] text-slate-500 font-semibold uppercase">Ordenar</span>
+        <Select value={ordenarPor} onValueChange={setOrdenarPor}>
+          <SelectTrigger className="w-[140px] bg-slate-800 border-slate-700 h-8 text-xs"><SelectValue /></SelectTrigger>
+          <SelectContent className="bg-slate-800 border-slate-700">
+            <SelectItem value="vencimento">Vencimento ↑ (próximos)</SelectItem>
+            <SelectItem value="data">Data ↓ (recentes)</SelectItem>
+            <SelectItem value="valor">Valor ↓ (maiores)</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
     </div>
   );
 }
