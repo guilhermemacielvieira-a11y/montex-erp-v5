@@ -1,47 +1,33 @@
 // MONTEX ERP Premium - Painel Financeiro GLOBAL (ISOLADO)
 //
-// Este módulo é um ESPELHO do Painel Financeiro principal, com a MESMA dinâmica:
-//   - Lê todas as receitas/despesas/medições do sistema (Supabase + localStorage)
-//   - Atualiza automaticamente quando o sistema principal recebe novos lançamentos
+// Módulo de análise financeira independente. Espelha receitas/despesas/medições
+// do sistema (atualização em tempo real) + adiciona camada local isolada:
+//   - Lançamentos próprios
+//   - Overrides sobre items externos
+//   - Itens ocultados
+//   - Metas configuráveis (receita mínima, fabricação kg, montagem kg, despesa-teto)
+//   - Centro de Alertas inteligente (vencimentos 2d/7d + detecção de cheques + score por valor)
 //
-// Diferença: lançamentos criados/editados/excluídos AQUI NÃO PROPAGAM para o resto
-// do sistema. Tudo é salvo em chaves de localStorage isoladas:
-//   - montex_global_movs       — lançamentos próprios criados aqui
-//   - montex_global_overrides  — edições locais sobre itens externos (não tocam Supabase)
-//   - montex_global_hidden     — itens externos "ocultos" localmente (não deletados na origem)
-//
-// Logo: o módulo é editável (pode adicionar/editar/excluir tudo localmente),
-// mas o sistema principal continua intacto. Atualizações externas continuam
-// chegando aqui automaticamente.
+// Chaves localStorage isoladas:
+//   - montex_global_movs       — lançamentos próprios
+//   - montex_global_overrides  — edições locais sobre items externos
+//   - montex_global_hidden     — items ocultos localmente
+//   - montex_global_metas      — configuração de metas
+//   - montex_global_alert_read — IDs de alertas marcados como lidos
 
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
-  DollarSign,
-  TrendingUp,
-  TrendingDown,
-  Plus,
-  Wallet,
-  Receipt,
-  ArrowUpRight,
-  ArrowDownRight,
-  MoreHorizontal,
-  BarChart3,
-  Search,
-  Edit,
-  FileText,
-  CheckCircle2,
-  Clock,
-  Trash2,
-  Calendar,
-  Building2,
-  AlertTriangle,
-  Shield,
-  Lock,
-  RotateCcw,
+  DollarSign, TrendingUp, TrendingDown, Plus, Wallet, Receipt,
+  ArrowUpRight, ArrowDownRight, MoreHorizontal, BarChart3, Search, Edit,
+  FileText, CheckCircle2, Clock, Trash2, Calendar, Building2,
+  AlertTriangle, Shield, Lock, RotateCcw, Bell, Target, Flag,
+  Activity, Layers, Settings, Eye, AlertCircle, ChevronUp, ChevronDown,
+  Factory, HardHat, Zap, FileCheck, TrendingUp as TrendUp,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid,
-  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend,
+  AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  Legend, ComposedChart, ReferenceLine,
 } from 'recharts';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -61,21 +47,47 @@ import {
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import toast from 'react-hot-toast';
-
-// ERPContext (somente LEITURA — não chamamos add/update/delete daqui)
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 
 // ============================================================
-// CHAVES ISOLADAS — não conflitam com nenhuma outra parte do sistema
+// CHAVES ISOLADAS
 // ============================================================
-const GLOBAL_MOVS_KEY      = 'montex_global_movs';       // lançamentos criados aqui
-const GLOBAL_OVERRIDES_KEY = 'montex_global_overrides';  // edits sobre items externos
-const GLOBAL_HIDDEN_KEY    = 'montex_global_hidden';     // ids ocultos localmente
+const GLOBAL_MOVS_KEY       = 'montex_global_movs';
+const GLOBAL_OVERRIDES_KEY  = 'montex_global_overrides';
+const GLOBAL_HIDDEN_KEY     = 'montex_global_hidden';
+const GLOBAL_METAS_KEY      = 'montex_global_metas';
+const GLOBAL_ALERT_READ_KEY = 'montex_global_alert_read';
 
 // Chaves do sistema principal (somente LEITURA aqui)
-const RECEITAS_STORAGE_KEY  = 'montex_receitas_gerais';
+const RECEITAS_STORAGE_KEY   = 'montex_receitas_gerais';
 const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
+
+// ============================================================
+// METAS PADRÃO (configuráveis pelo usuário)
+// ============================================================
+const DEFAULT_METAS = {
+  // Fabricação: 60 ton × R$ 5,50/kg = R$ 330.000
+  fabricacaoKg: 60000,
+  fabricacaoPrecoKg: 5.50,
+  // Montagem: 25 ton × R$ 3,00/kg = R$ 75.000
+  montagemKg: 25000,
+  montagemPrecoKg: 3.00,
+  // Receita mínima mensal = fab + mont = R$ 405.000
+  receitaMinimaMensal: 405000,
+  // Despesa-teto mensal
+  despesaTetoMensal: 350000,
+  // Margem operacional mínima
+  margemMinima: 25,
+  // Janelas de alerta de vencimento
+  alertaCriticoDias: 2,
+  alertaAtencaoDias: 7,
+  // Threshold de "valor alto" para priorizar alertas (R$)
+  thresholdValorAlto: 10000,
+  // Saldo mínimo de caixa projetado
+  saldoMinimo: 50000,
+};
 
 // ============================================================
 // HELPERS
@@ -87,6 +99,22 @@ const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
 const formatDate = (date) => {
   if (!date || date === '-') return '-';
   try { return new Date(date).toLocaleDateString('pt-BR'); } catch { return '-'; }
+};
+
+const diasAteVencimento = (dataStr) => {
+  if (!dataStr || dataStr === '-') return null;
+  try {
+    const venc = new Date(dataStr);
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    venc.setHours(0,0,0,0);
+    return Math.round((venc - hoje) / (1000 * 60 * 60 * 24));
+  } catch { return null; }
+};
+
+// Detecta se uma movimentação é/refere-se a cheque
+const ehCheque = (mov) => {
+  const txt = `${mov.formaPagto || ''} ${mov.descricao || ''} ${mov.categoria || ''} ${mov.fornecedor || ''}`.toLowerCase();
+  return /\bcheque\b|\bch[ \-]?\d+\b|\bch\.\s?\d+/i.test(txt) || (mov.formaPagto || '').toLowerCase().includes('cheque');
 };
 
 const ETAPA_LABELS = { fabricacao: 'Fabricação', montagem: 'Montagem' };
@@ -113,41 +141,93 @@ const lerLS = (key, defaultVal) => {
 const salvarLS = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
 
 // ============================================================
-// COMPONENT
+// SUB-COMPONENTES
+// ============================================================
+
+function KPISimple({ icon: Icon, label, value, sub, color = 'emerald', size = 'md' }) {
+  const colors = {
+    emerald: { bg: 'bg-emerald-500/20', text: 'text-emerald-400' },
+    red: { bg: 'bg-red-500/20', text: 'text-red-400' },
+    blue: { bg: 'bg-blue-500/20', text: 'text-blue-400' },
+    amber: { bg: 'bg-amber-500/20', text: 'text-amber-400' },
+    purple: { bg: 'bg-purple-500/20', text: 'text-purple-400' },
+    rose: { bg: 'bg-rose-500/20', text: 'text-rose-400' },
+    cyan: { bg: 'bg-cyan-500/20', text: 'text-cyan-400' },
+    violet: { bg: 'bg-violet-500/20', text: 'text-violet-400' },
+  };
+  const c = colors[color] || colors.emerald;
+  return (
+    <Card className="bg-slate-900/60 border-slate-700/50">
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", c.bg)}>
+            <Icon className={cn("h-5 w-5", c.text)} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-slate-400">{label}</p>
+            <p className={cn("font-bold truncate", size === 'sm' ? "text-lg" : "text-xl", c.text)}>{value}</p>
+            {sub && <p className="text-xs text-slate-500 truncate">{sub}</p>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MetaBar({ label, real, meta, format = formatCurrency, isNegativeBom = false }) {
+  const pct = meta > 0 ? Math.min(150, (real / meta) * 100) : 0;
+  const sucesso = isNegativeBom ? pct <= 100 : pct >= 80;
+  const cor = sucesso ? 'from-emerald-500 to-green-500'
+            : pct >= (isNegativeBom ? 70 : 50) ? 'from-amber-500 to-orange-500'
+            : 'from-red-500 to-rose-500';
+  return (
+    <div>
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span className="text-xs text-slate-400">{label}</span>
+        <span className={cn("text-xs font-semibold", sucesso ? 'text-emerald-400' : pct >= 50 ? 'text-amber-400' : 'text-red-400')}>
+          {pct.toFixed(0)}%
+        </span>
+      </div>
+      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full bg-gradient-to-r transition-all", cor)} style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <div className="flex justify-between mt-1">
+        <span className="text-[10px] text-slate-500">Real: {format(real)}</span>
+        <span className="text-[10px] text-slate-500">Meta: {format(meta)}</span>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// MAIN COMPONENT
 // ============================================================
 export default function PainelFinanceiroGlobal() {
-  // ===== DADOS EXTERNOS (read-only mirror) =====
   const { lancamentosDespesas } = useLancamentos();
   const { medicoes: todasMedicoes } = useMedicoes();
   const { obras } = useObras();
 
-  // ===== DADOS LOCAIS ISOLADOS =====
+  // ===== ESTADO LOCAL ISOLADO =====
   const [movsLocais, setMovsLocais] = useState(() => lerLS(GLOBAL_MOVS_KEY, []));
   const [overridesLocais, setOverridesLocais] = useState(() => lerLS(GLOBAL_OVERRIDES_KEY, {}));
   const [hiddenLocais, setHiddenLocais] = useState(() => lerLS(GLOBAL_HIDDEN_KEY, []));
+  const [metas, setMetas] = useState(() => ({ ...DEFAULT_METAS, ...lerLS(GLOBAL_METAS_KEY, {}) }));
+  const [alertasLidos, setAlertasLidos] = useState(() => lerLS(GLOBAL_ALERT_READ_KEY, []));
 
-  // Persiste localmente
   useEffect(() => salvarLS(GLOBAL_MOVS_KEY, movsLocais), [movsLocais]);
   useEffect(() => salvarLS(GLOBAL_OVERRIDES_KEY, overridesLocais), [overridesLocais]);
   useEffect(() => salvarLS(GLOBAL_HIDDEN_KEY, hiddenLocais), [hiddenLocais]);
+  useEffect(() => salvarLS(GLOBAL_METAS_KEY, metas), [metas]);
+  useEffect(() => salvarLS(GLOBAL_ALERT_READ_KEY, alertasLidos), [alertasLidos]);
 
-  // Reativo a mudanças do sistema principal (outras abas/janelas)
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === GLOBAL_MOVS_KEY)      setMovsLocais(lerLS(GLOBAL_MOVS_KEY, []));
-      if (e.key === GLOBAL_OVERRIDES_KEY) setOverridesLocais(lerLS(GLOBAL_OVERRIDES_KEY, {}));
-      if (e.key === GLOBAL_HIDDEN_KEY)    setHiddenLocais(lerLS(GLOBAL_HIDDEN_KEY, []));
-    };
-    window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
-  }, []);
-
-  // ===== ESTADOS UI =====
+  // ===== UI STATE =====
+  const [activeTab, setActiveTab] = useState('visao');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [filtroTipo, setFiltroTipo] = useState('todos');
   const [filtroObra, setFiltroObra] = useState('geral');
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [metasDialogOpen, setMetasDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
@@ -155,6 +235,7 @@ export default function PainelFinanceiroGlobal() {
     tipo: 'despesa', descricao: '', valor: '', categoria: '',
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '',
   });
+  const [metasForm, setMetasForm] = useState(metas);
 
   // ===== MAPA DE OBRAS =====
   const obrasMap = useMemo(() => {
@@ -163,8 +244,8 @@ export default function PainelFinanceiroGlobal() {
     return map;
   }, [obras]);
 
-  // ===== DESPESAS GERAIS (espelho — Supabase) =====
-  const despesasGeraisExternas = useMemo(() => {
+  // ===== ESPELHO DE DESPESAS EXTERNAS =====
+  const despesasExternas = useMemo(() => {
     if (!lancamentosDespesas || lancamentosDespesas.length === 0) return [];
     return lancamentosDespesas
       .filter(l => !l.obraId && !l.obra_id)
@@ -185,8 +266,8 @@ export default function PainelFinanceiroGlobal() {
       }));
   }, [lancamentosDespesas]);
 
-  // ===== RECEITAS MEDIÇÕES (espelho — Supabase + overrides do sistema principal) =====
-  const receitasMedicoesExternas = useMemo(() => {
+  // ===== ESPELHO DE MEDIÇÕES =====
+  const receitasMedicoesExt = useMemo(() => {
     if (!todasMedicoes || todasMedicoes.length === 0) return [];
     const overrides = lerLS(RECEITAS_OVERRIDES_KEY, {});
     return todasMedicoes.map(m => {
@@ -194,9 +275,7 @@ export default function PainelFinanceiroGlobal() {
       const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
       const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
       const base = {
-        id: m.id,
-        origem: 'externo',
-        tipo: 'receita',
+        id: m.id, origem: 'externo', tipo: 'receita',
         data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
         descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
         fornecedor: obraNome,
@@ -205,14 +284,10 @@ export default function PainelFinanceiroGlobal() {
         status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
         formaPagto: '-',
         vencimento: m.dataMedicao || m.data_medicao || '-',
-        numero: m.numero,
-        etapaLabel,
-        origemLabel: `Obra: ${obraNome}`,
-        origemObra: true,
-        obraId,
-        obraNome,
+        numero: m.numero, etapaLabel,
+        origemLabel: `Obra: ${obraNome}`, origemObra: true,
+        obraId, obraNome,
       };
-      // Aplicar overrides do ReceitasPage (sistema principal)
       if (overrides[m.id]) {
         const ov = overrides[m.id];
         if (ov.descricao) base.descricao = ov.descricao;
@@ -228,14 +303,12 @@ export default function PainelFinanceiroGlobal() {
     });
   }, [todasMedicoes, obrasMap]);
 
-  // ===== RECEITAS MANUAIS (espelho — localStorage do ReceitasPage) =====
-  const receitasManuaisExternas = useMemo(() => {
+  // ===== ESPELHO DE RECEITAS MANUAIS =====
+  const receitasManuaisExt = useMemo(() => {
     try {
       const salvas = JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]');
       return salvas.map(r => ({
-        id: r.id,
-        origem: 'externo',
-        tipo: 'receita',
+        id: r.id, origem: 'externo', tipo: 'receita',
         data: r.data || r.vencimento || '',
         descricao: r.descricao || '-',
         fornecedor: r.cliente || '-',
@@ -244,49 +317,40 @@ export default function PainelFinanceiroGlobal() {
         status: ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente'),
         formaPagto: r.formaPagto || '-',
         vencimento: r.vencimento || '-',
-        origemLabel: 'Receita Manual',
-        origemObra: false,
+        origemLabel: 'Receita Manual', origemObra: false,
       }));
     } catch { return []; }
-  }, [movsLocais]); // re-leitura quando user edita aqui (força refresh)
+  }, [movsLocais]);
 
-  // ===== MOVS LOCAIS (criadas aqui) =====
-  const movsLocaisNormalizadas = useMemo(() => {
+  // ===== MOVS LOCAIS NORMALIZADAS =====
+  const movsLocaisNorm = useMemo(() => {
     return (movsLocais || []).map(m => ({
-      ...m,
-      origem: 'local',
-      origemLabel: 'Global Local',
+      ...m, origem: 'local', origemLabel: 'Global Local',
       origemObra: !!m.obraId,
       obraNome: m.obraId ? (obrasMap[m.obraId] || '-') : '-',
     }));
   }, [movsLocais, obrasMap]);
 
-  // ===== CONSOLIDAÇÃO: externas + locais + overrides + hidden =====
-  const todasMovimentacoes = useMemo(() => {
-    const externas = [...despesasGeraisExternas, ...receitasMedicoesExternas, ...receitasManuaisExternas];
-    // Aplicar overrides locais e filtrar hidden
-    const externasComOverrides = externas
+  // ===== CONSOLIDAÇÃO =====
+  const todasMovs = useMemo(() => {
+    const externas = [...despesasExternas, ...receitasMedicoesExt, ...receitasManuaisExt];
+    const externasComOv = externas
       .filter(m => !hiddenLocais.includes(m.id))
       .map(m => {
         const ov = overridesLocais[m.id];
         if (!ov) return m;
         return { ...m, ...ov, id: m.id, origem: 'externo', origemModificado: true };
       });
-    // Concat com lançamentos locais próprios
-    const todas = [...externasComOverrides, ...movsLocaisNormalizadas];
+    const todas = [...externasComOv, ...movsLocaisNorm];
 
-    // Filtro obra
     let filtradas = todas;
-    if (filtroObra === 'fabrica') {
-      filtradas = todas.filter(m => !m.origemObra);
-    } else if (filtroObra !== 'geral') {
-      filtradas = todas.filter(m => m.obraId === filtroObra);
-    }
+    if (filtroObra === 'fabrica') filtradas = todas.filter(m => !m.origemObra);
+    else if (filtroObra !== 'geral') filtradas = todas.filter(m => m.obraId === filtroObra);
 
     return filtradas.sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
-  }, [despesasGeraisExternas, receitasMedicoesExternas, receitasManuaisExternas, movsLocaisNormalizadas, overridesLocais, hiddenLocais, filtroObra]);
+  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais, filtroObra]);
 
-  // ===== OPÇÕES DE OBRAS =====
+  // ===== OPÇÕES DE OBRA =====
   const opcoesObra = useMemo(() => {
     const ops = [
       { value: 'geral', label: 'Visão Geral (Todas)' },
@@ -296,7 +360,7 @@ export default function PainelFinanceiroGlobal() {
     return ops;
   }, [obras]);
 
-  // ===== FILTRO DE PERÍODO =====
+  // ===== FILTRO PERÍODO =====
   const filtrarPorPeriodo = useCallback((lista) => {
     if (filtroPeriodo === 'geral') return lista;
     const hoje = new Date();
@@ -310,43 +374,205 @@ export default function PainelFinanceiroGlobal() {
     });
   }, [filtroPeriodo]);
 
-  const movimentacoesPeriodo = useMemo(() => filtrarPorPeriodo(todasMovimentacoes), [todasMovimentacoes, filtrarPorPeriodo]);
+  const movsPeriodo = useMemo(() => filtrarPorPeriodo(todasMovs), [todasMovs, filtrarPorPeriodo]);
 
-  // ===== KPIs =====
+  // ===== KPIs GERAIS =====
   const kpis = useMemo(() => {
-    const receitas = movimentacoesPeriodo.filter(m => m.tipo === 'receita');
-    const despesas = movimentacoesPeriodo.filter(m => m.tipo === 'despesa');
-    const totalReceitas = receitas.reduce((s, m) => s + (m.valor || 0), 0);
-    const totalDespesas = despesas.reduce((s, m) => s + (m.valor || 0), 0);
-    const receitasPendentes = receitas.filter(m => !['recebido', 'pago', 'paga'].includes(m.status)).reduce((s, m) => s + (m.valor || 0), 0);
-    const despesasPendentes = despesas.filter(m => m.status === 'pendente').reduce((s, m) => s + (m.valor || 0), 0);
-    const lucro = totalReceitas - totalDespesas;
-    const margem = totalReceitas > 0 ? (lucro / totalReceitas * 100) : 0;
-    const qtdLocais = movimentacoesPeriodo.filter(m => m.origem === 'local').length;
-    const qtdOverrides = movimentacoesPeriodo.filter(m => m.origemModificado).length;
+    const receitas = movsPeriodo.filter(m => m.tipo === 'receita');
+    const despesas = movsPeriodo.filter(m => m.tipo === 'despesa');
+    const totR = receitas.reduce((s, m) => s + (m.valor || 0), 0);
+    const totD = despesas.reduce((s, m) => s + (m.valor || 0), 0);
+    const recRecebidas = receitas.filter(m => ['recebido','pago','paga'].includes(m.status)).reduce((s,m)=>s+(m.valor||0),0);
+    const recPendentes = totR - recRecebidas;
+    const despPagas = despesas.filter(m => m.status === 'pago').reduce((s,m)=>s+(m.valor||0),0);
+    const despPendentes = totD - despPagas;
+    const lucro = totR - totD;
+    const margem = totR > 0 ? (lucro / totR * 100) : 0;
     return {
-      totalReceitas, totalDespesas, lucro, margem,
-      receitasPendentes, despesasPendentes,
-      qtdReceitas: receitas.length, qtdDespesas: despesas.length,
-      qtdTotal: movimentacoesPeriodo.length, qtdLocais, qtdOverrides,
+      totR, totD, lucro, margem,
+      recRecebidas, recPendentes, despPagas, despPendentes,
+      qtdR: receitas.length, qtdD: despesas.length,
+      qtdLocal: movsPeriodo.filter(m => m.origem === 'local').length,
+      qtdOv: movsPeriodo.filter(m => m.origemModificado).length,
+      qtdTotal: movsPeriodo.length,
     };
-  }, [movimentacoesPeriodo]);
+  }, [movsPeriodo]);
 
-  // ===== GRÁFICOS =====
+  // ===== ANÁLISE FUTURA (próximos 90 dias) =====
+  const futuro = useMemo(() => {
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const todasComDias = todasMovs.map(m => ({
+      ...m,
+      diasVenc: diasAteVencimento(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data),
+      _ehCheque: ehCheque(m),
+    }));
+    const futurasReceitas = todasComDias.filter(m => m.tipo === 'receita' && m.diasVenc !== null && m.diasVenc >= 0 && m.diasVenc <= 90 && !['recebido','pago','paga'].includes(m.status));
+    const futurasDespesas = todasComDias.filter(m => m.tipo === 'despesa' && m.diasVenc !== null && m.diasVenc >= 0 && m.diasVenc <= 90 && m.status !== 'pago');
+
+    const receber30 = futurasReceitas.filter(m => m.diasVenc <= 30).reduce((s,m)=>s+(m.valor||0),0);
+    const receber60 = futurasReceitas.filter(m => m.diasVenc <= 60).reduce((s,m)=>s+(m.valor||0),0);
+    const receber90 = futurasReceitas.reduce((s,m)=>s+(m.valor||0),0);
+    const pagar30 = futurasDespesas.filter(m => m.diasVenc <= 30).reduce((s,m)=>s+(m.valor||0),0);
+    const pagar60 = futurasDespesas.filter(m => m.diasVenc <= 60).reduce((s,m)=>s+(m.valor||0),0);
+    const pagar90 = futurasDespesas.reduce((s,m)=>s+(m.valor||0),0);
+
+    // Saldo acumulado por semana (próximas 13 semanas = ~90 dias)
+    const semanas = [];
+    for (let i = 0; i < 13; i++) {
+      const fim = new Date(hoje);
+      fim.setDate(fim.getDate() + (i + 1) * 7);
+      const inicio = new Date(hoje);
+      inicio.setDate(inicio.getDate() + i * 7);
+      const recSem = futurasReceitas.filter(m => {
+        const d = new Date(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+        return d >= inicio && d < fim;
+      }).reduce((s,m)=>s+(m.valor||0),0);
+      const despSem = futurasDespesas.filter(m => {
+        const d = new Date(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+        return d >= inicio && d < fim;
+      }).reduce((s,m)=>s+(m.valor||0),0);
+      semanas.push({
+        label: `Sem ${i + 1}`,
+        dataInicio: inicio.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }),
+        receitas: recSem,
+        despesas: despSem,
+        saldoSem: recSem - despSem,
+      });
+    }
+    // Acumular saldo
+    let acc = 0;
+    semanas.forEach(s => { acc += s.saldoSem; s.saldoAcumulado = acc; });
+
+    return {
+      futurasReceitas, futurasDespesas,
+      receber30, receber60, receber90,
+      pagar30, pagar60, pagar90,
+      saldo30: receber30 - pagar30,
+      saldo60: receber60 - pagar60,
+      saldo90: receber90 - pagar90,
+      semanas,
+    };
+  }, [todasMovs]);
+
+  // ===== ALERTAS INTELIGENTES =====
+  const alertas = useMemo(() => {
+    const lista = [];
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+
+    // 1. Vencimentos críticos (≤ 2 dias) e atenção (≤ 7 dias)
+    todasMovs.forEach(m => {
+      const venc = m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data;
+      const dias = diasAteVencimento(venc);
+      if (dias === null) return;
+
+      // Já pago/recebido → ignora
+      if (m.tipo === 'despesa' && m.status === 'pago') return;
+      if (m.tipo === 'receita' && ['recebido','pago','paga'].includes(m.status)) return;
+
+      const _ehCheque = ehCheque(m);
+      const valorAlto = (m.valor || 0) >= metas.thresholdValorAlto;
+
+      // Score = (urgência × valor) - quanto menor dias, maior score
+      // Cheques e valores altos ganham boost
+      let urgenciaScore = 0;
+      if (dias < 0) urgenciaScore = 1000 + Math.abs(dias) * 10; // já vencido
+      else if (dias <= metas.alertaCriticoDias) urgenciaScore = 800 - dias * 50;
+      else if (dias <= metas.alertaAtencaoDias) urgenciaScore = 400 - dias * 20;
+
+      if (urgenciaScore === 0) return; // fora da janela
+
+      const score = urgenciaScore + Math.log10(Math.max(1, m.valor)) * 100 + (_ehCheque ? 200 : 0) + (valorAlto ? 150 : 0);
+
+      let nivel;
+      if (dias < 0) nivel = 'vencido';
+      else if (dias <= metas.alertaCriticoDias) nivel = 'critico';
+      else nivel = 'atencao';
+
+      lista.push({
+        id: `venc-${m.id}`,
+        tipo: m.tipo === 'despesa' ? 'pagamento' : 'recebimento',
+        nivel,
+        score,
+        dias,
+        valor: m.valor,
+        ehCheque: _ehCheque,
+        valorAlto,
+        titulo: m.tipo === 'despesa'
+          ? `${_ehCheque ? '🏦 CHEQUE — ' : ''}A pagar: ${m.descricao}`
+          : `A receber: ${m.descricao}`,
+        descricao: `${m.fornecedor || '-'} • ${formatCurrency(m.valor)} • Venc: ${formatDate(venc)}`,
+        movId: m.id,
+      });
+    });
+
+    // 2. Saldo projetado abaixo do mínimo
+    futuro.semanas.forEach((s, i) => {
+      if (s.saldoAcumulado < metas.saldoMinimo) {
+        lista.push({
+          id: `saldo-sem-${i}`,
+          tipo: 'saldo',
+          nivel: s.saldoAcumulado < 0 ? 'critico' : 'atencao',
+          score: 600 - i * 20,
+          dias: (i + 1) * 7,
+          valor: Math.abs(s.saldoAcumulado),
+          titulo: `Saldo projetado baixo na semana ${i + 1}`,
+          descricao: `Saldo acumulado ${formatCurrency(s.saldoAcumulado)} (mín: ${formatCurrency(metas.saldoMinimo)})`,
+        });
+      }
+    });
+
+    // 3. Receita do mês atual abaixo da meta mínima
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+    const receitaMes = todasMovs.filter(m => {
+      if (m.tipo !== 'receita') return false;
+      const d = new Date(m.data || m.vencimento);
+      return d >= inicioMes && d <= fimMes && ['recebido','pago','paga'].includes(m.status);
+    }).reduce((s,m)=>s+(m.valor||0),0);
+    if (receitaMes < metas.receitaMinimaMensal * 0.8) {
+      lista.push({
+        id: 'meta-receita-mes',
+        tipo: 'meta',
+        nivel: receitaMes < metas.receitaMinimaMensal * 0.5 ? 'critico' : 'atencao',
+        score: 500,
+        valor: metas.receitaMinimaMensal - receitaMes,
+        titulo: 'Receita do mês abaixo da meta mínima',
+        descricao: `${formatCurrency(receitaMes)} de ${formatCurrency(metas.receitaMinimaMensal)} (${((receitaMes/metas.receitaMinimaMensal)*100).toFixed(0)}%)`,
+      });
+    }
+
+    // Ordenar por score
+    return lista.sort((a, b) => b.score - a.score);
+  }, [todasMovs, futuro.semanas, metas]);
+
+  const alertasNaoLidos = useMemo(() => alertas.filter(a => !alertasLidos.includes(a.id)), [alertas, alertasLidos]);
+
+  // ===== GRÁFICOS COMPARTILHADOS =====
   const dadosPizzaDespesas = useMemo(() => {
     const map = {};
-    movimentacoesPeriodo.filter(m => m.tipo === 'despesa').forEach(m => {
+    movsPeriodo.filter(m => m.tipo === 'despesa').forEach(m => {
       const cat = m.categoria || 'Outros';
       map[cat] = (map[cat] || 0) + (m.valor || 0);
     });
-    return Object.entries(map).map(([nome, valor]) => ({
-      nome, valor, cor: CORES_CATEGORIAS[nome] || '#64748b'
-    }));
-  }, [movimentacoesPeriodo]);
+    return Object.entries(map)
+      .map(([nome, valor]) => ({ nome, valor, cor: CORES_CATEGORIAS[nome] || '#64748b' }))
+      .sort((a, b) => b.valor - a.valor);
+  }, [movsPeriodo]);
+
+  const dadosPizzaReceitas = useMemo(() => {
+    const map = {};
+    movsPeriodo.filter(m => m.tipo === 'receita').forEach(m => {
+      const cat = m.categoria || 'Outros';
+      map[cat] = (map[cat] || 0) + (m.valor || 0);
+    });
+    return Object.entries(map)
+      .map(([nome, valor]) => ({ nome, valor, cor: CORES_CATEGORIAS[nome] || '#64748b' }))
+      .sort((a, b) => b.valor - a.valor);
+  }, [movsPeriodo]);
 
   const evolucaoMensal = useMemo(() => {
     const meses = {};
-    movimentacoesPeriodo.forEach(m => {
+    movsPeriodo.forEach(m => {
       const d = new Date(m.data || m.vencimento);
       if (isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -355,12 +581,48 @@ export default function PainelFinanceiroGlobal() {
       if (m.tipo === 'receita') meses[key].receitas += m.valor || 0;
       else meses[key].despesas += m.valor || 0;
     });
-    return Object.values(meses).sort((a, b) => a.key.localeCompare(b.key));
-  }, [movimentacoesPeriodo]);
+    const arr = Object.values(meses).sort((a, b) => a.key.localeCompare(b.key));
+    arr.forEach(m => { m.saldo = m.receitas - m.despesas; });
+    return arr;
+  }, [movsPeriodo]);
+
+  // ===== TOP FORNECEDORES =====
+  const topFornecedores = useMemo(() => {
+    const map = {};
+    movsPeriodo.filter(m => m.tipo === 'despesa').forEach(m => {
+      const f = m.fornecedor || '-';
+      if (!map[f]) map[f] = { nome: f, valor: 0, qtd: 0 };
+      map[f].valor += m.valor || 0;
+      map[f].qtd++;
+    });
+    return Object.values(map).sort((a, b) => b.valor - a.valor).slice(0, 10);
+  }, [movsPeriodo]);
+
+  // ===== METAS — REALIZADO =====
+  const metasReal = useMemo(() => {
+    const hoje = new Date();
+    const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+    const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
+    const movsMes = todasMovs.filter(m => {
+      const d = new Date(m.data || m.vencimento);
+      return d >= inicioMes && d <= fimMes;
+    });
+    const receitaMes = movsMes.filter(m => m.tipo === 'receita' && ['recebido','pago','paga'].includes(m.status))
+      .reduce((s,m)=>s+(m.valor||0),0);
+    const despesaMes = movsMes.filter(m => m.tipo === 'despesa').reduce((s,m)=>s+(m.valor||0),0);
+    const margemReal = receitaMes > 0 ? ((receitaMes - despesaMes) / receitaMes * 100) : 0;
+    const receitaFabricacaoMeta = metas.fabricacaoKg * metas.fabricacaoPrecoKg;
+    const receitaMontagemMeta = metas.montagemKg * metas.montagemPrecoKg;
+    return {
+      receitaMes, despesaMes, margemReal,
+      receitaFabricacaoMeta, receitaMontagemMeta,
+      receitaTotalMeta: receitaFabricacaoMeta + receitaMontagemMeta,
+    };
+  }, [todasMovs, metas]);
 
   // ===== TABELA FILTRADA =====
-  const movimentacoesFiltradas = useMemo(() => {
-    let lista = todasMovimentacoes;
+  const movsTabela = useMemo(() => {
+    let lista = todasMovs;
     if (filtroTipo !== 'todos') lista = lista.filter(m => m.tipo === filtroTipo);
     if (searchTerm) {
       const s = searchTerm.toLowerCase();
@@ -371,28 +633,25 @@ export default function PainelFinanceiroGlobal() {
       );
     }
     return filtrarPorPeriodo(lista);
-  }, [todasMovimentacoes, filtroTipo, searchTerm, filtrarPorPeriodo]);
+  }, [todasMovs, filtroTipo, searchTerm, filtrarPorPeriodo]);
 
   // ============================================================
-  // HANDLERS — TUDO LOCAL, NÃO TOCA SUPABASE
+  // HANDLERS
   // ============================================================
-  const handleNova = () => {
+  const handleNova = (tipo = 'despesa') => {
     setEditando(null);
-    setFormData({ tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
+    setFormData({ tipo, descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
     setDialogOpen(true);
   };
 
   const handleEditar = (mov) => {
     setEditando(mov);
     setFormData({
-      tipo: mov.tipo || 'despesa',
-      descricao: mov.descricao || '',
-      valor: String(mov.valor || ''),
-      categoria: mov.categoria || '',
+      tipo: mov.tipo || 'despesa', descricao: mov.descricao || '',
+      valor: String(mov.valor || ''), categoria: mov.categoria || '',
       fornecedor: mov.fornecedor || '',
       vencimento: mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : '',
-      formaPagto: mov.formaPagto || '',
-      status: mov.status || 'pendente',
+      formaPagto: mov.formaPagto || '', status: mov.status || 'pendente',
       obraId: mov.obraId || '',
     });
     setDialogOpen(true);
@@ -404,99 +663,97 @@ export default function PainelFinanceiroGlobal() {
       return;
     }
     const valorNum = parseFloat(formData.valor);
-
     if (editando) {
       if (editando.origem === 'local') {
-        // Editar lançamento próprio: atualiza direto em movsLocais
         setMovsLocais(prev => prev.map(m => m.id === editando.id ? {
-          ...m,
-          tipo: formData.tipo,
-          descricao: formData.descricao,
-          fornecedor: formData.fornecedor || '-',
-          categoria: formData.categoria || 'Outros',
-          valor: valorNum,
-          formaPagto: formData.formaPagto || '-',
+          ...m, tipo: formData.tipo, descricao: formData.descricao,
+          fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
+          valor: valorNum, formaPagto: formData.formaPagto || '-',
           vencimento: formData.vencimento || '',
           data: formData.vencimento || m.data,
-          status: formData.status || 'pendente',
-          obraId: formData.obraId || null,
+          status: formData.status || 'pendente', obraId: formData.obraId || null,
         } : m));
-        toast.success('Lançamento local atualizado (sem propagar)');
+        toast.success('Lançamento local atualizado');
       } else {
-        // Editar lançamento externo: salva override LOCAL (não toca Supabase)
-        setOverridesLocais(prev => ({
-          ...prev,
-          [editando.id]: {
-            tipo: formData.tipo,
-            descricao: formData.descricao,
-            fornecedor: formData.fornecedor || '-',
-            categoria: formData.categoria || 'Outros',
-            valor: valorNum,
-            formaPagto: formData.formaPagto || '-',
-            vencimento: formData.vencimento || '',
-            data: formData.vencimento || editando.data,
-            status: formData.status || 'pendente',
-          }
-        }));
+        setOverridesLocais(prev => ({ ...prev, [editando.id]: {
+          tipo: formData.tipo, descricao: formData.descricao,
+          fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
+          valor: valorNum, formaPagto: formData.formaPagto || '-',
+          vencimento: formData.vencimento || '',
+          data: formData.vencimento || editando.data,
+          status: formData.status || 'pendente',
+        }}));
         toast.success('Override local salvo — sistema principal intacto');
       }
     } else {
-      // Novo lançamento — só local
       const novo = {
         id: `GLOBAL-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
-        tipo: formData.tipo,
-        descricao: formData.descricao,
-        fornecedor: formData.fornecedor || '-',
-        categoria: formData.categoria || 'Outros',
-        valor: valorNum,
-        formaPagto: formData.formaPagto || '-',
+        tipo: formData.tipo, descricao: formData.descricao,
+        fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
+        valor: valorNum, formaPagto: formData.formaPagto || '-',
         vencimento: formData.vencimento || '',
         data: formData.vencimento || new Date().toISOString().split('T')[0],
-        status: formData.status || 'pendente',
-        obraId: formData.obraId || null,
+        status: formData.status || 'pendente', obraId: formData.obraId || null,
         createdAt: new Date().toISOString(),
       };
       setMovsLocais(prev => [...prev, novo]);
-      toast.success('Lançamento criado SOMENTE neste módulo');
+      toast.success('Lançamento criado neste módulo');
     }
     setDialogOpen(false);
     setEditando(null);
   };
 
   const handleApagar = (id) => {
-    const mov = todasMovimentacoes.find(m => m.id === id);
+    const mov = todasMovs.find(m => m.id === id);
     if (!mov) { setDeleteConfirmId(null); return; }
     if (mov.origem === 'local') {
       setMovsLocais(prev => prev.filter(m => m.id !== id));
       toast.success('Lançamento local removido');
     } else {
-      // Item externo: marca como hidden localmente (NÃO deleta no sistema principal)
       setHiddenLocais(prev => [...prev, id]);
-      toast.success('Item ocultado localmente — origem intacta');
+      toast.success('Item ocultado localmente');
     }
     setDeleteConfirmId(null);
   };
 
   const handleResetTudo = () => {
-    setMovsLocais([]);
-    setOverridesLocais({});
-    setHiddenLocais([]);
-    toast.success('Dados locais do Painel Global resetados');
+    setMovsLocais([]); setOverridesLocais({}); setHiddenLocais([]);
+    setAlertasLidos([]);
+    toast.success('Dados locais resetados');
     setResetDialogOpen(false);
   };
 
   const handleRestaurarItem = (id) => {
-    // Remove override OU remove de hidden
     setOverridesLocais(prev => { const { [id]: _, ...rest } = prev; return rest; });
     setHiddenLocais(prev => prev.filter(h => h !== id));
     toast.success('Item externo restaurado');
   };
 
-  // Categorias disponíveis
+  const handleSalvarMetas = () => {
+    const m = { ...metasForm };
+    Object.keys(m).forEach(k => {
+      const v = parseFloat(m[k]);
+      if (!isNaN(v)) m[k] = v;
+    });
+    // Receita mínima = fabricação + montagem (auto-calculado)
+    m.receitaMinimaMensal = (m.fabricacaoKg * m.fabricacaoPrecoKg) + (m.montagemKg * m.montagemPrecoKg);
+    setMetas(m);
+    toast.success('Metas atualizadas');
+    setMetasDialogOpen(false);
+  };
+
+  const handleAbrirMetas = () => {
+    setMetasForm(metas);
+    setMetasDialogOpen(true);
+  };
+
+  const handleMarcarAlertaLido = (alertId) => {
+    setAlertasLidos(prev => [...prev, alertId]);
+  };
+
   const categoriasDisponiveis = [
-    'Matéria Prima', 'Mão de Obra', 'Energia/Utilidades', 'Manutenção',
-    'Transporte', 'Administrativo', 'Impostos',
-    'Medição', 'Serviço Avulso', 'Outros'
+    'Matéria Prima','Mão de Obra','Energia/Utilidades','Manutenção',
+    'Transporte','Administrativo','Impostos','Medição','Serviço Avulso','Outros'
   ];
 
   // ============================================================
@@ -504,7 +761,7 @@ export default function PainelFinanceiroGlobal() {
   // ============================================================
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* HEADER */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-white flex items-center gap-3">
@@ -516,60 +773,618 @@ export default function PainelFinanceiroGlobal() {
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span className="inline-flex items-center px-3 py-1 rounded-lg bg-purple-500/20 text-purple-300 text-sm font-medium border border-purple-500/30">
               <Lock className="h-3.5 w-3.5 mr-1" />
-              Módulo Isolado — não propaga
+              Módulo Isolado
             </span>
             <span className="text-slate-500 text-sm">|</span>
-            <span className="text-slate-400 text-sm">{kpis.qtdTotal} lançamentos</span>
-            <span className="text-slate-500 text-sm">|</span>
-            <span className="text-emerald-400 text-xs">{kpis.qtdReceitas} receitas</span>
-            <span className="text-slate-500 text-sm">|</span>
-            <span className="text-rose-400 text-xs">{kpis.qtdDespesas} despesas</span>
-            {kpis.qtdLocais > 0 && (
-              <>
-                <span className="text-slate-500 text-sm">|</span>
-                <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-xs">
-                  {kpis.qtdLocais} lançamentos locais
-                </Badge>
-              </>
+            <span className="text-slate-400 text-sm">{kpis.qtdTotal} mov.</span>
+            <span className="text-emerald-400 text-xs">{kpis.qtdR} receitas</span>
+            <span className="text-rose-400 text-xs">{kpis.qtdD} despesas</span>
+            {kpis.qtdLocal > 0 && (
+              <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 text-xs">
+                {kpis.qtdLocal} locais
+              </Badge>
             )}
-            {kpis.qtdOverrides > 0 && (
+            {kpis.qtdOv > 0 && (
               <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 text-xs">
-                {kpis.qtdOverrides} edições locais
+                {kpis.qtdOv} edit.
               </Badge>
             )}
-            {hiddenLocais.length > 0 && (
-              <Badge className="bg-rose-500/20 text-rose-300 border-rose-500/30 text-xs">
-                {hiddenLocais.length} ocultos
+            {alertasNaoLidos.length > 0 && (
+              <Badge className="bg-red-500/20 text-red-300 border-red-500/30 text-xs animate-pulse">
+                <Bell className="h-3 w-3 mr-1" />{alertasNaoLidos.length} alertas
               </Badge>
             )}
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="outline" className="border-slate-700 text-slate-300 hover:text-white" onClick={handleAbrirMetas}>
+            <Target className="h-4 w-4 mr-2" />Metas
+          </Button>
           <Button variant="outline" className="border-slate-700 text-slate-300 hover:text-white" onClick={() => setResetDialogOpen(true)} disabled={movsLocais.length === 0 && Object.keys(overridesLocais).length === 0 && hiddenLocais.length === 0}>
-            <RotateCcw className="h-4 w-4 mr-2" />
-            Resetar locais
+            <RotateCcw className="h-4 w-4 mr-2" />Reset
           </Button>
-          <Button className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600" onClick={handleNova}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nova Movimentação (Local)
+          <Button className="bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-600 hover:to-indigo-600" onClick={() => handleNova('despesa')}>
+            <Plus className="h-4 w-4 mr-2" />Nova Movimentação
           </Button>
         </div>
       </div>
 
-      {/* Banner informativo */}
-      <div className="bg-gradient-to-r from-purple-900/30 to-indigo-900/30 rounded-xl border border-purple-700/30 p-3">
-        <div className="flex items-start gap-3 text-xs text-purple-200">
-          <Shield className="h-4 w-4 mt-0.5 flex-shrink-0" />
-          <div>
-            <strong className="text-purple-100">Como este módulo funciona:</strong>{' '}
-            Espelha automaticamente os lançamentos de Receitas, Despesas e Medições do sistema (atualização em tempo real).
-            Lançamentos criados, editados ou excluídos AQUI são salvos apenas localmente — não afetam o Painel Financeiro, GFO, Metas Financeiras ou nenhum outro módulo.
+      {/* BANNER + ALERTAS RESUMIDOS */}
+      {alertasNaoLidos.length > 0 && (
+        <div className="bg-gradient-to-r from-red-900/30 to-amber-900/30 rounded-xl border border-red-700/30 p-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="h-5 w-5 text-red-400 mt-0.5 flex-shrink-0 animate-pulse" />
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <strong className="text-red-200">Top {Math.min(3, alertasNaoLidos.length)} alertas críticos</strong>
+                <button onClick={() => setActiveTab('alertas')} className="text-xs text-red-300 underline hover:text-red-100">Ver todos →</button>
+              </div>
+              <div className="space-y-1.5">
+                {alertasNaoLidos.slice(0, 3).map(a => (
+                  <div key={a.id} className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <Badge className={cn("text-[10px]",
+                        a.nivel === 'vencido' ? 'bg-red-700/40 text-red-200' :
+                        a.nivel === 'critico' ? 'bg-red-500/30 text-red-300' :
+                        'bg-amber-500/30 text-amber-300'
+                      )}>
+                        {a.nivel === 'vencido' ? 'VENCIDO' : a.nivel === 'critico' ? `${a.dias}d` : `${a.dias}d`}
+                      </Badge>
+                      {a.ehCheque && <Badge className="bg-blue-500/30 text-blue-300 text-[10px]">CHEQUE</Badge>}
+                      {a.valorAlto && <Badge className="bg-purple-500/30 text-purple-300 text-[10px]">ALTO</Badge>}
+                      <span className="text-slate-200 truncate">{a.titulo}</span>
+                    </div>
+                    <span className={cn("font-semibold", a.tipo === 'pagamento' ? 'text-red-300' : 'text-emerald-300')}>
+                      {formatCurrency(a.valor)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
+      )}
+
+      {/* FILTROS GLOBAIS */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Building2 className="h-4 w-4 text-slate-400" />
+          <Select value={filtroObra} onValueChange={setFiltroObra}>
+            <SelectTrigger className="w-[220px] bg-slate-800 border-slate-700 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-slate-700">
+              {opcoesObra.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-4 w-4 text-slate-400" />
+          {[
+            { value: 'geral', label: 'Geral' },
+            { value: 'semanal', label: '7d' },
+            { value: 'mensal', label: '30d' },
+            { value: 'trimestral', label: '90d' },
+          ].map(p => (
+            <button key={p.value} onClick={() => setFiltroPeriodo(p.value)}
+              className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                filtroPeriodo === p.value ? "bg-purple-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
+              )}>{p.label}</button>
+          ))}
+        </div>
       </div>
 
-      {/* Dialog Cadastrar/Editar */}
+      {/* TABS */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
+        <TabsList className="bg-slate-900/60 border border-slate-700/50 flex-wrap h-auto">
+          <TabsTrigger value="visao"><BarChart3 className="h-4 w-4 mr-1" />Visão Geral</TabsTrigger>
+          <TabsTrigger value="receitas"><ArrowUpRight className="h-4 w-4 mr-1" />Receitas</TabsTrigger>
+          <TabsTrigger value="despesas"><ArrowDownRight className="h-4 w-4 mr-1" />Despesas</TabsTrigger>
+          <TabsTrigger value="futuro"><TrendUp className="h-4 w-4 mr-1" />Fluxo Futuro</TabsTrigger>
+          <TabsTrigger value="metas"><Target className="h-4 w-4 mr-1" />Metas</TabsTrigger>
+          <TabsTrigger value="alertas">
+            <Bell className="h-4 w-4 mr-1" />Alertas
+            {alertasNaoLidos.length > 0 && <Badge className="ml-2 bg-red-500/30 text-red-200 text-[10px] px-1.5">{alertasNaoLidos.length}</Badge>}
+          </TabsTrigger>
+        </TabsList>
+
+        {/* =========================================== */}
+        {/* TAB 1: VISÃO GERAL                           */}
+        {/* =========================================== */}
+        <TabsContent value="visao" className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPISimple icon={ArrowUpRight} color="emerald" label="Receitas" value={formatCurrency(kpis.totR)} sub={`${kpis.qtdR} lançamentos`} />
+            <KPISimple icon={ArrowDownRight} color="red" label="Despesas" value={formatCurrency(kpis.totD)} sub={`${kpis.qtdD} lançamentos`} />
+            <KPISimple icon={TrendingUp} color={kpis.lucro >= 0 ? "blue" : "red"} label="Lucro" value={formatCurrency(kpis.lucro)} sub={`Margem: ${kpis.margem.toFixed(1)}%`} />
+            <KPISimple icon={Clock} color="amber" label="A Receber" value={formatCurrency(kpis.recPendentes)} sub={`A pagar: ${formatCurrency(kpis.despPendentes)}`} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
+              <CardHeader><CardTitle className="text-white flex items-center gap-2"><BarChart3 className="h-5 w-5 text-purple-400" />Evolução Receitas vs Despesas</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <ComposedChart data={evolucaoMensal} barGap={4}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mes" stroke="#64748b" />
+                    <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
+                    <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                    <Bar dataKey="receitas" name="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="despesas" name="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                    <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#a78bfa" strokeWidth={2} dot={{ r: 3 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader><CardTitle className="text-white flex items-center gap-2"><Receipt className="h-5 w-5 text-rose-400" />Despesas por Categoria</CardTitle></CardHeader>
+              <CardContent>
+                {dadosPizzaDespesas.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie data={dadosPizzaDespesas} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2} dataKey="valor">
+                        {dadosPizzaDespesas.map((e, i) => <Cell key={i} fill={e.cor} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                      <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <div className="h-[280px] flex items-center justify-center text-slate-500">Sem despesas no período</div>}
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Tabela Movimentações */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
+              <CardTitle className="text-white">Movimentações</CardTitle>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
+                  <Input placeholder="Buscar..." className="pl-10 w-[180px] bg-slate-800 border-slate-700" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+                </div>
+                <Select value={filtroTipo} onValueChange={setFiltroTipo}>
+                  <SelectTrigger className="w-[120px] bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-slate-800 border-slate-700">
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="receita">Receitas</SelectItem>
+                    <SelectItem value="despesa">Despesas</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* =========================================== */}
+        {/* TAB 2: RECEITAS                              */}
+        {/* =========================================== */}
+        <TabsContent value="receitas" className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPISimple icon={ArrowUpRight} color="emerald" label="Total Receitas" value={formatCurrency(kpis.totR)} sub={`${kpis.qtdR} lançamentos`} />
+            <KPISimple icon={CheckCircle2} color="emerald" label="Recebidas" value={formatCurrency(kpis.recRecebidas)} sub={`${((kpis.recRecebidas/Math.max(1,kpis.totR))*100).toFixed(0)}% do total`} />
+            <KPISimple icon={Clock} color="amber" label="Pendentes" value={formatCurrency(kpis.recPendentes)} sub={`${((kpis.recPendentes/Math.max(1,kpis.totR))*100).toFixed(0)}% do total`} />
+            <KPISimple icon={Target} color="purple" label="Meta Mensal" value={formatCurrency(metas.receitaMinimaMensal)} sub={`Atual: ${formatCurrency(metasReal.receitaMes)}`} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
+              <CardHeader><CardTitle className="text-white">Evolução de Receitas</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <AreaChart data={evolucaoMensal}>
+                    <defs>
+                      <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mes" stroke="#64748b" />
+                    <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                    <ReferenceLine y={metas.receitaMinimaMensal} stroke="#a855f7" strokeDasharray="3 3" label={{ value: 'Meta mín', fill: '#a78bfa', fontSize: 10, position: 'insideTopRight' }} />
+                    <Area type="monotone" dataKey="receitas" stroke="#10b981" strokeWidth={2} fill="url(#colorRec)" name="Receitas" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader><CardTitle className="text-white">Receitas por Origem</CardTitle></CardHeader>
+              <CardContent>
+                {dadosPizzaReceitas.length > 0 ? (
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie data={dadosPizzaReceitas} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2} dataKey="valor">
+                        {dadosPizzaReceitas.map((e, i) => <Cell key={i} fill={e.cor} />)}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                      <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : <div className="h-[280px] flex items-center justify-center text-slate-500">Sem receitas no período</div>}
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
+              <CardTitle className="text-white">Lista de Receitas</CardTitle>
+              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => handleNova('receita')}>
+                <Plus className="h-4 w-4 mr-2" />Nova Receita
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* =========================================== */}
+        {/* TAB 3: DESPESAS                              */}
+        {/* =========================================== */}
+        <TabsContent value="despesas" className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPISimple icon={ArrowDownRight} color="red" label="Total Despesas" value={formatCurrency(kpis.totD)} sub={`${kpis.qtdD} lançamentos`} />
+            <KPISimple icon={CheckCircle2} color="emerald" label="Pagas" value={formatCurrency(kpis.despPagas)} sub={`${((kpis.despPagas/Math.max(1,kpis.totD))*100).toFixed(0)}% do total`} />
+            <KPISimple icon={Clock} color="amber" label="Pendentes" value={formatCurrency(kpis.despPendentes)} sub={`${((kpis.despPendentes/Math.max(1,kpis.totD))*100).toFixed(0)}% do total`} />
+            <KPISimple icon={AlertTriangle} color="purple" label="Despesa-Teto" value={formatCurrency(metas.despesaTetoMensal)} sub={`Atual: ${formatCurrency(metasReal.despesaMes)}`} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
+              <CardHeader><CardTitle className="text-white">Evolução de Despesas</CardTitle></CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={evolucaoMensal}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                    <XAxis dataKey="mes" stroke="#64748b" />
+                    <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                    <ReferenceLine y={metas.despesaTetoMensal} stroke="#f87171" strokeDasharray="3 3" label={{ value: 'Teto', fill: '#f87171', fontSize: 10, position: 'insideTopRight' }} />
+                    <Bar dataKey="despesas" fill="#ef4444" name="Despesas" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader><CardTitle className="text-white">Top Categorias</CardTitle></CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {dadosPizzaDespesas.slice(0, 6).map((c, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: c.cor }} />
+                      <span className="text-sm text-slate-300 flex-1 truncate">{c.nome}</span>
+                      <span className="text-sm font-semibold text-white">{formatCurrency(c.valor)}</span>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader><CardTitle className="text-white">Top 10 Fornecedores</CardTitle></CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-700">
+                    <TableHead className="text-slate-400">#</TableHead>
+                    <TableHead className="text-slate-400">Fornecedor</TableHead>
+                    <TableHead className="text-slate-400 text-center">Qtd</TableHead>
+                    <TableHead className="text-slate-400 text-right">Total</TableHead>
+                    <TableHead className="text-slate-400 text-right">% do Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {topFornecedores.map((f, i) => (
+                    <TableRow key={i} className="border-slate-800 hover:bg-slate-800/50">
+                      <TableCell className="text-slate-500">{i + 1}</TableCell>
+                      <TableCell className="text-white font-medium">{f.nome}</TableCell>
+                      <TableCell className="text-center text-slate-300">{f.qtd}</TableCell>
+                      <TableCell className="text-right text-red-400 font-semibold">{formatCurrency(f.valor)}</TableCell>
+                      <TableCell className="text-right text-slate-400 text-sm">{((f.valor / Math.max(1, kpis.totD)) * 100).toFixed(1)}%</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-3">
+              <CardTitle className="text-white">Lista de Despesas</CardTitle>
+              <Button className="bg-red-600 hover:bg-red-700" onClick={() => handleNova('despesa')}>
+                <Plus className="h-4 w-4 mr-2" />Nova Despesa
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* =========================================== */}
+        {/* TAB 4: FLUXO FUTURO                          */}
+        {/* =========================================== */}
+        <TabsContent value="futuro" className="space-y-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <KPISimple icon={ArrowUpRight} color="emerald" label="A receber 30d" value={formatCurrency(futuro.receber30)} sub={`60d: ${formatCurrency(futuro.receber60)} • 90d: ${formatCurrency(futuro.receber90)}`} />
+            <KPISimple icon={ArrowDownRight} color="red" label="A pagar 30d" value={formatCurrency(futuro.pagar30)} sub={`60d: ${formatCurrency(futuro.pagar60)} • 90d: ${formatCurrency(futuro.pagar90)}`} />
+            <KPISimple icon={TrendingUp} color={futuro.saldo30 >= 0 ? "blue" : "red"} label="Saldo Projetado 30d" value={formatCurrency(futuro.saldo30)} sub={`60d: ${formatCurrency(futuro.saldo60)} • 90d: ${formatCurrency(futuro.saldo90)}`} />
+          </div>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2"><Activity className="h-5 w-5 text-cyan-400" />Cash Flow Projetado (13 semanas)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={320}>
+                <ComposedChart data={futuro.semanas}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="dataInicio" stroke="#64748b" />
+                  <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                  <ReferenceLine y={metas.saldoMinimo} stroke="#a855f7" strokeDasharray="3 3" label={{ value: 'Saldo mín', fill: '#a78bfa', fontSize: 10 }} />
+                  <Bar dataKey="receitas" name="A Receber" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="despesas" name="A Pagar" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                  <Line type="monotone" dataKey="saldoAcumulado" name="Saldo Acum." stroke="#a78bfa" strokeWidth={2.5} dot={{ r: 4 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader><CardTitle className="text-white">Receitas Futuras (próx. 90 dias)</CardTitle></CardHeader>
+              <CardContent>
+                <FuturoLista items={futuro.futurasReceitas.slice(0, 15)} tipo="receita" />
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader><CardTitle className="text-white">Despesas Futuras (próx. 90 dias)</CardTitle></CardHeader>
+              <CardContent>
+                <FuturoLista items={futuro.futurasDespesas.slice(0, 15)} tipo="despesa" />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* DRE Projetado vs Meta */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2"><FileCheck className="h-5 w-5 text-violet-400" />Análise Despesas Futuras × Meta Receita</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-slate-400 mb-1">Cenário 30 dias</p>
+                    <p className="text-2xl font-bold text-white">{formatCurrency(futuro.receber30 - futuro.pagar30)}</p>
+                    <p className="text-xs text-slate-500">
+                      {futuro.receber30 >= futuro.pagar30 ? '✅ Superávit projetado' : '⚠️ Déficit projetado'}
+                    </p>
+                  </div>
+                  <div className="border-t border-slate-700 pt-3">
+                    <p className="text-xs text-slate-400">Cobertura de despesas pelas receitas</p>
+                    <p className="text-lg font-semibold text-cyan-400">
+                      {futuro.pagar30 > 0 ? ((futuro.receber30 / futuro.pagar30) * 100).toFixed(0) : '∞'}%
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-slate-400 mb-1">Meta receita mínima/mês</p>
+                    <p className="text-2xl font-bold text-purple-400">{formatCurrency(metas.receitaMinimaMensal)}</p>
+                    <p className="text-xs text-slate-500">{metas.fabricacaoKg/1000}t fáb + {metas.montagemKg/1000}t mont</p>
+                  </div>
+                  <div className="border-t border-slate-700 pt-3">
+                    <p className="text-xs text-slate-400">Receita projetada 30d vs meta</p>
+                    <p className={cn("text-lg font-semibold", futuro.receber30 >= metas.receitaMinimaMensal ? 'text-emerald-400' : 'text-amber-400')}>
+                      {((futuro.receber30 / Math.max(1, metas.receitaMinimaMensal)) * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-xs text-slate-400 mb-1">Gap a cobrir (déficit)</p>
+                    <p className="text-2xl font-bold text-red-400">
+                      {formatCurrency(Math.max(0, futuro.pagar30 - futuro.receber30))}
+                    </p>
+                  </div>
+                  <div className="border-t border-slate-700 pt-3">
+                    <p className="text-xs text-slate-400">Equivalente em produção fab</p>
+                    <p className="text-lg font-semibold text-amber-400">
+                      {((Math.max(0, futuro.pagar30 - futuro.receber30)) / metas.fabricacaoPrecoKg / 1000).toFixed(1)}t
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* =========================================== */}
+        {/* TAB 5: METAS                                 */}
+        {/* =========================================== */}
+        <TabsContent value="metas" className="space-y-6">
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-white flex items-center gap-2"><Target className="h-5 w-5 text-purple-400" />Metas do Mês Atual</CardTitle>
+              <Button variant="outline" className="border-slate-700 text-slate-300" onClick={handleAbrirMetas}>
+                <Settings className="h-4 w-4 mr-2" />Configurar Metas
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <Factory className="h-4 w-4 text-emerald-400" />
+                    <span className="text-sm font-semibold text-emerald-300">Fabricação</span>
+                  </div>
+                  <MetaBar label="Receita Fabricação (mês)" real={metasReal.receitaMes * 0.7 /* aprox. fáb */} meta={metasReal.receitaFabricacaoMeta} />
+                  <p className="text-xs text-slate-500">Meta: {(metas.fabricacaoKg / 1000).toFixed(0)}t × R$ {metas.fabricacaoPrecoKg.toFixed(2)}/kg = {formatCurrency(metasReal.receitaFabricacaoMeta)}</p>
+
+                  <div className="flex items-center gap-2 mb-1 mt-4">
+                    <HardHat className="h-4 w-4 text-blue-400" />
+                    <span className="text-sm font-semibold text-blue-300">Montagem</span>
+                  </div>
+                  <MetaBar label="Receita Montagem (mês)" real={metasReal.receitaMes * 0.3} meta={metasReal.receitaMontagemMeta} />
+                  <p className="text-xs text-slate-500">Meta: {(metas.montagemKg / 1000).toFixed(0)}t × R$ {metas.montagemPrecoKg.toFixed(2)}/kg = {formatCurrency(metasReal.receitaMontagemMeta)}</p>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <ArrowUpRight className="h-4 w-4 text-emerald-400" />
+                    <span className="text-sm font-semibold text-emerald-300">Receita Total Mínima</span>
+                  </div>
+                  <MetaBar label="Receita do mês" real={metasReal.receitaMes} meta={metas.receitaMinimaMensal} />
+
+                  <div className="flex items-center gap-2 mb-1 mt-4">
+                    <ArrowDownRight className="h-4 w-4 text-rose-400" />
+                    <span className="text-sm font-semibold text-rose-300">Despesa-Teto</span>
+                  </div>
+                  <MetaBar label="Despesa do mês" real={metasReal.despesaMes} meta={metas.despesaTetoMensal} isNegativeBom />
+
+                  <div className="flex items-center gap-2 mb-1 mt-4">
+                    <TrendingUp className="h-4 w-4 text-amber-400" />
+                    <span className="text-sm font-semibold text-amber-300">Margem Operacional</span>
+                  </div>
+                  <MetaBar label="Margem do mês" real={metasReal.margemReal} meta={metas.margemMinima} format={(v) => `${(v||0).toFixed(1)}%`} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Cards informativos */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="bg-slate-900/60 border-emerald-700/40">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Factory className="h-4 w-4 text-emerald-400" />
+                  <span className="text-sm font-semibold text-emerald-300">Equivalente Fabricação</span>
+                </div>
+                <p className="text-xs text-slate-400">Para bater a meta de receita mínima, é preciso produzir:</p>
+                <p className="text-xl font-bold text-emerald-400 mt-2">{(metas.fabricacaoKg / 1000).toFixed(0)} ton/mês</p>
+                <p className="text-xs text-slate-500">a R$ {metas.fabricacaoPrecoKg.toFixed(2)}/kg</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900/60 border-blue-700/40">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <HardHat className="h-4 w-4 text-blue-400" />
+                  <span className="text-sm font-semibold text-blue-300">Equivalente Montagem</span>
+                </div>
+                <p className="text-xs text-slate-400">Adicionalmente em campo:</p>
+                <p className="text-xl font-bold text-blue-400 mt-2">{(metas.montagemKg / 1000).toFixed(0)} ton/mês</p>
+                <p className="text-xs text-slate-500">a R$ {metas.montagemPrecoKg.toFixed(2)}/kg</p>
+              </CardContent>
+            </Card>
+            <Card className="bg-slate-900/60 border-purple-700/40">
+              <CardContent className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="h-4 w-4 text-purple-400" />
+                  <span className="text-sm font-semibold text-purple-300">Break-even</span>
+                </div>
+                <p className="text-xs text-slate-400">Para cobrir a despesa-teto, basta:</p>
+                <p className="text-xl font-bold text-purple-400 mt-2">{(metas.despesaTetoMensal / metas.fabricacaoPrecoKg / 1000).toFixed(1)} ton/mês</p>
+                <p className="text-xs text-slate-500">apenas fabricação</p>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* =========================================== */}
+        {/* TAB 6: ALERTAS                               */}
+        {/* =========================================== */}
+        <TabsContent value="alertas" className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPISimple icon={AlertCircle} color="red" label="Vencidos" value={alertas.filter(a => a.nivel === 'vencido').length} size="sm" />
+            <KPISimple icon={AlertTriangle} color="red" label={`Críticos (≤${metas.alertaCriticoDias}d)`} value={alertas.filter(a => a.nivel === 'critico').length} size="sm" />
+            <KPISimple icon={Bell} color="amber" label={`Atenção (≤${metas.alertaAtencaoDias}d)`} value={alertas.filter(a => a.nivel === 'atencao').length} size="sm" />
+            <KPISimple icon={Eye} color="purple" label="Não lidos" value={alertasNaoLidos.length} size="sm" />
+          </div>
+
+          {alertas.length === 0 ? (
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardContent className="p-8 text-center">
+                <CheckCircle2 className="h-12 w-12 text-emerald-400 mx-auto mb-3" />
+                <p className="text-white font-medium">Nenhum alerta no momento</p>
+                <p className="text-slate-400 text-sm mt-1">Tudo sob controle. Cash flow saudável e vencimentos em dia.</p>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="text-white">Centro de Alertas — ordenado por prioridade</CardTitle>
+                {alertasLidos.length > 0 && (
+                  <Button variant="ghost" size="sm" className="text-slate-400" onClick={() => setAlertasLidos([])}>
+                    Marcar todos como não lidos
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {alertas.map(a => {
+                    const lido = alertasLidos.includes(a.id);
+                    return (
+                      <div key={a.id} className={cn(
+                        "p-3 rounded-lg border flex items-start gap-3 transition-all",
+                        lido ? "bg-slate-800/30 border-slate-700/40 opacity-60" :
+                        a.nivel === 'vencido' ? "bg-red-900/20 border-red-700/50" :
+                        a.nivel === 'critico' ? "bg-red-900/15 border-red-700/40" :
+                        "bg-amber-900/15 border-amber-700/40"
+                      )}>
+                        <div className={cn("w-2 h-2 rounded-full mt-2 flex-shrink-0",
+                          a.nivel === 'vencido' ? "bg-red-500 animate-pulse" :
+                          a.nivel === 'critico' ? "bg-red-400" :
+                          "bg-amber-400"
+                        )} />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <Badge className={cn("text-[10px]",
+                              a.nivel === 'vencido' ? 'bg-red-700/40 text-red-200' :
+                              a.nivel === 'critico' ? 'bg-red-500/30 text-red-300' :
+                              'bg-amber-500/30 text-amber-300'
+                            )}>
+                              {a.nivel === 'vencido' ? 'VENCIDO' :
+                                a.dias !== undefined ? `${a.dias} dia${a.dias === 1 ? '' : 's'}` :
+                                a.nivel.toUpperCase()}
+                            </Badge>
+                            {a.ehCheque && <Badge className="bg-blue-500/30 text-blue-300 text-[10px]">CHEQUE</Badge>}
+                            {a.valorAlto && <Badge className="bg-purple-500/30 text-purple-300 text-[10px]">VALOR ALTO</Badge>}
+                            {a.tipo === 'saldo' && <Badge className="bg-rose-500/30 text-rose-300 text-[10px]">SALDO</Badge>}
+                            {a.tipo === 'meta' && <Badge className="bg-violet-500/30 text-violet-300 text-[10px]">META</Badge>}
+                          </div>
+                          <p className={cn("font-medium", lido ? "text-slate-400" : "text-white")}>{a.titulo}</p>
+                          <p className="text-xs text-slate-400 mt-0.5">{a.descricao}</p>
+                        </div>
+                        <div className="text-right flex-shrink-0">
+                          <p className={cn("font-bold", a.tipo === 'recebimento' ? 'text-emerald-400' : 'text-red-400')}>
+                            {formatCurrency(a.valor)}
+                          </p>
+                          {!lido && (
+                            <button onClick={() => handleMarcarAlertaLido(a.id)} className="text-[10px] text-slate-400 hover:text-white mt-1 underline">
+                              Marcar como lido
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+      </Tabs>
+
+      {/* ===== DIALOG: Nova/Editar Movimentação ===== */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditando(null); }}>
         <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
           <DialogHeader>
@@ -581,7 +1396,7 @@ export default function PainelFinanceiroGlobal() {
           <div className="space-y-4 pt-4">
             {editando && editando.origem !== 'local' && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
-                Você está editando um item externo. As alterações ficam SÓ neste módulo. O lançamento original em Receitas/Despesas/GFO permanece intacto.
+                Editando item externo — alterações ficam SÓ neste módulo. A origem permanece intacta.
               </div>
             )}
             <div className="grid grid-cols-2 gap-4">
@@ -642,6 +1457,7 @@ export default function PainelFinanceiroGlobal() {
                   <SelectContent className="bg-slate-800 border-slate-700">
                     <SelectItem value="PIX">PIX</SelectItem>
                     <SelectItem value="Boleto">Boleto</SelectItem>
+                    <SelectItem value="Cheque">Cheque</SelectItem>
                     <SelectItem value="Transferência">Transferência</SelectItem>
                     <SelectItem value="Cartão">Cartão</SelectItem>
                   </SelectContent>
@@ -649,7 +1465,7 @@ export default function PainelFinanceiroGlobal() {
               </div>
             </div>
             <div>
-              <Label className="text-slate-300">Vincular à Obra (opcional, local)</Label>
+              <Label className="text-slate-300">Vincular à Obra (opcional)</Label>
               <Select value={formData.obraId || 'none'} onValueChange={(v) => setFormData({...formData, obraId: v === 'none' ? '' : v})}>
                 <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Sem vínculo" /></SelectTrigger>
                 <SelectContent className="bg-slate-800 border-slate-700">
@@ -667,18 +1483,81 @@ export default function PainelFinanceiroGlobal() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Confirmar Exclusão */}
+      {/* ===== DIALOG: Metas ===== */}
+      <Dialog open={metasDialogOpen} onOpenChange={setMetasDialogOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Target className="h-5 w-5 text-purple-400" />Configurar Metas (locais)
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2 max-h-[70vh] overflow-y-auto pr-2">
+            <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3 text-xs text-purple-200">
+              Estas metas são exclusivas deste módulo. Não afetam Metas Financeiras nem outros painéis.
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1"><Factory className="h-3 w-3" />Fabricação (kg/mês)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.fabricacaoKg} onChange={(e) => setMetasForm({...metasForm, fabricacaoKg: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Preço Fabricação (R$/kg)</Label>
+                <Input type="number" step="0.10" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.fabricacaoPrecoKg} onChange={(e) => setMetasForm({...metasForm, fabricacaoPrecoKg: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1"><HardHat className="h-3 w-3" />Montagem (kg/mês)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.montagemKg} onChange={(e) => setMetasForm({...metasForm, montagemKg: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Preço Montagem (R$/kg)</Label>
+                <Input type="number" step="0.10" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.montagemPrecoKg} onChange={(e) => setMetasForm({...metasForm, montagemPrecoKg: parseFloat(e.target.value) || 0})} />
+              </div>
+            </div>
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 text-xs text-emerald-200">
+              <strong>Receita mínima mensal calculada:</strong> {formatCurrency((metasForm.fabricacaoKg * metasForm.fabricacaoPrecoKg) + (metasForm.montagemKg * metasForm.montagemPrecoKg))}
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1"><ArrowDownRight className="h-3 w-3" />Despesa-Teto (R$/mês)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.despesaTetoMensal} onChange={(e) => setMetasForm({...metasForm, despesaTetoMensal: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1"><TrendingUp className="h-3 w-3" />Margem Mínima (%)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.margemMinima} onChange={(e) => setMetasForm({...metasForm, margemMinima: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1"><Wallet className="h-3 w-3" />Saldo Mínimo (R$)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.saldoMinimo} onChange={(e) => setMetasForm({...metasForm, saldoMinimo: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1"><AlertCircle className="h-3 w-3" />Threshold valor alto (R$)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.thresholdValorAlto} onChange={(e) => setMetasForm({...metasForm, thresholdValorAlto: parseFloat(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Janela crítica (dias)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.alertaCriticoDias} onChange={(e) => setMetasForm({...metasForm, alertaCriticoDias: parseInt(e.target.value) || 0})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Janela atenção (dias)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.alertaAtencaoDias} onChange={(e) => setMetasForm({...metasForm, alertaAtencaoDias: parseInt(e.target.value) || 0})} />
+              </div>
+            </div>
+            <Button className="w-full bg-gradient-to-r from-purple-500 to-indigo-500" onClick={handleSalvarMetas}>
+              Salvar Metas
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== DIALOG: Confirmar Exclusão ===== */}
       <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
         <DialogContent className="bg-slate-900 border-slate-700 max-w-sm">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
-              <AlertTriangle className="h-5 w-5 text-red-400" />
-              Confirmar Exclusão
-            </DialogTitle>
+            <DialogTitle className="text-white flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-red-400" />Confirmar</DialogTitle>
           </DialogHeader>
           <p className="text-slate-400 text-sm">
             {(() => {
-              const m = todasMovimentacoes.find(mm => mm.id === deleteConfirmId);
+              const m = todasMovs.find(mm => mm.id === deleteConfirmId);
               if (!m) return 'Apagar este item?';
               return m.origem === 'local'
                 ? 'Tem certeza que deseja apagar este lançamento local?'
@@ -694,17 +1573,14 @@ export default function PainelFinanceiroGlobal() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Reset */}
+      {/* ===== DIALOG: Reset ===== */}
       <Dialog open={resetDialogOpen} onOpenChange={setResetDialogOpen}>
         <DialogContent className="bg-slate-900 border-slate-700 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
-              <RotateCcw className="h-5 w-5 text-amber-400" />
-              Resetar dados locais
-            </DialogTitle>
+            <DialogTitle className="text-white flex items-center gap-2"><RotateCcw className="h-5 w-5 text-amber-400" />Resetar dados locais</DialogTitle>
           </DialogHeader>
           <p className="text-slate-400 text-sm">
-            Isso apaga TODOS os lançamentos próprios criados aqui, todas as edições locais sobre itens externos, e restaura itens ocultados. O sistema principal não é afetado.
+            Apaga TODOS os lançamentos próprios, edições locais e itens ocultos. Restaura também o status de alertas lidos. Metas e configurações ficam preservadas.
           </p>
           <DialogFooter className="gap-2">
             <Button variant="outline" className="border-slate-700" onClick={() => setResetDialogOpen(false)}>Cancelar</Button>
@@ -714,302 +1590,165 @@ export default function PainelFinanceiroGlobal() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
 
-      {/* Filtros */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-slate-400" />
-          <span className="text-sm text-slate-400 mr-1">Visualizar:</span>
-          <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[240px] bg-slate-800 border-slate-700 text-sm">
-              <SelectValue placeholder="Selecione a visão" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              {opcoesObra.map(o => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-slate-400" />
-          <span className="text-sm text-slate-400 mr-1">Período:</span>
-          {[
-            { value: 'geral', label: 'Geral' },
-            { value: 'semanal', label: 'Semanal' },
-            { value: 'mensal', label: 'Mensal' },
-            { value: 'trimestral', label: 'Trimestral' },
-          ].map(p => (
-            <button
-              key={p.value}
-              onClick={() => setFiltroPeriodo(p.value)}
-              className={cn(
-                "px-4 py-1.5 rounded-lg text-sm font-medium transition-all",
-                filtroPeriodo === p.value
-                  ? "bg-purple-500 text-white shadow-lg shadow-purple-500/25"
-                  : "bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white border border-slate-700"
-              )}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
-                <ArrowUpRight className="h-5 w-5 text-emerald-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Receitas</p>
-                <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpis.totalReceitas)}</p>
-                <p className="text-xs text-slate-500">{kpis.qtdReceitas} lançamentos</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center">
-                <ArrowDownRight className="h-5 w-5 text-red-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Despesas</p>
-                <p className="text-xl font-bold text-red-400">{formatCurrency(kpis.totalDespesas)}</p>
-                <p className="text-xs text-slate-500">{kpis.qtdDespesas} lançamentos</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                <TrendingUp className="h-5 w-5 text-blue-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">Lucro</p>
-                <p className={cn("text-xl font-bold", kpis.lucro >= 0 ? "text-blue-400" : "text-red-400")}>
-                  {formatCurrency(kpis.lucro)}
-                </p>
-                <p className="text-xs text-slate-500">Margem: {kpis.margem.toFixed(1)}%</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardContent className="p-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-amber-400" />
-              </div>
-              <div>
-                <p className="text-sm text-slate-400">A Receber</p>
-                <p className="text-xl font-bold text-amber-400">{formatCurrency(kpis.receitasPendentes)}</p>
-                <p className="text-xs text-slate-500">A pagar: {formatCurrency(kpis.despesasPendentes)}</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-purple-400" />
-              Evolução Receitas vs Despesas
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
-              <BarChart data={evolucaoMensal} barGap={4}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="mes" stroke="#64748b" />
-                <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-                <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-                <Bar dataKey="receitas" name="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="despesas" name="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-slate-900/60 border-slate-700/50">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Receipt className="h-5 w-5 text-rose-400" />
-              Despesas por Categoria
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {dadosPizzaDespesas.length > 0 ? (
-              <ResponsiveContainer width="100%" height={280}>
-                <PieChart>
-                  <Pie data={dadosPizzaDespesas} cx="50%" cy="50%" innerRadius={50} outerRadius={85} paddingAngle={2} dataKey="valor">
-                    {dadosPizzaDespesas.map((entry, i) => (
-                      <Cell key={`cell-${i}`} fill={entry.cor} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-[280px] flex items-center justify-center text-slate-500">
-                Sem despesas no período
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Tabela */}
-      <Card className="bg-slate-900/60 border-slate-700/50">
-        <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-4">
-          <CardTitle className="text-white">Movimentações</CardTitle>
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-              <Input placeholder="Buscar..." className="pl-10 w-[180px] bg-slate-800 border-slate-700" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-            </div>
-            <Select value={filtroTipo} onValueChange={setFiltroTipo}>
-              <SelectTrigger className="w-[140px] bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
-              <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="receita">Receitas</SelectItem>
-                <SelectItem value="despesa">Despesas</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow className="border-slate-700">
-                  <TableHead className="text-slate-400">Origem</TableHead>
-                  <TableHead className="text-slate-400">Tipo</TableHead>
-                  <TableHead className="text-slate-400">Data</TableHead>
-                  <TableHead className="text-slate-400">Descrição</TableHead>
-                  <TableHead className="text-slate-400">Fornecedor/Obra</TableHead>
-                  <TableHead className="text-slate-400">Categoria</TableHead>
-                  <TableHead className="text-slate-400 text-right">Valor</TableHead>
-                  <TableHead className="text-slate-400">Status</TableHead>
-                  <TableHead className="text-slate-400 w-16">Ações</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {movimentacoesFiltradas.map(mov => (
-                  <TableRow key={mov.id} className="border-slate-800 hover:bg-slate-800/50">
-                    <TableCell>
-                      {mov.origem === 'local' ? (
-                        <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 border text-[10px]">
-                          <Lock className="h-3 w-3 mr-1" />Local
-                        </Badge>
-                      ) : mov.origemModificado ? (
-                        <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 border text-[10px]">
-                          <Edit className="h-3 w-3 mr-1" />Editado
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-slate-600/40 text-slate-300 border-slate-500/30 border text-[10px]">
-                          Espelho
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {mov.tipo === 'receita' ? (
-                        <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 border text-xs">
-                          <ArrowUpRight className="h-3 w-3 mr-1" />Receita
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-red-500/20 text-red-400 border-red-500/30 border text-xs">
-                          <ArrowDownRight className="h-3 w-3 mr-1" />Despesa
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-slate-300 text-sm">{formatDate(mov.data)}</TableCell>
-                    <TableCell className="text-white font-medium max-w-[220px]">
-                      <span className="truncate block">{mov.descricao}</span>
-                      {mov.origemObra && mov.numero && (
-                        <span className="text-xs text-emerald-500">Medição #{mov.numero} • {mov.etapaLabel}</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {mov.origemObra ? (
-                        <span className="text-blue-400 flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />{mov.obraNome}
-                        </span>
-                      ) : (
-                        <span className="text-slate-300">{mov.fornecedor || '-'}</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: CORES_CATEGORIAS[mov.categoria] || '#64748b' }}>
-                        <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: CORES_CATEGORIAS[mov.categoria] || '#64748b' }} />
-                        {mov.categoria || '-'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className={cn("text-right font-semibold", mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400")}>
-                      {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={cn("border text-xs",
-                        ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                        mov.status === 'atrasado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                        'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                      )}>
-                        {['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(mov.status) ? 'Recebido' :
-                         mov.status === 'atrasado' ? 'Atrasado' : 'Pendente'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                          <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleEditar(mov)}>
-                            <Edit className="h-4 w-4 mr-2" />Editar (local)
-                          </DropdownMenuItem>
-                          {mov.origemModificado && (
-                            <DropdownMenuItem className="text-blue-300 focus:text-blue-200 focus:bg-slate-700" onClick={() => handleRestaurarItem(mov.id)}>
-                              <RotateCcw className="h-4 w-4 mr-2" />Restaurar original
-                            </DropdownMenuItem>
-                          )}
-                          <DropdownMenuItem className="text-red-400 focus:text-red-300 focus:bg-slate-700" onClick={() => setDeleteConfirmId(mov.id)}>
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            {mov.origem === 'local' ? 'Apagar' : 'Ocultar localmente'}
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {movimentacoesFiltradas.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center text-slate-500 py-8">
-                      Nenhuma movimentação encontrada.
-                    </TableCell>
-                  </TableRow>
+// ============================================================
+// SUB-COMPONENTE: Tabela de movimentações reutilizável
+// ============================================================
+function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false }) {
+  return (
+    <div className="overflow-x-auto">
+      <Table>
+        <TableHeader>
+          <TableRow className="border-slate-700">
+            <TableHead className="text-slate-400">Origem</TableHead>
+            {!hideTipo && <TableHead className="text-slate-400">Tipo</TableHead>}
+            <TableHead className="text-slate-400">Data</TableHead>
+            <TableHead className="text-slate-400">Descrição</TableHead>
+            <TableHead className="text-slate-400">Fornecedor/Obra</TableHead>
+            <TableHead className="text-slate-400">Categoria</TableHead>
+            <TableHead className="text-slate-400 text-right">Valor</TableHead>
+            <TableHead className="text-slate-400">Status</TableHead>
+            <TableHead className="text-slate-400 w-16">Ações</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map(mov => (
+            <TableRow key={mov.id} className="border-slate-800 hover:bg-slate-800/50">
+              <TableCell>
+                {mov.origem === 'local' ? (
+                  <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 border text-[10px]">
+                    <Lock className="h-3 w-3 mr-1" />Local
+                  </Badge>
+                ) : mov.origemModificado ? (
+                  <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/30 border text-[10px]">
+                    <Edit className="h-3 w-3 mr-1" />Editado
+                  </Badge>
+                ) : (
+                  <Badge className="bg-slate-600/40 text-slate-300 border-slate-500/30 border text-[10px]">Espelho</Badge>
                 )}
-              </TableBody>
-            </Table>
+              </TableCell>
+              {!hideTipo && (
+                <TableCell>
+                  {mov.tipo === 'receita' ? (
+                    <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 border text-xs">
+                      <ArrowUpRight className="h-3 w-3 mr-1" />Receita
+                    </Badge>
+                  ) : (
+                    <Badge className="bg-red-500/20 text-red-400 border-red-500/30 border text-xs">
+                      <ArrowDownRight className="h-3 w-3 mr-1" />Despesa
+                    </Badge>
+                  )}
+                </TableCell>
+              )}
+              <TableCell className="text-slate-300 text-sm">{formatDate(mov.data)}</TableCell>
+              <TableCell className="text-white font-medium max-w-[220px]">
+                <span className="truncate block">{mov.descricao}</span>
+                {ehCheque(mov) && <span className="text-[10px] text-blue-400">🏦 cheque detectado</span>}
+                {mov.origemObra && mov.numero && (
+                  <span className="text-xs text-emerald-500">Medição #{mov.numero} • {mov.etapaLabel}</span>
+                )}
+              </TableCell>
+              <TableCell className="text-sm">
+                {mov.origemObra ? (
+                  <span className="text-blue-400 flex items-center gap-1">
+                    <Building2 className="h-3 w-3" />{mov.obraNome}
+                  </span>
+                ) : (
+                  <span className="text-slate-300">{mov.fornecedor || '-'}</span>
+                )}
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: CORES_CATEGORIAS[mov.categoria] || '#64748b' }}>
+                  <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: CORES_CATEGORIAS[mov.categoria] || '#64748b' }} />
+                  {mov.categoria || '-'}
+                </Badge>
+              </TableCell>
+              <TableCell className={cn("text-right font-semibold", mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400")}>
+                {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
+              </TableCell>
+              <TableCell>
+                <Badge className={cn("border text-xs",
+                  ['recebido','pago','paga','faturado','confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                  mov.status === 'atrasado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
+                  'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                )}>
+                  {['recebido','pago','paga','faturado','confirmado'].includes(mov.status) ? 'Recebido' :
+                    mov.status === 'atrasado' ? 'Atrasado' : 'Pendente'}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                    <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => onEdit(mov)}>
+                      <Edit className="h-4 w-4 mr-2" />Editar (local)
+                    </DropdownMenuItem>
+                    {mov.origemModificado && (
+                      <DropdownMenuItem className="text-blue-300 focus:text-blue-200 focus:bg-slate-700" onClick={() => onRestore(mov.id)}>
+                        <RotateCcw className="h-4 w-4 mr-2" />Restaurar original
+                      </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem className="text-red-400 focus:text-red-300 focus:bg-slate-700" onClick={() => onDelete(mov.id)}>
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      {mov.origem === 'local' ? 'Apagar' : 'Ocultar localmente'}
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </TableCell>
+            </TableRow>
+          ))}
+          {rows.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={hideTipo ? 8 : 9} className="text-center text-slate-500 py-8">
+                Nenhuma movimentação encontrada.
+              </TableCell>
+            </TableRow>
+          )}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+// ============================================================
+// SUB-COMPONENTE: Lista de items futuros (compacta)
+// ============================================================
+function FuturoLista({ items, tipo }) {
+  if (items.length === 0) {
+    return <div className="text-slate-500 text-sm text-center py-4">Nenhum {tipo === 'receita' ? 'recebimento' : 'pagamento'} previsto</div>;
+  }
+  return (
+    <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+      {items.map(item => (
+        <div key={item.id} className="flex items-center justify-between gap-3 p-2 rounded-lg bg-slate-800/40 hover:bg-slate-800/70 transition-colors">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+              <Badge className={cn("text-[10px]",
+                item.diasVenc < 0 ? 'bg-red-700/40 text-red-200' :
+                item.diasVenc <= 2 ? 'bg-red-500/30 text-red-300' :
+                item.diasVenc <= 7 ? 'bg-amber-500/30 text-amber-300' :
+                item.diasVenc <= 30 ? 'bg-blue-500/30 text-blue-300' :
+                'bg-slate-600/40 text-slate-400'
+              )}>
+                {item.diasVenc < 0 ? `Vencido ${Math.abs(item.diasVenc)}d` : `${item.diasVenc}d`}
+              </Badge>
+              {item._ehCheque && <Badge className="bg-blue-500/30 text-blue-300 text-[10px]">CHEQUE</Badge>}
+            </div>
+            <p className="text-sm text-white truncate">{item.descricao}</p>
+            <p className="text-xs text-slate-500 truncate">{item.fornecedor} • {formatDate(item.vencimento && item.vencimento !== '-' ? item.vencimento : item.data)}</p>
           </div>
-        </CardContent>
-      </Card>
+          <p className={cn("text-sm font-bold flex-shrink-0", tipo === 'receita' ? 'text-emerald-400' : 'text-red-400')}>
+            {formatCurrency(item.valor)}
+          </p>
+        </div>
+      ))}
     </div>
   );
 }
