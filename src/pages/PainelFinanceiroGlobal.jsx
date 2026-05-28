@@ -2905,14 +2905,17 @@ export default function PainelFinanceiroGlobal() {
 
       {/* ===== DIALOG: Nova/Editar Movimentação ===== */}
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditando(null); }}>
-        <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
-          <DialogHeader>
+        <DialogContent className={cn(
+          "bg-slate-900 border-slate-700 flex flex-col p-0 max-h-[92vh]",
+          chequeMode && !editando ? "max-w-2xl" : "max-w-lg"
+        )}>
+          <DialogHeader className="p-6 pb-2 flex-shrink-0">
             <DialogTitle className="text-white flex items-center gap-2">
               <Lock className="h-4 w-4 text-purple-400" />
               {editando ? `Editar (local) ${editando.origem === 'local' ? '' : '— item externo'}` : 'Nova Movimentação Local'}
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-4">
+          <div className="space-y-4 px-6 pb-6 overflow-y-auto flex-1">
             {editando && editando.origem !== 'local' && (
               <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
                 Editando item externo — alterações ficam SÓ neste módulo. A origem permanece intacta.
@@ -3127,14 +3130,14 @@ export default function PainelFinanceiroGlobal() {
 
       {/* ===== DIALOG: Calculadora Reversa de Juros ===== */}
       <Dialog open={calcReversaOpen} onOpenChange={setCalcReversaOpen}>
-        <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl flex flex-col p-0 max-h-[92vh]">
+          <DialogHeader className="p-6 pb-2 flex-shrink-0">
             <DialogTitle className="text-white flex items-center gap-2">
               <FlaskConical className="h-5 w-5 text-amber-400" />
               Calculadora Reversa de Juros
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-2">
+          <div className="space-y-4 px-6 pb-6 overflow-y-auto flex-1">
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
               <strong>Para que serve:</strong> antes de aceitar uma proposta de cheque trocado ou empréstimo, calcule
               qual é o piso mínimo que vale a pena. Defina sua taxa máxima aceitável e o sistema mostra o limite.
@@ -3259,14 +3262,14 @@ export default function PainelFinanceiroGlobal() {
 
       {/* ===== DIALOG: Operação Financeira (cheques trocados, empréstimos, etc) ===== */}
       <Dialog open={opFinDialogOpen} onOpenChange={setOpFinDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-700 max-w-3xl">
-          <DialogHeader>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-3xl flex flex-col p-0 max-h-[92vh]">
+          <DialogHeader className="p-6 pb-2 flex-shrink-0">
             <DialogTitle className="text-white flex items-center gap-2">
               <Percent className="h-5 w-5 text-amber-400" />
               Operação Financeira — Cheques Trocados / Empréstimos / Renegociação
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-2 max-h-[75vh] overflow-y-auto pr-2">
+          <div className="space-y-4 px-6 pb-6 overflow-y-auto flex-1">
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
               <strong>Como funciona:</strong> Informe o valor de face (cheque que você descontou ou empréstimo solicitado) e o valor líquido recebido. O sistema gera automaticamente:
               <ul className="mt-1.5 ml-4 list-disc text-amber-200/80">
@@ -3487,13 +3490,13 @@ export default function PainelFinanceiroGlobal() {
 
       {/* ===== DIALOG: Metas ===== */}
       <Dialog open={metasDialogOpen} onOpenChange={setMetasDialogOpen}>
-        <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
-          <DialogHeader>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl flex flex-col p-0 max-h-[92vh]">
+          <DialogHeader className="p-6 pb-2 flex-shrink-0">
             <DialogTitle className="text-white flex items-center gap-2">
               <Target className="h-5 w-5 text-purple-400" />Configurar Metas (locais)
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 pt-2 max-h-[70vh] overflow-y-auto pr-2">
+          <div className="space-y-4 px-6 pb-6 overflow-y-auto flex-1">
             <div className="bg-purple-500/10 border border-purple-500/30 rounded-lg p-3 text-xs text-purple-200">
               Estas metas são exclusivas deste módulo. Não afetam Metas Financeiras nem outros painéis.
             </div>
