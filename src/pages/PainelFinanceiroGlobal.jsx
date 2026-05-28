@@ -23,6 +23,8 @@ import {
   AlertTriangle, Shield, Lock, RotateCcw, Bell, Target, Flag,
   Activity, Layers, Settings, Eye, AlertCircle, ChevronUp, ChevronDown,
   Factory, HardHat, Zap, FileCheck, TrendingUp as TrendUp,
+  Download, FileSpreadsheet, Heart, Sparkles, FlaskConical, Sliders,
+  Gauge, Minus, Percent,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis,
@@ -50,6 +52,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import toast from 'react-hot-toast';
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
+import { exportToExcel } from '../utils/exportUtils';
+import jsPDF from 'jspdf';
 
 // ============================================================
 // CHAVES ISOLADAS
@@ -236,6 +240,23 @@ export default function PainelFinanceiroGlobal() {
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '',
   });
   const [metasForm, setMetasForm] = useState(metas);
+
+  // ===== ESTADO DO SIMULADOR DE CENÁRIOS =====
+  const [cenario, setCenario] = useState({
+    corteDespesas: 0,      // % de redução de despesas
+    aumentoReceitas: 0,    // % de aumento em receitas
+    receitaExtra: 0,       // R$ injeção pontual de receita
+    despesaExtra: 0,       // R$ despesa extra (cenário pessimista)
+    novoPrecoFabKg: metas.fabricacaoPrecoKg,
+    novaProducaoFabKg: metas.fabricacaoKg,
+  });
+  useEffect(() => {
+    setCenario(prev => ({
+      ...prev,
+      novoPrecoFabKg: metas.fabricacaoPrecoKg,
+      novaProducaoFabKg: metas.fabricacaoKg,
+    }));
+  }, [metas.fabricacaoPrecoKg, metas.fabricacaoKg]);
 
   // ===== MAPA DE OBRAS =====
   const obrasMap = useMemo(() => {
@@ -620,6 +641,97 @@ export default function PainelFinanceiroGlobal() {
     };
   }, [todasMovs, metas]);
 
+  // ===== COMPARATIVO MÊS ATUAL × MÊS ANTERIOR =====
+  const comparativo = useMemo(() => {
+    const hoje = new Date();
+    const ini = (m) => new Date(hoje.getFullYear(), hoje.getMonth() - m, 1);
+    const fim = (m) => new Date(hoje.getFullYear(), hoje.getMonth() - m + 1, 0);
+
+    const calcular = (offset) => {
+      const inicio = ini(offset);
+      const final = fim(offset);
+      const movs = todasMovs.filter(m => {
+        const d = new Date(m.data || m.vencimento);
+        return d >= inicio && d <= final;
+      });
+      const rec = movs.filter(m => m.tipo === 'receita').reduce((s,m)=>s+(m.valor||0),0);
+      const desp = movs.filter(m => m.tipo === 'despesa').reduce((s,m)=>s+(m.valor||0),0);
+      return { receitas: rec, despesas: desp, lucro: rec - desp, margem: rec > 0 ? ((rec - desp) / rec * 100) : 0, qtd: movs.length };
+    };
+    const atual = calcular(0);
+    const anterior = calcular(1);
+    const delta = (a, b) => b > 0 ? ((a - b) / b * 100) : (a > 0 ? 100 : 0);
+    return {
+      atual, anterior,
+      deltaReceitas: delta(atual.receitas, anterior.receitas),
+      deltaDespesas: delta(atual.despesas, anterior.despesas),
+      deltaLucro: delta(atual.lucro, anterior.lucro),
+      deltaMargem: atual.margem - anterior.margem,
+    };
+  }, [todasMovs]);
+
+  // ===== FORECAST DE RECEITAS (medições aprovadas mas não pagas) =====
+  const forecast = useMemo(() => {
+    // Medições aprovadas ou pendentes com data futura = forecast
+    const aprovadasNaoPagas = todasMovs.filter(m =>
+      m.tipo === 'receita' &&
+      !['recebido','pago','paga'].includes(m.status) &&
+      m.valor > 0
+    );
+    const totalForecast = aprovadasNaoPagas.reduce((s,m)=>s+(m.valor||0),0);
+    // Distribui por mês (próximos 6 meses)
+    const hoje = new Date();
+    const meses = [];
+    for (let i = 0; i < 6; i++) {
+      const mes = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
+      const label = mes.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      const naoVigentes = aprovadasNaoPagas.filter(m => {
+        const venc = new Date(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+        return venc.getFullYear() === mes.getFullYear() && venc.getMonth() === mes.getMonth();
+      });
+      const valor = naoVigentes.reduce((s,m)=>s+(m.valor||0),0);
+      meses.push({ mes: label, forecast: valor, meta: metas.receitaMinimaMensal });
+    }
+    return { totalForecast, meses, qtd: aprovadasNaoPagas.length, items: aprovadasNaoPagas };
+  }, [todasMovs, metas]);
+
+  // ===== SCORE DE SAÚDE FINANCEIRA (0-100) =====
+  const scoreSaude = useMemo(() => {
+    // Componentes (pesos):
+    //  - Margem operacional (25%): score 100 se margem >= 25%; 0 se <= 0%
+    //  - Liquidez 30d (25%): saldo30 / pagar30; score 100 se >= 1.5x; 0 se < 0.5x
+    //  - Receita vs Meta (20%): receitaMes / metaMin; score 100 se >= 1; 0 se <= 0.5
+    //  - Despesa vs Teto (15%): inverso; score 100 se despesa <= teto*0.9; 0 se > teto*1.2
+    //  - Alertas críticos (15%): 100 se 0 alertas; -20 cada alerta crítico
+    const norm = (v, min, max) => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
+    const scoreMargem = norm(metasReal.margemReal, 0, 25);
+    const liquidez = futuro.pagar30 > 0 ? futuro.receber30 / futuro.pagar30 : (futuro.receber30 > 0 ? 2 : 1);
+    const scoreLiquidez = norm(liquidez, 0.5, 1.5);
+    const scoreReceita = norm(metasReal.receitaMes / Math.max(1, metas.receitaMinimaMensal), 0.5, 1.0);
+    const scoreDespesa = 100 - norm(metasReal.despesaMes / Math.max(1, metas.despesaTetoMensal), 0.9, 1.2);
+    const alertasCriticos = alertas.filter(a => a.nivel === 'critico' || a.nivel === 'vencido').length;
+    const scoreAlertas = Math.max(0, 100 - alertasCriticos * 20);
+
+    const total = (scoreMargem * 0.25) + (scoreLiquidez * 0.25) + (scoreReceita * 0.20) + (scoreDespesa * 0.15) + (scoreAlertas * 0.15);
+    const score = Math.round(total);
+    let nivel, cor;
+    if (score >= 80) { nivel = 'Excelente'; cor = '#10b981'; }
+    else if (score >= 60) { nivel = 'Saudável'; cor = '#3b82f6'; }
+    else if (score >= 40) { nivel = 'Atenção'; cor = '#f59e0b'; }
+    else if (score >= 20) { nivel = 'Crítico'; cor = '#ef4444'; }
+    else { nivel = 'Severo'; cor = '#7f1d1d'; }
+    return {
+      score, nivel, cor,
+      componentes: [
+        { nome: 'Margem Operacional', score: Math.round(scoreMargem), peso: 25, atual: `${metasReal.margemReal.toFixed(1)}%`, meta: `${metas.margemMinima}%` },
+        { nome: 'Liquidez 30 dias', score: Math.round(scoreLiquidez), peso: 25, atual: `${liquidez.toFixed(2)}x`, meta: '≥ 1.5x' },
+        { nome: 'Receita vs Meta', score: Math.round(scoreReceita), peso: 20, atual: formatCurrency(metasReal.receitaMes), meta: formatCurrency(metas.receitaMinimaMensal) },
+        { nome: 'Despesa vs Teto', score: Math.round(scoreDespesa), peso: 15, atual: formatCurrency(metasReal.despesaMes), meta: `≤ ${formatCurrency(metas.despesaTetoMensal)}` },
+        { nome: 'Alertas Críticos', score: Math.round(scoreAlertas), peso: 15, atual: `${alertasCriticos} alerta(s)`, meta: '0' },
+      ],
+    };
+  }, [metasReal, futuro, metas, alertas]);
+
   // ===== TABELA FILTRADA =====
   const movsTabela = useMemo(() => {
     let lista = todasMovs;
@@ -751,6 +863,169 @@ export default function PainelFinanceiroGlobal() {
     setAlertasLidos(prev => [...prev, alertId]);
   };
 
+  // ===== SIMULAÇÃO DE CENÁRIOS =====
+  const cenarioCalc = useMemo(() => {
+    const baseReceita = metasReal.receitaMes;
+    const baseDespesa = metasReal.despesaMes;
+    const novaReceita = baseReceita * (1 + cenario.aumentoReceitas / 100) + (cenario.receitaExtra || 0);
+    const novaDespesa = baseDespesa * (1 - cenario.corteDespesas / 100) + (cenario.despesaExtra || 0);
+    const novaProducaoReceita = cenario.novaProducaoFabKg * cenario.novoPrecoFabKg + (metas.montagemKg * metas.montagemPrecoKg);
+    const novoLucro = novaReceita - novaDespesa;
+    const novaMargem = novaReceita > 0 ? (novoLucro / novaReceita * 100) : 0;
+    const economiaDespesas = baseDespesa - (baseDespesa * (1 - cenario.corteDespesas / 100));
+    const ganhoReceita = (baseReceita * (cenario.aumentoReceitas / 100)) + cenario.receitaExtra;
+
+    // Comparativo vs baseline
+    const baseLucro = baseReceita - baseDespesa;
+    const baseMargem = baseReceita > 0 ? (baseLucro / baseReceita * 100) : 0;
+    return {
+      baseReceita, baseDespesa, baseLucro, baseMargem,
+      novaReceita, novaDespesa, novoLucro, novaMargem,
+      economiaDespesas, ganhoReceita,
+      deltaLucro: novoLucro - baseLucro,
+      deltaMargem: novaMargem - baseMargem,
+      novaProducaoReceita,
+      novaProducaoDelta: novaProducaoReceita - metasReal.receitaTotalMeta,
+      // runway (meses que o saldo atual dura)
+      runwayMeses: novaDespesa > 0 ? (futuro.saldo30 / novaDespesa).toFixed(1) : '∞',
+    };
+  }, [cenario, metasReal, metas, futuro.saldo30]);
+
+  // ===== EXPORT EXCEL =====
+  const handleExportExcel = () => {
+    const cols = [
+      { header: 'Tipo', key: 'tipo' },
+      { header: 'Origem', key: 'origemLabel' },
+      { header: 'Data', key: 'data' },
+      { header: 'Descrição', key: 'descricao' },
+      { header: 'Fornecedor/Obra', key: 'fornecedor' },
+      { header: 'Categoria', key: 'categoria' },
+      { header: 'Valor', key: 'valor' },
+      { header: 'Forma Pagto', key: 'formaPagto' },
+      { header: 'Vencimento', key: 'vencimento' },
+      { header: 'Status', key: 'status' },
+    ];
+    const rows = todasMovs.map(m => ({
+      ...m,
+      data: formatDate(m.data),
+      vencimento: m.vencimento && m.vencimento !== '-' ? formatDate(m.vencimento) : '-',
+      valor: m.valor || 0,
+    }));
+    const ts = new Date().toISOString().split('T')[0];
+    exportToExcel(rows, cols, `painel-global-${ts}`);
+    toast.success('Excel gerado');
+  };
+
+  // ===== EXPORT PDF EXECUTIVO =====
+  const handleExportPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = 210, M = 15;
+      let y = 15;
+
+      // Cabeçalho
+      doc.setFillColor(124, 58, 237);
+      doc.rect(0, 0, W, 28, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
+      doc.text('PAINEL FINANCEIRO GLOBAL', M, 14);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`Relatório gerado em ${new Date().toLocaleString('pt-BR')}`, M, 22);
+      y = 38;
+
+      // Score de saúde
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+      doc.text('SCORE DE SAÚDE FINANCEIRA', M, y); y += 6;
+      const hex = scoreSaude.cor.replace('#', '');
+      doc.setFillColor(parseInt(hex.slice(0,2), 16), parseInt(hex.slice(2,4), 16), parseInt(hex.slice(4,6), 16));
+      doc.roundedRect(M, y, 40, 24, 3, 3, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(20); doc.setFont('helvetica', 'bold');
+      doc.text(String(scoreSaude.score), M + 20, y + 12, { align: 'center' });
+      doc.setFontSize(8);
+      doc.text('/100', M + 20, y + 18, { align: 'center' });
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(11); doc.setFont('helvetica', 'bold');
+      doc.text(scoreSaude.nivel, M + 45, y + 10);
+      doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+      scoreSaude.componentes.forEach((c, i) => {
+        doc.text(`${c.nome}: ${c.score}/100 (peso ${c.peso}%)`, M + 45, y + 14 + i * 4);
+      });
+      y += 32;
+
+      // KPIs do mês
+      doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+      doc.text('INDICADORES DO MÊS ATUAL', M, y); y += 6;
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      const kpisLinhas = [
+        ['Receitas do mês:', formatCurrency(metasReal.receitaMes), `Meta: ${formatCurrency(metas.receitaMinimaMensal)}`],
+        ['Despesas do mês:', formatCurrency(metasReal.despesaMes), `Teto: ${formatCurrency(metas.despesaTetoMensal)}`],
+        ['Lucro / Margem:', formatCurrency(metasReal.receitaMes - metasReal.despesaMes), `${metasReal.margemReal.toFixed(1)}% (meta: ${metas.margemMinima}%)`],
+        ['A receber (30d):', formatCurrency(futuro.receber30), `90d: ${formatCurrency(futuro.receber90)}`],
+        ['A pagar (30d):', formatCurrency(futuro.pagar30), `90d: ${formatCurrency(futuro.pagar90)}`],
+        ['Saldo projetado 30d:', formatCurrency(futuro.saldo30), `Min: ${formatCurrency(metas.saldoMinimo)}`],
+      ];
+      kpisLinhas.forEach(([label, val, sub]) => {
+        doc.setFont('helvetica', 'bold');
+        doc.text(label, M, y);
+        doc.setFont('helvetica', 'normal');
+        doc.text(val, M + 50, y);
+        doc.setTextColor(100, 116, 139);
+        doc.text(sub, M + 100, y);
+        doc.setTextColor(30, 41, 59);
+        y += 5;
+      });
+      y += 4;
+
+      // Comparativo
+      doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+      doc.text('COMPARATIVO MÊS ATUAL × MÊS ANTERIOR', M, y); y += 6;
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      const comp = [
+        ['Receitas:', formatCurrency(comparativo.atual.receitas), formatCurrency(comparativo.anterior.receitas), `${comparativo.deltaReceitas >= 0 ? '+' : ''}${comparativo.deltaReceitas.toFixed(1)}%`],
+        ['Despesas:', formatCurrency(comparativo.atual.despesas), formatCurrency(comparativo.anterior.despesas), `${comparativo.deltaDespesas >= 0 ? '+' : ''}${comparativo.deltaDespesas.toFixed(1)}%`],
+        ['Lucro:', formatCurrency(comparativo.atual.lucro), formatCurrency(comparativo.anterior.lucro), `${comparativo.deltaLucro >= 0 ? '+' : ''}${comparativo.deltaLucro.toFixed(1)}%`],
+      ];
+      doc.setFont('helvetica', 'bold');
+      doc.text('Métrica', M, y); doc.text('Atual', M + 50, y); doc.text('Anterior', M + 100, y); doc.text('Δ', M + 140, y);
+      y += 5;
+      doc.setFont('helvetica', 'normal');
+      comp.forEach(linha => {
+        doc.text(linha[0], M, y);
+        doc.text(linha[1], M + 50, y);
+        doc.text(linha[2], M + 100, y);
+        doc.setTextColor(linha[3].startsWith('+') ? 16 : 239, linha[3].startsWith('+') ? 185 : 68, linha[3].startsWith('+') ? 129 : 68);
+        doc.text(linha[3], M + 140, y);
+        doc.setTextColor(30, 41, 59);
+        y += 5;
+      });
+      y += 4;
+
+      // Top 5 alertas
+      if (alertas.length > 0) {
+        if (y > 220) { doc.addPage(); y = 15; }
+        doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+        doc.text(`ALERTAS PRIORITÁRIOS (Top ${Math.min(8, alertas.length)})`, M, y); y += 6;
+        doc.setFontSize(8); doc.setFont('helvetica', 'normal');
+        alertas.slice(0, 8).forEach(a => {
+          const nivel = a.nivel === 'vencido' ? '[VENCIDO]' : a.nivel === 'critico' ? `[CRÍTICO ${a.dias}d]` : `[ATENÇÃO ${a.dias}d]`;
+          const cheque = a.ehCheque ? ' [CHEQUE]' : '';
+          const linha = `${nivel}${cheque} ${a.titulo} — ${formatCurrency(a.valor)}`;
+          const lines = doc.splitTextToSize(linha, W - 2 * M);
+          lines.forEach(ln => { doc.text(ln, M, y); y += 4; });
+          y += 1;
+        });
+      }
+
+      doc.save(`painel-global-${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('PDF executivo gerado');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao gerar PDF');
+    }
+  };
+
   const categoriasDisponiveis = [
     'Matéria Prima','Mão de Obra','Energia/Utilidades','Manutenção',
     'Transporte','Administrativo','Impostos','Medição','Serviço Avulso','Outros'
@@ -798,6 +1073,21 @@ export default function PainelFinanceiroGlobal() {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" className="border-slate-700 text-slate-300 hover:text-white">
+                <Download className="h-4 w-4 mr-2" />Exportar
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+              <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={handleExportPDF}>
+                <FileText className="h-4 w-4 mr-2" />PDF Executivo
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={handleExportExcel}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />Excel Movimentações
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <Button variant="outline" className="border-slate-700 text-slate-300 hover:text-white" onClick={handleAbrirMetas}>
             <Target className="h-4 w-4 mr-2" />Metas
           </Button>
@@ -887,12 +1177,85 @@ export default function PainelFinanceiroGlobal() {
             <Bell className="h-4 w-4 mr-1" />Alertas
             {alertasNaoLidos.length > 0 && <Badge className="ml-2 bg-red-500/30 text-red-200 text-[10px] px-1.5">{alertasNaoLidos.length}</Badge>}
           </TabsTrigger>
+          <TabsTrigger value="cenarios"><FlaskConical className="h-4 w-4 mr-1" />Cenários</TabsTrigger>
         </TabsList>
 
         {/* =========================================== */}
         {/* TAB 1: VISÃO GERAL                           */}
         {/* =========================================== */}
         <TabsContent value="visao" className="space-y-6">
+          {/* SCORE DE SAÚDE + COMPARATIVO */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Score de saúde financeira */}
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-white flex items-center gap-2 text-sm">
+                  <Heart className="h-4 w-4 text-rose-400" />Score Saúde Financeira
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4">
+                  <div className="relative w-24 h-24 flex-shrink-0">
+                    <svg className="w-24 h-24 -rotate-90">
+                      <circle cx="48" cy="48" r="40" stroke="#1e293b" strokeWidth="8" fill="none" />
+                      <circle cx="48" cy="48" r="40" stroke={scoreSaude.cor} strokeWidth="8" fill="none"
+                        strokeDasharray={`${2 * Math.PI * 40}`}
+                        strokeDashoffset={`${2 * Math.PI * 40 * (1 - scoreSaude.score / 100)}`}
+                        strokeLinecap="round"
+                        style={{ transition: 'stroke-dashoffset 0.8s ease' }} />
+                    </svg>
+                    <div className="absolute inset-0 flex flex-col items-center justify-center">
+                      <span className="text-2xl font-bold text-white">{scoreSaude.score}</span>
+                      <span className="text-[10px] text-slate-500">/100</span>
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-base font-bold" style={{ color: scoreSaude.cor }}>{scoreSaude.nivel}</p>
+                    <div className="space-y-1 mt-2">
+                      {scoreSaude.componentes.slice(0, 3).map((c, i) => (
+                        <div key={i} className="text-[10px] text-slate-400 flex justify-between gap-2">
+                          <span className="truncate">{c.nome}</span>
+                          <span className="font-semibold text-white">{c.score}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Comparativo Mês Atual × Anterior */}
+            <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-white flex items-center gap-2 text-sm">
+                  <BarChart3 className="h-4 w-4 text-cyan-400" />Comparativo Mês Atual × Anterior
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Receitas', atual: comparativo.atual.receitas, ant: comparativo.anterior.receitas, delta: comparativo.deltaReceitas, cor: 'emerald', invertido: false },
+                    { label: 'Despesas', atual: comparativo.atual.despesas, ant: comparativo.anterior.despesas, delta: comparativo.deltaDespesas, cor: 'red', invertido: true },
+                    { label: 'Lucro', atual: comparativo.atual.lucro, ant: comparativo.anterior.lucro, delta: comparativo.deltaLucro, cor: 'blue', invertido: false },
+                  ].map((c, i) => {
+                    const sucesso = c.invertido ? c.delta <= 0 : c.delta >= 0;
+                    return (
+                      <div key={i} className="bg-slate-800/40 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">{c.label}</p>
+                        <p className={`text-base font-bold text-${c.cor}-400 mt-1 truncate`}>{formatCurrency(c.atual)}</p>
+                        <p className="text-[10px] text-slate-500 truncate">Anterior: {formatCurrency(c.ant)}</p>
+                        <div className={cn("flex items-center gap-1 mt-2 text-xs font-semibold", sucesso ? 'text-emerald-400' : 'text-red-400')}>
+                          {c.delta >= 0 ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                          {Math.abs(c.delta).toFixed(1)}%
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <KPISimple icon={ArrowUpRight} color="emerald" label="Receitas" value={formatCurrency(kpis.totR)} sub={`${kpis.qtdR} lançamentos`} />
             <KPISimple icon={ArrowDownRight} color="red" label="Despesas" value={formatCurrency(kpis.totD)} sub={`${kpis.qtdD} lançamentos`} />
@@ -1113,11 +1476,34 @@ export default function PainelFinanceiroGlobal() {
         {/* TAB 4: FLUXO FUTURO                          */}
         {/* =========================================== */}
         <TabsContent value="futuro" className="space-y-6">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <KPISimple icon={ArrowUpRight} color="emerald" label="A receber 30d" value={formatCurrency(futuro.receber30)} sub={`60d: ${formatCurrency(futuro.receber60)} • 90d: ${formatCurrency(futuro.receber90)}`} />
-            <KPISimple icon={ArrowDownRight} color="red" label="A pagar 30d" value={formatCurrency(futuro.pagar30)} sub={`60d: ${formatCurrency(futuro.pagar60)} • 90d: ${formatCurrency(futuro.pagar90)}`} />
-            <KPISimple icon={TrendingUp} color={futuro.saldo30 >= 0 ? "blue" : "red"} label="Saldo Projetado 30d" value={formatCurrency(futuro.saldo30)} sub={`60d: ${formatCurrency(futuro.saldo60)} • 90d: ${formatCurrency(futuro.saldo90)}`} />
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <KPISimple icon={ArrowUpRight} color="emerald" label="A receber 30d" value={formatCurrency(futuro.receber30)} sub={`90d: ${formatCurrency(futuro.receber90)}`} />
+            <KPISimple icon={ArrowDownRight} color="red" label="A pagar 30d" value={formatCurrency(futuro.pagar30)} sub={`90d: ${formatCurrency(futuro.pagar90)}`} />
+            <KPISimple icon={TrendingUp} color={futuro.saldo30 >= 0 ? "blue" : "red"} label="Saldo 30d" value={formatCurrency(futuro.saldo30)} sub={`90d: ${formatCurrency(futuro.saldo90)}`} />
+            <KPISimple icon={Sparkles} color="purple" label="Forecast Total" value={formatCurrency(forecast.totalForecast)} sub={`${forecast.qtd} medições/receitas previstas`} />
           </div>
+
+          {/* Forecast de receitas (medições aprovadas) */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2"><Sparkles className="h-5 w-5 text-purple-400" />Forecast de Receitas (próx. 6 meses)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={forecast.meses}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="mes" stroke="#64748b" />
+                  <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                  <ReferenceLine y={metas.receitaMinimaMensal} stroke="#a855f7" strokeDasharray="3 3" label={{ value: 'Meta mín', fill: '#a78bfa', fontSize: 10 }} />
+                  <Bar dataKey="forecast" name="Forecast" fill="#a78bfa" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+              <p className="text-xs text-slate-500 mt-2">
+                Baseado em receitas pendentes/aprovadas com data de vencimento futura. Total: <strong className="text-purple-400">{formatCurrency(forecast.totalForecast)}</strong>
+              </p>
+            </CardContent>
+          </Card>
 
           <Card className="bg-slate-900/60 border-slate-700/50">
             <CardHeader>
@@ -1381,6 +1767,186 @@ export default function PainelFinanceiroGlobal() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        {/* =========================================== */}
+        {/* TAB 7: CENÁRIOS (SIMULADOR)                  */}
+        {/* =========================================== */}
+        <TabsContent value="cenarios" className="space-y-6">
+          <div className="bg-gradient-to-r from-violet-900/30 to-purple-900/30 rounded-xl border border-violet-700/30 p-4">
+            <div className="flex items-start gap-3 text-xs text-violet-200">
+              <FlaskConical className="h-5 w-5 mt-0.5 flex-shrink-0" />
+              <div>
+                <strong className="text-violet-100">Simulador de Cenários:</strong>{' '}
+                Ajuste os controles abaixo para ver o impacto de decisões hipotéticas. Os números mudam em tempo real. Nada é salvo — é apenas para análise "e se...?".
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Controles */}
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2"><Sliders className="h-5 w-5 text-violet-400" />Variáveis do Cenário</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <Label className="text-slate-300 flex items-center gap-2"><Minus className="h-3 w-3 text-rose-400" />Cortar Despesas</Label>
+                    <span className="text-rose-400 font-bold">{cenario.corteDespesas}%</span>
+                  </div>
+                  <input type="range" min="0" max="50" step="1" value={cenario.corteDespesas}
+                    onChange={(e) => setCenario({...cenario, corteDespesas: parseInt(e.target.value)})}
+                    className="w-full accent-rose-500" />
+                  <p className="text-[10px] text-slate-500 mt-1">Economia: {formatCurrency(cenarioCalc.economiaDespesas)}/mês</p>
+                </div>
+
+                <div>
+                  <div className="flex justify-between mb-2">
+                    <Label className="text-slate-300 flex items-center gap-2"><Plus className="h-3 w-3 text-emerald-400" />Aumentar Receitas</Label>
+                    <span className="text-emerald-400 font-bold">+{cenario.aumentoReceitas}%</span>
+                  </div>
+                  <input type="range" min="0" max="100" step="5" value={cenario.aumentoReceitas}
+                    onChange={(e) => setCenario({...cenario, aumentoReceitas: parseInt(e.target.value)})}
+                    className="w-full accent-emerald-500" />
+                  <p className="text-[10px] text-slate-500 mt-1">Ganho: {formatCurrency(cenarioCalc.ganhoReceita)}/mês</p>
+                </div>
+
+                <div>
+                  <Label className="text-slate-300 text-xs">Receita Extra (injeção pontual R$)</Label>
+                  <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={cenario.receitaExtra}
+                    onChange={(e) => setCenario({...cenario, receitaExtra: parseFloat(e.target.value) || 0})} />
+                </div>
+
+                <div>
+                  <Label className="text-slate-300 text-xs">Despesa Extra (cenário pessimista R$)</Label>
+                  <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={cenario.despesaExtra}
+                    onChange={(e) => setCenario({...cenario, despesaExtra: parseFloat(e.target.value) || 0})} />
+                </div>
+
+                <div className="border-t border-slate-700 pt-4">
+                  <p className="text-sm font-semibold text-violet-300 mb-3 flex items-center gap-2"><Factory className="h-4 w-4" />Simular Produção</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <Label className="text-slate-300 text-xs">Novo preço fáb (R$/kg)</Label>
+                      <Input type="number" step="0.10" className="mt-1 bg-slate-800 border-slate-700" value={cenario.novoPrecoFabKg}
+                        onChange={(e) => setCenario({...cenario, novoPrecoFabKg: parseFloat(e.target.value) || 0})} />
+                    </div>
+                    <div>
+                      <Label className="text-slate-300 text-xs">Nova produção (kg/mês)</Label>
+                      <Input type="number" step="1000" className="mt-1 bg-slate-800 border-slate-700" value={cenario.novaProducaoFabKg}
+                        onChange={(e) => setCenario({...cenario, novaProducaoFabKg: parseFloat(e.target.value) || 0})} />
+                    </div>
+                  </div>
+                </div>
+
+                <Button variant="outline" className="border-slate-700 text-slate-300 w-full" onClick={() => setCenario({
+                  corteDespesas: 0, aumentoReceitas: 0, receitaExtra: 0, despesaExtra: 0,
+                  novoPrecoFabKg: metas.fabricacaoPrecoKg, novaProducaoFabKg: metas.fabricacaoKg,
+                })}>
+                  <RotateCcw className="h-4 w-4 mr-2" />Resetar Cenário
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Resultado */}
+            <Card className="bg-slate-900/60 border-slate-700/50">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2"><Activity className="h-5 w-5 text-emerald-400" />Impacto Projetado</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-800/40 rounded-lg p-3">
+                    <p className="text-xs text-slate-400">Baseline (atual)</p>
+                    <p className="text-xs text-slate-500 mt-1">Receita: {formatCurrency(cenarioCalc.baseReceita)}</p>
+                    <p className="text-xs text-slate-500">Despesa: {formatCurrency(cenarioCalc.baseDespesa)}</p>
+                    <p className={cn("text-sm font-bold mt-2", cenarioCalc.baseLucro >= 0 ? 'text-blue-400' : 'text-red-400')}>
+                      Lucro: {formatCurrency(cenarioCalc.baseLucro)}
+                    </p>
+                    <p className="text-[10px] text-slate-500">Margem: {cenarioCalc.baseMargem.toFixed(1)}%</p>
+                  </div>
+                  <div className="bg-violet-900/20 rounded-lg p-3 border border-violet-700/30">
+                    <p className="text-xs text-violet-300 font-semibold">Cenário Simulado</p>
+                    <p className="text-xs text-slate-400 mt-1">Receita: {formatCurrency(cenarioCalc.novaReceita)}</p>
+                    <p className="text-xs text-slate-400">Despesa: {formatCurrency(cenarioCalc.novaDespesa)}</p>
+                    <p className={cn("text-sm font-bold mt-2", cenarioCalc.novoLucro >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                      Lucro: {formatCurrency(cenarioCalc.novoLucro)}
+                    </p>
+                    <p className="text-[10px] text-emerald-400">Margem: {cenarioCalc.novaMargem.toFixed(1)}%</p>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-700 pt-4 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-300">Δ Lucro</span>
+                    <span className={cn("text-base font-bold", cenarioCalc.deltaLucro >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                      {cenarioCalc.deltaLucro >= 0 ? '+' : ''}{formatCurrency(cenarioCalc.deltaLucro)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-300">Δ Margem</span>
+                    <span className={cn("text-base font-bold", cenarioCalc.deltaMargem >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                      {cenarioCalc.deltaMargem >= 0 ? '+' : ''}{cenarioCalc.deltaMargem.toFixed(1)}pp
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-slate-300">Runway (saldo 30d ÷ despesa)</span>
+                    <span className="text-base font-bold text-amber-400">{cenarioCalc.runwayMeses} meses</span>
+                  </div>
+                </div>
+
+                <div className="border-t border-slate-700 pt-4">
+                  <p className="text-xs text-violet-300 font-semibold mb-2 flex items-center gap-2"><Factory className="h-3 w-3" />Simulação de Produção</p>
+                  <div className="space-y-1.5 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Nova produção fab × preço</span>
+                      <span className="text-emerald-400 font-semibold">{formatCurrency(cenario.novaProducaoFabKg * cenario.novoPrecoFabKg)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">+ Montagem (mantida)</span>
+                      <span className="text-blue-400 font-semibold">{formatCurrency(metas.montagemKg * metas.montagemPrecoKg)}</span>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-700 pt-1.5">
+                      <span className="text-slate-300 font-semibold">Nova receita meta total</span>
+                      <span className="text-white font-bold">{formatCurrency(cenarioCalc.novaProducaoReceita)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-400 text-xs">Diferença vs meta atual</span>
+                      <span className={cn("text-xs font-semibold", cenarioCalc.novaProducaoDelta >= 0 ? 'text-emerald-400' : 'text-red-400')}>
+                        {cenarioCalc.novaProducaoDelta >= 0 ? '+' : ''}{formatCurrency(cenarioCalc.novaProducaoDelta)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Cenários pré-definidos */}
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2"><Sparkles className="h-5 w-5 text-amber-400" />Cenários Pré-Definidos (1 clique)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Button variant="outline" className="border-emerald-700/40 text-emerald-300 hover:bg-emerald-900/20 h-auto py-3 flex flex-col items-start gap-1"
+                  onClick={() => setCenario({...cenario, corteDespesas: 10, aumentoReceitas: 15, receitaExtra: 0, despesaExtra: 0})}>
+                  <span className="font-bold flex items-center gap-1.5"><ChevronUp className="h-4 w-4" />Otimista</span>
+                  <span className="text-[10px] text-emerald-200/70">-10% despesas, +15% receitas</span>
+                </Button>
+                <Button variant="outline" className="border-amber-700/40 text-amber-300 hover:bg-amber-900/20 h-auto py-3 flex flex-col items-start gap-1"
+                  onClick={() => setCenario({...cenario, corteDespesas: 5, aumentoReceitas: 5, receitaExtra: 0, despesaExtra: 0})}>
+                  <span className="font-bold flex items-center gap-1.5"><Activity className="h-4 w-4" />Conservador</span>
+                  <span className="text-[10px] text-amber-200/70">-5% despesas, +5% receitas</span>
+                </Button>
+                <Button variant="outline" className="border-red-700/40 text-red-300 hover:bg-red-900/20 h-auto py-3 flex flex-col items-start gap-1"
+                  onClick={() => setCenario({...cenario, corteDespesas: 0, aumentoReceitas: -10, receitaExtra: 0, despesaExtra: 50000})}>
+                  <span className="font-bold flex items-center gap-1.5"><ChevronDown className="h-4 w-4" />Pessimista</span>
+                  <span className="text-[10px] text-red-200/70">+R$50k despesa extra, -10% receitas</span>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
