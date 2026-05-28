@@ -1265,10 +1265,14 @@ export default function PainelFinanceiroGlobal() {
   };
 
   // ===== DETECTAR MODO CHEQUE no Dialog Nova Movimentação =====
+  // 🔧 Só ativa o modo "operação de cheque trocado" quando o usuário escolhe
+  // EXPLICITAMENTE a categoria "Cheque Trocado (face)". Forma=Cheque sozinha
+  // não basta — categorias como Juros de Cheque também podem ser pagas via
+  // cheque mas são lançamentos simples (não operação multi-cheque).
   useEffect(() => {
-    const ehCheque = formData.formaPagto === 'Cheque' || formData.categoria === 'Cheque Trocado (face)';
+    const ehCheque = formData.categoria === 'Cheque Trocado (face)';
     setChequeMode(ehCheque);
-  }, [formData.formaPagto, formData.categoria]);
+  }, [formData.categoria]);
 
   // Cálculo automático da operação de cheque (face, líquido, juros, taxa)
   const chequeOpCalc = useMemo(() => {
@@ -3116,7 +3120,7 @@ export default function PainelFinanceiroGlobal() {
                   <SelectContent className="bg-slate-800 border-slate-700">
                     <SelectItem value="PIX">PIX</SelectItem>
                     <SelectItem value="Boleto">Boleto</SelectItem>
-                    <SelectItem value="Cheque">🏦 Cheque (abre operação)</SelectItem>
+                    <SelectItem value="Cheque">🏦 Cheque</SelectItem>
                     <SelectItem value="Transferência">Transferência</SelectItem>
                     <SelectItem value="Cartão">Cartão</SelectItem>
                   </SelectContent>
