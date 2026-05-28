@@ -529,9 +529,10 @@ export default function PainelFinanceiroGlobal() {
 
       const _ehCheque = ehCheque(m);
       const valorAlto = (m.valor || 0) >= metas.thresholdValorAlto;
+      const ehOpFinanceira = !!m.operacaoFinanceiraId;
 
       // Score = (urgência × valor) - quanto menor dias, maior score
-      // Cheques e valores altos ganham boost
+      // Cheques, valores altos e operações financeiras ganham boost
       let urgenciaScore = 0;
       if (dias < 0) urgenciaScore = 1000 + Math.abs(dias) * 10; // já vencido
       else if (dias <= metas.alertaCriticoDias) urgenciaScore = 800 - dias * 50;
@@ -539,7 +540,11 @@ export default function PainelFinanceiroGlobal() {
 
       if (urgenciaScore === 0) return; // fora da janela
 
-      const score = urgenciaScore + Math.log10(Math.max(1, m.valor)) * 100 + (_ehCheque ? 200 : 0) + (valorAlto ? 150 : 0);
+      const score = urgenciaScore
+        + Math.log10(Math.max(1, m.valor)) * 100
+        + (_ehCheque ? 200 : 0)
+        + (valorAlto ? 150 : 0)
+        + (ehOpFinanceira ? 250 : 0); // operações financeiras têm prioridade máxima
 
       let nivel;
       if (dias < 0) nivel = 'vencido';
@@ -555,9 +560,13 @@ export default function PainelFinanceiroGlobal() {
         valor: m.valor,
         ehCheque: _ehCheque,
         valorAlto,
-        titulo: m.tipo === 'despesa'
-          ? `${_ehCheque ? '🏦 CHEQUE — ' : ''}A pagar: ${m.descricao}`
-          : `A receber: ${m.descricao}`,
+        ehOpFinanceira,
+        opLabel: m.operacaoLabel,
+        titulo: ehOpFinanceira
+          ? `💸 ${m.operacaoLabel || 'Op Financeira'} — ${m.descricao.split('—')[1]?.trim() || m.descricao}`
+          : m.tipo === 'despesa'
+            ? `${_ehCheque ? '🏦 CHEQUE — ' : ''}A pagar: ${m.descricao}`
+            : `A receber: ${m.descricao}`,
         descricao: `${m.fornecedor || '-'} • ${formatCurrency(m.valor)} • Venc: ${formatDate(venc)}`,
         movId: m.id,
       });
@@ -1244,6 +1253,194 @@ export default function PainelFinanceiroGlobal() {
     return { operacoes: operacoesArr, cronograma, totalOperacoes: operacoesArr.length };
   }, [movsLocais, metas.taxaAnualizadaMaxima]);
 
+  // ===== COMPARAÇÃO AUTOMÁTICA — Ranking de operações =====
+  const rankingOps = useMemo(() => {
+    const ops = opsFinanceirasTimeline.operacoes;
+    if (ops.length === 0) return null;
+
+    // Calcular médias para comparações relativas
+    const mediaTaxa = ops.reduce((s,o)=>s+o.taxa, 0) / ops.length;
+    const mediaAnual = ops.reduce((s,o)=>s+o.taxaAnual, 0) / ops.length;
+    const mediaJuros = ops.reduce((s,o)=>s+o.juros, 0) / ops.length;
+
+    const opsComMotivo = ops.map(op => {
+      const motivos = [];
+      // Por que ela é cara?
+      if (op.taxaAnual > metas.taxaAnualizadaMaxima * 1.5) motivos.push({ tipo: 'critico', texto: `Taxa anualizada ${op.taxaAnual.toFixed(1)}% a.a. — ${((op.taxaAnual/metas.taxaAnualizadaMaxima - 1) * 100).toFixed(0)}% acima do limite` });
+      else if (op.taxaAnual > metas.taxaAnualizadaMaxima) motivos.push({ tipo: 'aviso', texto: `Taxa anualizada ${op.taxaAnual.toFixed(1)}% a.a. acima do limite (${metas.taxaAnualizadaMaxima}% a.a.)` });
+
+      if (op.taxa > mediaTaxa * 1.3 && ops.length > 1) motivos.push({ tipo: 'aviso', texto: `Taxa nominal ${op.taxa.toFixed(1)}% — ${((op.taxa/mediaTaxa - 1) * 100).toFixed(0)}% acima da média das operações` });
+      if (op.juros > mediaJuros * 1.5 && ops.length > 1) motivos.push({ tipo: 'aviso', texto: `Juros absolutos ${formatCurrency(op.juros)} — ${((op.juros/mediaJuros - 1) * 100).toFixed(0)}% acima da média` });
+      if (op.prazoMeses < 3 && op.taxa > 8) motivos.push({ tipo: 'aviso', texto: `Prazo curto (${op.prazoMeses}m) com taxa alta — desconto desfavorável` });
+      if (op.juros / metas.fabricacaoPrecoKg / 1000 > 1) motivos.push({ tipo: 'info', texto: `Custo equivale a ${(op.juros / metas.fabricacaoPrecoKg / 1000).toFixed(1)}t de fabricação` });
+
+      // Score de "custo" — quanto maior, pior
+      const scoreCusto = op.taxaAnual * 1.5 + (op.juros / 1000);
+      return { ...op, motivos, scoreCusto, isMaisCaraTaxa: false, isMaisCaraValor: false };
+    });
+
+    // Marcar a mais cara em taxa anualizada e em valor absoluto
+    const maisCaraTaxa = opsComMotivo.reduce((a, b) => b.taxaAnual > a.taxaAnual ? b : a);
+    const maisCaraValor = opsComMotivo.reduce((a, b) => b.juros > a.juros ? b : a);
+    maisCaraTaxa.isMaisCaraTaxa = true;
+    maisCaraValor.isMaisCaraValor = true;
+
+    // Mais barata
+    const maisBarata = opsComMotivo.reduce((a, b) => b.taxaAnual < a.taxaAnual ? b : a);
+
+    return {
+      todas: opsComMotivo.sort((a,b) => b.scoreCusto - a.scoreCusto),
+      maisCaraTaxa, maisCaraValor, maisBarata,
+      mediaTaxa, mediaAnual, mediaJuros,
+      totalJuros: ops.reduce((s,o)=>s+o.juros, 0),
+      totalFace: ops.reduce((s,o)=>s+o.face, 0),
+    };
+  }, [opsFinanceirasTimeline.operacoes, metas.taxaAnualizadaMaxima, metas.fabricacaoPrecoKg]);
+
+  // ===== CALCULADORA REVERSA =====
+  const [calcReversaOpen, setCalcReversaOpen] = useState(false);
+  const [calcRev, setCalcRev] = useState({
+    modo: 'liquido_max',     // 'liquido_max' = quero pagar máximo X% → líquido?
+                              // 'face_max' = recebo X líquido com Y% max → face?
+    valorFace: '100000',     // R$
+    valorLiquido: '90000',   // R$
+    taxaMaxima: '50',        // % a.a.
+    parcelas: 3,
+    intervaloDias: 30,
+  });
+
+  const calcReversaResultado = useMemo(() => {
+    const face = parseFloat(calcRev.valorFace) || 0;
+    const liquido = parseFloat(calcRev.valorLiquido) || 0;
+    const taxaMaxAnual = parseFloat(calcRev.taxaMaxima) || 0;
+    const prazoMeses = calcRev.parcelas * (calcRev.intervaloDias / 30) / 2 + (calcRev.intervaloDias / 30) / 2;
+    // Converte taxa anual em taxa do período da operação
+    const taxaPeriodoMaxPct = taxaMaxAnual * prazoMeses / 12;
+
+    if (calcRev.modo === 'liquido_max') {
+      // Quero descontar/financiar R$ face com no máximo Y% a.a. — quanto MÍNIMO recebo líquido?
+      const jurosMaximo = face * (taxaPeriodoMaxPct / 100);
+      const liquidoMinimo = face - jurosMaximo;
+      return {
+        modo: 'liquido_max',
+        inputFace: face, inputTaxaMax: taxaMaxAnual,
+        liquidoMinimo, jurosMaximo,
+        taxaPeriodoMaxPct,
+        // Se aceitar essa taxa, em ton de produção
+        tonsPerdidas: jurosMaximo / metas.fabricacaoPrecoKg / 1000,
+      };
+    } else {
+      // Recebo R$ líquido — qual MÁXIMO valor de face aceitável para não passar de Y% a.a.?
+      const taxaFator = taxaPeriodoMaxPct / 100;
+      const faceMaximo = taxaFator < 1 ? liquido / (1 - taxaFator) : Infinity;
+      const jurosMaximo = faceMaximo - liquido;
+      return {
+        modo: 'face_max',
+        inputLiquido: liquido, inputTaxaMax: taxaMaxAnual,
+        faceMaximo, jurosMaximo,
+        taxaPeriodoMaxPct,
+        tonsPerdidas: jurosMaximo / metas.fabricacaoPrecoKg / 1000,
+      };
+    }
+  }, [calcRev, metas.fabricacaoPrecoKg]);
+
+  // ===== EXPORT PDF CRONOGRAMA =====
+  const handleExportCronogramaPDF = () => {
+    try {
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = 210, M = 12;
+      let y = 15;
+
+      // Cabeçalho
+      doc.setFillColor(234, 88, 12);
+      doc.rect(0, 0, W, 28, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(18); doc.setFont('helvetica', 'bold');
+      doc.text('CRONOGRAMA DE OPERAÇÕES FINANCEIRAS', M, 14);
+      doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+      doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')} • ${opsFinanceirasTimeline.totalOperacoes} operação(ões) ativa(s)`, M, 22);
+      y = 38;
+
+      doc.setTextColor(30, 41, 59);
+
+      if (rankingOps) {
+        // Sumário Executivo
+        doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+        doc.text('SUMÁRIO EXECUTIVO', M, y); y += 6;
+        doc.setFontSize(9); doc.setFont('helvetica', 'normal');
+        const itens = [
+          ['Total de operações:', `${rankingOps.todas.length}`],
+          ['Total face (a pagar):', formatCurrency(rankingOps.totalFace)],
+          ['Total juros:', formatCurrency(rankingOps.totalJuros)],
+          ['Taxa anualizada média:', `${rankingOps.mediaAnual.toFixed(1)}% a.a.`],
+          ['Operação mais cara (taxa):', `${rankingOps.maisCaraTaxa.descricao.slice(0,40)} — ${rankingOps.maisCaraTaxa.taxaAnual.toFixed(1)}% a.a.`],
+          ['Operação mais cara (R$):', `${rankingOps.maisCaraValor.descricao.slice(0,40)} — ${formatCurrency(rankingOps.maisCaraValor.juros)}`],
+          ['Operação mais barata:', `${rankingOps.maisBarata.descricao.slice(0,40)} — ${rankingOps.maisBarata.taxaAnual.toFixed(1)}% a.a.`],
+        ];
+        itens.forEach(([k, v]) => {
+          doc.setFont('helvetica', 'bold'); doc.text(k, M, y);
+          doc.setFont('helvetica', 'normal'); doc.text(v, M + 60, y);
+          y += 5;
+        });
+        y += 4;
+
+        // Ranking detalhado
+        doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+        doc.text('RANKING POR CUSTO (do pior para o melhor)', M, y); y += 6;
+        doc.setFontSize(8);
+        rankingOps.todas.forEach((op, idx) => {
+          if (y > 265) { doc.addPage(); y = 15; }
+          // Caixa
+          doc.setDrawColor(op.isCaro ? 220 : 100, op.isCaro ? 38 : 116, op.isCaro ? 38 : 139);
+          doc.setLineWidth(0.5);
+          doc.rect(M, y - 3, W - 2 * M, 24);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(30, 41, 59);
+          doc.text(`#${idx + 1} ${op.label} — ${op.descricao.slice(0, 60)}`, M + 2, y + 1);
+          doc.setFont('helvetica', 'normal');
+          doc.text(`Face: ${formatCurrency(op.face)} | Líquido: ${formatCurrency(op.liquido)} | Juros: ${formatCurrency(op.juros)}`, M + 2, y + 6);
+          doc.text(`Taxa: ${op.taxa.toFixed(2)}% (${op.taxaAnual.toFixed(1)}% a.a.) | Prazo: ${op.prazoMeses}m | ${op.parcelas.length} parcelas`, M + 2, y + 11);
+          if (op.motivos.length > 0) {
+            doc.setFontSize(7); doc.setTextColor(180, 83, 9);
+            doc.text(`⚠ ${op.motivos[0].texto.slice(0, 90)}`, M + 2, y + 16);
+            doc.setFontSize(8); doc.setTextColor(30, 41, 59);
+          }
+          y += 28;
+        });
+      }
+
+      // Cronograma mensal
+      if (y > 240) { doc.addPage(); y = 15; }
+      doc.setFontSize(12); doc.setFont('helvetica', 'bold');
+      doc.text('CRONOGRAMA MENSAL (próximos 12 meses)', M, y); y += 6;
+      doc.setFontSize(8); doc.setFont('helvetica', 'bold');
+      doc.text('Mês', M, y);
+      doc.text('Capital', M + 60, y);
+      doc.text('Juros', M + 110, y);
+      doc.text('Total', M + 160, y);
+      y += 4;
+      doc.setLineWidth(0.3);
+      doc.line(M, y - 1, W - M, y - 1);
+      doc.setFont('helvetica', 'normal');
+      opsFinanceirasTimeline.cronograma.forEach(c => {
+        if (y > 275) { doc.addPage(); y = 15; }
+        doc.text(c.mes, M, y);
+        doc.text(formatCurrency(c.capital), M + 60, y);
+        doc.text(formatCurrency(c.juros), M + 110, y);
+        doc.setFont('helvetica', 'bold');
+        doc.text(formatCurrency(c.total), M + 160, y);
+        doc.setFont('helvetica', 'normal');
+        y += 4;
+      });
+
+      doc.save(`cronograma-operacoes-${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('Cronograma PDF gerado');
+    } catch (e) {
+      console.error(e);
+      toast.error('Erro ao gerar PDF');
+    }
+  };
+
 
 
   const handleCriarOperacaoFinanceira = () => {
@@ -1453,6 +1650,7 @@ export default function PainelFinanceiroGlobal() {
                       </Badge>
                       {a.ehCheque && <Badge className="bg-blue-500/30 text-blue-300 text-[10px]">CHEQUE</Badge>}
                       {a.valorAlto && <Badge className="bg-purple-500/30 text-purple-300 text-[10px]">ALTO</Badge>}
+                      {a.ehOpFinanceira && <Badge className="bg-rose-500/40 text-rose-200 text-[10px]">💸 OP FIN</Badge>}
                       <span className="text-slate-200 truncate">{a.titulo}</span>
                     </div>
                     <span className={cn("font-semibold", a.tipo === 'pagamento' ? 'text-red-300' : 'text-emerald-300')}>
@@ -1760,6 +1958,125 @@ export default function PainelFinanceiroGlobal() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ===== AÇÕES DE OPERAÇÕES FINANCEIRAS ===== */}
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="outline" className="border-amber-700/40 text-amber-300 hover:bg-amber-900/20" onClick={() => setCalcReversaOpen(true)}>
+              <FlaskConical className="h-4 w-4 mr-2" />Calculadora Reversa
+            </Button>
+            {opsFinanceirasTimeline.totalOperacoes > 0 && (
+              <Button variant="outline" className="border-orange-700/40 text-orange-300 hover:bg-orange-900/20" onClick={handleExportCronogramaPDF}>
+                <FileText className="h-4 w-4 mr-2" />Exportar Cronograma PDF
+              </Button>
+            )}
+          </div>
+
+          {/* ===== RANKING / COMPARAÇÃO DE OPERAÇÕES ===== */}
+          {rankingOps && rankingOps.todas.length >= 1 && (
+            <Card className="bg-gradient-to-br from-rose-900/20 to-orange-900/20 border-rose-700/40">
+              <CardHeader>
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Gauge className="h-5 w-5 text-rose-400" />
+                  Comparação Automática de Operações
+                  <Badge className="bg-rose-500/30 text-rose-200 ml-2">{rankingOps.todas.length} operação(ões)</Badge>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* 3 cards: Mais cara (taxa), Mais cara (R$), Mais barata */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                  <div className="bg-red-900/30 border border-red-700/40 rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <AlertTriangle className="h-3.5 w-3.5 text-red-400" />
+                      <span className="text-[10px] font-bold text-red-300 uppercase">Mais cara (taxa anualizada)</span>
+                    </div>
+                    <p className="text-sm font-bold text-white truncate">{rankingOps.maisCaraTaxa.descricao}</p>
+                    <p className="text-2xl font-black text-red-400 mt-1">{rankingOps.maisCaraTaxa.taxaAnual.toFixed(1)}% a.a.</p>
+                    <p className="text-[10px] text-slate-400">Face: {formatCurrency(rankingOps.maisCaraTaxa.face)} • Juros: {formatCurrency(rankingOps.maisCaraTaxa.juros)}</p>
+                  </div>
+                  <div className="bg-orange-900/30 border border-orange-700/40 rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <DollarSign className="h-3.5 w-3.5 text-orange-400" />
+                      <span className="text-[10px] font-bold text-orange-300 uppercase">Mais cara (R$ juros)</span>
+                    </div>
+                    <p className="text-sm font-bold text-white truncate">{rankingOps.maisCaraValor.descricao}</p>
+                    <p className="text-2xl font-black text-orange-400 mt-1">{formatCurrency(rankingOps.maisCaraValor.juros)}</p>
+                    <p className="text-[10px] text-slate-400">Taxa: {rankingOps.maisCaraValor.taxaAnual.toFixed(1)}% a.a. • {(rankingOps.maisCaraValor.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)}t prod</p>
+                  </div>
+                  <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3">
+                    <div className="flex items-center gap-1.5 mb-2">
+                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                      <span className="text-[10px] font-bold text-emerald-300 uppercase">Mais barata</span>
+                    </div>
+                    <p className="text-sm font-bold text-white truncate">{rankingOps.maisBarata.descricao}</p>
+                    <p className="text-2xl font-black text-emerald-400 mt-1">{rankingOps.maisBarata.taxaAnual.toFixed(1)}% a.a.</p>
+                    <p className="text-[10px] text-slate-400">Face: {formatCurrency(rankingOps.maisBarata.face)} • Juros: {formatCurrency(rankingOps.maisBarata.juros)}</p>
+                  </div>
+                </div>
+
+                {/* Médias e totais */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs border-t border-slate-700 pt-3 mb-3">
+                  <div>
+                    <p className="text-slate-500 text-[10px]">Taxa anual média</p>
+                    <p className="text-base font-bold text-amber-400">{rankingOps.mediaAnual.toFixed(1)}% a.a.</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 text-[10px]">Total juros</p>
+                    <p className="text-base font-bold text-rose-400">{formatCurrency(rankingOps.totalJuros)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 text-[10px]">Total face</p>
+                    <p className="text-base font-bold text-orange-400">{formatCurrency(rankingOps.totalFace)}</p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500 text-[10px]">Juros / Face</p>
+                    <p className="text-base font-bold text-violet-400">{rankingOps.totalFace > 0 ? ((rankingOps.totalJuros/rankingOps.totalFace)*100).toFixed(1) : 0}%</p>
+                  </div>
+                </div>
+
+                {/* Ranking detalhado com motivos */}
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-slate-300 mb-2">Ranking detalhado — por que cada operação está nessa posição:</p>
+                  {rankingOps.todas.map((op, idx) => (
+                    <div key={op.id} className={cn(
+                      "p-3 rounded-lg border",
+                      idx === 0 && op.isCaro ? "bg-red-900/20 border-red-700/40" :
+                      op.isMaisCaraTaxa || op.isMaisCaraValor ? "bg-orange-900/20 border-orange-700/40" :
+                      "bg-slate-800/40 border-slate-700/40"
+                    )}>
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                        <Badge className="bg-slate-700 text-slate-200 text-[10px] font-bold">#{idx + 1}</Badge>
+                        <Badge className="bg-purple-500/30 text-purple-200 text-[10px]">{op.label}</Badge>
+                        {op.isMaisCaraTaxa && <Badge className="bg-red-500/30 text-red-200 text-[10px]">PIOR TAXA</Badge>}
+                        {op.isMaisCaraValor && <Badge className="bg-orange-500/30 text-orange-200 text-[10px]">MAIOR JUROS R$</Badge>}
+                        {op.isCaro && <Badge className="bg-red-500/40 text-red-100 text-[10px] animate-pulse">⚠ CARA</Badge>}
+                        <span className="text-sm text-white font-medium truncate">{op.descricao}</span>
+                      </div>
+                      <div className="flex items-center gap-4 text-xs text-slate-400 mb-2 flex-wrap">
+                        <span>Face: <strong className="text-cyan-400">{formatCurrency(op.face)}</strong></span>
+                        <span>Juros: <strong className="text-rose-400">{formatCurrency(op.juros)}</strong></span>
+                        <span>Taxa: <strong className="text-amber-400">{op.taxa.toFixed(1)}%</strong></span>
+                        <span>Anual: <strong className={op.isCaro ? 'text-red-400' : 'text-orange-400'}>{op.taxaAnual.toFixed(1)}% a.a.</strong></span>
+                      </div>
+                      {op.motivos.length > 0 && (
+                        <div className="space-y-1">
+                          {op.motivos.map((m, i) => (
+                            <div key={i} className={cn(
+                              "text-[11px] pl-2 border-l-2 py-0.5",
+                              m.tipo === 'critico' ? "border-red-500 text-red-300" :
+                              m.tipo === 'aviso' ? "border-amber-500 text-amber-300" :
+                              "border-slate-500 text-slate-400"
+                            )}>
+                              {m.tipo === 'critico' ? '🚨' : m.tipo === 'aviso' ? '⚠' : 'ℹ'} {m.texto}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* ===== TIMELINE DE OPERAÇÕES FINANCEIRAS ===== */}
           {opsFinanceirasTimeline.totalOperacoes > 0 && (
@@ -2561,6 +2878,138 @@ export default function PainelFinanceiroGlobal() {
             <Button className="w-full bg-gradient-to-r from-purple-500 to-indigo-500" onClick={handleSalvar}>
               {editando ? 'Salvar Alterações (local)' : 'Cadastrar Localmente'}
             </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ===== DIALOG: Calculadora Reversa de Juros ===== */}
+      <Dialog open={calcReversaOpen} onOpenChange={setCalcReversaOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <FlaskConical className="h-5 w-5 text-amber-400" />
+              Calculadora Reversa de Juros
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200">
+              <strong>Para que serve:</strong> antes de aceitar uma proposta de cheque trocado ou empréstimo, calcule
+              qual é o piso mínimo que vale a pena. Defina sua taxa máxima aceitável e o sistema mostra o limite.
+            </div>
+
+            {/* Seletor de modo */}
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setCalcRev({...calcRev, modo: 'liquido_max'})}
+                className={cn("p-3 rounded-lg border text-left transition-all",
+                  calcRev.modo === 'liquido_max'
+                    ? 'bg-amber-900/40 border-amber-500/60 text-amber-100'
+                    : 'bg-slate-800/40 border-slate-700 text-slate-400 hover:border-slate-600'
+                )}>
+                <p className="text-xs font-bold mb-1">📥 Modo 1: Cheque/Empréstimo de Face Fixa</p>
+                <p className="text-[10px]">Tenho um cheque de R$ X, qual o líquido MÍNIMO que devo aceitar?</p>
+              </button>
+              <button
+                onClick={() => setCalcRev({...calcRev, modo: 'face_max'})}
+                className={cn("p-3 rounded-lg border text-left transition-all",
+                  calcRev.modo === 'face_max'
+                    ? 'bg-amber-900/40 border-amber-500/60 text-amber-100'
+                    : 'bg-slate-800/40 border-slate-700 text-slate-400 hover:border-slate-600'
+                )}>
+                <p className="text-xs font-bold mb-1">💵 Modo 2: Líquido Fixo Desejado</p>
+                <p className="text-[10px]">Preciso de R$ X líquido, qual o face MÁXIMO aceitável?</p>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {calcRev.modo === 'liquido_max' ? (
+                <div>
+                  <Label className="text-slate-300 text-xs flex items-center gap-1">
+                    <ArrowDownRight className="h-3 w-3 text-cyan-400" />Valor de Face (R$)
+                  </Label>
+                  <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={calcRev.valorFace} onChange={(e) => setCalcRev({...calcRev, valorFace: e.target.value})} />
+                </div>
+              ) : (
+                <div>
+                  <Label className="text-slate-300 text-xs flex items-center gap-1">
+                    <ArrowUpRight className="h-3 w-3 text-emerald-400" />Líquido Desejado (R$)
+                  </Label>
+                  <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={calcRev.valorLiquido} onChange={(e) => setCalcRev({...calcRev, valorLiquido: e.target.value})} />
+                </div>
+              )}
+              <div>
+                <Label className="text-slate-300 text-xs flex items-center gap-1">
+                  <Percent className="h-3 w-3 text-amber-400" />Taxa Máxima Anualizada (% a.a.)
+                </Label>
+                <Input type="number" step="1" className="mt-1 bg-slate-800 border-slate-700" value={calcRev.taxaMaxima} onChange={(e) => setCalcRev({...calcRev, taxaMaxima: e.target.value})} />
+                <p className="text-[10px] text-slate-500 mt-1">Sugestão: até {metas.taxaAnualizadaMaxima}% (sua meta atual)</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label className="text-slate-300 text-xs">Nº de Parcelas</Label>
+                <Input type="number" min="1" max="36" className="mt-1 bg-slate-800 border-slate-700" value={calcRev.parcelas} onChange={(e) => setCalcRev({...calcRev, parcelas: parseInt(e.target.value) || 1})} />
+              </div>
+              <div>
+                <Label className="text-slate-300 text-xs">Intervalo entre Parcelas (dias)</Label>
+                <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={calcRev.intervaloDias} onChange={(e) => setCalcRev({...calcRev, intervaloDias: parseInt(e.target.value) || 30})} />
+              </div>
+            </div>
+
+            {/* RESULTADO */}
+            <div className="bg-gradient-to-br from-emerald-900/30 to-amber-900/30 border border-emerald-700/40 rounded-lg p-4">
+              <p className="text-sm font-bold text-emerald-300 mb-3 flex items-center gap-2">
+                <Sparkles className="h-4 w-4" />Resultado do Cálculo Reverso
+              </p>
+              {calcReversaResultado.modo === 'liquido_max' ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-900/40 rounded p-3">
+                      <p className="text-[10px] text-slate-400">Você tem cheque/empréstimo de</p>
+                      <p className="text-lg font-bold text-cyan-400">{formatCurrency(calcReversaResultado.inputFace)}</p>
+                    </div>
+                    <div className="bg-slate-900/40 rounded p-3">
+                      <p className="text-[10px] text-slate-400">Taxa máxima aceitável</p>
+                      <p className="text-lg font-bold text-amber-400">{calcReversaResultado.inputTaxaMax}% a.a.</p>
+                    </div>
+                  </div>
+                  <div className="bg-emerald-900/50 border border-emerald-500/40 rounded p-4">
+                    <p className="text-xs text-emerald-300 mb-1">Líquido MÍNIMO que você deve aceitar:</p>
+                    <p className="text-3xl font-black text-emerald-400">{formatCurrency(calcReversaResultado.liquidoMinimo)}</p>
+                    <p className="text-xs text-slate-400 mt-1">Juros máximos: {formatCurrency(calcReversaResultado.jurosMaximo)} ({calcReversaResultado.taxaPeriodoMaxPct.toFixed(2)}% no período)</p>
+                  </div>
+                  <div className="text-xs text-rose-300 bg-rose-900/20 border border-rose-700/30 rounded p-2">
+                    ⚠ Se o banco oferecer LÍQUIDO MENOR que {formatCurrency(calcReversaResultado.liquidoMinimo)}, a taxa estará ACIMA do seu limite. Equivale a {calcReversaResultado.tonsPerdidas.toFixed(2)}t de produção fabricada perdida em juros.
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="bg-slate-900/40 rounded p-3">
+                      <p className="text-[10px] text-slate-400">Você quer receber líquido</p>
+                      <p className="text-lg font-bold text-emerald-400">{formatCurrency(calcReversaResultado.inputLiquido)}</p>
+                    </div>
+                    <div className="bg-slate-900/40 rounded p-3">
+                      <p className="text-[10px] text-slate-400">Taxa máxima aceitável</p>
+                      <p className="text-lg font-bold text-amber-400">{calcReversaResultado.inputTaxaMax}% a.a.</p>
+                    </div>
+                  </div>
+                  <div className="bg-cyan-900/50 border border-cyan-500/40 rounded p-4">
+                    <p className="text-xs text-cyan-300 mb-1">Valor de face MÁXIMO aceitável:</p>
+                    <p className="text-3xl font-black text-cyan-400">
+                      {isFinite(calcReversaResultado.faceMaximo) ? formatCurrency(calcReversaResultado.faceMaximo) : '— taxa muito alta —'}
+                    </p>
+                    <p className="text-xs text-slate-400 mt-1">Juros máximos: {formatCurrency(calcReversaResultado.jurosMaximo)} ({calcReversaResultado.taxaPeriodoMaxPct.toFixed(2)}% no período)</p>
+                  </div>
+                  <div className="text-xs text-rose-300 bg-rose-900/20 border border-rose-700/30 rounded p-2">
+                    ⚠ Se a operação exigir face MAIOR que {isFinite(calcReversaResultado.faceMaximo) ? formatCurrency(calcReversaResultado.faceMaximo) : 'esse valor'}, a taxa estará acima do limite. Equivale a {calcReversaResultado.tonsPerdidas.toFixed(2)}t de produção em juros.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <Button className="w-full border-slate-700" variant="outline" onClick={() => setCalcReversaOpen(false)}>Fechar</Button>
           </div>
         </DialogContent>
       </Dialog>
