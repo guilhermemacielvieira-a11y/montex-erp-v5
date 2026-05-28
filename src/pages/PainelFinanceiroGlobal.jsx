@@ -263,6 +263,16 @@ export default function PainelFinanceiroGlobal() {
   });
   const [metasForm, setMetasForm] = useState(metas);
 
+  // ===== ESTADO INLINE: cheques no modal Nova Movimentação =====
+  // Detecta quando user escolhe forma=Cheque OU cat=Cheque Trocado e expande
+  const [chequeMode, setChequeMode] = useState(false);
+  const [chequesList, setChequesList] = useState([
+    { valor: '50000', vencimento: '' },
+    { valor: '50000', vencimento: '' },
+    { valor: '50000', vencimento: '' },
+  ]);
+  const [valorLiquidoCheque, setValorLiquidoCheque] = useState('130000');
+
   // ===== ESTADO MODAL OPERAÇÃO FINANCEIRA (cheques trocados / empréstimos / juros) =====
   const [opFinDialogOpen, setOpFinDialogOpen] = useState(false);
   const [opFin, setOpFin] = useState({
@@ -816,6 +826,92 @@ export default function PainelFinanceiroGlobal() {
   };
 
   const handleSalvar = () => {
+    // ===== MODO CHEQUE INLINE: criar operação completa em vez de 1 lançamento =====
+    if (chequeMode && !editando) {
+      if (!formData.descricao) {
+        toast.error('Descrição é obrigatória');
+        return;
+      }
+      if (chequeOpCalc.valorTotalFace <= 0) {
+        toast.error('Adicione ao menos 1 cheque com valor');
+        return;
+      }
+      const chequesValidos = chequesList.filter(c => parseFloat(c.valor) > 0 && c.vencimento);
+      if (chequesValidos.length === 0) {
+        toast.error('Preencha valor e vencimento de cada cheque');
+        return;
+      }
+      const novos = [];
+      const baseId = `CHQ-${Date.now()}`;
+      const dataOp = new Date().toISOString().split('T')[0];
+
+      // 1. Receita líquida (entrada de caixa)
+      if (chequeOpCalc.liquido > 0) {
+        novos.push({
+          id: `${baseId}-liq`, tipo: 'receita',
+          descricao: `Cheque Trocado — Líquido recebido: ${formData.descricao}`,
+          fornecedor: formData.fornecedor || '-',
+          categoria: 'Cheque Trocado (Líquido)',
+          valor: chequeOpCalc.liquido,
+          formaPagto: 'Transferência',
+          vencimento: dataOp, data: dataOp,
+          status: 'pago',
+          obraId: formData.obraId || null,
+          operacaoFinanceiraId: baseId,
+          operacaoLabel: 'Cheque Trocado',
+          createdAt: new Date().toISOString(),
+        });
+      }
+      // 2. Despesa de juros
+      if (chequeOpCalc.juros > 0) {
+        novos.push({
+          id: `${baseId}-juros`, tipo: 'despesa',
+          descricao: `Cheque Trocado — Juros/Desconto: ${formData.descricao} (${chequeOpCalc.taxaPct.toFixed(2)}%, ~${chequeOpCalc.taxaAnualizada.toFixed(1)}% a.a.)`,
+          fornecedor: formData.fornecedor || '-',
+          categoria: 'Juros de Cheque',
+          valor: chequeOpCalc.juros,
+          formaPagto: 'Operação Bancária',
+          vencimento: dataOp, data: dataOp,
+          status: 'pago',
+          obraId: formData.obraId || null,
+          operacaoFinanceiraId: baseId,
+          operacaoLabel: 'Cheque Trocado',
+          createdAt: new Date().toISOString(),
+        });
+      }
+      // 3. N cheques (parcelas a pagar)
+      chequesValidos.forEach((c, idx) => {
+        novos.push({
+          id: `${baseId}-ch-${idx + 1}`, tipo: 'despesa',
+          descricao: `Cheque Trocado — Cheque ${idx + 1}/${chequesValidos.length}: ${formData.descricao}`,
+          fornecedor: formData.fornecedor || '-',
+          categoria: 'Cheque Trocado (face)',
+          valor: parseFloat(c.valor),
+          formaPagto: 'Cheque',
+          vencimento: c.vencimento, data: c.vencimento,
+          status: 'pendente',
+          obraId: formData.obraId || null,
+          operacaoFinanceiraId: baseId,
+          operacaoLabel: 'Cheque Trocado',
+          createdAt: new Date().toISOString(),
+        });
+      });
+
+      setMovsLocais(prev => [...prev, ...novos]);
+      toast.success(`Operação de cheque trocado criada: ${novos.length} lançamentos gerados`);
+      // Reset
+      setDialogOpen(false);
+      setEditando(null);
+      setChequesList([
+        { valor: '50000', vencimento: '' },
+        { valor: '50000', vencimento: '' },
+        { valor: '50000', vencimento: '' },
+      ]);
+      setValorLiquidoCheque('130000');
+      return;
+    }
+
+    // ===== FLUXO NORMAL =====
     if (!formData.descricao || !formData.valor) {
       toast.error('Descrição e valor são obrigatórios');
       return;
@@ -1071,6 +1167,30 @@ export default function PainelFinanceiroGlobal() {
       toast.error('Erro ao gerar PDF');
     }
   };
+
+  // ===== DETECTAR MODO CHEQUE no Dialog Nova Movimentação =====
+  useEffect(() => {
+    const ehCheque = formData.formaPagto === 'Cheque' || formData.categoria === 'Cheque Trocado (face)';
+    setChequeMode(ehCheque);
+  }, [formData.formaPagto, formData.categoria]);
+
+  // Cálculo automático da operação de cheque (face, líquido, juros, taxa)
+  const chequeOpCalc = useMemo(() => {
+    const valorTotalFace = chequesList.reduce((s, c) => s + (parseFloat(c.valor) || 0), 0);
+    const liquido = parseFloat(valorLiquidoCheque) || 0;
+    const juros = valorTotalFace - liquido;
+    const taxaPct = valorTotalFace > 0 ? (juros / valorTotalFace * 100) : 0;
+    // Prazo médio (assumindo cheques ordenados por data)
+    const chequesComData = chequesList.filter(c => c.vencimento).map(c => ({ ...c, dataObj: new Date(c.vencimento) }));
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const prazoMedioDias = chequesComData.length > 0
+      ? chequesComData.reduce((s, c) => s + Math.max(0, (c.dataObj - hoje) / 86400000), 0) / chequesComData.length
+      : 30;
+    const prazoMedioMeses = Math.max(0.1, prazoMedioDias / 30);
+    const taxaAnualizada = prazoMedioMeses > 0 ? (taxaPct * 12 / prazoMedioMeses) : 0;
+    const isCaro = taxaAnualizada > metas.taxaAnualizadaMaxima;
+    return { valorTotalFace, liquido, juros, taxaPct, prazoMedioDias, prazoMedioMeses, taxaAnualizada, isCaro };
+  }, [chequesList, valorLiquidoCheque, metas.taxaAnualizadaMaxima]);
 
   // ===== ANÁLISE DE DESPESAS FINANCEIRAS =====
   const despesasFinanceiras = useMemo(() => {
@@ -2840,29 +2960,143 @@ export default function PainelFinanceiroGlobal() {
                 </Select>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div>
-                <Label className="text-slate-300">Valor *</Label>
-                <Input className="mt-1 bg-slate-800 border-slate-700" type="number" placeholder="0,00" value={formData.valor} onChange={(e) => setFormData({...formData, valor: e.target.value})} />
-              </div>
-              <div>
-                <Label className="text-slate-300">Vencimento</Label>
-                <Input className="mt-1 bg-slate-800 border-slate-700" type="date" value={formData.vencimento} onChange={(e) => setFormData({...formData, vencimento: e.target.value})} />
-              </div>
-              <div>
+            <div className={cn("grid gap-4", chequeMode && !editando ? "grid-cols-2" : "grid-cols-3")}>
+              {!(chequeMode && !editando) && (
+                <div>
+                  <Label className="text-slate-300">Valor *</Label>
+                  <Input className="mt-1 bg-slate-800 border-slate-700" type="number" placeholder="0,00" value={formData.valor} onChange={(e) => setFormData({...formData, valor: e.target.value})} />
+                </div>
+              )}
+              {!(chequeMode && !editando) && (
+                <div>
+                  <Label className="text-slate-300">Vencimento</Label>
+                  <Input className="mt-1 bg-slate-800 border-slate-700" type="date" value={formData.vencimento} onChange={(e) => setFormData({...formData, vencimento: e.target.value})} />
+                </div>
+              )}
+              <div className={chequeMode && !editando ? "col-span-2" : ""}>
                 <Label className="text-slate-300">Forma Pagto</Label>
                 <Select value={formData.formaPagto} onValueChange={(v) => setFormData({...formData, formaPagto: v})}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue placeholder="Selecione" /></SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
                     <SelectItem value="PIX">PIX</SelectItem>
                     <SelectItem value="Boleto">Boleto</SelectItem>
-                    <SelectItem value="Cheque">Cheque</SelectItem>
+                    <SelectItem value="Cheque">🏦 Cheque (abre operação)</SelectItem>
                     <SelectItem value="Transferência">Transferência</SelectItem>
                     <SelectItem value="Cartão">Cartão</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
+
+            {/* ============================== */}
+            {/* SEÇÃO EXPANDIDA: OPERAÇÃO CHEQUE */}
+            {/* ============================== */}
+            {chequeMode && !editando && (
+              <div className="bg-gradient-to-br from-amber-900/30 to-orange-900/30 border border-amber-700/40 rounded-lg p-4 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-bold text-amber-200 flex items-center gap-2">
+                    <Percent className="h-4 w-4" />Operação de Cheque Trocado / Troca
+                  </p>
+                  <button type="button" onClick={() => {
+                    setFormData({...formData, formaPagto: 'PIX'});
+                  }} className="text-[10px] text-slate-400 hover:text-white underline">
+                    Cancelar operação
+                  </button>
+                </div>
+
+                <div className="bg-slate-900/40 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-slate-300 text-xs">Cheques Recebidos / Emitidos</Label>
+                    <Button type="button" variant="outline" size="sm" className="h-7 border-slate-700 text-slate-300 text-[10px]"
+                      onClick={() => setChequesList([...chequesList, { valor: '50000', vencimento: '' }])}>
+                      <Plus className="h-3 w-3 mr-1" />Add Cheque
+                    </Button>
+                  </div>
+                  <div className="space-y-2 max-h-48 overflow-y-auto">
+                    {chequesList.map((c, idx) => (
+                      <div key={idx} className="flex items-center gap-2 bg-slate-800/40 rounded p-2">
+                        <span className="text-[10px] text-slate-500 font-mono w-6">CH{idx + 1}</span>
+                        <div className="flex-1">
+                          <Label className="text-[10px] text-slate-500">Valor (R$)</Label>
+                          <Input type="number" className="bg-slate-800 border-slate-700 h-7 text-sm" placeholder="50000" value={c.valor}
+                            onChange={(e) => {
+                              const novos = [...chequesList];
+                              novos[idx].valor = e.target.value;
+                              setChequesList(novos);
+                            }} />
+                        </div>
+                        <div className="flex-1">
+                          <Label className="text-[10px] text-slate-500">Vencimento</Label>
+                          <Input type="date" className="bg-slate-800 border-slate-700 h-7 text-sm" value={c.vencimento}
+                            onChange={(e) => {
+                              const novos = [...chequesList];
+                              novos[idx].vencimento = e.target.value;
+                              setChequesList(novos);
+                            }} />
+                        </div>
+                        <button type="button" onClick={() => setChequesList(chequesList.filter((_, i) => i !== idx))}
+                          className="text-red-400 hover:text-red-300 mt-3">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between mt-2 pt-2 border-t border-slate-700 text-xs">
+                    <span className="text-slate-400">Total face (todos os cheques):</span>
+                    <span className="text-cyan-400 font-bold">{formatCurrency(chequeOpCalc.valorTotalFace)}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <Label className="text-slate-300 text-xs flex items-center gap-1">
+                    <ArrowUpRight className="h-3 w-3 text-emerald-400" />
+                    Valor recebido em troca / "Empréstimo" (R$) *
+                  </Label>
+                  <Input type="number" className="mt-1 bg-slate-800 border-slate-700" placeholder="130000"
+                    value={valorLiquidoCheque} onChange={(e) => setValorLiquidoCheque(e.target.value)} />
+                  <p className="text-[10px] text-slate-500 mt-1">Quanto efetivamente entrou na sua conta</p>
+                </div>
+
+                {/* RESULTADO AUTOMÁTICO */}
+                <div className="bg-slate-900/60 border border-amber-700/30 rounded-lg p-3">
+                  <p className="text-xs font-semibold text-amber-300 mb-2 flex items-center gap-1.5">
+                    <Sparkles className="h-3.5 w-3.5" />Análise Automática da Operação
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <p className="text-[10px] text-slate-500">Face (Σ cheques)</p>
+                      <p className="text-sm font-bold text-cyan-400">{formatCurrency(chequeOpCalc.valorTotalFace)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-500">Líquido recebido</p>
+                      <p className="text-sm font-bold text-emerald-400">+{formatCurrency(chequeOpCalc.liquido)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-500">Juros (despesa)</p>
+                      <p className="text-sm font-bold text-rose-400">-{formatCurrency(chequeOpCalc.juros)}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] text-slate-500">Taxa Efetiva</p>
+                      <p className="text-sm font-bold text-amber-400">{chequeOpCalc.taxaPct.toFixed(2)}%</p>
+                      <p className="text-[9px] text-slate-500">~{chequeOpCalc.taxaAnualizada.toFixed(1)}% a.a.</p>
+                    </div>
+                  </div>
+                  {/* Alerta operação cara */}
+                  {chequeOpCalc.isCaro && chequeOpCalc.valorTotalFace > 0 && (
+                    <div className="mt-2 p-2 rounded bg-red-900/30 border border-red-700/40 text-xs text-red-200">
+                      <strong className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Operação cara</strong>
+                      Taxa anualizada {chequeOpCalc.taxaAnualizada.toFixed(1)}% a.a. excede limite ({metas.taxaAnualizadaMaxima}% a.a.).
+                      Custo equivale a <strong className="text-orange-300">{(chequeOpCalc.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)}t de produção</strong>.
+                    </div>
+                  )}
+                  <p className="text-[10px] text-slate-500 mt-2">
+                    Vai gerar <strong className="text-amber-300">{2 + chequesList.filter(c => parseFloat(c.valor) > 0 && c.vencimento).length} lançamentos</strong>:
+                    1 receita (líquido) + 1 despesa (juros) + {chequesList.filter(c => parseFloat(c.valor) > 0 && c.vencimento).length} cheques a pagar
+                  </p>
+                </div>
+              </div>
+            )}
+
             <div>
               <Label className="text-slate-300">Vincular à Obra (opcional)</Label>
               <Select value={formData.obraId || 'none'} onValueChange={(v) => setFormData({...formData, obraId: v === 'none' ? '' : v})}>
@@ -2875,8 +3109,17 @@ export default function PainelFinanceiroGlobal() {
                 </SelectContent>
               </Select>
             </div>
-            <Button className="w-full bg-gradient-to-r from-purple-500 to-indigo-500" onClick={handleSalvar}>
-              {editando ? 'Salvar Alterações (local)' : 'Cadastrar Localmente'}
+            <Button className={cn(
+              "w-full",
+              chequeMode && !editando
+                ? "bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                : "bg-gradient-to-r from-purple-500 to-indigo-500"
+            )} onClick={handleSalvar}>
+              {editando
+                ? 'Salvar Alterações (local)'
+                : chequeMode
+                  ? `Criar Operação de Cheque Trocado (${2 + chequesList.filter(c => parseFloat(c.valor) > 0 && c.vencimento).length} lançamentos)`
+                  : 'Cadastrar Localmente'}
             </Button>
           </div>
         </DialogContent>
