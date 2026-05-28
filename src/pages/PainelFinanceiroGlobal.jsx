@@ -91,6 +91,9 @@ const DEFAULT_METAS = {
   thresholdValorAlto: 10000,
   // Saldo mínimo de caixa projetado
   saldoMinimo: 50000,
+  // Taxa máxima anualizada aceitável para operações financeiras (% a.a.)
+  // Acima disso, marca como "operação cara"
+  taxaAnualizadaMaxima: 50,
 };
 
 // ============================================================
@@ -1107,8 +1110,141 @@ export default function PainelFinanceiroGlobal() {
     const prazoMedio = opFin.parcelas > 0 ? ((opFin.parcelas + 1) / 2) * (opFin.intervaloDias / 30) : 1;
     const taxaAnualizada = prazoMedio > 0 ? (taxaPct * 12 / prazoMedio) : 0;
 
-    return { face, liquido, juros, taxaPct, valorParcela, datasParcelas, prazoMedio, taxaAnualizada };
-  }, [opFin]);
+    // Operação é "cara" se taxa anualizada > threshold das metas
+    const isCaro = taxaAnualizada > metas.taxaAnualizadaMaxima;
+    // Severidade: leve (≤ 1.2x), médio (≤ 1.5x), grave (> 1.5x)
+    const nivelCaro = !isCaro ? null
+      : taxaAnualizada > metas.taxaAnualizadaMaxima * 1.5 ? 'grave'
+      : taxaAnualizada > metas.taxaAnualizadaMaxima * 1.2 ? 'medio'
+      : 'leve';
+
+    // IMPACTO ANTES × DEPOIS no caixa
+    // Antes: situação atual de saldo
+    const antes = {
+      saldo30: futuro.saldo30,
+      saldo60: futuro.saldo60,
+      saldo90: futuro.saldo90,
+      receber30: futuro.receber30,
+      pagar30: futuro.pagar30,
+    };
+    // Depois: aplica a operação na projeção
+    //  - Hoje: +liquido (receita) -juros (despesa) → entra liquido líquido no caixa hoje
+    //  - Próximos 30/60/90: somar parcelas em despesas conforme datas
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    let parcelas30 = 0, parcelas60 = 0, parcelas90 = 0;
+    datasParcelas.forEach(p => {
+      const d = new Date(p.data);
+      const dias = Math.round((d - hoje) / 86400000);
+      if (dias <= 30) parcelas30 += p.valor;
+      if (dias <= 60) parcelas60 += p.valor;
+      if (dias <= 90) parcelas90 += p.valor;
+    });
+    // Entrada de caixa hoje = liquido (não vai mudar saldoXd pois é "agora" — adicionamos como receita)
+    const depois = {
+      saldo30: antes.saldo30 + liquido - parcelas30,
+      saldo60: antes.saldo60 + liquido - parcelas60,
+      saldo90: antes.saldo90 + liquido - parcelas90,
+      receber30: antes.receber30 + liquido,
+      pagar30: antes.pagar30 + parcelas30,
+    };
+
+    return {
+      face, liquido, juros, taxaPct, valorParcela, datasParcelas,
+      prazoMedio, taxaAnualizada, isCaro, nivelCaro,
+      antes, depois,
+      deltaSaldo30: depois.saldo30 - antes.saldo30,
+      deltaSaldo90: depois.saldo90 - antes.saldo90,
+    };
+  }, [opFin, metas.taxaAnualizadaMaxima, futuro.saldo30, futuro.saldo60, futuro.saldo90, futuro.receber30, futuro.pagar30]);
+
+  // ===== TIMELINE DE OPERAÇÕES FINANCEIRAS (próximos 12 meses) =====
+  const opsFinanceirasTimeline = useMemo(() => {
+    // Agrupar todos os lançamentos que têm operacaoFinanceiraId
+    const ops = {};
+    movsLocais.forEach(m => {
+      if (!m.operacaoFinanceiraId) return;
+      if (!ops[m.operacaoFinanceiraId]) {
+        ops[m.operacaoFinanceiraId] = {
+          id: m.operacaoFinanceiraId,
+          label: m.operacaoLabel || 'Operação',
+          descricao: m.descricao.split('—')[1]?.trim() || m.descricao,
+          parcelas: [],
+          juros: 0,
+          liquido: 0,
+          face: 0,
+          dataInicio: null,
+          dataFim: null,
+        };
+      }
+      const op = ops[m.operacaoFinanceiraId];
+      if (m.tipo === 'receita' && m.categoria === 'Cheque Trocado (Líquido)') {
+        op.liquido = m.valor;
+        op.dataInicio = m.data;
+      } else if (m.categoria === 'Juros de Cheque' || m.categoria === 'Juros de Atraso') {
+        op.juros = m.valor;
+      } else if (m.categoria === 'Cheque Trocado (face)' || m.categoria === 'Empréstimo') {
+        op.parcelas.push({ data: m.vencimento || m.data, valor: m.valor, status: m.status });
+        op.face += m.valor;
+        if (!op.dataFim || new Date(m.vencimento || m.data) > new Date(op.dataFim)) {
+          op.dataFim = m.vencimento || m.data;
+        }
+      }
+    });
+
+    const operacoesArr = Object.values(ops).map(op => {
+      const taxa = op.liquido > 0 ? (op.juros / op.face * 100) : 0;
+      const prazoMeses = op.dataInicio && op.dataFim
+        ? Math.max(1, Math.round((new Date(op.dataFim) - new Date(op.dataInicio)) / (30 * 86400000)))
+        : 1;
+      const taxaAnual = taxa * 12 / prazoMeses;
+      const pago = op.parcelas.filter(p => p.status === 'pago').reduce((s,p)=>s+p.valor, 0);
+      const pendente = op.parcelas.filter(p => p.status !== 'pago').reduce((s,p)=>s+p.valor, 0);
+      return {
+        ...op,
+        taxa, taxaAnual, prazoMeses, pago, pendente,
+        isCaro: taxaAnual > metas.taxaAnualizadaMaxima,
+      };
+    });
+
+    // Cronograma agregado: próximos 12 meses
+    const hoje = new Date();
+    const cronograma = [];
+    for (let i = 0; i < 12; i++) {
+      const mes = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
+      const mesFim = new Date(hoje.getFullYear(), hoje.getMonth() + i + 1, 0);
+      const label = mes.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+      let capital = 0, juros = 0;
+      operacoesArr.forEach(op => {
+        op.parcelas.forEach(p => {
+          const d = new Date(p.data);
+          if (d >= mes && d <= mesFim && p.status !== 'pago') {
+            capital += p.valor;
+          }
+        });
+      });
+      // Distribui juros proporcionalmente entre parcelas pendentes (aproximação)
+      operacoesArr.forEach(op => {
+        if (op.juros > 0 && op.face > 0) {
+          op.parcelas.forEach(p => {
+            const d = new Date(p.data);
+            if (d >= mes && d <= mesFim && p.status !== 'pago') {
+              juros += (op.juros * p.valor) / op.face;
+            }
+          });
+        }
+      });
+      cronograma.push({
+        mes: label,
+        capital,
+        juros,
+        total: capital + juros,
+      });
+    }
+
+    return { operacoes: operacoesArr, cronograma, totalOperacoes: operacoesArr.length };
+  }, [movsLocais, metas.taxaAnualizadaMaxima]);
+
+
 
   const handleCriarOperacaoFinanceira = () => {
     if (!opFin.descricao || !opFin.valorFace) {
@@ -1624,6 +1760,142 @@ export default function PainelFinanceiroGlobal() {
               </CardContent>
             </Card>
           </div>
+
+          {/* ===== TIMELINE DE OPERAÇÕES FINANCEIRAS ===== */}
+          {opsFinanceirasTimeline.totalOperacoes > 0 && (
+            <>
+              <Card className="bg-gradient-to-br from-orange-900/20 to-red-900/20 border-orange-700/40">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Activity className="h-5 w-5 text-orange-400" />
+                    Cronograma de Pagamento — Operações Financeiras (12 meses)
+                    <Badge className="bg-orange-500/30 text-orange-200 ml-2">{opsFinanceirasTimeline.totalOperacoes} {opsFinanceirasTimeline.totalOperacoes === 1 ? 'operação ativa' : 'operações ativas'}</Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={280}>
+                    <ComposedChart data={opsFinanceirasTimeline.cronograma}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="mes" stroke="#64748b" />
+                      <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(v) => formatCurrency(v)} />
+                      <Legend wrapperStyle={{ color: '#94a3b8' }} />
+                      <Bar dataKey="capital" stackId="a" name="Capital (parcelas)" fill="#fb923c" radius={[0, 0, 0, 0]} />
+                      <Bar dataKey="juros" stackId="a" name="Juros (custo)" fill="#dc2626" radius={[4, 4, 0, 0]} />
+                      <Line type="monotone" dataKey="total" name="Total no mês" stroke="#f87171" strokeWidth={2} dot={{ r: 3 }} />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                  <div className="grid grid-cols-3 gap-3 mt-4 text-xs">
+                    <div className="bg-slate-900/40 rounded p-2">
+                      <p className="text-slate-400">Capital total 12m</p>
+                      <p className="text-base font-bold text-orange-400">{formatCurrency(opsFinanceirasTimeline.cronograma.reduce((s,c)=>s+c.capital,0))}</p>
+                    </div>
+                    <div className="bg-slate-900/40 rounded p-2">
+                      <p className="text-slate-400">Juros total 12m</p>
+                      <p className="text-base font-bold text-red-400">{formatCurrency(opsFinanceirasTimeline.cronograma.reduce((s,c)=>s+c.juros,0))}</p>
+                    </div>
+                    <div className="bg-slate-900/40 rounded p-2">
+                      <p className="text-slate-400">Pico mensal</p>
+                      <p className="text-base font-bold text-amber-400">{formatCurrency(Math.max(...opsFinanceirasTimeline.cronograma.map(c=>c.total)))}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* LISTA DE OPERAÇÕES ATIVAS */}
+              <Card className="bg-slate-900/60 border-slate-700/50">
+                <CardHeader>
+                  <CardTitle className="text-white flex items-center gap-2">
+                    <Percent className="h-5 w-5 text-rose-400" />Operações Financeiras Ativas
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {opsFinanceirasTimeline.operacoes.map(op => {
+                      const totalPagar = op.parcelas.reduce((s,p)=>s+p.valor, 0);
+                      const pctPago = totalPagar > 0 ? (op.pago / totalPagar * 100) : 0;
+                      return (
+                        <div key={op.id} className={cn(
+                          "p-3 rounded-lg border",
+                          op.isCaro ? "bg-red-900/20 border-red-700/40" : "bg-slate-800/40 border-slate-700/40"
+                        )}>
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1 flex-wrap">
+                                <Badge className="bg-purple-500/30 text-purple-200 text-[10px]">{op.label}</Badge>
+                                {op.isCaro && (
+                                  <Badge className="bg-red-500/30 text-red-200 text-[10px] animate-pulse">
+                                    <AlertTriangle className="h-2.5 w-2.5 mr-0.5" />OPERAÇÃO CARA
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-slate-400">{op.prazoMeses}m • {op.parcelas.length} parcelas</span>
+                              </div>
+                              <p className="text-sm text-white font-medium truncate">{op.descricao}</p>
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="text-[10px] text-slate-400">Face / Líquido</p>
+                              <p className="text-sm font-bold text-cyan-400">{formatCurrency(op.face)}</p>
+                              <p className="text-xs text-emerald-400">+{formatCurrency(op.liquido)}</p>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-4 gap-2 mb-2 text-xs">
+                            <div>
+                              <p className="text-slate-500 text-[10px]">Juros</p>
+                              <p className="font-semibold text-rose-400">{formatCurrency(op.juros)}</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-[10px]">Taxa</p>
+                              <p className="font-semibold text-amber-400">{op.taxa.toFixed(1)}%</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-[10px]">Taxa Anual</p>
+                              <p className={cn("font-semibold", op.isCaro ? 'text-red-400' : 'text-orange-400')}>{op.taxaAnual.toFixed(1)}% a.a.</p>
+                            </div>
+                            <div>
+                              <p className="text-slate-500 text-[10px]">Equiv. Produção</p>
+                              <p className="font-semibold text-violet-400">{(op.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)} ton</p>
+                            </div>
+                          </div>
+
+                          {/* Barra de progresso de pagamento */}
+                          <div>
+                            <div className="flex justify-between text-[10px] text-slate-500 mb-0.5">
+                              <span>Pago: {formatCurrency(op.pago)}</span>
+                              <span>Pendente: {formatCurrency(op.pendente)}</span>
+                            </div>
+                            <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                              <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400" style={{ width: `${pctPago}%` }} />
+                            </div>
+                          </div>
+
+                          {/* Timeline visual de parcelas */}
+                          {op.parcelas.length > 0 && (
+                            <div className="mt-2 flex items-center gap-1">
+                              {op.parcelas.map((p, i) => {
+                                const dias = Math.round((new Date(p.data) - new Date()) / 86400000);
+                                return (
+                                  <div key={i} className={cn(
+                                    "flex-1 h-6 rounded text-[9px] flex items-center justify-center font-semibold",
+                                    p.status === 'pago' ? 'bg-emerald-500/30 text-emerald-300' :
+                                    dias < 0 ? 'bg-red-500/30 text-red-300' :
+                                    dias <= 7 ? 'bg-amber-500/30 text-amber-300' :
+                                    'bg-slate-700/50 text-slate-400'
+                                  )} title={`${formatCurrency(p.valor)} em ${formatDate(p.data)}`}>
+                                    {p.status === 'pago' ? '✓' : dias < 0 ? '!' : `${dias}d`}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
 
           {/* Card de Despesas Financeiras (juros, cheques, empréstimos) */}
           {despesasFinanceiras.qtd > 0 && (
@@ -2429,6 +2701,91 @@ export default function PainelFinanceiroGlobal() {
               )}
             </div>
 
+            {/* ALERTA: Operação cara */}
+            {opFinCalc.isCaro && opFinCalc.face > 0 && (
+              <div className={cn(
+                "rounded-lg border p-3 flex items-start gap-3",
+                opFinCalc.nivelCaro === 'grave' ? 'bg-red-900/30 border-red-700/50' :
+                opFinCalc.nivelCaro === 'medio' ? 'bg-orange-900/30 border-orange-700/50' :
+                'bg-amber-900/30 border-amber-700/50'
+              )}>
+                <AlertTriangle className={cn("h-5 w-5 mt-0.5 flex-shrink-0",
+                  opFinCalc.nivelCaro === 'grave' ? 'text-red-400 animate-pulse' :
+                  opFinCalc.nivelCaro === 'medio' ? 'text-orange-400' :
+                  'text-amber-400'
+                )} />
+                <div className="flex-1">
+                  <p className={cn("font-bold text-sm",
+                    opFinCalc.nivelCaro === 'grave' ? 'text-red-200' :
+                    opFinCalc.nivelCaro === 'medio' ? 'text-orange-200' :
+                    'text-amber-200'
+                  )}>
+                    {opFinCalc.nivelCaro === 'grave' ? '🚨 Operação MUITO CARA' :
+                     opFinCalc.nivelCaro === 'medio' ? '⚠️ Operação CARA' :
+                     '⚠️ Operação Acima da Média'}
+                  </p>
+                  <p className="text-xs text-slate-300 mt-1">
+                    Taxa anualizada de <strong>{opFinCalc.taxaAnualizada.toFixed(1)}% a.a.</strong> excede o limite definido nas metas ({metas.taxaAnualizadaMaxima}% a.a.).
+                  </p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    Custo total dos juros: <strong className="text-rose-400">{formatCurrency(opFinCalc.juros)}</strong> — equivale a <strong className="text-orange-400">{(opFinCalc.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)} ton</strong> de produção fabricada perdida.
+                  </p>
+                  {opFinCalc.nivelCaro === 'grave' && (
+                    <p className="text-xs text-red-300 mt-2">
+                      💡 Considere alternativas: factoring, antecipação de medições, capital de giro com taxa menor.
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* COMPARATIVO: Antes × Depois (impacto no caixa) */}
+            {opFinCalc.face > 0 && (
+              <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-4">
+                <p className="text-sm font-semibold text-cyan-300 mb-3 flex items-center gap-2">
+                  <Activity className="h-4 w-4" />Impacto no Caixa: Antes × Depois
+                </p>
+                <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div className="font-semibold text-slate-400">Indicador</div>
+                  <div className="font-semibold text-slate-400 text-center">ANTES</div>
+                  <div className="font-semibold text-slate-400 text-center">DEPOIS</div>
+
+                  <div className="text-slate-300">Saldo projetado 30d</div>
+                  <div className="text-center text-slate-300">{formatCurrency(opFinCalc.antes.saldo30)}</div>
+                  <div className={cn("text-center font-bold", opFinCalc.deltaSaldo30 >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                    {formatCurrency(opFinCalc.depois.saldo30)}
+                    <span className="text-[10px] block">{opFinCalc.deltaSaldo30 >= 0 ? '+' : ''}{formatCurrency(opFinCalc.deltaSaldo30)}</span>
+                  </div>
+
+                  <div className="text-slate-300">Saldo projetado 90d</div>
+                  <div className="text-center text-slate-300">{formatCurrency(opFinCalc.antes.saldo90)}</div>
+                  <div className={cn("text-center font-bold", opFinCalc.deltaSaldo90 >= 0 ? 'text-emerald-400' : 'text-rose-400')}>
+                    {formatCurrency(opFinCalc.depois.saldo90)}
+                    <span className="text-[10px] block">{opFinCalc.deltaSaldo90 >= 0 ? '+' : ''}{formatCurrency(opFinCalc.deltaSaldo90)}</span>
+                  </div>
+
+                  <div className="text-slate-300">A receber (30d)</div>
+                  <div className="text-center text-slate-300">{formatCurrency(opFinCalc.antes.receber30)}</div>
+                  <div className="text-center font-bold text-emerald-400">{formatCurrency(opFinCalc.depois.receber30)}</div>
+
+                  <div className="text-slate-300">A pagar (30d)</div>
+                  <div className="text-center text-slate-300">{formatCurrency(opFinCalc.antes.pagar30)}</div>
+                  <div className="text-center font-bold text-rose-400">{formatCurrency(opFinCalc.depois.pagar30)}</div>
+                </div>
+
+                {/* Avaliação automática */}
+                <div className={cn("mt-3 pt-3 border-t border-slate-700 text-xs",
+                  opFinCalc.deltaSaldo90 >= 0 ? 'text-emerald-300' : 'text-rose-300'
+                )}>
+                  {opFinCalc.deltaSaldo90 >= 0 ? (
+                    <span>✅ <strong>Operação melhora o caixa em 90 dias</strong> — entrada líquida atual cobre as parcelas no horizonte de 3 meses.</span>
+                  ) : (
+                    <span>❌ <strong>Operação piora o caixa em 90 dias</strong> — você vai pagar mais nas parcelas do que recebeu líquido. Avalie cuidadosamente.</span>
+                  )}
+                </div>
+              </div>
+            )}
+
             <Button className="w-full bg-gradient-to-r from-amber-500 to-orange-500" onClick={handleCriarOperacaoFinanceira}>
               <Plus className="h-4 w-4 mr-2" />Criar Operação ({2 + opFinCalc.datasParcelas.length} lançamentos)
             </Button>
@@ -2493,6 +2850,13 @@ export default function PainelFinanceiroGlobal() {
               <div>
                 <Label className="text-slate-300 text-xs">Janela atenção (dias)</Label>
                 <Input type="number" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.alertaAtencaoDias} onChange={(e) => setMetasForm({...metasForm, alertaAtencaoDias: parseInt(e.target.value) || 0})} />
+              </div>
+              <div className="col-span-2">
+                <Label className="text-slate-300 text-xs flex items-center gap-1">
+                  <Percent className="h-3 w-3" />Taxa anualizada máxima aceitável (% a.a.)
+                </Label>
+                <Input type="number" step="1" className="mt-1 bg-slate-800 border-slate-700" value={metasForm.taxaAnualizadaMaxima} onChange={(e) => setMetasForm({...metasForm, taxaAnualizadaMaxima: parseFloat(e.target.value) || 0})} />
+                <p className="text-[10px] text-slate-500 mt-1">Acima deste valor, operações financeiras serão marcadas como "caras". Padrão: 50% a.a.</p>
               </div>
             </div>
             <Button className="w-full bg-gradient-to-r from-purple-500 to-indigo-500" onClick={handleSalvarMetas}>
