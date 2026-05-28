@@ -1748,10 +1748,10 @@ export default function GestaoFinanceiraObra() {
                 </div>
               </div>
 
-              {/* Tabela de Lançamentos */}
-              <div className="overflow-x-auto">
+              {/* Tabela de Lançamentos — sem limite, com scroll vertical no container */}
+              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                 <table className="w-full">
-                  <thead>
+                  <thead className="sticky top-0 bg-slate-900 z-10">
                     <tr className="text-xs text-slate-400 border-b border-slate-700/50">
                       <th className="text-left py-3 px-2">Descrição</th>
                       <th className="text-left py-3 px-2">Categoria</th>
@@ -1763,7 +1763,7 @@ export default function GestaoFinanceiraObra() {
                     </tr>
                   </thead>
                   <tbody>
-                    {lancamentosFiltrados.slice(0, 15).map((lanc, idx) => {
+                    {lancamentosFiltrados.map((lanc, idx) => {
                       const statusStyle = STATUS_COLORS[lanc.status] || STATUS_COLORS[STATUS_LANCAMENTO.PENDENTE];
                       return (
                         <motion.tr
