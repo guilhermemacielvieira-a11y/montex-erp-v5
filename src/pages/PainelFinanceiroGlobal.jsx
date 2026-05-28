@@ -3860,7 +3860,8 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false, seleci
             </TableHead>
             <TableHead className="text-slate-400">Origem</TableHead>
             {!hideTipo && <TableHead className="text-slate-400">Tipo</TableHead>}
-            <TableHead className="text-slate-400">Data</TableHead>
+            <TableHead className="text-slate-400">Vencimento</TableHead>
+            <TableHead className="text-slate-400">Emissão</TableHead>
             <TableHead className="text-slate-400">Descrição</TableHead>
             <TableHead className="text-slate-400">Fornecedor/Obra</TableHead>
             <TableHead className="text-slate-400">Categoria</TableHead>
@@ -3904,7 +3905,24 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false, seleci
                   )}
                 </TableCell>
               )}
-              <TableCell className="text-slate-300 text-sm">{formatDate(mov.data)}</TableCell>
+              <TableCell className="text-sm whitespace-nowrap">
+                {(() => {
+                  const venc = mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : null;
+                  if (!venc) return <span className="text-slate-500">—</span>;
+                  const dVenc = parseLocalDate(venc);
+                  const hoje = new Date(); hoje.setHours(0,0,0,0);
+                  if (dVenc) dVenc.setHours(0,0,0,0);
+                  const ehPago = ['recebido','pago','paga','faturado','confirmado'].includes(mov.status);
+                  const vencido = dVenc && dVenc < hoje && !ehPago;
+                  return (
+                    <span className={cn("font-semibold", vencido ? "text-red-400" : "text-slate-200")}>
+                      {formatDate(venc)}
+                      {vencido && <span className="block text-[9px] text-red-300 font-normal">vencido</span>}
+                    </span>
+                  );
+                })()}
+              </TableCell>
+              <TableCell className="text-slate-500 text-xs whitespace-nowrap">{formatDate(mov.data)}</TableCell>
               <TableCell className="text-white font-medium max-w-[220px]">
                 <span className="truncate block">{mov.descricao}</span>
                 {ehCheque(mov) && <span className="text-[10px] text-blue-400">🏦 cheque detectado</span>}
@@ -3967,7 +3985,7 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false, seleci
           ))}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={hideTipo ? 9 : 10} className="text-center text-slate-500 py-8">
+              <TableCell colSpan={hideTipo ? 10 : 11} className="text-center text-slate-500 py-8">
                 Nenhuma movimentação encontrada.
               </TableCell>
             </TableRow>
