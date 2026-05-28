@@ -290,6 +290,7 @@ export default function PainelFinanceiroGlobal() {
   const [formData, setFormData] = useState({
     tipo: 'despesa', descricao: '', valor: '', categoria: '',
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '',
+    parcelas: 1, intervaloDias: 30,  // 1 parcela = lançamento único; >1 = recorrência
   });
   const [metasForm, setMetasForm] = useState(metas);
 
@@ -904,7 +905,7 @@ export default function PainelFinanceiroGlobal() {
   // ============================================================
   const handleNova = (tipo = 'despesa') => {
     setEditando(null);
-    setFormData({ tipo, descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
+    setFormData({ tipo, descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '', parcelas: 1, intervaloDias: 30 });
     setDialogOpen(true);
   };
 
@@ -917,6 +918,7 @@ export default function PainelFinanceiroGlobal() {
       vencimento: mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : '',
       formaPagto: mov.formaPagto || '', status: mov.status || 'pendente',
       obraId: mov.obraId || '',
+      parcelas: 1, intervaloDias: 30,  // edição sempre é de 1 lançamento individual
     });
     setDialogOpen(true);
   };
@@ -1036,18 +1038,60 @@ export default function PainelFinanceiroGlobal() {
         toast.success('Override local salvo — sistema principal intacto');
       }
     } else {
-      const novo = {
-        id: `GLOBAL-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
-        tipo: formData.tipo, descricao: formData.descricao,
-        fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
-        valor: valorNum, formaPagto: formData.formaPagto || '-',
-        vencimento: formData.vencimento || '',
-        data: formData.vencimento || new Date().toISOString().split('T')[0],
-        status: formData.status || 'pendente', obraId: formData.obraId || null,
-        createdAt: new Date().toISOString(),
-      };
-      setMovsLocais(prev => [...prev, novo]);
-      toast.success('Lançamento criado neste módulo');
+      // ===== NOVO LANÇAMENTO — pode ter parcelas/recorrência =====
+      const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+      const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+
+      if (qtdParcelas === 1) {
+        // Lançamento único (sem parcelas)
+        const novo = {
+          id: `GLOBAL-${Date.now()}-${Math.floor(Math.random() * 9999)}`,
+          tipo: formData.tipo, descricao: formData.descricao,
+          fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
+          valor: valorNum, formaPagto: formData.formaPagto || '-',
+          vencimento: formData.vencimento || '',
+          data: formData.vencimento || new Date().toISOString().split('T')[0],
+          status: formData.status || 'pendente', obraId: formData.obraId || null,
+          createdAt: new Date().toISOString(),
+        };
+        setMovsLocais(prev => [...prev, novo]);
+        toast.success('Lançamento criado neste módulo');
+      } else {
+        // RECORRÊNCIA — replica N parcelas com vencimentos escalonados
+        const baseDate = formData.vencimento ? parseLocalDate(formData.vencimento) : new Date();
+        if (!baseDate || isNaN(baseDate.getTime())) {
+          toast.error('Defina o vencimento da 1ª parcela');
+          return;
+        }
+        const recorrenciaId = `REC-${Date.now()}`;
+        const novos = [];
+        for (let i = 0; i < qtdParcelas; i++) {
+          const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate() + (i * intervalo));
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          const dataStr = `${yyyy}-${mm}-${dd}`;
+          novos.push({
+            id: `GLOBAL-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
+            tipo: formData.tipo,
+            descricao: `${formData.descricao} (Parcela ${i + 1}/${qtdParcelas})`,
+            fornecedor: formData.fornecedor || '-',
+            categoria: formData.categoria || 'Outros',
+            valor: valorNum,
+            formaPagto: formData.formaPagto || '-',
+            vencimento: dataStr,
+            data: dataStr,
+            status: i === 0 ? (formData.status || 'pendente') : 'pendente',
+            obraId: formData.obraId || null,
+            recorrenciaId,
+            parcelaIdx: i + 1,
+            parcelaTotal: qtdParcelas,
+            createdAt: new Date().toISOString(),
+          });
+        }
+        setMovsLocais(prev => [...prev, ...novos]);
+        toast.success(`${qtdParcelas} parcelas criadas (total ${formatCurrency(valorNum * qtdParcelas)})`);
+      }
     }
     setDialogOpen(false);
     setEditando(null);
@@ -3237,6 +3281,69 @@ export default function PainelFinanceiroGlobal() {
               </div>
             )}
 
+            {/* ============================== */}
+            {/* PARCELAS / RECORRÊNCIA (modo normal) */}
+            {/* ============================== */}
+            {!chequeMode && !editando && (
+              <div className="bg-slate-800/40 border border-slate-700 rounded-lg p-3 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-cyan-400" />
+                  <p className="text-xs font-semibold text-cyan-300">Recorrência / Parcelamento</p>
+                  <span className="text-[10px] text-slate-500">opcional — deixe 1 para lançamento único</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-slate-300 text-xs">Quantidade de Parcelas</Label>
+                    <Input type="number" min="1" max="120" className="mt-1 bg-slate-800 border-slate-700" value={formData.parcelas}
+                      onChange={(e) => setFormData({...formData, parcelas: parseInt(e.target.value) || 1})} />
+                  </div>
+                  <div>
+                    <Label className="text-slate-300 text-xs">Intervalo entre vencimentos (dias)</Label>
+                    <Input type="number" min="1" className="mt-1 bg-slate-800 border-slate-700" value={formData.intervaloDias}
+                      onChange={(e) => setFormData({...formData, intervaloDias: parseInt(e.target.value) || 30})} />
+                  </div>
+                </div>
+                {/* Preview quando parcelas > 1 */}
+                {parseInt(formData.parcelas) > 1 && formData.vencimento && parseFloat(formData.valor) > 0 && (() => {
+                  const qtd = parseInt(formData.parcelas);
+                  const intervalo = parseInt(formData.intervaloDias) || 30;
+                  const base = parseLocalDate(formData.vencimento);
+                  if (!base) return null;
+                  const valor = parseFloat(formData.valor) || 0;
+                  const totalGeral = valor * qtd;
+                  const ultima = new Date(base.getFullYear(), base.getMonth(), base.getDate() + ((qtd - 1) * intervalo));
+                  const previewParcelas = [];
+                  const mostrar = Math.min(qtd, 6);
+                  for (let i = 0; i < mostrar; i++) {
+                    const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + (i * intervalo));
+                    previewParcelas.push({ n: i + 1, data: d });
+                  }
+                  return (
+                    <div className="bg-cyan-900/20 border border-cyan-700/30 rounded-lg p-2.5 space-y-2">
+                      <div className="flex justify-between text-xs">
+                        <span className="text-cyan-200">
+                          Vai gerar <strong>{qtd} parcelas</strong> de {formatCurrency(valor)}
+                        </span>
+                        <span className="text-cyan-300 font-bold">Total: {formatCurrency(totalGeral)}</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {previewParcelas.map(p => (
+                          <span key={p.n} className="text-[10px] bg-slate-800/60 border border-slate-700 rounded px-2 py-0.5 text-slate-300">
+                            P{p.n}: {p.data.toLocaleDateString('pt-BR')}
+                          </span>
+                        ))}
+                        {qtd > 6 && (
+                          <span className="text-[10px] text-slate-400 italic">
+                            ... +{qtd - 6} parcelas até {ultima.toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             <div>
               <Label className="text-slate-300">Vincular à Obra (opcional)</Label>
               <Select value={formData.obraId || 'none'} onValueChange={(v) => setFormData({...formData, obraId: v === 'none' ? '' : v})}>
@@ -3259,7 +3366,9 @@ export default function PainelFinanceiroGlobal() {
                 ? 'Salvar Alterações (local)'
                 : chequeMode
                   ? `Criar Operação de Cheque Trocado (${2 + chequesList.filter(c => parseFloat(c.valor) > 0 && c.vencimento).length} lançamentos)`
-                  : 'Cadastrar Localmente'}
+                  : parseInt(formData.parcelas) > 1
+                    ? `Cadastrar ${formData.parcelas} parcelas`
+                    : 'Cadastrar Localmente'}
             </Button>
           </div>
         </DialogContent>
