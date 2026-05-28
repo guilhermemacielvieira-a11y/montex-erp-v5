@@ -103,15 +103,35 @@ const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL', minimumFractionDigits: 0
 }).format(value || 0);
 
+// 🔧 FIX TIMEZONE: new Date('YYYY-MM-DD') é interpretado como UTC midnight
+// → vira 21:00 do dia anterior no fuso BRT (UTC-3). Aqui parseamos manualmente
+// como data LOCAL (ano, mês, dia) para evitar o deslocamento.
+const parseLocalDate = (dataStr) => {
+  if (!dataStr) return null;
+  if (dataStr instanceof Date) return dataStr;
+  const s = String(dataStr);
+  // Formato YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss → extrai e cria como local
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+  }
+  return new Date(s);
+};
+
 const formatDate = (date) => {
   if (!date || date === '-') return '-';
-  try { return new Date(date).toLocaleDateString('pt-BR'); } catch { return '-'; }
+  try {
+    const d = parseLocalDate(date);
+    if (!d || isNaN(d.getTime())) return '-';
+    return d.toLocaleDateString('pt-BR');
+  } catch { return '-'; }
 };
 
 const diasAteVencimento = (dataStr) => {
   if (!dataStr || dataStr === '-') return null;
   try {
-    const venc = new Date(dataStr);
+    const venc = parseLocalDate(dataStr);
+    if (!venc || isNaN(venc.getTime())) return null;
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     venc.setHours(0,0,0,0);
     return Math.round((venc - hoje) / (1000 * 60 * 60 * 24));
@@ -437,7 +457,7 @@ export default function PainelFinanceiroGlobal() {
     else if (filtroPeriodo === 'mensal') inicio.setMonth(hoje.getMonth() - 1);
     else if (filtroPeriodo === 'trimestral') inicio.setMonth(hoje.getMonth() - 3);
     return lista.filter(m => {
-      const d = new Date(m.data || m.vencimento);
+      const d = parseLocalDate(m.data || m.vencimento);
       return d >= inicio && d <= hoje;
     });
   }, [filtroPeriodo]);
@@ -492,11 +512,11 @@ export default function PainelFinanceiroGlobal() {
       const inicio = new Date(hoje);
       inicio.setDate(inicio.getDate() + i * 7);
       const recSem = futurasReceitas.filter(m => {
-        const d = new Date(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+        const d = parseLocalDate(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
         return d >= inicio && d < fim;
       }).reduce((s,m)=>s+(m.valor||0),0);
       const despSem = futurasDespesas.filter(m => {
-        const d = new Date(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+        const d = parseLocalDate(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
         return d >= inicio && d < fim;
       }).reduce((s,m)=>s+(m.valor||0),0);
       semanas.push({
@@ -603,7 +623,7 @@ export default function PainelFinanceiroGlobal() {
     const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
     const receitaMes = todasMovs.filter(m => {
       if (m.tipo !== 'receita') return false;
-      const d = new Date(m.data || m.vencimento);
+      const d = parseLocalDate(m.data || m.vencimento);
       return d >= inicioMes && d <= fimMes && ['recebido','pago','paga'].includes(m.status);
     }).reduce((s,m)=>s+(m.valor||0),0);
     if (receitaMes < metas.receitaMinimaMensal * 0.8) {
@@ -650,7 +670,7 @@ export default function PainelFinanceiroGlobal() {
   const evolucaoMensal = useMemo(() => {
     const meses = {};
     movsPeriodo.forEach(m => {
-      const d = new Date(m.data || m.vencimento);
+      const d = parseLocalDate(m.data || m.vencimento);
       if (isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
@@ -681,7 +701,7 @@ export default function PainelFinanceiroGlobal() {
     const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
     const movsMes = todasMovs.filter(m => {
-      const d = new Date(m.data || m.vencimento);
+      const d = parseLocalDate(m.data || m.vencimento);
       return d >= inicioMes && d <= fimMes;
     });
     const receitaMes = movsMes.filter(m => m.tipo === 'receita' && ['recebido','pago','paga'].includes(m.status))
@@ -707,7 +727,7 @@ export default function PainelFinanceiroGlobal() {
       const inicio = ini(offset);
       const final = fim(offset);
       const movs = todasMovs.filter(m => {
-        const d = new Date(m.data || m.vencimento);
+        const d = parseLocalDate(m.data || m.vencimento);
         return d >= inicio && d <= final;
       });
       const rec = movs.filter(m => m.tipo === 'receita').reduce((s,m)=>s+(m.valor||0),0);
@@ -742,7 +762,7 @@ export default function PainelFinanceiroGlobal() {
       const mes = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
       const label = mes.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
       const naoVigentes = aprovadasNaoPagas.filter(m => {
-        const venc = new Date(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+        const venc = parseLocalDate(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
         return venc.getFullYear() === mes.getFullYear() && venc.getMonth() === mes.getMonth();
       });
       const valor = naoVigentes.reduce((s,m)=>s+(m.valor||0),0);
@@ -1181,7 +1201,7 @@ export default function PainelFinanceiroGlobal() {
     const juros = valorTotalFace - liquido;
     const taxaPct = valorTotalFace > 0 ? (juros / valorTotalFace * 100) : 0;
     // Prazo médio (assumindo cheques ordenados por data)
-    const chequesComData = chequesList.filter(c => c.vencimento).map(c => ({ ...c, dataObj: new Date(c.vencimento) }));
+    const chequesComData = chequesList.filter(c => c.vencimento).map(c => ({ ...c, dataObj: parseLocalDate(c.vencimento) }));
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const prazoMedioDias = chequesComData.length > 0
       ? chequesComData.reduce((s, c) => s + Math.max(0, (c.dataObj - hoje) / 86400000), 0) / chequesComData.length
@@ -1221,15 +1241,19 @@ export default function PainelFinanceiroGlobal() {
     const taxaPct = face > 0 ? (juros / face * 100) : 0;
     const valorParcela = opFin.parcelas > 0 ? face / opFin.parcelas : 0;
 
-    // Calcular datas das parcelas
+    // Calcular datas das parcelas — usa parseLocalDate para evitar shift de timezone
     const datasParcelas = [];
     if (opFin.primeiroVencimento) {
+      const base = parseLocalDate(opFin.primeiroVencimento);
       for (let i = 0; i < opFin.parcelas; i++) {
-        const d = new Date(opFin.primeiroVencimento);
-        d.setDate(d.getDate() + (i * opFin.intervaloDias));
+        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + (i * opFin.intervaloDias));
+        // Salvar como YYYY-MM-DD usando componentes locais (não toISOString que vira UTC)
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, '0');
+        const dd = String(d.getDate()).padStart(2, '0');
         datasParcelas.push({
           numero: i + 1,
-          data: d.toISOString().split('T')[0],
+          data: `${yyyy}-${mm}-${dd}`,
           dataLabel: d.toLocaleDateString('pt-BR'),
           valor: valorParcela,
         });
@@ -1262,7 +1286,7 @@ export default function PainelFinanceiroGlobal() {
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     let parcelas30 = 0, parcelas60 = 0, parcelas90 = 0;
     datasParcelas.forEach(p => {
-      const d = new Date(p.data);
+      const d = parseLocalDate(p.data);
       const dias = Math.round((d - hoje) / 86400000);
       if (dias <= 30) parcelas30 += p.valor;
       if (dias <= 60) parcelas60 += p.valor;
@@ -1314,7 +1338,7 @@ export default function PainelFinanceiroGlobal() {
       } else if (m.categoria === 'Cheque Trocado (face)' || m.categoria === 'Empréstimo') {
         op.parcelas.push({ data: m.vencimento || m.data, valor: m.valor, status: m.status });
         op.face += m.valor;
-        if (!op.dataFim || new Date(m.vencimento || m.data) > new Date(op.dataFim)) {
+        if (!op.dataFim || parseLocalDate(m.vencimento || m.data) > parseLocalDate(op.dataFim)) {
           op.dataFim = m.vencimento || m.data;
         }
       }
@@ -1323,7 +1347,7 @@ export default function PainelFinanceiroGlobal() {
     const operacoesArr = Object.values(ops).map(op => {
       const taxa = op.liquido > 0 ? (op.juros / op.face * 100) : 0;
       const prazoMeses = op.dataInicio && op.dataFim
-        ? Math.max(1, Math.round((new Date(op.dataFim) - new Date(op.dataInicio)) / (30 * 86400000)))
+        ? Math.max(1, Math.round((parseLocalDate(op.dataFim) - parseLocalDate(op.dataInicio)) / (30 * 86400000)))
         : 1;
       const taxaAnual = taxa * 12 / prazoMeses;
       const pago = op.parcelas.filter(p => p.status === 'pago').reduce((s,p)=>s+p.valor, 0);
@@ -1345,7 +1369,7 @@ export default function PainelFinanceiroGlobal() {
       let capital = 0, juros = 0;
       operacoesArr.forEach(op => {
         op.parcelas.forEach(p => {
-          const d = new Date(p.data);
+          const d = parseLocalDate(p.data);
           if (d >= mes && d <= mesFim && p.status !== 'pago') {
             capital += p.valor;
           }
@@ -1355,7 +1379,7 @@ export default function PainelFinanceiroGlobal() {
       operacoesArr.forEach(op => {
         if (op.juros > 0 && op.face > 0) {
           op.parcelas.forEach(p => {
-            const d = new Date(p.data);
+            const d = parseLocalDate(p.data);
             if (d >= mes && d <= mesFim && p.status !== 'pago') {
               juros += (op.juros * p.valor) / op.face;
             }
@@ -2310,7 +2334,7 @@ export default function PainelFinanceiroGlobal() {
                           {op.parcelas.length > 0 && (
                             <div className="mt-2 flex items-center gap-1">
                               {op.parcelas.map((p, i) => {
-                                const dias = Math.round((new Date(p.data) - new Date()) / 86400000);
+                                const dias = Math.round((parseLocalDate(p.data) - new Date()) / 86400000);
                                 return (
                                   <div key={i} className={cn(
                                     "flex-1 h-6 rounded text-[9px] flex items-center justify-center font-semibold",
