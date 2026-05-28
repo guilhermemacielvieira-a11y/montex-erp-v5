@@ -212,6 +212,7 @@ const navigationCategories = [
       { name: 'Receitas', href: 'ReceitasPage', icon: Wallet },
       { name: 'Despesas', href: 'DespesasPage', icon: Receipt },
       { name: 'Metas Financeiras', href: 'MetasFinanceirasPage', icon: Flag },
+      { name: 'Painel Financeiro Global', href: 'PainelFinanceiroGlobal', icon: Globe, badge: 'NEW', badgeColor: 'bg-purple-500/20 text-purple-300' },
       { name: 'Análise de Custos', href: 'AnaliseCustosPage', icon: PieChart },
       { name: 'Centros de Custo', href: 'CentrosCustoPage', icon: Building2 },
       { name: 'Relatórios Financeiros', href: 'RelatoriosFinanceiros', icon: FileBarChart, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
