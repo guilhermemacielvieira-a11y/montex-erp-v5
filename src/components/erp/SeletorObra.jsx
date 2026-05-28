@@ -186,12 +186,23 @@ export default function SeletorObra({ compact = false }) {
         const pesoProduzido = pe ? pe.pintura : (pesoTotal * ((obraAtualData.progresso?.pintura || 0) / 100));
         // Em processo = peso das pecas em corte ate solda (corte - pintura em peso)
         const pesoEmProcesso = pe ? Math.max(0, pe.corte - pe.pintura) : (pesoTotal * (Math.max(0, ((obraAtualData.progresso?.corte || 0) - (obraAtualData.progresso?.pintura || 0))) / 100));
-        // Progresso = média ponderada de todas as etapas cumulativas
-        // Cada etapa completada (corte→fab→solda→pintura→expedição→montagem) contribui 1/6
-        // pe.* são cumulativos (fall-through): pe.pintura inclui peças em pintura+expedição+montagem
-        const progresso = pe && pe.total > 0
-          ? Math.round(((pe.corte + pe.fabricacao + pe.solda + pe.pintura + pe.expedicao + pe.montagem) / (6 * pe.total)) * 100)
-          : (Object.values(obraAtualData.progresso || {}).reduce((a, b) => a + b, 0) / 6 | 0);
+        // Progresso = média ponderada das etapas aplicáveis à obra
+        // 🔧 FIX: nem toda obra tem etapa de montagem (ex: TMC-CC027 é fornecimento
+        // puro, só vai até expedição). Antes dividia por 6 fixo → 83% mesmo com tudo
+        // pronto. Agora detectamos a maior etapa atingida e usamos como divisor.
+        // - Obra que para em "expedição" → divisor 5 (corte/fab/solda/pintura/expedição)
+        // - Obra que chega a "montagem" → divisor 6 (inclui montagem em campo)
+        const progresso = (() => {
+          if (!pe || pe.total <= 0) {
+            return Object.values(obraAtualData.progresso || {}).reduce((a, b) => a + b, 0) / 6 | 0;
+          }
+          const valores = [pe.corte, pe.fabricacao, pe.solda, pe.pintura, pe.expedicao, pe.montagem];
+          let ultimaEtapa = 0;
+          valores.forEach((v, i) => { if (v > 0) ultimaEtapa = i + 1; });
+          if (ultimaEtapa < 1) return 0;
+          const numerador = valores.slice(0, ultimaEtapa).reduce((s, v) => s + v, 0);
+          return Math.round((numerador / (ultimaEtapa * pe.total)) * 100);
+        })();
 
         return (
         <div className="mt-4 grid grid-cols-2 gap-2">
