@@ -1110,6 +1110,19 @@ export default function PainelFinanceiroGlobal() {
     setDeleteConfirmId(null);
   };
 
+  // Apagar grupo: remove TODAS as parcelas do mesmo recorrenciaId OU todas as
+  // movs de uma operação financeira (operacaoFinanceiraId)
+  const handleApagarGrupo = (grupoIdKey, grupoIdValue) => {
+    const removidas = movsLocais.filter(m => m[grupoIdKey] === grupoIdValue);
+    if (removidas.length === 0) {
+      toast.error('Nenhum item encontrado no grupo');
+      return;
+    }
+    setMovsLocais(prev => prev.filter(m => m[grupoIdKey] !== grupoIdValue));
+    toast.success(`${removidas.length} lançamentos removidos do grupo`);
+    setDeleteConfirmId(null);
+  };
+
   const handleResetTudo = () => {
     setMovsLocais([]); setOverridesLocais({}); setHiddenLocais([]);
     setAlertasLidos([]);
@@ -1335,6 +1348,43 @@ export default function PainelFinanceiroGlobal() {
     const isCaro = taxaAnualizada > metas.taxaAnualizadaMaxima;
     return { valorTotalFace, liquido, juros, taxaPct, prazoMedioDias, prazoMedioMeses, taxaAnualizada, isCaro };
   }, [chequesList, valorLiquidoCheque, metas.taxaAnualizadaMaxima]);
+
+  // ===== ÚLTIMOS LANÇAMENTOS LOCAIS (criados aqui) =====
+  // Agrupa por recorrenciaId/operacaoFinanceiraId para mostrar como "grupo" com qtd
+  const ultimosLancamentos = useMemo(() => {
+    const semDuplicar = new Set();
+    const resultado = [];
+    // Ordenar movsLocais por createdAt desc
+    const ordenadas = [...movsLocais].sort((a, b) => {
+      const da = a.createdAt ? new Date(a.createdAt) : new Date(0);
+      const db = b.createdAt ? new Date(b.createdAt) : new Date(0);
+      return db - da;
+    });
+    ordenadas.forEach(m => {
+      const grupoKey = m.recorrenciaId || m.operacaoFinanceiraId;
+      if (grupoKey) {
+        if (semDuplicar.has(grupoKey)) return;
+        semDuplicar.add(grupoKey);
+        const grupo = movsLocais.filter(x =>
+          x.recorrenciaId === grupoKey || x.operacaoFinanceiraId === grupoKey
+        );
+        const totalValor = grupo.reduce((s, x) => s + (x.tipo === 'receita' ? (x.valor||0) : -(x.valor||0)), 0);
+        const descBase = m.descricao.replace(/\(Parcela \d+\/\d+\)/, '').replace(/—.*/, '').trim();
+        resultado.push({
+          ...m,
+          ehGrupo: true,
+          grupoKey,
+          grupoTipo: m.recorrenciaId ? 'recorrencia' : 'operacao',
+          qtdNoGrupo: grupo.length,
+          valorTotalGrupo: Math.abs(totalValor),
+          descricao: descBase,
+        });
+      } else {
+        resultado.push({ ...m, ehGrupo: false });
+      }
+    });
+    return resultado.slice(0, 15);
+  }, [movsLocais]);
 
   // ===== ANÁLISE DE DESPESAS FINANCEIRAS =====
   const despesasFinanceiras = useMemo(() => {
@@ -1980,6 +2030,119 @@ export default function PainelFinanceiroGlobal() {
         {/* TAB 1: VISÃO GERAL                           */}
         {/* =========================================== */}
         <TabsContent value="visao" className="space-y-6">
+          {/* ============================== */}
+          {/* ÚLTIMOS LANÇAMENTOS LOCAIS    */}
+          {/* ============================== */}
+          {ultimosLancamentos.length > 0 && (
+            <Card className="bg-gradient-to-br from-purple-900/20 to-indigo-900/20 border-purple-700/40">
+              <CardHeader className="flex flex-row items-center justify-between flex-wrap gap-2">
+                <CardTitle className="text-white flex items-center gap-2">
+                  <Lock className="h-5 w-5 text-purple-400" />Últimos Lançamentos Locais
+                  <Badge className="bg-purple-500/30 text-purple-200 text-xs">{movsLocais.length} total</Badge>
+                </CardTitle>
+                <span className="text-xs text-slate-400">Editáveis e exclusíveis individualmente ou em grupo</span>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                  {ultimosLancamentos.map((mov, idx) => (
+                    <div key={mov.ehGrupo ? mov.grupoKey : mov.id} className="bg-slate-800/40 hover:bg-slate-800/70 border border-slate-700/50 rounded-lg p-3 flex items-center justify-between gap-3 transition-colors">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          {mov.ehGrupo && (
+                            <Badge className={cn("text-[10px]",
+                              mov.grupoTipo === 'recorrencia' ? "bg-cyan-500/30 text-cyan-200" : "bg-amber-500/30 text-amber-200"
+                            )}>
+                              {mov.grupoTipo === 'recorrencia' ? `${mov.qtdNoGrupo} parcelas` : `Operação ${mov.qtdNoGrupo} lançs`}
+                            </Badge>
+                          )}
+                          <Badge className={cn("text-[10px]",
+                            mov.tipo === 'receita' ? "bg-emerald-500/30 text-emerald-200" : "bg-red-500/30 text-red-200"
+                          )}>
+                            {mov.tipo === 'receita' ? 'Receita' : 'Despesa'}
+                          </Badge>
+                          {mov.categoria && (
+                            <span className="text-[10px] text-slate-400">{mov.categoria}</span>
+                          )}
+                          {mov.createdAt && (
+                            <span className="text-[10px] text-slate-500">
+                              criado {new Date(mov.createdAt).toLocaleDateString('pt-BR')}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-white font-medium truncate">{mov.descricao}</p>
+                        <p className="text-xs text-slate-400 truncate">
+                          {mov.fornecedor || '-'} • Vencimento {formatDate(mov.vencimento || mov.data)}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <p className={cn("text-base font-bold",
+                          mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400"
+                        )}>
+                          {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.ehGrupo ? mov.valorTotalGrupo : mov.valor)}
+                        </p>
+                        {mov.ehGrupo && (
+                          <p className="text-[10px] text-slate-500">
+                            {formatCurrency(mov.valor)} × {mov.qtdNoGrupo}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {!mov.ehGrupo && (
+                          <button onClick={() => handleEditar(mov)}
+                            className="p-1.5 rounded text-cyan-400 hover:bg-cyan-500/20" title="Editar">
+                            <Edit className="h-4 w-4" />
+                          </button>
+                        )}
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button className="p-1.5 rounded text-red-400 hover:bg-red-500/20" title="Excluir">
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
+                            {mov.ehGrupo ? (
+                              <>
+                                <DropdownMenuItem
+                                  className="text-red-400 focus:text-red-300 focus:bg-slate-700"
+                                  onClick={() => handleApagarGrupo(
+                                    mov.grupoTipo === 'recorrencia' ? 'recorrenciaId' : 'operacaoFinanceiraId',
+                                    mov.grupoKey
+                                  )}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Apagar TODAS as {mov.qtdNoGrupo} {mov.grupoTipo === 'recorrencia' ? 'parcelas' : 'lançamentos da operação'}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  className="text-amber-400 focus:text-amber-300 focus:bg-slate-700"
+                                  onClick={() => setDeleteConfirmId(mov.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Apagar só esta linha (1 de {mov.qtdNoGrupo})
+                                </DropdownMenuItem>
+                              </>
+                            ) : (
+                              <DropdownMenuItem
+                                className="text-red-400 focus:text-red-300 focus:bg-slate-700"
+                                onClick={() => setDeleteConfirmId(mov.id)}
+                              >
+                                <Trash2 className="h-4 w-4 mr-2" />Apagar
+                              </DropdownMenuItem>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {movsLocais.length > 15 && (
+                  <p className="text-xs text-slate-500 mt-2 text-center">
+                    Mostrando 15 mais recentes — veja todos na lista de Movimentações abaixo
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* SCORE DE SAÚDE + COMPARATIVO */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Score de saúde financeira */}
@@ -2116,7 +2279,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
+              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onDeleteGroup={handleApagarGrupo} selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -3933,7 +4096,7 @@ function FiltrosMovs({
 // ============================================================
 // SUB-COMPONENTE: Tabela de movimentações reutilizável
 // ============================================================
-function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false, selecionadosIds = [], setSelecionadosIds }) {
+function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo = false, selecionadosIds = [], setSelecionadosIds }) {
   const idsSet = new Set(selecionadosIds || []);
   const todosSelecionados = rows.length > 0 && rows.every(r => idsSet.has(r.id));
   const algumSelecionado = rows.some(r => idsSet.has(r.id));
@@ -4087,9 +4250,18 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false, seleci
                         <RotateCcw className="h-4 w-4 mr-2" />Restaurar original
                       </DropdownMenuItem>
                     )}
+                    {(mov.recorrenciaId || mov.operacaoFinanceiraId) && onDeleteGroup && (
+                      <DropdownMenuItem className="text-orange-400 focus:text-orange-300 focus:bg-slate-700" onClick={() => onDeleteGroup(
+                        mov.recorrenciaId ? 'recorrenciaId' : 'operacaoFinanceiraId',
+                        mov.recorrenciaId || mov.operacaoFinanceiraId
+                      )}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Apagar TODAS as parcelas do grupo
+                      </DropdownMenuItem>
+                    )}
                     <DropdownMenuItem className="text-red-400 focus:text-red-300 focus:bg-slate-700" onClick={() => onDelete(mov.id)}>
                       <Trash2 className="h-4 w-4 mr-2" />
-                      {mov.origem === 'local' ? 'Apagar' : 'Ocultar localmente'}
+                      {mov.origem === 'local' ? 'Apagar esta linha' : 'Ocultar localmente'}
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
