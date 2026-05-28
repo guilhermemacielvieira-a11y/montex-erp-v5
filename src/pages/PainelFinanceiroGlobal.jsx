@@ -50,6 +50,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Checkbox } from '@/components/ui/checkbox';
 import toast from 'react-hot-toast';
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 import { exportToExcel } from '../utils/exportUtils';
@@ -275,6 +276,12 @@ export default function PainelFinanceiroGlobal() {
   const [filtroStatusTab, setFiltroStatusTab] = useState('todos'); // todos | pendente | atrasado | pago
   const [ordenarPor, setOrdenarPor] = useState('vencimento');  // vencimento | data | valor
   const [searchTerm, setSearchTerm] = useState('');
+  const [selecionadosIds, setSelecionadosIds] = useState([]);  // IDs selecionados na tabela
+
+  // Reset seleção quando filtros mudam (evita IDs órfãos no totalizador)
+  useEffect(() => {
+    setSelecionadosIds([]);
+  }, [filtroTipo, filtroMes, filtroStatusTab, filtroObra, filtroPeriodo, searchTerm]);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [metasDialogOpen, setMetasDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
@@ -2061,7 +2068,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} />
+              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2141,7 +2148,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2546,7 +2553,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -3813,12 +3820,44 @@ function FiltrosMovs({
 // ============================================================
 // SUB-COMPONENTE: Tabela de movimentações reutilizável
 // ============================================================
-function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false }) {
+function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false, selecionadosIds = [], setSelecionadosIds }) {
+  const idsSet = new Set(selecionadosIds || []);
+  const todosSelecionados = rows.length > 0 && rows.every(r => idsSet.has(r.id));
+  const algumSelecionado = rows.some(r => idsSet.has(r.id));
+
+  const toggleTodos = () => {
+    if (!setSelecionadosIds) return;
+    if (todosSelecionados) {
+      setSelecionadosIds([]);
+    } else {
+      setSelecionadosIds(rows.map(r => r.id));
+    }
+  };
+  const toggleUm = (id) => {
+    if (!setSelecionadosIds) return;
+    setSelecionadosIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  // Totalizadores — se nada selecionado, usa todos os visíveis
+  const linhasParaTotal = selecionadosIds && selecionadosIds.length > 0
+    ? rows.filter(r => idsSet.has(r.id))
+    : rows;
+  const totReceitas = linhasParaTotal.filter(m => m.tipo === 'receita').reduce((s,m) => s + (m.valor || 0), 0);
+  const totDespesas = linhasParaTotal.filter(m => m.tipo === 'despesa').reduce((s,m) => s + (m.valor || 0), 0);
+  const saldo = totReceitas - totDespesas;
+  const qtdSel = selecionadosIds?.length || 0;
+
+  const colCount = (hideTipo ? 0 : 1) + 8; // tipo + outras 8 (origem, data, desc, forn, cat, valor, status, ações)
+
   return (
     <div className="overflow-x-auto">
       <Table>
         <TableHeader>
           <TableRow className="border-slate-700">
+            <TableHead className="w-10">
+              <Checkbox checked={todosSelecionados} onCheckedChange={toggleTodos}
+                className={cn(algumSelecionado && !todosSelecionados ? "data-[state=checked]:bg-amber-500" : "")} />
+            </TableHead>
             <TableHead className="text-slate-400">Origem</TableHead>
             {!hideTipo && <TableHead className="text-slate-400">Tipo</TableHead>}
             <TableHead className="text-slate-400">Data</TableHead>
@@ -3832,7 +3871,13 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false }) {
         </TableHeader>
         <TableBody>
           {rows.map(mov => (
-            <TableRow key={mov.id} className="border-slate-800 hover:bg-slate-800/50">
+            <TableRow key={mov.id} className={cn(
+              "border-slate-800 hover:bg-slate-800/50",
+              idsSet.has(mov.id) && "bg-purple-900/20"
+            )}>
+              <TableCell>
+                <Checkbox checked={idsSet.has(mov.id)} onCheckedChange={() => toggleUm(mov.id)} />
+              </TableCell>
               <TableCell>
                 {mov.origem === 'local' ? (
                   <Badge className="bg-purple-500/20 text-purple-300 border-purple-500/30 border text-[10px]">
@@ -3922,13 +3967,53 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, hideTipo = false }) {
           ))}
           {rows.length === 0 && (
             <TableRow>
-              <TableCell colSpan={hideTipo ? 8 : 9} className="text-center text-slate-500 py-8">
+              <TableCell colSpan={hideTipo ? 9 : 10} className="text-center text-slate-500 py-8">
                 Nenhuma movimentação encontrada.
               </TableCell>
             </TableRow>
           )}
         </TableBody>
       </Table>
+
+      {/* TOTALIZADOR */}
+      {rows.length > 0 && (
+        <div className="mt-3 bg-gradient-to-r from-slate-900/80 to-slate-800/80 border border-slate-700 rounded-lg p-3">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2">
+              <span className={cn("text-sm font-semibold", qtdSel > 0 ? "text-purple-300" : "text-slate-300")}>
+                {qtdSel > 0
+                  ? `${qtdSel} ${qtdSel === 1 ? 'item selecionado' : 'itens selecionados'}`
+                  : `Total geral: ${rows.length} ${rows.length === 1 ? 'item visível' : 'itens visíveis'}`}
+              </span>
+              {qtdSel > 0 && setSelecionadosIds && (
+                <button onClick={() => setSelecionadosIds([])} className="text-[10px] text-slate-400 hover:text-white underline">
+                  Limpar seleção
+                </button>
+              )}
+            </div>
+            <div className="flex items-center gap-4 flex-wrap text-sm">
+              {totReceitas > 0 && (
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase">Receitas</span>
+                  <span className="ml-2 text-emerald-400 font-bold">+{formatCurrency(totReceitas)}</span>
+                </div>
+              )}
+              {totDespesas > 0 && (
+                <div>
+                  <span className="text-[10px] text-slate-500 uppercase">Despesas</span>
+                  <span className="ml-2 text-red-400 font-bold">-{formatCurrency(totDespesas)}</span>
+                </div>
+              )}
+              <div className="border-l border-slate-700 pl-4">
+                <span className="text-[10px] text-slate-500 uppercase">Saldo</span>
+                <span className={cn("ml-2 text-base font-black", saldo >= 0 ? "text-blue-400" : "text-rose-400")}>
+                  {saldo >= 0 ? '+' : ''}{formatCurrency(saldo)}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
