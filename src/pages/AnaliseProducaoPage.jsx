@@ -420,10 +420,12 @@ export default function AnaliseProducaoPage() {
       try {
         setLoading(true);
         // Buscar peças de produção — usa .in() para suportar múltiplas obras (grupo TEMEC)
+        // .limit(5000) para evitar cap default de 1000 do PostgREST em obras grandes
         const { data, error } = await supabase
           .from('pecas_producao')
           .select('*')
-          .in('obra_id', obraIdsEfetivos);
+          .in('obra_id', obraIdsEfetivos)
+          .limit(5000);
         if (error) throw error;
         setPecas(data || []);
 
@@ -432,7 +434,8 @@ export default function AnaliseProducaoPage() {
           const { data: corteData } = await supabase
             .from('materiais_corte')
             .select('id, obra_id, marca, peca, perfil, comprimento_mm, quantidade, peso_teorico, status_corte, funcionario_corte, data_inicio, data_fim')
-            .in('obra_id', obraIdsEfetivos);
+            .in('obra_id', obraIdsEfetivos)
+            .limit(20000);
           setMateriaisCorte(corteData || []);
         } catch (corteErr) {
           console.warn('Erro materiais_corte:', corteErr);

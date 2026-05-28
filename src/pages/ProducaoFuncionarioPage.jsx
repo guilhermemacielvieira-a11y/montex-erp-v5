@@ -958,9 +958,11 @@ function LancamentosObraTab({ pecasAnalytics, refetch }) {
     setLoadingObras(true);
     const client = supabaseAdmin || supabase;
     try {
+      // .limit(5000) para evitar cap default de 1000 do PostgREST
       const { data, error } = await client
         .from('pecas_producao')
-        .select('obra_id, obra_nome, quantidade');
+        .select('obra_id, obra_nome, quantidade')
+        .limit(5000);
       if (error) throw error;
       const mapa = new Map();
       for (const p of (data || [])) {

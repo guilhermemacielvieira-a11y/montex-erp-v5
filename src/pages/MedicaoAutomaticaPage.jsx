@@ -109,10 +109,12 @@ export default function MedicaoAutomaticaPage() {
     let cancel = false;
     (async () => {
       try {
+        // .limit(5000) para evitar cap default de 1000 do PostgREST em obras grandes
         const { data, error } = await supabase
           .from('pecas_producao')
           .select('etapa,quantidade,peso_total,obra_id')
-          .in('obra_id', obraIdsEfetivos);
+          .in('obra_id', obraIdsEfetivos)
+          .limit(5000);
         if (error || cancel) return;
         const acc = { expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 };
         (data || []).forEach(p => {

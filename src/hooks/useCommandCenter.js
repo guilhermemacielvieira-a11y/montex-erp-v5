@@ -112,9 +112,11 @@ export function useCommandCenter(obraId) {
   const fetchProducao = useCallback(async () => {
     if (!obraId) return null;
     try {
+      // .limit(5000) para evitar cap default de 1000 do PostgREST quando isAll=true
       let query = supabase
         .from('pecas_producao')
-        .select('id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at');
+        .select('id, etapa, status, peso_total, peso_unitario, quantidade, quantidade_produzida, nome, marca, tipo, perfil, responsavel, equipe_id, obra_id, obra_nome, updated_at, created_at')
+        .limit(5000);
       if (!isAll) query = query.eq('obra_id', obraId);
       const { data, error } = await query;
       if (error) throw error;

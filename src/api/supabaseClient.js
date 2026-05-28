@@ -160,12 +160,27 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
   const client = (useAdmin && supabaseAdmin) ? supabaseAdmin : supabase;
   return {
     async getAll(orderBy = defaultOrder, ascending = false) {
-      const { data, error } = await client
-        .from(tableName)
-        .select('*')
-        .order(orderBy, { ascending });
-      if (error) throw error;
-      return data || [];
+      // 🔧 PAGINAÇÃO: PostgREST tem limite padrão de 1000 linhas/req.
+      // Se a tabela tiver > 1000 registros (ex: pecas_producao tem 1062),
+      // precisamos iterar com range() até pegar tudo. Senão peças somem
+      // silenciosamente do Kanban / Analytics / Medições.
+      const PAGE_SIZE = 1000;
+      const allData = [];
+      let offset = 0;
+      // Loop de segurança: máximo 50 páginas (= 50k linhas)
+      for (let i = 0; i < 50; i++) {
+        const { data, error } = await client
+          .from(tableName)
+          .select('*')
+          .order(orderBy, { ascending })
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allData.push(...data);
+        if (data.length < PAGE_SIZE) break; // última página
+        offset += PAGE_SIZE;
+      }
+      return allData;
     },
 
     async getById(id) {
@@ -179,12 +194,23 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
     },
 
     async getByField(field, value) {
-      const { data, error } = await client
-        .from(tableName)
-        .select('*')
-        .eq(field, value);
-      if (error) throw error;
-      return data || [];
+      // 🔧 PAGINAÇÃO: igual ao getAll, para evitar cap de 1000 linhas
+      const PAGE_SIZE = 1000;
+      const allData = [];
+      let offset = 0;
+      for (let i = 0; i < 50; i++) {
+        const { data, error } = await client
+          .from(tableName)
+          .select('*')
+          .eq(field, value)
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        allData.push(...data);
+        if (data.length < PAGE_SIZE) break;
+        offset += PAGE_SIZE;
+      }
+      return allData;
     },
 
     async create(record) {
