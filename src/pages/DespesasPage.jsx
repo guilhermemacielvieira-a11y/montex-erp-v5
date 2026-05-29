@@ -1074,7 +1074,7 @@ export default function DespesasPage() {
             <div>
               <Label className="text-slate-300 flex items-center gap-2">
                 Status do Lançamento
-                <span className="text-[10px] text-slate-500">(atrasado é detectado automaticamente quando vencimento < hoje)</span>
+                <span className="text-[10px] text-slate-500">(atrasado é detectado automaticamente quando vencimento &lt; hoje)</span>
               </Label>
               <Select value={formData.status || 'pendente'} onValueChange={(v) => setFormData({...formData, status: v})}>
                 <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
