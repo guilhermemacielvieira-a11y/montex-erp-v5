@@ -284,24 +284,45 @@ export default function DespesasPage() {
     }
     // 'geral' mostra tudo
 
-    return filtrados.map(l => ({
-      id: l.id,
-      dataEmissao: l.dataEmissao || l.data || l.createdAt || '',
-      dataVencimento: l.dataVencimento || l.data_vencimento || l.vencimento || '',
-      data: l.dataEmissao || l.data || l.createdAt || '',
-      descricao: l.descricao || l.nome || '-',
-      fornecedor: l.fornecedor || '-',
-      categoria: normalizarCategoria(l.categoria, l.descricao),
-      centroCusto: l.centroCusto || l.centro_custo || 'Produção',
-      valor: l.valor || 0,
-      status: l.status || 'pago',
-      formaPagto: l.formaPagto || l.forma_pagto || '-',
-      vencimento: l.dataVencimento || l.data_vencimento || l.dataEmissao || '',
-      tipo: l.tipo || 'despesa',
-      notaFiscal: l.notaFiscal || l.nota_fiscal || '',
-      naturezaAquisicao: l.naturezaAquisicao || l.natureza_aquisicao || extrairNatureza(l.observacao) || '',
-      obraId: l.obraId || l.obra_id || null,
-    }));
+    // 🔧 Auto-detecção de "atrasado": se vencimento < hoje e status NÃO é pago,
+    // marca como 'atrasado' automaticamente em statusEfetivo (sem alterar o BD).
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const computeStatusEfetivo = (statusBruto, dataVenc) => {
+      if (statusBruto === 'pago') return 'pago';
+      if (!dataVenc) return statusBruto || 'pendente';
+      try {
+        // parse local YYYY-MM-DD para evitar timezone
+        const m = String(dataVenc).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const d = m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(dataVenc);
+        d.setHours(0,0,0,0);
+        if (d < hoje) return 'atrasado';
+      } catch {}
+      return statusBruto || 'pendente';
+    };
+
+    return filtrados.map(l => {
+      const statusBruto = l.status || 'pendente';
+      const dataVenc = l.dataVencimento || l.data_vencimento || l.vencimento || '';
+      return {
+        id: l.id,
+        dataEmissao: l.dataEmissao || l.data || l.createdAt || '',
+        dataVencimento: dataVenc,
+        data: l.dataEmissao || l.data || l.createdAt || '',
+        descricao: l.descricao || l.nome || '-',
+        fornecedor: l.fornecedor || '-',
+        categoria: normalizarCategoria(l.categoria, l.descricao),
+        centroCusto: l.centroCusto || l.centro_custo || 'Produção',
+        valor: l.valor || 0,
+        status: statusBruto,
+        statusEfetivo: computeStatusEfetivo(statusBruto, dataVenc),
+        formaPagto: l.formaPagto || l.forma_pagto || '-',
+        vencimento: dataVenc || l.dataEmissao || '',
+        tipo: l.tipo || 'despesa',
+        notaFiscal: l.notaFiscal || l.nota_fiscal || '',
+        naturezaAquisicao: l.naturezaAquisicao || l.natureza_aquisicao || extrairNatureza(l.observacao) || '',
+        obraId: l.obraId || l.obra_id || null,
+      };
+    });
   }, [lancamentosSupabase, filtroObra]);
 
   // === AUTO-FILL: quando fornecedor ou NF muda ===
@@ -509,9 +530,10 @@ export default function DespesasPage() {
   }, [despesasPeriodo]);
 
   const kpis = useMemo(() => {
-    const totalPago = despesasPeriodo.filter(d => d.status === 'pago').reduce((s, d) => s + (d.valor || 0), 0);
-    const totalPendente = despesasPeriodo.filter(d => d.status === 'pendente').reduce((s, d) => s + (d.valor || 0), 0);
-    const totalAtrasado = despesasPeriodo.filter(d => d.status === 'atrasado').reduce((s, d) => s + (d.valor || 0), 0);
+    // Usa statusEfetivo (que detecta atrasado automaticamente quando venc < hoje)
+    const totalPago = despesasPeriodo.filter(d => d.statusEfetivo === 'pago').reduce((s, d) => s + (d.valor || 0), 0);
+    const totalPendente = despesasPeriodo.filter(d => d.statusEfetivo === 'pendente').reduce((s, d) => s + (d.valor || 0), 0);
+    const totalAtrasado = despesasPeriodo.filter(d => d.statusEfetivo === 'atrasado').reduce((s, d) => s + (d.valor || 0), 0);
     const total = despesasPeriodo.reduce((s, d) => s + (d.valor || 0), 0);
     return { totalPago, totalPendente, totalAtrasado, total };
   }, [despesasPeriodo]);
@@ -525,7 +547,8 @@ export default function DespesasPage() {
             !(d.fornecedor || '').toLowerCase().includes(s) &&
             !(d.notaFiscal || '').toLowerCase().includes(s)) return false;
       }
-      if (filtroStatus !== 'todos' && d.status !== filtroStatus) return false;
+      // 🔧 Filtro Status: usa statusEfetivo (inclui auto-atrasado quando venc < hoje)
+      if (filtroStatus !== 'todos' && d.statusEfetivo !== filtroStatus) return false;
       if (filtroCategoria !== 'todos' && d.categoria !== filtroCategoria) return false;
       if (filtroCentro !== 'todos' && d.centroCusto !== filtroCentro) return false;
       return true;
@@ -589,8 +612,9 @@ export default function DespesasPage() {
     setFormData({
       descricao: '', fornecedor: '', categoria: '', centroCusto: '',
       valor: '', dataEmissao: new Date().toISOString().split('T')[0], dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
-      obraId: '', // Vínculo opcional com obra
-      parcelas: 1, intervaloDias: 30,  // ✨ Recorrência opcional
+      obraId: '',
+      parcelas: 1, intervaloDias: 30,
+      status: 'pendente',  // ✨ Status default
     });
     setDialogOpen(true);
   };
@@ -615,6 +639,8 @@ export default function DespesasPage() {
       notaFiscal: despesa.notaFiscal || '',
       naturezaAquisicao: despesa.naturezaAquisicao || '',
       obraId: despesa.obraId || despesa.obra_id || '',
+      parcelas: 1, intervaloDias: 30,
+      status: despesa.status || 'pendente',  // ✨ Status do registro
     });
     setDialogOpen(true);
   };
@@ -755,8 +781,9 @@ export default function DespesasPage() {
       notaFiscal: formData.notaFiscal || '',
       naturezaAquisicao: formData.naturezaAquisicao || '',
       observacao: formData.naturezaAquisicao ? `[NAT:${formData.naturezaAquisicao}]` : '',
-      // 🔗 obraId sempre incluído nos dados — null limpa o vínculo se necessário
       obraId: obraIdVinculo,
+      // ✨ Status escolhido pelo usuário (não força mais sempre 'pendente')
+      status: formData.status || 'pendente',
     };
 
     if (editando) {
@@ -1071,10 +1098,41 @@ export default function DespesasPage() {
                     <SelectItem value="Transferência">Transferência</SelectItem>
                     <SelectItem value="PIX">PIX</SelectItem>
                     <SelectItem value="Cartão">Cartão</SelectItem>
+                    <SelectItem value="Cheque">Cheque</SelectItem>
                     <SelectItem value="Débito Automático">Débito Automático</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
+            </div>
+
+            {/* ✨ Status do lançamento */}
+            <div>
+              <Label className="text-slate-300 flex items-center gap-2">
+                Status do Lançamento
+                <span className="text-[10px] text-slate-500">(atrasado é detectado automaticamente quando vencimento < hoje)</span>
+              </Label>
+              <Select value={formData.status || 'pendente'} onValueChange={(v) => setFormData({...formData, status: v})}>
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value="pendente">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-amber-400" />Pendente
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="pago">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400" />Pago
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="atrasado">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-red-400" />Atrasado (manual)
+                    </span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Linha 5: Natureza de Aquisição */}
@@ -1437,21 +1495,39 @@ export default function DespesasPage() {
                       <span className="truncate block">{despesa.naturezaAquisicao || '-'}</span>
                     </TableCell>
                     <TableCell>
-                      {despesa.status !== 'pago' ? (
-                        <button
-                          onClick={() => handleMarcarPago(despesa)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-emerald-500/20 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
-                          title="Clique para marcar como pago"
-                        >
-                          <Clock className="h-3 w-3" />
-                          {getStatusText(despesa.status)}
-                        </button>
-                      ) : (
-                        <Badge className={cn("border text-xs", getStatusColor(despesa.status))}>
-                          <CheckCircle2 className="h-3 w-3 mr-1" />
-                          Pago
-                        </Badge>
-                      )}
+                      {(() => {
+                        const stEf = despesa.statusEfetivo || despesa.status;
+                        if (stEf === 'pago') {
+                          return (
+                            <Badge className="border text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
+                              <CheckCircle2 className="h-3 w-3 mr-1" />
+                              Pago
+                            </Badge>
+                          );
+                        }
+                        if (stEf === 'atrasado') {
+                          return (
+                            <button
+                              onClick={() => handleMarcarPago(despesa)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-red-500/20 text-red-300 border border-red-500/40 hover:bg-emerald-500/20 hover:text-emerald-400 hover:border-emerald-500/30 transition-all animate-pulse"
+                              title="Atrasado — clique para marcar como pago"
+                            >
+                              <AlertTriangle className="h-3 w-3" />
+                              Atrasado
+                            </button>
+                          );
+                        }
+                        return (
+                          <button
+                            onClick={() => handleMarcarPago(despesa)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-emerald-500/20 hover:text-emerald-400 hover:border-emerald-500/30 transition-all"
+                            title="Clique para marcar como pago"
+                          >
+                            <Clock className="h-3 w-3" />
+                            Pendente
+                          </button>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-1">
