@@ -208,7 +208,7 @@ export default function CentrosCustoPage() {
   const [activeTab, setActiveTab] = useState('visao-geral');
   const [periodo, setPeriodo] = useState('geral');
   const [lancamentosPage, setLancamentosPage] = useState(1);
-  const [centroCustoFilter, setCentroCustoFilter] = useState('');
+  const [centroCustoFilter, setCentroCustoFilter] = useState('todos');
 
   const periodoMap = { 'geral': 'geral', 'mes': 'mensal', 'trimestre': 'trimestral', 'ano': 'anual' };
 
@@ -282,7 +282,7 @@ export default function CentrosCustoPage() {
       }))
     );
     let filtered = allLancamentos;
-    if (centroCustoFilter) {
+    if (centroCustoFilter && centroCustoFilter !== 'todos') {
       filtered = filtered.filter(l => l.centroCustoId === centroCustoFilter);
     }
     return filtered.sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -542,7 +542,7 @@ export default function CentrosCustoPage() {
                 <SelectValue placeholder="Todos os centros" />
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700">
-                <SelectItem value="">Todos os centros</SelectItem>
+                <SelectItem value="todos">Todos os centros</SelectItem>
                 {(custosPorCentro || []).map(centro => (
                   <SelectItem key={centro.id} value={centro.id}>{centro.nome}</SelectItem>
                 ))}
