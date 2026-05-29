@@ -2485,6 +2485,8 @@ export default function GestaoFinanceiraObra() {
               <NovoLancamentoForm
                 categorias={CATEGORIA_DESPESA}
                 setores={obra.setores}
+                obrasDisponiveis={obrasERP || []}
+                obraAtual={obra}
                 lancamentoInicial={editandoLancamento}
                 onSubmit={(dados) => {
                   if (editandoLancamento) {
@@ -3082,7 +3084,7 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
 }
 
 // Componente de Formulário de Novo/Editar Lançamento
-function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, onCancel }) {
+function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, onCancel, obrasDisponiveis = [], obraAtual = null }) {
   const inputClass = "w-full px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-cyan-500/50 text-sm";
   const labelClass = "text-sm text-slate-400 mb-1 block";
 
@@ -3096,6 +3098,8 @@ function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, 
     dataVencimento: lancamentoInicial?.dataVencimento || '',
     valor: lancamentoInicial?.valor || 0,
     setor: lancamentoInicial?.setor || '',
+    obraId: lancamentoInicial?.obraId || lancamentoInicial?.obra_id || obraAtual?.id || '',
+    centroCusto: lancamentoInicial?.centroCusto || lancamentoInicial?.centro_custo || '',
     status: lancamentoInicial?.status || STATUS_LANCAMENTO.PENDENTE,
     observacao: lancamentoInicial?.observacao || '',
     formaPagto: lancamentoInicial?.formaPagto || '',
@@ -3258,21 +3262,46 @@ function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, 
       {/* Setor + Status */}
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label className={labelClass}>Setor</label>
-          <Select.Root value={formData.setor} onValueChange={(v) => setFormData({ ...formData, setor: v })}>
+          <label className={labelClass}>
+            🏗️ Vincular à Obra Ativa
+            {formData.centroCusto && <span className="ml-2 text-[10px] text-emerald-400">→ CC: {formData.centroCusto}</span>}
+          </label>
+          <Select.Root
+            value={formData.obraId || 'nenhuma'}
+            onValueChange={(v) => {
+              if (v === 'nenhuma') {
+                setFormData({ ...formData, obraId: '', centroCusto: '' });
+                return;
+              }
+              // Auto-vincula centro de custo derivado da obra
+              const obraSel = obrasDisponiveis.find(o => o.id === v);
+              const centroDerivado = obraSel
+                ? (obraSel.centroCusto || obraSel.centro_custo || obraSel.codigo || obraSel.nome || '')
+                : '';
+              setFormData({ ...formData, obraId: v, centroCusto: centroDerivado });
+            }}
+          >
             <Select.Trigger className="w-full flex items-center justify-between px-3 py-2
                                      bg-slate-700/50 border border-slate-600 rounded-lg text-white text-sm">
-              <Select.Value placeholder="Selecione" />
+              <Select.Value placeholder="Selecione uma obra ativa" />
               <ChevronDown className="w-4 h-4 text-slate-400" />
             </Select.Trigger>
             <Select.Portal>
-              <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden z-[60]">
+              <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden z-[60] max-h-60">
                 <Select.Viewport>
-                  {setores.map((setor) => (
-                    <Select.Item key={setor.id} value={setor.nome} className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm">
-                      <Select.ItemText>{setor.nome}</Select.ItemText>
-                    </Select.Item>
-                  ))}
+                  <Select.Item value="nenhuma" className="px-4 py-2 text-slate-400 hover:bg-slate-700 cursor-pointer text-sm">
+                    <Select.ItemText>— Sem vínculo (despesa geral) —</Select.ItemText>
+                  </Select.Item>
+                  {obrasDisponiveis
+                    .filter(o => !['cancelada','concluida','orcamento'].includes(o.status))
+                    .map((o) => (
+                      <Select.Item key={o.id} value={o.id} className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer text-sm">
+                        <Select.ItemText>
+                          <span className="font-mono text-xs text-blue-300 mr-2">{o.codigo || o.id}</span>
+                          {o.nome || o.name}
+                        </Select.ItemText>
+                      </Select.Item>
+                    ))}
                 </Select.Viewport>
               </Select.Content>
             </Select.Portal>
