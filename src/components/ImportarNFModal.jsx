@@ -73,12 +73,23 @@ function parseNFeXML(xmlText) {
     formaPagamento = mapearFormaPagamento(codigoPagamento);
   }
 
+  // 🔧 PARSE DUPLICATAS — captura TODAS as parcelas com valor e vencimento individuais
+  // Estrutura XML: <cobr><dup><nDup>001</nDup><dVenc>2026-06-30</dVenc><vDup>1000.00</vDup></dup>...
   let dataVencimento = '';
+  const duplicatas = [];
   const dupNodes = getAll(doc, 'dup');
   if (dupNodes.length > 0) {
+    dupNodes.forEach((dup, idx) => {
+      const nDup = getText(dup, 'nDup') || String(idx + 1).padStart(3, '0');
+      const dVenc = getText(dup, 'dVenc');
+      const vDup = parseFloat(getText(dup, 'vDup')) || 0;
+      if (dVenc) {
+        duplicatas.push({ numero: nDup, vencimento: dVenc, valor: vDup });
+      }
+    });
+    // Para o campo "dataVencimento" principal, usa a 1ª parcela (próxima a vencer)
     const primeiraVenc = getText(dupNodes[0], 'dVenc');
-    const ultimaVenc = getText(dupNodes[dupNodes.length - 1], 'dVenc');
-    dataVencimento = ultimaVenc || primeiraVenc || '';
+    dataVencimento = primeiraVenc || '';
     if (!formaPagamento && dupNodes.length >= 1) {
       formaPagamento = 'Boleto';
     }
@@ -115,7 +126,9 @@ function parseNFeXML(xmlText) {
     numero, serie, fornecedor, cnpj: cnpjFormatado,
     dataEmissao, dataVencimento, valor: valorTotal, tipo: 'entrada',
     itens, chaveAcesso, naturezaOp: natOp,
-    formaPagamento, observacoes: ''
+    formaPagamento, observacoes: '',
+    // ✨ Duplicatas/Parcelas extraídas do XML — array vazio se NF à vista
+    duplicatas,
   };
 }
 
@@ -522,6 +535,8 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
       forma_pagto: formaPagamentoSelecionada,
       status: statusSelecionado,
       observacao: `[NAT:${naturezaSelecionada}] Chave: ${(nfData.chaveAcesso || '').substring(0, 25)}... | ${itensParaImportar.length} itens`,
+      // ✨ Passa as duplicatas para criar N parcelas no callback
+      duplicatas: nfData.duplicatas || [],
     };
 
     if (obraId && obraId !== 'geral' && obraId !== 'fabrica') {
@@ -753,13 +768,46 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
                     </div>
                     <div>
                       <label className="block text-xs text-gray-400 mb-1">
-                        <Calendar className="w-3 h-3 inline mr-1" />Data Vencimento
+                        <Calendar className="w-3 h-3 inline mr-1" />Data Vencimento {nfData?.duplicatas?.length > 1 && <span className="text-amber-400">(1ª parcela)</span>}
                       </label>
                       <input type="date" value={dataVencimento}
                         onChange={e => setDataVencimento(e.target.value)}
                         className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:border-amber-500 outline-none" />
                     </div>
                   </div>
+
+                  {/* ✨ DUPLICATAS / BOLETOS DETECTADOS NO XML */}
+                  {nfData?.duplicatas && nfData.duplicatas.length > 1 && (
+                    <div className="bg-amber-900/20 border border-amber-700/40 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 text-xs font-bold text-amber-200">
+                          <Layers className="w-3 h-3" />
+                          {nfData.duplicatas.length} BOLETOS DETECTADOS NO XML
+                        </div>
+                        <span className="text-[10px] text-amber-300">
+                          Vai gerar {nfData.duplicatas.length} despesas separadas
+                        </span>
+                      </div>
+                      <div className="space-y-1 max-h-32 overflow-y-auto">
+                        {nfData.duplicatas.map((d, i) => (
+                          <div key={i} className="flex justify-between text-xs bg-gray-800/50 rounded px-2 py-1">
+                            <span className="text-gray-300">
+                              <span className="text-amber-400 font-mono">#{d.numero || (i + 1)}</span> · venc {d.vencimento ? new Date(d.vencimento + 'T00:00:00').toLocaleDateString('pt-BR') : '-'}
+                            </span>
+                            <span className="text-white font-semibold">
+                              R$ {(d.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between mt-2 pt-2 border-t border-amber-700/30 text-xs">
+                        <span className="text-amber-300">Total das parcelas:</span>
+                        <span className="text-white font-bold">
+                          R$ {nfData.duplicatas.reduce((s, d) => s + (d.valor || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>

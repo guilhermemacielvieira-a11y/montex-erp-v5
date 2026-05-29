@@ -590,6 +590,7 @@ export default function DespesasPage() {
       descricao: '', fornecedor: '', categoria: '', centroCusto: '',
       valor: '', dataEmissao: new Date().toISOString().split('T')[0], dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
       obraId: '', // Vínculo opcional com obra
+      parcelas: 1, intervaloDias: 30,  // ✨ Recorrência opcional
     });
     setDialogOpen(true);
   };
@@ -664,15 +665,14 @@ export default function DespesasPage() {
   };
 
   // Callback para importação de NFe via modal
+  // 🔧 Suporta múltiplas duplicatas (boletos) — cria N despesas separadas
   const handleImportarNF = useCallback(async (lancamento, itensImportados) => {
     try {
-      // Definir obra_id baseado no filtro atual
       const obraIdAtual = (filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null;
       if (obraIdAtual) {
         lancamento.obraId = obraIdAtual;
         lancamento.obra_id = obraIdAtual;
       }
-      lancamento.id = `desp-${Date.now()}`;
 
       // Salvar mapping para auto-fill futuro
       if (lancamento.fornecedor && lancamento.notaFiscal) {
@@ -685,8 +685,35 @@ export default function DespesasPage() {
         );
       }
 
-      await addLancamento(lancamento);
-      toast.success(`NFe ${lancamento.notaFiscal} importada: ${lancamento.fornecedor} - R$ ${Number(lancamento.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+      const duplicatas = lancamento.duplicatas || [];
+      const { duplicatas: _, ...lancamentoBase } = lancamento;
+
+      if (duplicatas.length > 1) {
+        // ✨ NFe parcelada — cria 1 despesa por boleto/duplicata
+        const recorrenciaId = `NFE-${Date.now()}`;
+        for (let i = 0; i < duplicatas.length; i++) {
+          const dup = duplicatas[i];
+          const parcela = {
+            ...lancamentoBase,
+            id: `desp-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
+            descricao: `${lancamentoBase.descricao} (Parc ${i + 1}/${duplicatas.length})`,
+            valor: dup.valor || (lancamentoBase.valor / duplicatas.length),
+            dataVencimento: dup.vencimento,
+            data_vencimento: dup.vencimento,
+            vencimento: dup.vencimento,
+            recorrenciaId,
+            parcelaIdx: i + 1,
+            parcelaTotal: duplicatas.length,
+          };
+          await addLancamento(parcela);
+        }
+        toast.success(`NFe ${lancamentoBase.notaFiscal} importada: ${duplicatas.length} parcelas criadas (total R$ ${Number(lancamentoBase.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`);
+      } else {
+        // NFe à vista ou com 1 duplicata só — fluxo padrão
+        lancamentoBase.id = `desp-${Date.now()}`;
+        await addLancamento(lancamentoBase);
+        toast.success(`NFe ${lancamentoBase.notaFiscal} importada: ${lancamentoBase.fornecedor} - R$ ${Number(lancamentoBase.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`);
+      }
     } catch (err) {
       console.error('Erro ao importar NFe:', err);
       toast.error('Erro ao importar NFe como despesa');
@@ -746,14 +773,56 @@ export default function DespesasPage() {
         toast.error('Erro ao atualizar despesa');
       }
     } else {
+      // ✨ NOVO LANÇAMENTO — pode ter parcelas/recorrência
+      const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+      const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+
       try {
-        await addLancamento({
-          ...dados,
-          id: `desp-${Date.now()}`,
-          status: 'pendente',
-          tipo: 'despesa',
-        });
-        toast.success(obraIdVinculo ? 'Despesa criada e vinculada à obra!' : 'Despesa criada!');
+        if (qtdParcelas === 1) {
+          await addLancamento({
+            ...dados,
+            id: `desp-${Date.now()}`,
+            status: 'pendente',
+            tipo: 'despesa',
+          });
+          toast.success(obraIdVinculo ? 'Despesa criada e vinculada à obra!' : 'Despesa criada!');
+        } else {
+          // Replica N parcelas com vencimentos escalonados
+          const baseDateStr = formData.dataVencimento;
+          if (!baseDateStr) {
+            toast.error('Defina o vencimento da 1ª parcela');
+            return;
+          }
+          // parse local sem timezone shift
+          const m = baseDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (!m) {
+            toast.error('Data inválida');
+            return;
+          }
+          const baseY = parseInt(m[1]);
+          const baseM = parseInt(m[2]) - 1;
+          const baseD = parseInt(m[3]);
+          const recorrenciaId = `REC-${Date.now()}`;
+          for (let i = 0; i < qtdParcelas; i++) {
+            const d = new Date(baseY, baseM, baseD + (i * intervalo));
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const venc = `${yyyy}-${mm}-${dd}`;
+            await addLancamento({
+              ...dados,
+              id: `desp-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
+              descricao: `${dados.descricao} (Parc ${i + 1}/${qtdParcelas})`,
+              dataVencimento: venc,
+              status: 'pendente',
+              tipo: 'despesa',
+              recorrenciaId,
+              parcelaIdx: i + 1,
+              parcelaTotal: qtdParcelas,
+            });
+          }
+          toast.success(`${qtdParcelas} parcelas criadas (total R$ ${(parseFloat(formData.valor) * qtdParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`);
+        }
       } catch (err) {
         console.error('Erro ao salvar:', err);
         toast.error('Erro ao salvar despesa');
@@ -846,7 +915,7 @@ export default function DespesasPage() {
                 />
               </div>
               <div>
-                <Label className="text-slate-300">📅 Data de Vencimento</Label>
+                <Label className="text-slate-300">📅 Data de Vencimento {parseInt(formData.parcelas) > 1 && <span className="text-amber-400 text-xs">(1ª parcela)</span>}</Label>
                 <Input
                   className="mt-1 bg-slate-800 border-slate-700"
                   type="date"
@@ -855,6 +924,46 @@ export default function DespesasPage() {
                 />
               </div>
             </div>
+
+            {/* ✨ Recorrência / Parcelamento (só em criação) */}
+            {!editando && (
+              <div className="bg-amber-900/10 border border-amber-700/30 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
+                  <span>📑 Parcelamento (opcional)</span>
+                  <span className="text-[10px] text-slate-500 font-normal">deixe 1 para lançamento único</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-slate-300 text-xs">Quantidade de Parcelas</Label>
+                    <Input type="number" min="1" max="120" className="mt-1 bg-slate-800 border-slate-700"
+                      value={formData.parcelas || 1}
+                      onChange={(e) => setFormData({...formData, parcelas: parseInt(e.target.value) || 1})} />
+                  </div>
+                  <div>
+                    <Label className="text-slate-300 text-xs">Intervalo entre vencimentos (dias)</Label>
+                    <Input type="number" min="1" className="mt-1 bg-slate-800 border-slate-700"
+                      value={formData.intervaloDias || 30}
+                      onChange={(e) => setFormData({...formData, intervaloDias: parseInt(e.target.value) || 30})} />
+                  </div>
+                </div>
+                {parseInt(formData.parcelas) > 1 && parseFloat(formData.valor) > 0 && formData.dataVencimento && (() => {
+                  const qtd = parseInt(formData.parcelas);
+                  const intervalo = parseInt(formData.intervaloDias) || 30;
+                  const valor = parseFloat(formData.valor) || 0;
+                  const total = valor * qtd;
+                  const m = formData.dataVencimento.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                  if (!m) return null;
+                  const base = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                  const ultima = new Date(base.getFullYear(), base.getMonth(), base.getDate() + ((qtd - 1) * intervalo));
+                  return (
+                    <div className="text-xs text-amber-200 bg-amber-900/30 rounded px-2 py-1.5 flex justify-between items-center">
+                      <span>Vai criar <strong>{qtd}</strong> parcelas de <strong>R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+                      <span>Total: <strong>R$ {total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> · até {ultima.toLocaleDateString('pt-BR')}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* Linha 2: Descrição */}
             <div>
