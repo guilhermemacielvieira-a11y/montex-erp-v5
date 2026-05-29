@@ -806,10 +806,11 @@ export default function DespesasPage() {
 
       try {
         if (qtdParcelas === 1) {
+          // 🔧 Status escolhido pelo usuário (Pago/Pendente/Atrasado).
+          // dados.status já vem com o valor do formData — NÃO sobrescrever.
           await addLancamento({
             ...dados,
             id: `desp-${Date.now()}`,
-            status: 'pendente',
             tipo: 'despesa',
           });
           toast.success(obraIdVinculo ? 'Despesa criada e vinculada à obra!' : 'Despesa criada!');
@@ -820,7 +821,6 @@ export default function DespesasPage() {
             toast.error('Defina o vencimento da 1ª parcela');
             return;
           }
-          // parse local sem timezone shift
           const m = baseDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
           if (!m) {
             toast.error('Data inválida');
@@ -830,6 +830,9 @@ export default function DespesasPage() {
           const baseM = parseInt(m[2]) - 1;
           const baseD = parseInt(m[3]);
           const recorrenciaId = `REC-${Date.now()}`;
+          // 🔧 Status escolhido pelo usuário aplica-se à 1ª parcela.
+          // Demais parcelas ficam 'pendente' (ainda não venceram).
+          const statusEscolhido = dados.status || 'pendente';
           for (let i = 0; i < qtdParcelas; i++) {
             const d = new Date(baseY, baseM, baseD + (i * intervalo));
             const yyyy = d.getFullYear();
@@ -841,7 +844,7 @@ export default function DespesasPage() {
               id: `desp-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
               descricao: `${dados.descricao} (Parc ${i + 1}/${qtdParcelas})`,
               dataVencimento: venc,
-              status: 'pendente',
+              status: i === 0 ? statusEscolhido : 'pendente',
               tipo: 'despesa',
               recorrenciaId,
               parcelaIdx: i + 1,
