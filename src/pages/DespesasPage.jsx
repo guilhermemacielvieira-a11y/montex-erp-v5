@@ -612,9 +612,9 @@ export default function DespesasPage() {
     setFormData({
       descricao: '', fornecedor: '', categoria: '', centroCusto: '',
       valor: '', dataEmissao: new Date().toISOString().split('T')[0], dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
-      obraId: '',
+      // obraId removido — módulo independente, despesas não vinculam a obras
       parcelas: 1, intervaloDias: 30,
-      status: 'pendente',  // ✨ Status default
+      status: 'pendente',
     });
     setDialogOpen(true);
   };
@@ -763,10 +763,9 @@ export default function DespesasPage() {
       );
     }
 
-    // 🔗 Vínculo com obra: usa o select do form (prioridade) ou o filtroObra atual
-    const obraIdVinculo = formData.obraId
-      ? formData.obraId
-      : (filtroObra !== 'geral' && filtroObra !== 'fabrica' ? filtroObra : null);
+    // 🔒 Módulo de Despesas é INDEPENDENTE.
+    // Nunca vincula a obra — para isso use Gestão Financeira Obra.
+    const obraIdVinculo = null;
 
     const dados = {
       descricao: formData.descricao,
@@ -775,13 +774,12 @@ export default function DespesasPage() {
       centroCusto: formData.centroCusto || 'Produção',
       valor: parseFloat(formData.valor),
       formaPagto: formData.formaPagto || '-',
-      // ⚠️ IMPORTANTE: usar os nomes que o lancamentoToSupabase reconhece (camelCase mapeado em LANCAMENTOS_FIELD_MAP).
       dataEmissao: formData.dataEmissao || new Date().toISOString().split('T')[0],
       dataVencimento: formData.dataVencimento || null,
       notaFiscal: formData.notaFiscal || '',
       naturezaAquisicao: formData.naturezaAquisicao || '',
       observacao: formData.naturezaAquisicao ? `[NAT:${formData.naturezaAquisicao}]` : '',
-      obraId: obraIdVinculo,
+      obraId: null,
       // ✨ Status escolhido pelo usuário (não força mais sempre 'pendente')
       status: formData.status || 'pendente',
     };
@@ -789,12 +787,7 @@ export default function DespesasPage() {
     if (editando) {
       try {
         await updateLancamento(editando.id, dados);
-        if (obraIdVinculo) {
-          const nomeObra = obrasMap?.[obraIdVinculo] || 'obra selecionada';
-          toast.success(`Despesa atualizada e vinculada à ${nomeObra}!`);
-        } else {
-          toast.success('Despesa atualizada!');
-        }
+        toast.success('Despesa atualizada!');
       } catch (err) {
         console.error('Erro ao atualizar:', err);
         toast.error('Erro ao atualizar despesa');
@@ -813,7 +806,7 @@ export default function DespesasPage() {
             id: `desp-${Date.now()}`,
             tipo: 'despesa',
           });
-          toast.success(obraIdVinculo ? 'Despesa criada e vinculada à obra!' : 'Despesa criada!');
+          toast.success('Despesa criada!');
         } else {
           // Replica N parcelas com vencimentos escalonados
           const baseDateStr = formData.dataVencimento;
@@ -1006,39 +999,8 @@ export default function DespesasPage() {
               />
             </div>
 
-            {/* 🔗 Linha 3: Vincular a Obra */}
-            <div>
-              <Label className="text-slate-300 flex items-center gap-2">
-                <Building2 className="h-3.5 w-3.5 text-blue-400" />
-                Vincular à Obra
-              </Label>
-              <Select
-                value={formData.obraId || 'nenhuma'}
-                onValueChange={(value) => setFormData({...formData, obraId: value === 'nenhuma' ? '' : value})}
-              >
-                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
-                  <SelectValue placeholder="Despesa da Fábrica (sem vínculo)" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700 max-h-64">
-                  <SelectItem value="nenhuma">🏭 Despesa da Fábrica (sem vínculo)</SelectItem>
-                  {(obras || []).filter(o => o.status !== 'cancelada').map(o => (
-                    <SelectItem key={o.id} value={o.id}>
-                      <div className="flex items-center gap-2">
-                        <Building2 className="h-3 w-3 text-blue-400" />
-                        <span className="font-mono text-xs text-blue-300">{o.codigo || o.id}</span>
-                        <span>·</span>
-                        <span>{o.nome || o.name}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formData.obraId && (
-                <p className="text-[10px] text-blue-300 mt-1">
-                  💡 Esta despesa aparecerá no painel financeiro da obra (Gestão Financeira da Obra).
-                </p>
-              )}
-            </div>
+            {/* ⚠️ Módulo de Despesas é INDEPENDENTE — não vincula a obras.
+                Para despesas vinculadas a obra, use Gestão Financeira Obra. */}
 
             {/* Linha 3: Categoria + Centro de Custo */}
             <div className="grid grid-cols-2 gap-4">
