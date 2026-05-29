@@ -144,25 +144,47 @@ export default function FinanceiroPage() {
     return map;
   }, [obras]);
 
+  // 🔧 Helper auto-detecção de Atrasado (parse local p/ evitar timezone)
+  const computeStatusEfetivo = (statusBruto, dataVenc, tipo) => {
+    const isPago = tipo === 'receita'
+      ? ['recebido','pago','paga','faturado','confirmado'].includes(statusBruto)
+      : statusBruto === 'pago';
+    if (isPago) return statusBruto;
+    if (!dataVenc || dataVenc === '-') return statusBruto || 'pendente';
+    try {
+      const m = String(dataVenc).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const d = m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(dataVenc);
+      d.setHours(0,0,0,0);
+      const hoje = new Date(); hoje.setHours(0,0,0,0);
+      if (d < hoje) return 'atrasado';
+    } catch {}
+    return statusBruto || 'pendente';
+  };
+
   // ===== DESPESAS GERAIS (sem obraId = Financeiro Fábrica) =====
   const despesasGerais = useMemo(() => {
     if (!lancamentosDespesas || lancamentosDespesas.length === 0) return [];
     return lancamentosDespesas
       .filter(l => !l.obraId && !l.obra_id)
-      .map(l => ({
-        id: l.id,
-        tipo: 'despesa',
-        data: l.dataEmissao || l.data || l.createdAt || '',
-        descricao: l.descricao || l.nome || '-',
-        fornecedor: l.fornecedor || '-',
-        categoria: l.categoria || 'Outros',
-        valor: l.valor || 0,
-        status: l.status || 'pendente',
-        formaPagto: l.formaPagto || '-',
-        vencimento: l.dataVencimento || l.vencimento || '-',
-        origem: 'Despesa Fábrica',
-        origemObra: false,
-      }));
+      .map(l => {
+        const venc = l.dataVencimento || l.vencimento || '-';
+        const statusBruto = l.status || 'pendente';
+        return {
+          id: l.id,
+          tipo: 'despesa',
+          data: l.dataEmissao || l.data || l.createdAt || '',
+          descricao: l.descricao || l.nome || '-',
+          fornecedor: l.fornecedor || '-',
+          categoria: l.categoria || 'Outros',
+          valor: l.valor || 0,
+          status: statusBruto,
+          statusEfetivo: computeStatusEfetivo(statusBruto, venc, 'despesa'),
+          formaPagto: l.formaPagto || '-',
+          vencimento: venc,
+          origem: 'Despesa Fábrica',
+          origemObra: false,
+        };
+      });
   }, [lancamentosDespesas]);
 
   // ===== RECEITAS: MEDIÇÕES (Supabase) + MANUAIS (localStorage) + OVERRIDES =====
@@ -211,6 +233,8 @@ export default function FinanceiroPage() {
         if (ov.vencimento) baseReceita.vencimento = ov.vencimento;
         if (ov.formaPagto && ov.formaPagto !== '-') baseReceita.formaPagto = ov.formaPagto;
       }
+      // ✨ Auto-detecção: recebível vencido vira atrasado
+      baseReceita.statusEfetivo = computeStatusEfetivo(baseReceita.status, baseReceita.vencimento, 'receita');
       return baseReceita;
     });
   }, [todasMedicoes, obrasMap]);
@@ -219,20 +243,25 @@ export default function FinanceiroPage() {
   const receitasManuais = useMemo(() => {
     try {
       const salvas = JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]');
-      return salvas.map(r => ({
-        id: r.id,
-        tipo: 'receita',
-        data: r.data || r.vencimento || '',
-        descricao: r.descricao || '-',
-        fornecedor: r.cliente || '-',
-        categoria: r.categoria || 'Outros',
-        valor: r.valor || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente'),
-        formaPagto: r.formaPagto || '-',
-        vencimento: r.vencimento || '-',
-        origem: 'Receita Manual',
-        origemObra: false,
-      }));
+      return salvas.map(r => {
+        const statusBruto = ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente');
+        const venc = r.vencimento || '-';
+        return {
+          id: r.id,
+          tipo: 'receita',
+          data: r.data || r.vencimento || '',
+          descricao: r.descricao || '-',
+          fornecedor: r.cliente || '-',
+          categoria: r.categoria || 'Outros',
+          valor: r.valor || 0,
+          status: statusBruto,
+          statusEfetivo: computeStatusEfetivo(statusBruto, venc, 'receita'),
+          formaPagto: r.formaPagto || '-',
+          vencimento: venc,
+          origem: 'Receita Manual',
+          origemObra: false,
+        };
+      });
     } catch (e) {
       return [];
     }
@@ -864,14 +893,21 @@ export default function FinanceiroPage() {
                       {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
                     </TableCell>
                     <TableCell>
-                      <Badge className={cn("border text-xs",
-                        ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                        mov.status === 'atrasado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                        'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                      )}>
-                        {['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(mov.status) ? 'Recebido' :
-                         mov.status === 'atrasado' ? 'Atrasado' : 'Pendente'}
-                      </Badge>
+                      {(() => {
+                        const stEf = mov.statusEfetivo || mov.status;
+                        const isPago = ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(stEf);
+                        const isAtrasado = stEf === 'atrasado';
+                        return (
+                          <Badge className={cn("border text-xs",
+                            isPago ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                            isAtrasado ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse' :
+                            'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                          )}>
+                            {isPago ? (mov.tipo === 'receita' ? 'Recebido' : 'Pago') :
+                             isAtrasado ? 'Atrasado' : 'Pendente'}
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       {!mov.origemObra ? (

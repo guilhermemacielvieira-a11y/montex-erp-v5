@@ -324,26 +324,46 @@ export default function ReceitasPage() {
     return Object.values(meses).sort((a, b) => a.key.localeCompare(b.key));
   }, [receitasPeriodo]);
 
-  // KPIs
+  // 🔧 Helper: status efetivo (auto-detecção de atrasado para receitas)
+  const computeStatusEfetivoReceita = (statusBruto, dataVenc) => {
+    const ehRecebido = ['recebido','confirmado','pago','paga','faturado'].includes(statusBruto);
+    if (ehRecebido) return statusBruto;
+    if (!dataVenc) return statusBruto || 'pendente';
+    try {
+      const m = String(dataVenc).match(/^(\d{4})-(\d{2})-(\d{2})/);
+      const d = m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(dataVenc);
+      d.setHours(0,0,0,0);
+      const hoje = new Date(); hoje.setHours(0,0,0,0);
+      if (d < hoje) return 'atrasado';
+    } catch {}
+    return statusBruto || 'pendente';
+  };
+
+  // KPIs — usa statusEfetivo para identificar atrasados (recebíveis vencidos)
   const kpis = useMemo(() => {
-    const totalRecebido = receitasPeriodo.filter(r => ['recebido', 'confirmado', 'pago', 'paga', 'faturado'].includes(r.status)).reduce((sum, r) => sum + (r.valor || 0), 0);
-    const totalPendente = receitasPeriodo.filter(r => r.status === 'pendente' || r.status === 'aprovado' || r.status === 'pre_aprovado').reduce((sum, r) => sum + (r.valor || 0), 0);
-    const totalAtrasado = receitasPeriodo.filter(r => r.status === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const enriquecidas = receitasPeriodo.map(r => ({
+      ...r,
+      statusEfetivo: computeStatusEfetivoReceita(r.status, r.vencimento),
+    }));
+    const totalRecebido = enriquecidas.filter(r => ['recebido', 'confirmado', 'pago', 'paga', 'faturado'].includes(r.statusEfetivo)).reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalPendente = enriquecidas.filter(r => r.statusEfetivo === 'pendente' || r.statusEfetivo === 'aprovado' || r.statusEfetivo === 'pre_aprovado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalAtrasado = enriquecidas.filter(r => r.statusEfetivo === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const total = receitasPeriodo.reduce((sum, r) => sum + (r.valor || 0), 0);
     return { totalRecebido, totalPendente, totalAtrasado, total };
   }, [receitasPeriodo]);
 
-  // Filtrar receitas para tabela
+  // Filtrar receitas para tabela — usa statusEfetivo
   const receitasFiltradas = useMemo(() => {
     let resultado = receitas.filter(r => {
       if (searchTerm && !(r.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
           !(r.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
           !(r.obraNome || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos') {
+        const stEf = computeStatusEfetivoReceita(r.status, r.vencimento);
         const statusRecebidos = ['recebido', 'pago', 'paga', 'confirmado', 'faturado'];
         if (filtroStatus === 'paga') {
-          if (!statusRecebidos.includes(r.status)) return false;
-        } else if (r.status !== filtroStatus) return false;
+          if (!statusRecebidos.includes(stEf)) return false;
+        } else if (stEf !== filtroStatus) return false;
       }
       if (filtroCategoria !== 'todos' && r.categoria !== filtroCategoria) return false;
       return true;
@@ -1002,9 +1022,30 @@ export default function ReceitasPage() {
                     </TableCell>
                     <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(receita.valor)}</TableCell>
                     <TableCell>
-                      <Badge className={cn("border text-xs", getStatusColor(receita.status))}>
-                        {getStatusText(receita.status)}
-                      </Badge>
+                      {(() => {
+                        const stEf = computeStatusEfetivoReceita(receita.status, receita.vencimento);
+                        const isRecebido = ['recebido','confirmado','pago','paga','faturado'].includes(stEf);
+                        const isAtrasado = stEf === 'atrasado';
+                        if (isAtrasado) {
+                          return (
+                            <Badge className="bg-red-500/20 text-red-300 border-red-500/40 border text-xs animate-pulse">
+                              Atrasado
+                            </Badge>
+                          );
+                        }
+                        if (isRecebido) {
+                          return (
+                            <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30 border text-xs">
+                              Recebido
+                            </Badge>
+                          );
+                        }
+                        return (
+                          <Badge className={cn("border text-xs", getStatusColor(receita.status))}>
+                            {getStatusText(receita.status)}
+                          </Badge>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       {receita.origemObra ? (

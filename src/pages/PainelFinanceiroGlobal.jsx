@@ -4225,14 +4225,29 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo 
                 {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
               </TableCell>
               <TableCell>
-                <Badge className={cn("border text-xs",
-                  ['recebido','pago','paga','faturado','confirmado'].includes(mov.status) ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                  mov.status === 'atrasado' ? 'bg-red-500/20 text-red-400 border-red-500/30' :
-                  'bg-amber-500/20 text-amber-400 border-amber-500/30'
-                )}>
-                  {['recebido','pago','paga','faturado','confirmado'].includes(mov.status) ? 'Recebido' :
-                    mov.status === 'atrasado' ? 'Atrasado' : 'Pendente'}
-                </Badge>
+                {(() => {
+                  // Auto-detecção: se venc < hoje e não pago, mostra como Atrasado
+                  const stBruto = mov.status;
+                  const ehPago = ['recebido','pago','paga','faturado','confirmado'].includes(stBruto);
+                  let ehAtrasado = stBruto === 'atrasado';
+                  if (!ehPago && !ehAtrasado) {
+                    const venc = mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : mov.data;
+                    const dVenc = parseLocalDate(venc);
+                    const hoje = new Date(); hoje.setHours(0,0,0,0);
+                    if (dVenc) dVenc.setHours(0,0,0,0);
+                    if (dVenc && dVenc < hoje) ehAtrasado = true;
+                  }
+                  return (
+                    <Badge className={cn("border text-xs",
+                      ehPago ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                      ehAtrasado ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse' :
+                      'bg-amber-500/20 text-amber-400 border-amber-500/30'
+                    )}>
+                      {ehPago ? (mov.tipo === 'receita' ? 'Recebido' : 'Pago') :
+                        ehAtrasado ? 'Atrasado' : 'Pendente'}
+                    </Badge>
+                  );
+                })()}
               </TableCell>
               <TableCell>
                 <DropdownMenu>
