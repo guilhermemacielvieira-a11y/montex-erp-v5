@@ -165,6 +165,8 @@ export default function ReceitasPage() {
     formaPagto: '',
     status: 'pendente',
     obraId: '',
+    parcelas: 1,
+    intervaloDias: 30,
   });
 
   // Obras ativas do sistema (para o select de vinculação)
@@ -352,7 +354,7 @@ export default function ReceitasPage() {
   // Abrir form para cadastrar nova receita
   const handleNovaReceita = () => {
     setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '', parcelas: 1, intervaloDias: 30 });
     setDialogOpen(true);
   };
 
@@ -405,34 +407,80 @@ export default function ReceitasPage() {
       salvarReceitas(novaLista);
       toast.success('Receita atualizada!');
     } else {
-      // Nova receita manual
+      // Nova receita manual — pode ter parcelas
       const obraSelecionada = formData.obraId
         ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
         : null;
-      const novaReceita = {
-        id: `REC-${Date.now()}`,
-        data: formData.vencimento || new Date().toISOString().split('T')[0],
-        descricao: formData.descricao,
-        cliente: formData.cliente || obraSelecionada?.cliente || '-',
-        categoria: formData.categoria || 'Outros',
-        valor: parseFloat(formData.valor),
-        status: formData.status || 'pendente',
-        formaPagto: formData.formaPagto || '-',
-        vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
-        obraId: formData.obraId || null,
-        obraNome: obraSelecionada?.nome || obraSelecionada?.name || null,
-        obraCodigo: obraSelecionada?.codigo || null,
-        origemObra: false,
-      };
-      const novaLista = [...receitas, novaReceita];
-      setReceitas(novaLista);
-      salvarReceitas(novaLista);
-      toast.success('Receita cadastrada!');
+      const valorNum = parseFloat(formData.valor);
+      const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+      const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+
+      if (qtdParcelas === 1) {
+        const novaReceita = {
+          id: `REC-${Date.now()}`,
+          data: formData.vencimento || new Date().toISOString().split('T')[0],
+          descricao: formData.descricao,
+          cliente: formData.cliente || obraSelecionada?.cliente || '-',
+          categoria: formData.categoria || 'Outros',
+          valor: valorNum,
+          status: formData.status || 'pendente',
+          formaPagto: formData.formaPagto || '-',
+          vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
+          obraId: formData.obraId || null,
+          obraNome: obraSelecionada?.nome || obraSelecionada?.name || null,
+          obraCodigo: obraSelecionada?.codigo || null,
+          origemObra: false,
+        };
+        const novaLista = [...receitas, novaReceita];
+        setReceitas(novaLista);
+        salvarReceitas(novaLista);
+        toast.success('Receita cadastrada!');
+      } else {
+        // RECORRÊNCIA: N parcelas com vencimentos escalonados
+        const baseStr = formData.vencimento || new Date().toISOString().split('T')[0];
+        const m = baseStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!m) {
+          toast.error('Data de vencimento inválida');
+          return;
+        }
+        const baseY = parseInt(m[1]), baseM = parseInt(m[2]) - 1, baseD = parseInt(m[3]);
+        const recorrenciaId = `REC-REC-${Date.now()}`;
+        const novas = [];
+        for (let i = 0; i < qtdParcelas; i++) {
+          const d = new Date(baseY, baseM, baseD + (i * intervalo));
+          const yyyy = d.getFullYear();
+          const mm = String(d.getMonth() + 1).padStart(2, '0');
+          const dd = String(d.getDate()).padStart(2, '0');
+          const venc = `${yyyy}-${mm}-${dd}`;
+          novas.push({
+            id: `REC-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
+            data: venc,
+            descricao: `${formData.descricao} (Parc ${i + 1}/${qtdParcelas})`,
+            cliente: formData.cliente || obraSelecionada?.cliente || '-',
+            categoria: formData.categoria || 'Outros',
+            valor: valorNum,
+            status: 'pendente',
+            formaPagto: formData.formaPagto || '-',
+            vencimento: venc,
+            obraId: formData.obraId || null,
+            obraNome: obraSelecionada?.nome || obraSelecionada?.name || null,
+            obraCodigo: obraSelecionada?.codigo || null,
+            origemObra: false,
+            recorrenciaId,
+            parcelaIdx: i + 1,
+            parcelaTotal: qtdParcelas,
+          });
+        }
+        const novaLista = [...receitas, ...novas];
+        setReceitas(novaLista);
+        salvarReceitas(novaLista);
+        toast.success(`${qtdParcelas} parcelas criadas (total R$ ${(valorNum * qtdParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`);
+      }
     }
 
     setDialogOpen(false);
     setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '' });
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '', parcelas: 1, intervaloDias: 30 });
   };
 
   // Apagar receita
@@ -589,7 +637,7 @@ export default function ReceitasPage() {
                 />
               </div>
               <div>
-                <Label className="text-slate-300">Vencimento</Label>
+                <Label className="text-slate-300">Vencimento {parseInt(formData.parcelas) > 1 && <span className="text-amber-400 text-xs">(1ª parcela)</span>}</Label>
                 <Input
                   className="mt-1 bg-slate-800 border-slate-700"
                   type="date"
@@ -598,6 +646,45 @@ export default function ReceitasPage() {
                 />
               </div>
             </div>
+
+            {/* Parcelamento — só na criação */}
+            {!editando && (
+              <div className="bg-emerald-900/10 border border-emerald-700/30 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
+                  📑 Parcelamento <span className="text-[10px] text-slate-500 font-normal">opcional — 1 = receita única</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-slate-300 text-xs">Quantidade de Parcelas</Label>
+                    <Input type="number" min="1" max="120" className="mt-1 bg-slate-800 border-slate-700"
+                      value={formData.parcelas || 1}
+                      onChange={(e) => setFormData({...formData, parcelas: parseInt(e.target.value) || 1})} />
+                  </div>
+                  <div>
+                    <Label className="text-slate-300 text-xs">Intervalo entre vencimentos (dias)</Label>
+                    <Input type="number" min="1" className="mt-1 bg-slate-800 border-slate-700"
+                      value={formData.intervaloDias || 30}
+                      onChange={(e) => setFormData({...formData, intervaloDias: parseInt(e.target.value) || 30})} />
+                  </div>
+                </div>
+                {parseInt(formData.parcelas) > 1 && parseFloat(formData.valor) > 0 && formData.vencimento && (() => {
+                  const qtd = parseInt(formData.parcelas);
+                  const intervalo = parseInt(formData.intervaloDias) || 30;
+                  const valor = parseFloat(formData.valor) || 0;
+                  const m = formData.vencimento.match(/^(\d{4})-(\d{2})-(\d{2})/);
+                  if (!m) return null;
+                  const base = new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+                  const ultima = new Date(base.getFullYear(), base.getMonth(), base.getDate() + ((qtd - 1) * intervalo));
+                  return (
+                    <div className="text-xs text-emerald-200 bg-emerald-900/30 rounded px-2 py-1.5 flex justify-between items-center flex-wrap gap-1">
+                      <span>Vai criar <strong>{qtd}</strong> parcelas de <strong>R$ {valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong></span>
+                      <span>Total: <strong>R$ {(valor * qtd).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> · até {ultima.toLocaleDateString('pt-BR')}</span>
+                    </div>
+                  );
+                })()}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-slate-300">Forma de Pagamento</Label>

@@ -3100,12 +3100,45 @@ function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, 
     observacao: lancamentoInicial?.observacao || '',
     formaPagto: lancamentoInicial?.formaPagto || '',
     pesoKg: lancamentoInicial?.pesoKg || lancamentoInicial?.peso_kg || '',
+    parcelas: 1, intervaloDias: 30,
   });
 
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!formData.descricao || !formData.valor) return;
-    onSubmit(formData);
+    const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+    const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+
+    if (lancamentoInicial || qtdParcelas === 1) {
+      // Edição OU lançamento único — fluxo normal
+      onSubmit(formData);
+      return;
+    }
+
+    // Recorrência — gera N lançamentos
+    const baseStr = formData.dataVencimento || formData.dataEmissao;
+    const m = baseStr ? baseStr.match(/^(\d{4})-(\d{2})-(\d{2})/) : null;
+    if (!m) {
+      onSubmit(formData);
+      return;
+    }
+    const baseY = parseInt(m[1]), baseM = parseInt(m[2]) - 1, baseD = parseInt(m[3]);
+    const recorrenciaId = `GFO-REC-${Date.now()}`;
+    for (let i = 0; i < qtdParcelas; i++) {
+      const d = new Date(baseY, baseM, baseD + (i * intervalo));
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const venc = `${yyyy}-${mm}-${dd}`;
+      onSubmit({
+        ...formData,
+        descricao: `${formData.descricao} (Parc ${i + 1}/${qtdParcelas})`,
+        dataVencimento: venc,
+        recorrenciaId,
+        parcelaIdx: i + 1,
+        parcelaTotal: qtdParcelas,
+      });
+    }
   };
 
   return (
@@ -3197,6 +3230,30 @@ function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, 
           <input type="number" value={formData.pesoKg} onChange={(e) => setFormData({ ...formData, pesoKg: parseFloat(e.target.value) || '' })} step="0.01" className={inputClass} placeholder="0,00" />
         </div>
       </div>
+
+      {/* Parcelamento (só na criação) */}
+      {!lancamentoInicial && (
+        <div className="bg-cyan-900/10 border border-cyan-700/30 rounded-lg p-3 space-y-2">
+          <div className="text-xs font-semibold text-cyan-300">
+            📑 Parcelamento <span className="text-[10px] text-slate-500 font-normal">opcional — 1 = lançamento único</span>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Quantidade de Parcelas</label>
+              <input type="number" min="1" max="120" value={formData.parcelas || 1} onChange={(e) => setFormData({ ...formData, parcelas: parseInt(e.target.value) || 1 })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Intervalo (dias)</label>
+              <input type="number" min="1" value={formData.intervaloDias || 30} onChange={(e) => setFormData({ ...formData, intervaloDias: parseInt(e.target.value) || 30 })} className={inputClass} />
+            </div>
+          </div>
+          {parseInt(formData.parcelas) > 1 && formData.valor > 0 && formData.dataVencimento && (
+            <div className="text-xs text-cyan-200 bg-cyan-900/30 rounded px-2 py-1.5">
+              Vai criar <strong>{formData.parcelas}</strong> parcelas de <strong>R$ {parseFloat(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong> · Total: <strong>R$ {(parseFloat(formData.valor) * parseInt(formData.parcelas)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Setor + Status */}
       <div className="grid grid-cols-2 gap-4">

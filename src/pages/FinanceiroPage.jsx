@@ -133,7 +133,8 @@ export default function FinanceiroPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [formData, setFormData] = useState({
     tipo: 'despesa', descricao: '', valor: '', categoria: '',
-    fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente'
+    fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente',
+    parcelas: 1, intervaloDias: 30,
   });
 
   // ===== MAPA DE OBRAS =====
@@ -352,7 +353,7 @@ export default function FinanceiroPage() {
   // ===== HANDLERS =====
   const handleNova = () => {
     setEditando(null);
-    setFormData({ tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente' });
+    setFormData({ tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', parcelas: 1, intervaloDias: 30 });
     setDialogOpen(true);
   };
 
@@ -394,21 +395,62 @@ export default function FinanceiroPage() {
         console.error('Erro ao atualizar:', err);
       }
     } else {
+      // Pode ter parcelas/recorrência
+      const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+      const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+      const valorNum = parseFloat(formData.valor);
+
       try {
-        await addLancamento({
-          id: `FIN-${Date.now()}`,
-          tipo: formData.tipo || 'despesa',
-          descricao: formData.descricao,
-          fornecedor: formData.fornecedor || '-',
-          categoria: formData.categoria || 'Outros',
-          valor: parseFloat(formData.valor),
-          formaPagto: formData.formaPagto || '-',
-          data: formData.vencimento || new Date().toISOString().split('T')[0],
-          dataEmissao: new Date().toISOString().split('T')[0],
-          vencimento: formData.vencimento || '',
-          status: formData.status || 'pendente',
-          obraId: null,
-        });
+        if (qtdParcelas === 1) {
+          await addLancamento({
+            id: `FIN-${Date.now()}`,
+            tipo: formData.tipo || 'despesa',
+            descricao: formData.descricao,
+            fornecedor: formData.fornecedor || '-',
+            categoria: formData.categoria || 'Outros',
+            valor: valorNum,
+            formaPagto: formData.formaPagto || '-',
+            data: formData.vencimento || new Date().toISOString().split('T')[0],
+            dataEmissao: new Date().toISOString().split('T')[0],
+            vencimento: formData.vencimento || '',
+            status: formData.status || 'pendente',
+            obraId: null,
+          });
+        } else {
+          const baseStr = formData.vencimento;
+          if (!baseStr) {
+            console.error('Defina o vencimento da 1ª parcela');
+            return;
+          }
+          const m = baseStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (!m) return;
+          const baseY = parseInt(m[1]), baseM = parseInt(m[2]) - 1, baseD = parseInt(m[3]);
+          const recorrenciaId = `FIN-REC-${Date.now()}`;
+          for (let i = 0; i < qtdParcelas; i++) {
+            const d = new Date(baseY, baseM, baseD + (i * intervalo));
+            const yyyy = d.getFullYear();
+            const mm = String(d.getMonth() + 1).padStart(2, '0');
+            const dd = String(d.getDate()).padStart(2, '0');
+            const venc = `${yyyy}-${mm}-${dd}`;
+            await addLancamento({
+              id: `FIN-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
+              tipo: formData.tipo || 'despesa',
+              descricao: `${formData.descricao} (Parc ${i + 1}/${qtdParcelas})`,
+              fornecedor: formData.fornecedor || '-',
+              categoria: formData.categoria || 'Outros',
+              valor: valorNum,
+              formaPagto: formData.formaPagto || '-',
+              data: venc,
+              dataEmissao: new Date().toISOString().split('T')[0],
+              vencimento: venc,
+              status: 'pendente',
+              obraId: null,
+              recorrenciaId,
+              parcelaIdx: i + 1,
+              parcelaTotal: qtdParcelas,
+            });
+          }
+        }
       } catch (err) {
         console.error('Erro ao criar:', err);
       }
@@ -534,8 +576,33 @@ export default function FinanceiroPage() {
                 </Select>
               </div>
             </div>
+
+            {/* Parcelamento (só na criação) */}
+            {!editando && (
+              <div className="bg-cyan-900/10 border border-cyan-700/30 rounded-lg p-3 space-y-2">
+                <div className="flex items-center gap-2 text-xs font-semibold text-cyan-300">
+                  📑 Parcelamento <span className="text-[10px] text-slate-500 font-normal">opcional — 1 = lançamento único</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-slate-300 text-xs">Quantidade de Parcelas</Label>
+                    <Input type="number" min="1" max="120" className="mt-1 bg-slate-800 border-slate-700" value={formData.parcelas || 1} onChange={(e) => setFormData({...formData, parcelas: parseInt(e.target.value) || 1})} />
+                  </div>
+                  <div>
+                    <Label className="text-slate-300 text-xs">Intervalo (dias)</Label>
+                    <Input type="number" min="1" className="mt-1 bg-slate-800 border-slate-700" value={formData.intervaloDias || 30} onChange={(e) => setFormData({...formData, intervaloDias: parseInt(e.target.value) || 30})} />
+                  </div>
+                </div>
+                {parseInt(formData.parcelas) > 1 && parseFloat(formData.valor) > 0 && formData.vencimento && (
+                  <div className="text-xs text-cyan-200 bg-cyan-900/30 rounded px-2 py-1.5">
+                    Vai criar <strong>{formData.parcelas}</strong> parcelas de R$ {parseFloat(formData.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })} · Total: <strong>R$ {(parseFloat(formData.valor) * parseInt(formData.parcelas)).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</strong>
+                  </div>
+                )}
+              </div>
+            )}
+
             <Button className="w-full bg-gradient-to-r from-emerald-500 to-cyan-500" onClick={handleSalvar}>
-              {editando ? 'Salvar Alterações' : 'Cadastrar'}
+              {editando ? 'Salvar Alterações' : (parseInt(formData.parcelas) > 1 ? `Cadastrar ${formData.parcelas} Parcelas` : 'Cadastrar')}
             </Button>
           </div>
         </DialogContent>
