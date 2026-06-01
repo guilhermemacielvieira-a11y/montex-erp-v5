@@ -1,1377 +1,695 @@
-// MONTEX ERP Premium - Command Center Ultra v3
-// Dashboard executivo com financeiro, produção por setor e funcionário
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { ResponsiveContainer, AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell, RadialBarChart, RadialBar, Legend } from 'recharts';
-import * as THREE from 'three';
+// ============================================
+// MONTEX COMMAND CENTER ULTRA — v5 OMEGA
+// ============================================
+// Operations control deep-dive: foco em pessoas, produção,
+// financeiro consolidado e timeline operacional. Visual
+// industrial / blueprint com toque executivo.
+// ============================================
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Minus, ArrowUp, ArrowDown, AlertTriangle, Bell, CheckCircle,
-  Cpu, RefreshCw, Clock, Building2, Weight, Package, DollarSign,
-  Factory, Layers, Target, Truck, Gauge, Users, Zap, Bolt,
-  TrendingUp, Wallet, Receipt, FileText, Calendar, Filter, User,
-  Eye, RotateCcw
+  ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
+  ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell,
+  RadialBarChart, RadialBar, Legend, Treemap,
+} from 'recharts';
+import {
+  Activity, AlertTriangle, ArrowUp, ArrowDown, Award, Bell, Briefcase,
+  Building2, Calendar, CheckCircle2, Clock, Cpu, DollarSign, Factory,
+  Flame, Gauge, Hash, Layers, Package, Settings, Shield, Target, TrendingUp,
+  TrendingDown, Truck, User, Users, Wallet, Weight, Zap, ChevronRight,
+  BarChart3, ArrowRight, Filter, Eye, Box, Map, Percent, Cog,
 } from 'lucide-react';
-import { kpisIndustriais, recursosHumanos, energiaMetricas
-} from '../data/commandCenterData';
-import { useCommandCenter } from '../hooks/useCommandCenter';
-import { useObras, useEstoque, useProducao } from '../contexts/ERPContext';
+import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 
-// ============ DESIGN TOKENS ============
-const colors = {
-  bg: '#060A14',
-  card: 'rgba(12, 20, 38, 0.75)',
-  cardHover: 'rgba(15, 25, 48, 0.85)',
-  border: 'rgba(56, 72, 100, 0.35)',
-  borderHover: 'rgba(80, 100, 140, 0.5)',
-  accent: '#3B82F6',
-  success: '#10B981',
-  warning: '#F59E0B',
-  danger: '#EF4444',
-  info: '#06B6D4',
-  purple: '#8B5CF6',
-  text: '#F1F5F9',
-  muted: '#94A3B8',
-  dimmed: '#64748B',
-  glow: 'rgba(59,130,246,0.08)',
+// ============================================
+// THEME — OMEGA Industrial Blueprint
+// ============================================
+const OM = {
+  // Base
+  bgDeep: '#040814',
+  bgPanel: '#0a1124',
+  bgPanelAlt: '#0d1830',
+  bgRail: '#06091a',
+  border: 'rgba(96,165,250,0.15)',
+  borderStrong: 'rgba(96,165,250,0.4)',
+  // Brand
+  blue: '#60a5fa',
+  blueDeep: '#3b82f6',
+  navy: '#1e3a8a',
+  orange: '#fb923c',
+  amber: '#fbbf24',
+  emerald: '#34d399',
+  emeraldDeep: '#10b981',
+  rose: '#fb7185',
+  violet: '#a78bfa',
+  cyan: '#22d3ee',
+  // Text
+  text: '#e5e7eb',
+  textBright: '#f3f4f6',
+  textDim: '#6b7280',
+  textDimmer: '#4b5563',
 };
 
-const SETOR_COLORS = {
-  fabricacao: '#3B82F6',
-  solda: '#8B5CF6',
-  pintura: '#06B6D4',
-  expedicao: '#10B981',
-  corte: '#F59E0B',
+// ============================================
+// FORMATTERS
+// ============================================
+const fmt = (v) => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
+const fmtR$ = (v) => {
+  if (v == null || isNaN(v)) return 'R$ —';
+  if (Math.abs(v) >= 1e6) return `R$ ${(v / 1e6).toFixed(2)}M`;
+  if (Math.abs(v) >= 1e3) return `R$ ${(v / 1e3).toFixed(0)}k`;
+  return `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
+};
+const fmtR$Full = (v) => v == null ? 'R$ —' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
+const fmtPeso = (kg) => {
+  if (kg == null) return '—';
+  return Math.abs(kg) >= 1000 ? `${(kg / 1000).toFixed(1)}t` : `${Math.round(kg)}kg`;
+};
+const fmtPct = (v) => v == null || isNaN(v) ? '—' : `${Math.round(v)}%`;
+const parseLocalDate = (s) => {
+  if (!s) return null;
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(s);
 };
 
-const SETOR_LABELS = {
-  fabricacao: 'Fabricação',
-  solda: 'Solda',
-  pintura: 'Pintura',
-  expedicao: 'Pronta p/ Envio',
-  corte: 'Corte',
-};
-
-// ============ MICRO COMPONENTS ============
-
-const TrendBadge = ({ value, suffix = '%' }) => {
-  if (value === 0 || value === undefined || value === null) return (
-    <span className="inline-flex items-center gap-0.5 text-xs text-slate-500 font-medium">
-      <Minus size={12} /> 0{suffix}
-    </span>
-  );
-  const isUp = value > 0;
+// ============================================
+// SECTION HEADER (Blueprint title-block style)
+// ============================================
+function Section({ children, title, sub, icon: Icon, accent = OM.blue, className = '', action }) {
   return (
-    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
-      {isUp ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-      {Math.abs(value).toFixed(1)}{suffix}
-    </span>
-  );
-};
-
-const ProgressRing = ({ value = 0, size = 56, strokeWidth = 4, color = '#3B82F6' }) => {
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference - (Math.min(value, 100) / 100) * circumference;
-  return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <defs>
-          <linearGradient id={`ringGrad-${color.replace('#','')}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={1} />
-            <stop offset="100%" stopColor={color} stopOpacity={0.5} />
-          </linearGradient>
-          <filter id={`ringGlow-${color.replace('#','')}`}>
-            <feGaussianBlur stdDeviation="2" result="glow" />
-            <feMerge>
-              <feMergeNode in="glow" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-        <circle cx={size/2} cy={size/2} r={radius} fill="none" stroke="rgba(51,65,85,0.3)" strokeWidth={strokeWidth} />
-        <motion.circle
-          cx={size/2} cy={size/2} r={radius} fill="none"
-          stroke={`url(#ringGrad-${color.replace('#','')})`}
-          strokeWidth={strokeWidth + 1}
-          strokeDasharray={circumference} strokeLinecap="round"
-          filter={`url(#ringGlow-${color.replace('#','')})`}
-          initial={{ strokeDashoffset: circumference }}
-          animate={{ strokeDashoffset: offset }}
-          transition={{ duration: 1.2, ease: 'easeOut' }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="text-xs font-bold text-white" style={{ textShadow: `0 0 8px ${color}30` }}>{Math.round(value)}%</span>
-      </div>
-    </div>
-  );
-};
-
-const MiniBar = ({ value = 0, max = 100, color = '#3B82F6', height = 6 }) => (
-  <div className="w-full rounded-full overflow-hidden" style={{
-    height,
-    background: 'linear-gradient(180deg, rgba(30,41,59,0.6), rgba(51,65,85,0.3))',
-    boxShadow: 'inset 0 1px 3px rgba(0,0,0,0.3)',
-  }}>
-    <motion.div
-      className="h-full rounded-full"
+    <div className={`relative rounded-lg overflow-hidden ${className}`}
       style={{
-        background: `linear-gradient(180deg, ${color}, ${color}cc)`,
-        boxShadow: `inset 0 1px 0 rgba(255,255,255,0.2), 0 0 6px ${color}25`,
-      }}
-      initial={{ width: 0 }}
-      animate={{ width: `${Math.min((value / (max || 1)) * 100, 100)}%` }}
-      transition={{ duration: 1, ease: 'easeOut' }}
-    />
-  </div>
-);
-
-const StatCard = ({ icon: Icon, label, value, subtitle, trend, color = '#3B82F6', small }) => (
-  <motion.div
-    className="relative group cursor-default rounded-xl border backdrop-blur-md overflow-hidden"
-    style={{
-      background: `linear-gradient(135deg, ${colors.card}, rgba(15,25,48,0.4))`,
-      borderColor: colors.border,
-      boxShadow: `0 4px 24px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.03)`,
-    }}
-    whileHover={{ y: -3, borderColor: color, boxShadow: `0 8px 32px ${color}15, inset 0 1px 0 rgba(255,255,255,0.05)` }}
-    transition={{ duration: 0.25 }}
-  >
-    <div className="absolute top-0 left-0 w-full h-[2px]" style={{ background: `linear-gradient(90deg, ${color}, ${color}40, transparent)` }} />
-    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300" style={{ background: `radial-gradient(ellipse at top left, ${color}08, transparent 70%)` }} />
-    <div className={small ? 'p-3 relative' : 'p-4 relative'}>
-      <div className="flex items-start justify-between mb-2">
-        <div className="p-2 rounded-lg" style={{ background: `${color}12`, boxShadow: `0 0 12px ${color}15` }}>
-          <Icon size={small ? 15 : 18} style={{ color }} />
+        background: `linear-gradient(180deg, ${OM.bgPanel}, ${OM.bgPanelAlt})`,
+        border: `1px solid ${OM.border}`,
+        boxShadow: '0 4px 24px -8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.02)',
+      }}>
+      {/* Title block */}
+      <div className="relative px-4 py-2.5 flex items-center justify-between"
+        style={{ borderBottom: `1px solid ${OM.border}`, background: 'rgba(96,165,250,0.03)' }}>
+        <div className="flex items-center gap-2">
+          {Icon && (
+            <div className="p-1.5 rounded" style={{ background: `${accent}15`, border: `1px solid ${accent}30` }}>
+              <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
+            </div>
+          )}
+          <div>
+            <h3 className="text-[11px] font-bold text-white uppercase tracking-[0.15em]">{title}</h3>
+            {sub && <p className="text-[9px] mt-0.5" style={{ color: OM.textDim }}>{sub}</p>}
+          </div>
         </div>
-        {trend !== undefined && <TrendBadge value={trend} />}
+        {action}
+        {/* Right accent bar */}
+        <div className="absolute right-0 top-0 bottom-0 w-1" style={{ background: `linear-gradient(180deg, ${accent}, transparent)` }} />
       </div>
-      <div className={`${small ? 'text-xl' : 'text-2xl'} font-bold text-white tracking-tight`}>{value}</div>
-      <div className="text-[11px] text-slate-400 mt-1 font-medium">{label}</div>
-      {subtitle && <div className="text-[10px] text-slate-500 mt-0.5">{subtitle}</div>}
-    </div>
-  </motion.div>
-);
-
-const SectionCard = ({ title, icon: Icon, children, className = '', action }) => (
-  <div
-    className={`rounded-xl border backdrop-blur-md overflow-hidden ${className}`}
-    style={{
-      background: `linear-gradient(145deg, ${colors.card}, rgba(8,15,30,0.65))`,
-      borderColor: colors.border,
-      boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
-    }}
-  >
-    <div className="flex items-center justify-between px-5 py-3 border-b" style={{ borderColor: colors.border, background: 'rgba(15,23,42,0.3)' }}>
-      <div className="flex items-center gap-2.5">
-        {Icon && <Icon size={15} className="text-blue-400/70" />}
-        <h3 className="text-xs font-bold text-slate-300 tracking-widest uppercase">{title}</h3>
-      </div>
-      {action}
-    </div>
-    <div className="p-5">{children}</div>
-  </div>
-);
-
-const StageChip = ({ label, value, color, active }) => (
-  <motion.div
-    className={`flex flex-col items-center gap-1 px-3 py-3 rounded-xl border transition-all ${active ? '' : 'border-transparent'}`}
-    style={{
-      background: active ? `linear-gradient(135deg, ${color}12, ${color}05)` : 'rgba(20,30,50,0.4)',
-      borderColor: active ? `${color}40` : 'transparent',
-      boxShadow: active ? `0 4px 16px ${color}15, inset 0 1px 0 rgba(255,255,255,0.03)` : 'none',
-    }}
-    whileHover={{ scale: 1.04, boxShadow: `0 6px 20px ${color}20` }}
-  >
-    <span className="text-xl font-bold text-white">{value}</span>
-    <span className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">{label}</span>
-  </motion.div>
-);
-
-const PeriodFilter = ({ value, onChange }) => (
-  <div className="flex items-center gap-1 bg-slate-800/50 rounded-lg p-0.5">
-    {[
-      { id: 'dia', label: 'Dia' },
-      { id: 'semana', label: 'Semana' },
-      { id: 'mes', label: 'Mês' },
-    ].map(p => (
-      <button
-        key={p.id}
-        onClick={() => onChange(p.id)}
-        className={`text-[10px] font-semibold px-3 py-1.5 rounded-md transition-all ${
-          value === p.id
-            ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-            : 'text-slate-500 hover:text-slate-300 border border-transparent'
-        }`}
-      >
-        {p.label}
-      </button>
-    ))}
-  </div>
-);
-
-const AlertItem = ({ type, message, time }) => {
-  const cfg = {
-    critical: { icon: AlertTriangle, color: '#EF4444', bg: 'rgba(239,68,68,0.08)' },
-    warning: { icon: Bell, color: '#F59E0B', bg: 'rgba(245,158,11,0.08)' },
-    info: { icon: CheckCircle, color: '#3B82F6', bg: 'rgba(59,130,246,0.08)' },
-  }[type] || { icon: Bell, color: '#94A3B8', bg: 'rgba(148,163,184,0.08)' };
-  const IconComp = cfg.icon;
-  return (
-    <div className="flex items-start gap-3 p-3 rounded-lg" style={{ background: cfg.bg }}>
-      <IconComp size={14} style={{ color: cfg.color, marginTop: 2, flexShrink: 0 }} />
-      <div className="flex-1 min-w-0">
-        <p className="text-xs text-slate-300 leading-relaxed">{message}</p>
-        {time && <p className="text-[10px] text-slate-500 mt-1">{time}</p>}
-      </div>
-    </div>
-  );
-};
-
-const formatCurrency = (v) => {
-  if (!v && v !== 0) return 'R$ 0,00';
-  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
-};
-const formatCurrencyFull = formatCurrency;
-const formatCurrencyCompact = (v) => {
-  if (v === 0 || !v) return 'R$ 0';
-  if (v < 0) return `-R$ ${Math.abs(v) >= 1e6 ? (Math.abs(v)/1e6).toFixed(1)+'M' : Math.abs(v) >= 1e3 ? (Math.abs(v)/1e3).toFixed(0)+'k' : Math.abs(v).toFixed(0)}`;
-  if (v >= 1e6) return `R$ ${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `R$ ${(v / 1e3).toFixed(0)}k`;
-  return `R$ ${v.toFixed(0)}`;
-};
-
-const formatWeight = (kg) => {
-  if (!kg) return '0 kg';
-  return new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 }).format(kg) + ' kg';
-};
-
-const CustomTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl border p-3 backdrop-blur-xl" style={{
-      background: 'linear-gradient(135deg, rgba(15,23,42,0.95), rgba(30,41,59,0.9))',
-      borderColor: 'rgba(100,116,139,0.3)',
-      boxShadow: '0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset, 0 1px 0 rgba(255,255,255,0.08) inset',
-    }}>
-      <p className="text-[10px] text-slate-400 mb-1.5 font-medium uppercase tracking-wider">{label}</p>
-      {payload.map((p, i) => (
-        <div key={i} className="flex items-center gap-2 py-0.5">
-          <div className="w-2.5 h-2.5 rounded-sm" style={{
-            background: `linear-gradient(135deg, ${p.color || p.fill}, ${p.color || p.fill}88)`,
-            boxShadow: `0 0 6px ${p.color || p.fill}40`,
-          }} />
-          <span className="text-[11px] text-slate-300">{p.name}:</span>
-          <span className="text-xs font-bold text-white">{typeof p.value === 'number' && p.value > 999 ? formatCurrency(p.value) : p.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// ==================== 3D CHART COMPONENT ====================
-function Production3DChart({ data, width = 700, height = 350, title }) {
-  const mountRef = useRef(null);
-  const animRef = useRef(null);
-  const [isRotating, setIsRotating] = useState(true);
-
-  useEffect(() => {
-    if (!mountRef.current || !data?.length) return;
-
-    while (mountRef.current.firstChild) {
-      mountRef.current.removeChild(mountRef.current.firstChild);
-    }
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0f1e);
-    scene.fog = new THREE.FogExp2(0x0a0f1e, 0.015);
-
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(12, 10, 16);
-    camera.lookAt(0, 2, 0);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    mountRef.current.appendChild(renderer.domElement);
-
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
-    scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(10, 15, 10);
-    dirLight.castShadow = true;
-    scene.add(dirLight);
-    const pointLight1 = new THREE.PointLight(0x10b981, 1.5, 50);
-    pointLight1.position.set(-8, 8, 8);
-    scene.add(pointLight1);
-    const pointLight2 = new THREE.PointLight(0x3b82f6, 1.2, 50);
-    pointLight2.position.set(8, 6, -8);
-    scene.add(pointLight2);
-    const pointLight3 = new THREE.PointLight(0xf59e0b, 0.8, 40);
-    pointLight3.position.set(0, 12, 0);
-    scene.add(pointLight3);
-
-    // Floor
-    const floorGeo = new THREE.PlaneGeometry(30, 30);
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a, metalness: 0.3, roughness: 0.8
-    });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
-
-    // Grid
-    const gridHelper = new THREE.GridHelper(25, 25, 0x1e3a5f, 0x0d1b2a);
-    scene.add(gridHelper);
-
-    const maxValue = Math.max(...data.map(d => d.value || 0), 1);
-    const colorMap = {
-      '#F59E0B': 0xf59e0b,
-      '#3B82F6': 0x3b82f6,
-      '#8B5CF6': 0x8b5cf6,
-      '#06B6D4': 0x06b6d4,
-      '#10B981': 0x10b981,
-    };
-    const bars = [];
-
-    data.forEach((item, i) => {
-      const targetH = Math.max((item.value / maxValue) * 8, 0.2);
-      const barGeo = new THREE.BoxGeometry(1.2, 0.01, 1.2);
-      const hexColor = colorMap[item.color] || 0x3b82f6;
-      const barMat = new THREE.MeshPhysicalMaterial({
-        color: hexColor, metalness: 0.4, roughness: 0.2, clearcoat: 0.5,
-        emissive: hexColor, emissiveIntensity: 0.15
-      });
-      const bar = new THREE.Mesh(barGeo, barMat);
-      bar.position.set((i - (data.length - 1) / 2) * 2, 0.005, 0);
-      bar.castShadow = true;
-      bar.userData = { targetH, currentH: 0.01, index: i };
-      scene.add(bar);
-      bars.push(bar);
-
-      // Glow base
-      const glowGeo = new THREE.PlaneGeometry(1.4, 1.4);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color: hexColor, transparent: true, opacity: 0.3, side: THREE.DoubleSide
-      });
-      const glow = new THREE.Mesh(glowGeo, glowMat);
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.set(bar.position.x, 0.01, 0);
-      scene.add(glow);
-    });
-
-    // Particles
-    const particlesGeo = new THREE.BufferGeometry();
-    const particleCount = 200;
-    const positions = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount * 3; i += 3) {
-      positions[i] = (Math.random() - 0.5) * 30;
-      positions[i + 1] = Math.random() * 15;
-      positions[i + 2] = (Math.random() - 0.5) * 30;
-    }
-    particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const particlesMat = new THREE.PointsMaterial({
-      color: 0x3b82f6, size: 0.05, transparent: true, opacity: 0.6
-    });
-    const particles = new THREE.Points(particlesGeo, particlesMat);
-    scene.add(particles);
-
-    let time = 0;
-    const animate = () => {
-      animRef.current = requestAnimationFrame(animate);
-      time += 0.016;
-
-      // Animate bars growing
-      bars.forEach(bar => {
-        const ud = bar.userData;
-        if (ud.currentH < ud.targetH) {
-          ud.currentH = Math.min(ud.currentH + ud.targetH * 0.03, ud.targetH);
-          bar.geometry.dispose();
-          bar.geometry = new THREE.BoxGeometry(1.2, ud.currentH, 1.2);
-          bar.position.y = ud.currentH / 2;
-        }
-        // Subtle pulse
-        const pulse = 1 + Math.sin(time * 2 + ud.index) * 0.02;
-        bar.scale.x = pulse;
-        bar.scale.z = pulse;
-      });
-
-      // Rotate scene
-      if (isRotating) scene.rotation.y += 0.002;
-      particles.rotation.y += 0.001;
-
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
-        mountRef.current.removeChild(renderer.domElement);
-      }
-      renderer.dispose();
-    };
-  }, [data, width, height, isRotating]);
-
-  return (
-    <div className="relative">
-      <div ref={mountRef} className="rounded-xl overflow-hidden border" style={{ borderColor: colors.border, height: height }} />
-      <div className="absolute top-3 right-3 flex gap-2">
-        <button onClick={() => setIsRotating(!isRotating)}
-          className="p-2 rounded-lg border transition-all"
-          style={{
-            background: 'rgba(30,41,59,0.8)',
-            borderColor: 'rgba(100,116,139,0.5)',
-            color: 'rgba(148,163,184,1)',
-          }}
-          onMouseEnter={(e) => { e.target.style.color = 'white'; e.target.style.background = 'rgba(51,65,85,0.8)'; }}
-          onMouseLeave={(e) => { e.target.style.color = 'rgba(148,163,184,1)'; e.target.style.background = 'rgba(30,41,59,0.8)'; }}
-        >
-          {isRotating ? <Eye size={14} /> : <RotateCcw size={14} />}
-        </button>
-      </div>
+      <div className="p-4">{children}</div>
     </div>
   );
 }
 
-// ============ MAIN COMPONENT ============
+// ============================================
+// STAT BLOCK
+// ============================================
+function StatBlock({ label, value, sub, accent = OM.blue, icon: Icon, delta, deltaPositive }) {
+  const isPositive = deltaPositive !== undefined ? deltaPositive : (delta || 0) >= 0;
+  return (
+    <div className="relative p-4 rounded-lg group hover:border-blue-500/30 transition-all"
+      style={{ background: OM.bgPanel, border: `1px solid ${OM.border}` }}>
+      <div className="absolute top-0 left-0 w-12 h-0.5" style={{ background: accent }} />
+      <div className="flex items-start justify-between mb-2">
+        <div>
+          <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>{label}</p>
+        </div>
+        {Icon && (
+          <div className="p-1.5 rounded" style={{ background: `${accent}12` }}>
+            <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
+          </div>
+        )}
+      </div>
+      <p className="text-2xl font-black tabular-nums leading-none" style={{ color: OM.textBright }}>{value}</p>
+      {sub && <p className="text-[10px] mt-2" style={{ color: OM.textDim }}>{sub}</p>}
+      {delta != null && (
+        <div className={`flex items-center gap-1 mt-2 text-[11px] font-bold`}
+          style={{ color: isPositive ? OM.emerald : OM.rose }}>
+          {isPositive ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+          <span className="tabular-nums">{Math.abs(delta).toFixed(1)}%</span>
+          <span style={{ color: OM.textDim }} className="font-normal">vs anterior</span>
+        </div>
+      )}
+    </div>
+  );
+}
 
+// ============================================
+// FLOW STAGE (production funnel)
+// ============================================
+function FlowStage({ label, value, percent, color, icon: Icon, isLast }) {
+  return (
+    <div className="flex items-center flex-1 min-w-0">
+      <div className="flex-1 rounded-lg p-3 relative overflow-hidden"
+        style={{ background: `${color}10`, border: `1px solid ${color}30` }}>
+        <div className="absolute bottom-0 left-0 h-1" style={{ width: `${percent}%`, background: color, boxShadow: `0 0 8px ${color}80` }} />
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[10px] uppercase tracking-widest font-bold" style={{ color }}>{label}</span>
+          {Icon && <Icon className="h-3 w-3" style={{ color }} />}
+        </div>
+        <p className="text-xl font-black tabular-nums" style={{ color: OM.textBright, textShadow: `0 0 6px ${color}30` }}>{fmt(value)}</p>
+        <p className="text-[9px] mt-0.5 tabular-nums" style={{ color: OM.textDim }}>{percent.toFixed(1)}% do total</p>
+      </div>
+      {!isLast && (
+        <div className="px-2 flex-shrink-0">
+          <ArrowRight className="h-4 w-4" style={{ color: OM.textDim }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================
+// PROGRESS RING (compact)
+// ============================================
+function ProgressRing({ value, size = 60, color = OM.blue, label, sub }) {
+  const radius = (size - 8) / 2;
+  const circ = 2 * Math.PI * radius;
+  const pct = Math.min(100, Math.max(0, value));
+  return (
+    <div className="relative flex flex-col items-center justify-center" style={{ width: size, height: size + 14 }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke={OM.textDimmer} strokeWidth="3" opacity="0.3" />
+        <motion.circle
+          cx={size / 2} cy={size / 2} r={radius} fill="none"
+          stroke={color} strokeWidth="3" strokeLinecap="round"
+          strokeDasharray={circ}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: circ - (pct / 100) * circ }}
+          transition={{ duration: 1, ease: 'easeOut' }}
+          style={{ filter: `drop-shadow(0 0 3px ${color}80)` }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ top: -7 }}>
+        <span className="text-sm font-black tabular-nums" style={{ color }}>{Math.round(pct)}%</span>
+      </div>
+      {label && <p className="text-[9px] mt-0.5 truncate uppercase tracking-wider font-semibold" style={{ color: OM.textDim, maxWidth: size + 20 }}>{label}</p>}
+    </div>
+  );
+}
+
+// ============================================
+// BAR LIST
+// ============================================
+function BarList({ items, color = OM.blue, valueFormatter = fmt, max }) {
+  const m = max || items.reduce((mx, i) => Math.max(mx, i.value), 1);
+  return (
+    <div className="space-y-2.5">
+      {items.map((item, i) => {
+        const pct = (item.value / m) * 100;
+        return (
+          <div key={i}>
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs truncate" style={{ color: OM.text }}>{item.label}</span>
+              <span className="text-xs font-bold tabular-nums" style={{ color: item.color || color }}>{valueFormatter(item.value)}</span>
+            </div>
+            <div className="relative h-1.5 rounded-full overflow-hidden" style={{ background: OM.bgRail }}>
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${pct}%` }}
+                transition={{ duration: 0.8, delay: i * 0.04 }}
+                className="absolute inset-y-0 left-0 rounded-full"
+                style={{
+                  background: `linear-gradient(90deg, ${item.color || color}, ${item.color || color}80)`,
+                  boxShadow: `0 0 4px ${item.color || color}60`,
+                }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ============================================
+// MAIN
+// ============================================
 export default function CommandCenterUltra() {
-  const [currentTime, setCurrentTime] = useState(new Date());
-  const [periodo, setPeriodo] = useState('dia');
-  const { obraAtual, obras = [], obraAtualData } = useObras() || {};
-  const {
-    corte = {}, producao = {}, historico = {}, estoque = {}, financeiro = {}, campo = {},
-    loading = false, lastUpdate = new Date(), comparacaoDiaria, refresh
-  } = useCommandCenter(obraAtual) || {};
-  const { maquinas = [] } = useProducao() || {};
-  const { materiaisEstoque = [] } = useEstoque() || {};
+  const { obras } = useObras();
+  const { pecas } = useProducao();
+  const { lancamentosDespesas } = useLancamentos();
+  const { medicoes } = useMedicoes();
+  const fi = useFinancialIntelligence();
 
+  const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(new Date()), 30000);
-    return () => clearInterval(interval);
+    const t = setInterval(() => setNow(new Date()), 30000);
+    return () => clearInterval(t);
   }, []);
 
-  // ============ COMPUTED DATA ============
+  // ===== Pipeline =====
+  const pipeline = useMemo(() => {
+    const stages = [
+      { key: 'fabricacao', label: 'Fabricação', icon: Factory, color: OM.blue },
+      { key: 'corte', label: 'Corte', icon: Zap, color: OM.amber },
+      { key: 'solda', label: 'Solda', icon: Flame, color: OM.violet },
+      { key: 'pintura', label: 'Pintura', icon: Box, color: OM.cyan },
+      { key: 'expedicao', label: 'Expedição', icon: Truck, color: OM.emerald },
+    ];
+    const total = (pecas || []).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    return stages.map(s => {
+      const qtd = (pecas || []).filter(p => p.etapa === s.key)
+        .reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0);
+      return { ...s, qtd, total, percent: total > 0 ? (qtd / total * 100) : 0 };
+    });
+  }, [pecas]);
 
-  const comparacao = useMemo(() => {
-    try { return (typeof comparacaoDiaria === 'function' ? comparacaoDiaria() : comparacaoDiaria) || {}; } catch { return {}; }
-  }, [comparacaoDiaria]);
+  const totalPcs = (pecas || []).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+  const finalizadas = (pecas || []).filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
+    .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+  const eficiencia = totalPcs > 0 ? (finalizadas / totalPcs * 100) : 0;
 
-  // Apenas a obra ativa atual (SUPER LUNA)
-  const obrasAtivas = useMemo(() => obraAtualData ? [obraAtualData] : [], [obraAtualData]);
-  const maquinasAtivas = useMemo(() => maquinas?.filter(m => m?.status === 'ativa' || m?.status === 'operando') || [], [maquinas]);
+  // ===== Financial Top Line =====
+  const recMes = fi.kpisGerais?.faturamentoRealMes || 0;
+  const desMes = fi.kpisGerais?.despesaMensalMedia || 0;
+  const margem = fi.kpisGerais?.margemReal || 0;
+  const saldo = fi.kpisGerais?.saldoReal || 0;
+  const comp = fi.comparativo || {};
 
-  // Peso total baseado na obra ativa
-  const pesoTotalObra = obraAtualData?.pesoTotal || obraAtualData?.peso_total || 0;
-  const pesoTotal = pesoTotalObra > 0 ? pesoTotalObra : (corte?.pesoTotal || 0) + (producao?.pesoTotal || 0);
-  const pesoExpedido = producao?.pesoExpedido || 0;
-  const progressoGeralPeso = pesoTotal > 0 ? (pesoExpedido / pesoTotal) * 100 : 0;
+  const obrasAtivas = (obras || []).filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
+  const backlog = obrasAtivas.reduce((s, o) => s + (o.contratoValorTotal || o.valorContrato || 0), 0);
 
-  // FINANCEIRO: Faturamento, Despesas, Saldo Contrato, Resultado
-  const valorContrato = obraAtualData?.valorContrato || obraAtualData?.valor_contrato || obraAtualData?.contrato_valor_total || 0;
-  const faturamentoTotal = financeiro?.totalMedicoes || 0;
-  const despesaTotal = financeiro?.totalDespesas || 0;
-  const saldoContrato = valorContrato - faturamentoTotal; // Quanto falta faturar do contrato
-  const resultadoFinanceiro = valorContrato - faturamentoTotal - despesaTotal; // Contrato - Receita - Despesa = Saldo real
-
-  const producaoStages = useMemo(() => [
-    { label: 'Corte', value: corte?.cortando || 0, total: corte?.total || 0, color: '#F59E0B' },
-    { label: 'Fabric.', value: producao?.fabricacao || 0, total: producao?.total || 0, color: '#3B82F6' },
-    { label: 'Solda', value: producao?.solda || 0, total: producao?.total || 0, color: '#8B5CF6' },
-    { label: 'Pintura', value: producao?.pintura || 0, total: producao?.total || 0, color: '#06B6D4' },
-    { label: 'Exped.', value: producao?.expedicao || 0, total: producao?.total || 0, color: '#10B981' },
-  ], [corte, producao]);
-
-  // Dados para gráfico de barras por setor
-  const producaoPorSetorChart = useMemo(() => {
-    const porSetor = producao?.porSetor || {};
-    return Object.entries(SETOR_LABELS).map(([key, label]) => ({
-      setor: label,
-      qtd: (porSetor[key] || []).length,
-      color: SETOR_COLORS[key],
-    }));
-  }, [producao?.porSetor]);
-
-  // Dados por funcionário (produção) - do kanban produção
-  const producaoPorFuncionario = useMemo(() => {
-    // Preferir dados do histórico real se disponíveis
-    const histFunc = historico?.porFuncionario || {};
-    const prodFunc = producao?.porFuncionario || {};
-    const source = Object.keys(histFunc).length > 0 ? histFunc : prodFunc;
-    return Object.entries(source)
-      .map(([nome, data]) => ({ nome, ...data }))
-      .sort((a, b) => (b.total || 0) - (a.total || 0))
-      .slice(0, 10);
-  }, [producao?.porFuncionario, historico?.porFuncionario]);
-
-  // Dados por funcionário (corte) - do kanban corte
-  const cortePorFuncionario = useMemo(() => {
-    const resp = corte?.porFuncionario || {};
-    return Object.entries(resp)
-      .map(([nome, data]) => ({ nome, ...data }))
-      .sort((a, b) => b.qtd - a.qtd)
-      .slice(0, 10);
-  }, [corte?.porFuncionario]);
-
-  // Envios detalhados para seção de expedição
-  const enviosDetalhados = useMemo(() => campo?.enviosDetalhados || [], [campo?.enviosDetalhados]);
-
-  // Peças detalhadas por setor
-  const pecasPorSetor = useMemo(() => {
-    const porSetor = producao?.porSetor || {};
-    return Object.entries(SETOR_LABELS).map(([key, label]) => ({
-      setor: label,
-      key,
-      color: SETOR_COLORS[key],
-      pecas: (porSetor[key] || []).slice(0, 12),
-      total: (porSetor[key] || []).length,
-    })).filter(s => s.total > 0);
-  }, [producao?.porSetor]);
-
-  // Peças entregues em obra (etapa entregue + peças dos envios ENTREGUE)
-  const pecasEntregues = useMemo(() => {
-    const entreguesPorEtapa = producao?.porSetor?.entregue || [];
-    const todasPecas = producao?.items || [];
-    const expItems = campo?.items || [];
-    const expEntregues = expItems.filter(i => (i.status || '').toUpperCase() === 'ENTREGUE');
-
-    // Extrair peças dos envios entregues e buscar detalhes em producao.items
-    const idsJaEntregues = new Set(entreguesPorEtapa.map(p => p.id));
-    const pecasDoEnvio = [];
-    expEntregues.forEach(envio => {
-      const pecasArr = Array.isArray(envio.pecas) ? envio.pecas : [];
-      pecasArr.forEach(pe => {
-        const pecaId = typeof pe === 'object' ? (pe.id || pe.pecaId) : pe;
-        if (!pecaId || idsJaEntregues.has(pecaId)) return;
-        idsJaEntregues.add(pecaId);
-        // Buscar detalhes da peça em producao.items
-        const detalhes = todasPecas.find(p => p.id === pecaId);
-        pecasDoEnvio.push({
-          id: pecaId,
-          nome: detalhes?.nome || detalhes?.marca || pecaId,
-          marca: detalhes?.marca || '-',
-          tipo: detalhes?.tipo || '-',
-          perfil: detalhes?.perfil || '',
-          peso: parseFloat(detalhes?.peso_total) || 0,
-          resp: detalhes?.responsavel || 'Via Envio',
-          envioNumero: envio.numero_romaneio || '-',
-          qtdEnviada: typeof pe === 'object' ? (pe.qtd_enviada || 1) : 1,
-        });
+  // ===== Funcionários produção (por etapa) =====
+  const funcionarios = useMemo(() => {
+    const map = {};
+    (pecas || []).forEach(p => {
+      ['fabricacao','solda','pintura','corte','expedicao'].forEach(et => {
+        const f = p[`funcionario_${et}`] || p[`func_${et}`];
+        if (f && p.etapa === et) {
+          if (!map[f]) map[f] = { nome: f, total: 0, etapas: {} };
+          const qtd = parseInt(p.quantidade) || 1;
+          map[f].total += qtd;
+          map[f].etapas[et] = (map[f].etapas[et] || 0) + qtd;
+        }
       });
     });
+    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 8);
+  }, [pecas]);
 
-    const todasEntregues = [...entreguesPorEtapa, ...pecasDoEnvio];
-    const pesoTotalEntregue = todasEntregues.reduce((s, p) => s + (p.peso || 0), 0);
+  // ===== Cash Flow histórico =====
+  const cashHist = useMemo(() => {
+    if (!fi.evolucaoMensal) return [];
+    return fi.evolucaoMensal.slice(-6).map(m => ({
+      mes: m.mesLabel,
+      receita: m.faturamentoReal || 0,
+      despesa: m.custo || 0,
+      lucro: (m.faturamentoReal || 0) - (m.custo || 0),
+    }));
+  }, [fi]);
 
-    return {
-      pecas: todasEntregues,
-      totalPecas: todasEntregues.length,
-      pesoTotal: pesoTotalEntregue,
-      envios: expEntregues.map(e => ({
-        id: e.id,
-        numero: e.numero_romaneio || '-',
-        data: e.data_expedicao || e.created_at || '',
-        peso: parseFloat(e.peso_total) || 0,
-        pecas: typeof e.pecas === 'number' ? e.pecas : (Array.isArray(e.pecas) ? e.pecas.length : parseInt(e.pecas) || 0),
-        transportadora: e.transportadora || '-',
-        destino: e.destino || '-',
-      })),
-      totalEnvios: expEntregues.length,
-    };
-  }, [producao?.porSetor?.entregue, producao?.items, campo?.items]);
+  // ===== Próximos Vencimentos =====
+  const proxVenc = useMemo(() => {
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const em30 = new Date(); em30.setDate(em30.getDate() + 30);
+    return (lancamentosDespesas || [])
+      .filter(l => {
+        if (l.status === 'pago') return false;
+        const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
+        return v && v >= hoje && v <= em30;
+      })
+      .sort((a, b) => parseLocalDate(a.dataVencimento || a.data_vencimento) - parseLocalDate(b.dataVencimento || b.data_vencimento))
+      .slice(0, 6);
+  }, [lancamentosDespesas]);
 
-  // Gráfico comparativo financeiro
-  const financeiroChart = useMemo(() => [
-    { name: 'Contrato', valor: valorContrato, fill: '#3B82F6' },
-    { name: 'Receita', valor: faturamentoTotal, fill: '#10B981' },
-    { name: 'Despesas', valor: despesaTotal, fill: '#EF4444' },
-    { name: 'Resultado', valor: Math.abs(resultadoFinanceiro), fill: resultadoFinanceiro >= 0 ? '#8B5CF6' : '#EF4444' },
-  ], [valorContrato, faturamentoTotal, despesaTotal, resultadoFinanceiro]);
+  // ===== Atrasadas =====
+  const atrasadas = useMemo(() => {
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    return (lancamentosDespesas || []).filter(l => {
+      if (l.status === 'pago') return false;
+      const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
+      return v && v < hoje;
+    });
+  }, [lancamentosDespesas]);
 
-  const alertas = useMemo(() => {
-    const list = [];
-    if ((estoque?.critico || 0) > 0) list.push({ type: 'critical', message: `${estoque.critico} itens em estoque crítico`, time: 'Agora' });
-    if ((estoque?.baixo || 0) > 0) list.push({ type: 'warning', message: `${estoque.baixo} itens com estoque baixo`, time: 'Agora' });
-    if (resultadoFinanceiro < -100000) list.push({ type: 'critical', message: `Resultado negativo: ${formatCurrency(resultadoFinanceiro)} (Receita - Despesa)`, time: 'Financeiro' });
-    if ((financeiro?.despesasPendentes || 0) > 0) list.push({ type: 'warning', message: `${formatCurrency(financeiro.despesasPendentes)} em despesas pendentes`, time: 'Financeiro' });
-    if ((corte?.aguardando || 0) > 5) list.push({ type: 'info', message: `${corte.aguardando} peças aguardando corte`, time: 'Produção' });
-    if (list.length === 0) list.push({ type: 'info', message: 'Nenhum alerta ativo no momento', time: 'Sistema' });
-    return list;
-  }, [estoque, financeiro, corte, saldoContrato]);
+  const atrasadasTotal = atrasadas.reduce((s, a) => s + (a.valor || 0), 0);
 
-  // ============ RENDER ============
+  // ===== Obras ranking =====
+  const obrasRank = useMemo(() => {
+    return obrasAtivas.map(o => {
+      const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
+      const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+      const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
+        .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+      const recObra = (medicoes || []).filter(m => (m.obraId || m.obra_id) === o.id
+        && ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
+        .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
+      const valor = o.contratoValorTotal || o.valorContrato || 0;
+      return {
+        ...o,
+        pcs: tot, fin, valor, recObra,
+        prog: tot > 0 ? (fin / tot * 100) : 0,
+        fatura: valor > 0 ? (recObra / valor * 100) : 0,
+      };
+    }).sort((a, b) => b.valor - a.valor).slice(0, 6);
+  }, [obrasAtivas, pecas, medicoes]);
+
+  // ===== Categorias despesa =====
+  const categorias = useMemo(() => {
+    const map = {};
+    (lancamentosDespesas || []).forEach(l => {
+      if (l.obraId || l.obra_id) return;
+      const cat = l.categoria || 'Outros';
+      if (!map[cat]) map[cat] = 0;
+      map[cat] += l.valor || 0;
+    });
+    const cores = [OM.blue, OM.violet, OM.cyan, OM.orange, OM.emerald, OM.amber, OM.rose];
+    return Object.entries(map).map(([label, value], i) => ({ label, value, color: cores[i % cores.length] }))
+      .sort((a, b) => b.value - a.value).slice(0, 6);
+  }, [lancamentosDespesas]);
+
+  // ===== Receita por obra (treemap data) =====
+  const receitaPorObra = useMemo(() => {
+    return obrasAtivas.map(o => {
+      const rec = (medicoes || []).filter(m => (m.obraId || m.obra_id) === o.id
+        && ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
+        .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
+      return { name: o.codigo || o.id, size: rec, fill: OM.blue };
+    }).filter(x => x.size > 0).sort((a, b) => b.size - a.size).slice(0, 10);
+  }, [obrasAtivas, medicoes]);
 
   return (
-    <div className="min-h-screen text-slate-100" style={{ background: `linear-gradient(180deg, ${colors.bg} 0%, #080E1C 50%, #0A1020 100%)` }}>
-      {/* HEADER */}
-      <header className="sticky top-0 z-30 border-b backdrop-blur-xl" style={{ background: 'rgba(6,10,20,0.88)', borderColor: colors.border, boxShadow: '0 4px 24px rgba(0,0,0,0.4)' }}>
-        <div className="w-full px-6 h-12 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2">
-              <Cpu size={20} className="text-blue-400" />
-              <span className="text-base font-bold text-white tracking-tight">Command Center</span>
-            </div>
-            <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded-full border border-blue-500/20">ULTRA</span>
-          </div>
+    <div className="min-h-screen -m-4 p-4 relative" style={{ background: OM.bgDeep }}>
+      {/* Blueprint pattern */}
+      <div className="fixed inset-0 pointer-events-none opacity-[0.03]" style={{
+        backgroundImage: `
+          linear-gradient(${OM.blue} 1px, transparent 1px),
+          linear-gradient(90deg, ${OM.blue} 1px, transparent 1px)
+        `,
+        backgroundSize: '24px 24px',
+      }} />
 
-          <div className="flex items-center gap-5">
-            {loading && (
-              <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}>
-                <RefreshCw size={14} className="text-blue-400" />
-              </motion.div>
-            )}
-            <div className="flex items-center gap-1.5 text-slate-500">
-              <Clock size={13} />
-              <span className="text-xs font-mono">{currentTime.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-[10px] text-slate-500">Online</span>
-            </div>
-            <button onClick={refresh} className="p-1.5 rounded-md hover:bg-slate-800 transition-colors" title="Atualizar dados">
-              <RefreshCw size={14} className="text-slate-400" />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      <main className="w-full px-4 2xl:px-6 py-4 space-y-4">
-
-        {/* ROW 1: KPI CARDS - Obra + Financeiro + Produção */}
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          <StatCard icon={Building2} label="Obra Ativa" value={obrasAtivas.length} color="#3B82F6"
-            subtitle={obraAtualData?.nome || obraAtualData?.codigo || 'SUPER LUNA'} small />
-          <StatCard icon={Receipt} label="Receita (Medições)" value={formatCurrency(faturamentoTotal)} color="#10B981"
-            subtitle={`${financeiro?.numMedicoes || 0} medições`} small />
-          <StatCard icon={Wallet} label="Despesa Total" value={formatCurrency(despesaTotal)} color="#EF4444"
-            subtitle={`${formatCurrency(financeiro?.despesasPendentes || 0)} pendentes`} small />
-          <StatCard icon={TrendingUp} label="Resultado" value={formatCurrency(resultadoFinanceiro)} color={resultadoFinanceiro >= 0 ? '#10B981' : '#EF4444'}
-            subtitle={`Contrato: ${formatCurrency(valorContrato)}`} small />
-          <StatCard icon={Weight} label="Peso Total" value={formatWeight(pesoTotal)} color="#F59E0B"
-            subtitle={`${formatWeight(pesoExpedido)} expedido`} small />
-          <StatCard icon={Package} label="Peças Produção" value={(corte?.total || 0) + (producao?.total || 0)} color="#06B6D4"
-            subtitle={`${producao?.movidasHoje || 0} movidas hoje`} small />
-        </div>
-
-        {/* ROW 2: FINANCIAL OVERVIEW + PRODUCTION PIPELINE */}
-        <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-
-          {/* FINANCIAL CHART */}
-          <SectionCard title="Visão Financeira" icon={DollarSign} className="lg:col-span-2">
-            <div className="space-y-4">
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={financeiroChart} layout="vertical" margin={{ left: 10, right: 20 }}>
-                  <defs>
-                    {financeiroChart.map((entry, i) => (
-                      <linearGradient key={i} id={`finGrad${i}`} x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor={entry.fill} stopOpacity={0.9} />
-                        <stop offset="50%" stopColor={entry.fill} stopOpacity={1} />
-                        <stop offset="100%" stopColor={entry.fill} stopOpacity={0.7} />
-                      </linearGradient>
-                    ))}
-                    {financeiroChart.map((entry, i) => (
-                      <filter key={`shadow${i}`} id={`barShadow${i}`}>
-                        <feDropShadow dx="0" dy="2" stdDeviation="3" floodColor={entry.fill} floodOpacity="0.3" />
-                      </filter>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.2)" horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: '#94A3B8' }} tickFormatter={v => formatCurrencyCompact(v)} axisLine={{ stroke: 'rgba(51,65,85,0.3)' }} />
-                  <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: '#E2E8F0', fontWeight: 600 }} width={70} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(59,130,246,0.05)' }} />
-                  <Bar dataKey="valor" radius={[0, 6, 6, 0]} barSize={28}>
-                    {financeiroChart.map((entry, i) => (
-                      <Cell key={i} fill={`url(#finGrad${i})`} style={{ filter: `drop-shadow(0 2px 4px ${entry.fill}30)` }} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-
-              <div className="grid grid-cols-3 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
-                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(16,185,129,0.04)', boxShadow: 'inset 0 1px 0 rgba(16,185,129,0.08)' }}>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Desp. Pagas</div>
-                  <div className="text-sm font-bold text-emerald-400 mt-0.5">{formatCurrency(financeiro?.despesasPagas || 0)}</div>
-                </div>
-                <div className="p-2.5 rounded-lg" style={{ background: 'rgba(245,158,11,0.04)', boxShadow: 'inset 0 1px 0 rgba(245,158,11,0.08)' }}>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">Desp. Pendentes</div>
-                  <div className="text-sm font-bold text-amber-400 mt-0.5">{formatCurrency(financeiro?.despesasPendentes || 0)}</div>
-                </div>
-                <div className="p-2.5 rounded-lg" style={{ background: resultadoFinanceiro >= 0 ? 'rgba(139,92,246,0.04)' : 'rgba(239,68,68,0.04)', boxShadow: resultadoFinanceiro >= 0 ? 'inset 0 1px 0 rgba(139,92,246,0.08)' : 'inset 0 1px 0 rgba(239,68,68,0.08)' }}>
-                  <div className="text-[10px] text-slate-500 uppercase tracking-wider">A Faturar</div>
-                  <div className={`text-sm font-bold mt-0.5 ${saldoContrato >= 0 ? 'text-purple-400' : 'text-red-400'}`}>{formatCurrency(saldoContrato)}</div>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-
-          {/* PRODUCTION PIPELINE */}
-          <SectionCard title="Pipeline de Produção" icon={Layers} className="lg:col-span-3">
-            <div className="space-y-5">
-              {/* Stage chips with radial glow */}
-              <div className="grid grid-cols-5 gap-3">
-                {producaoStages.map((s, i) => (
-                  <motion.div
-                    key={i}
-                    className="relative flex flex-col items-center gap-1.5 px-3 py-4 rounded-xl border overflow-hidden"
-                    style={{
-                      background: s.value > 0
-                        ? `linear-gradient(160deg, ${s.color}14, ${s.color}06, rgba(15,23,42,0.5))`
-                        : 'rgba(20,30,50,0.4)',
-                      borderColor: s.value > 0 ? `${s.color}35` : 'rgba(51,65,85,0.2)',
-                      boxShadow: s.value > 0
-                        ? `0 4px 20px ${s.color}12, inset 0 1px 0 rgba(255,255,255,0.04), 0 0 0 1px ${s.color}08`
-                        : 'inset 0 1px 0 rgba(255,255,255,0.02)',
-                    }}
-                    whileHover={{
-                      scale: 1.05,
-                      borderColor: `${s.color}60`,
-                      boxShadow: `0 8px 30px ${s.color}20, inset 0 1px 0 rgba(255,255,255,0.06)`,
-                    }}
-                  >
-                    {s.value > 0 && <div className="absolute top-0 left-0 right-0 h-[2px]" style={{ background: `linear-gradient(90deg, transparent, ${s.color}, transparent)` }} />}
-                    <span className="text-2xl font-bold text-white" style={{ textShadow: s.value > 0 ? `0 0 20px ${s.color}30` : 'none' }}>{s.value}</span>
-                    <span className="text-[9px] text-slate-400 uppercase tracking-widest font-semibold">{s.label}</span>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* 3D Progress bar with gradient segments */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-400 font-medium">Progresso Geral por Peso</span>
-                  <span className="text-sm font-bold text-white" style={{ textShadow: '0 0 10px rgba(59,130,246,0.3)' }}>{progressoGeralPeso.toFixed(1)}%</span>
-                </div>
-                <div className="relative h-5 rounded-full overflow-hidden" style={{
-                  background: 'linear-gradient(180deg, rgba(15,23,42,0.8), rgba(30,41,59,0.6))',
-                  boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.5), 0 1px 0 rgba(255,255,255,0.03)',
-                }}>
-                  {producaoStages.map((s, i) => {
-                    const totalPecas = producaoStages.reduce((a, b) => a + b.value, 0) || 1;
-                    const pct = (s.value / totalPecas) * 100;
-                    const offset = producaoStages.slice(0, i).reduce((a, b) => a + (b.value / totalPecas) * 100, 0);
-                    return (
-                      <motion.div
-                        key={i}
-                        className="absolute top-0 h-full"
-                        style={{
-                          background: `linear-gradient(180deg, ${s.color}dd, ${s.color}, ${s.color}aa)`,
-                          left: `${offset}%`,
-                          boxShadow: `inset 0 1px 1px rgba(255,255,255,0.2), 0 0 8px ${s.color}30`,
-                        }}
-                        initial={{ width: 0 }}
-                        animate={{ width: `${pct}%` }}
-                        transition={{ duration: 1.2, delay: i * 0.15, ease: 'easeOut' }}
-                      />
-                    );
-                  })}
-                  {/* Highlight/shine overlay */}
-                  <div className="absolute inset-0 rounded-full" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.08) 0%, transparent 50%, rgba(0,0,0,0.1) 100%)' }} />
-                </div>
-                <div className="flex items-center gap-5 flex-wrap">
-                  {producaoStages.map((s, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-sm" style={{ background: `linear-gradient(135deg, ${s.color}, ${s.color}88)`, boxShadow: `0 0 6px ${s.color}30` }} />
-                      <span className="text-[10px] text-slate-400 font-medium">{s.label}: <span className="text-white font-bold">{s.value}</span></span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Stats row with subtle 3D cards */}
-              <div className="grid grid-cols-4 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
-                {[
-                  { label: 'Total Peças', value: (corte?.total || 0) + (producao?.total || 0), color: '#F1F5F9' },
-                  { label: 'Finalizadas', value: (corte?.finalizado || 0) + (producao?.finalizado || 0), color: '#10B981' },
-                  { label: 'Peso Corte', value: formatWeight(corte?.pesoTotal || 0), color: '#F59E0B' },
-                  { label: 'Peso Expedido', value: formatWeight(pesoExpedido), color: '#3B82F6' },
-                ].map((item, i) => (
-                  <div key={i} className="p-2.5 rounded-lg" style={{
-                    background: `linear-gradient(135deg, ${item.color}06, transparent)`,
-                    boxShadow: `inset 0 1px 0 ${item.color}08`,
-                  }}>
-                    <div className="text-[10px] text-slate-500 uppercase tracking-wider">{item.label}</div>
-                    <div className="text-lg font-bold mt-0.5" style={{ color: item.color, textShadow: `0 0 15px ${item.color}20` }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </SectionCard>
-        </div>
-
-        {/* ROW 3: PRODUÇÃO POR SETOR + PEÇAS IDENTIFICADAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-          {/* GRÁFICO POR SETOR */}
-          <SectionCard title="Quantidade por Setor" icon={Layers}
-            action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
-          >
-            <div className="space-y-4">
-              <ResponsiveContainer width="100%" height={280}>
-                <BarChart data={producaoPorSetorChart} margin={{ left: -10, bottom: 5 }}>
-                  <defs>
-                    {Object.entries(SETOR_COLORS).map(([key, color], i) => (
-                      <linearGradient key={key} id={`setorGrad${i}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={color} stopOpacity={1} />
-                        <stop offset="100%" stopColor={color} stopOpacity={0.5} />
-                      </linearGradient>
-                    ))}
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(51,65,85,0.15)" vertical={false} />
-                  <XAxis dataKey="setor" tick={{ fontSize: 10, fill: '#94A3B8', fontWeight: 500 }} axisLine={{ stroke: 'rgba(51,65,85,0.3)' }} tickLine={false} />
-                  <YAxis tick={{ fontSize: 10, fill: '#64748B' }} axisLine={false} tickLine={false} />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(59,130,246,0.04)', radius: 4 }} />
-                  <Bar dataKey="qtd" name="Peças" radius={[8, 8, 0, 0]} barSize={40}>
-                    {producaoPorSetorChart.map((entry, i) => (
-                      <Cell key={i} fill={`url(#setorGrad${i})`} style={{ filter: `drop-shadow(0 4px 8px ${entry.color}25)` }} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-
-              <div className="flex items-center justify-center gap-1.5">
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-400/50 animate-pulse" />
-                <span className="text-[10px] text-slate-500">
-                  {periodo === 'dia' ? 'Dados do dia atual' : periodo === 'semana' ? 'Dados da semana' : 'Dados do mês'}
-                </span>
-              </div>
-            </div>
-          </SectionCard>
-
-          {/* PEÇAS POR SETOR DETALHADAS */}
-          <SectionCard title="Peças por Setor" icon={FileText}>
-            <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2">
-              {pecasPorSetor.length > 0 ? pecasPorSetor.map((setor, si) => (
-                <div key={si} className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full" style={{ background: setor.color }} />
-                    <span className="text-xs font-semibold text-slate-200">{setor.setor}</span>
-                    <span className="text-[10px] text-slate-500">({setor.total} peças)</span>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-1.5 pl-4">
-                    {setor.pecas.map((p, pi) => (
-                      <div key={pi} className="flex items-center gap-1.5 p-1.5 rounded-md bg-slate-800/30 border border-slate-700/30">
-                        <span className="text-[10px] text-slate-300 truncate">{p.nome}</span>
-                        {p.peso > 0 && <span className="text-[9px] text-slate-500 flex-shrink-0">{p.peso.toFixed(0)}kg</span>}
-                      </div>
-                    ))}
-                    {setor.total > 12 && (
-                      <div className="flex items-center justify-center p-1.5 rounded-md bg-slate-800/20">
-                        <span className="text-[10px] text-slate-500">+{setor.total - 12} mais</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )) : (
-                <div className="flex flex-col items-center justify-center py-8 text-slate-500">
-                  <Package size={32} className="mb-2 opacity-30" />
-                  <span className="text-sm">Nenhuma peça em produção</span>
-                </div>
-              )}
-            </div>
-          </SectionCard>
-        </div>
-
-        {/* ROW 3.5: PEÇAS ENTREGUES EM OBRA */}
-        {(pecasEntregues.totalPecas > 0 || pecasEntregues.totalEnvios > 0) && (
-          <SectionCard title="Peças Entregues em Obra" icon={CheckCircle}>
-            <div className="space-y-4">
-              {/* Resumo */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="text-center p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                  <div className="text-xl font-bold text-emerald-400">{pecasEntregues.totalPecas}</div>
-                  <div className="text-[10px] text-slate-400">Peças Entregues</div>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-blue-500/5 border border-blue-500/10">
-                  <div className="text-xl font-bold text-blue-400">{formatWeight(pecasEntregues.pesoTotal)}</div>
-                  <div className="text-[10px] text-slate-400">Peso Entregue</div>
-                </div>
-                <div className="text-center p-3 rounded-lg bg-purple-500/5 border border-purple-500/10">
-                  <div className="text-xl font-bold text-purple-400">{pecasEntregues.totalEnvios}</div>
-                  <div className="text-[10px] text-slate-400">Envios Entregues</div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                {/* Lista de peças entregues */}
-                <div className="space-y-2">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Peças Entregues ({pecasEntregues.totalPecas})</div>
-                  <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
-                    {pecasEntregues.pecas.length > 0 ? pecasEntregues.pecas.slice(0, 20).map((p, i) => (
-                      <motion.div key={p.id || i}
-                        initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.03 }}
-                        className="flex items-center justify-between p-2 rounded-lg bg-slate-800/20 border border-slate-700/20"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <CheckCircle size={12} className="text-emerald-400 flex-shrink-0" />
-                          <span className="text-[11px] text-slate-200 truncate">{p.nome}</span>
-                          {p.tipo !== '-' && <span className="text-[9px] text-slate-500 flex-shrink-0">{p.tipo}</span>}
-                        </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
-                          {p.peso > 0 && <span className="text-[10px] text-blue-400 font-medium">{p.peso.toFixed(0)}kg</span>}
-                          <span className="text-[9px] text-slate-500">{p.resp}</span>
-                        </div>
-                      </motion.div>
-                    )) : (
-                      <div className="text-center py-4 text-slate-500 text-xs">Nenhuma peça entregue registrada</div>
-                    )}
-                    {pecasEntregues.totalPecas > 20 && (
-                      <div className="text-center py-2 text-[10px] text-slate-500">+{pecasEntregues.totalPecas - 20} peças adicionais</div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Lista de envios entregues */}
-                <div className="space-y-2">
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Envios Entregues ({pecasEntregues.totalEnvios})</div>
-                  <div className="space-y-1.5 max-h-[280px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
-                    {pecasEntregues.envios.length > 0 ? pecasEntregues.envios.map((env, i) => (
-                      <motion.div key={env.id || i}
-                        initial={{ opacity: 0, x: -5 }} animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: i * 0.05 }}
-                        className="p-2.5 rounded-lg border bg-emerald-500/5 border-emerald-500/10"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-xs font-bold text-white">ROM {env.numero}</span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full font-medium text-emerald-400 bg-emerald-500/10">ENTREGUE</span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                          <div className="text-[10px] text-slate-400">
-                            <span className="text-slate-500">Data:</span> <span className="text-slate-300">{env.data ? env.data.slice(0, 10) : '-'}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="text-slate-500">Destino:</span> <span className="text-slate-300">{env.destino}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="text-slate-500">Transp:</span> <span className="text-slate-300">{env.transportadora}</span>
-                          </div>
-                          <div className="text-[10px] text-slate-400">
-                            <span className="text-slate-500">Peso:</span> <span className="text-blue-400 font-medium">{formatWeight(env.peso)}</span>
-                            <span className="text-slate-500 ml-2">Peças:</span> <span className="text-cyan-400 font-medium">{env.pecas}</span>
-                          </div>
-                        </div>
-                      </motion.div>
-                    )) : (
-                      <div className="text-center py-4 text-slate-500 text-xs">Nenhum envio entregue registrado</div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </SectionCard>
-        )}
-
-        {/* ROW 4: PRODUÇÃO POR FUNCIONÁRIO */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-          {/* FUNCIONÁRIOS - PRODUÇÃO */}
-          <SectionCard title="Produção por Funcionário" icon={Users}
-            action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
-          >
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-              {producaoPorFuncionario.length > 0 ? producaoPorFuncionario.map((f, i) => (
-                <motion.div
-                  key={i}
-                  className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/20"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{
-                    background: 'linear-gradient(135deg, rgba(59,130,246,0.12), rgba(59,130,246,0.04))',
-                    border: '1px solid rgba(59,130,246,0.15)',
-                    boxShadow: '0 2px 8px rgba(59,130,246,0.08), inset 0 1px 0 rgba(255,255,255,0.05)',
-                  }}>
-                    <User size={14} className="text-blue-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">{f.nome}</div>
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-[10px] text-blue-400 font-medium">{f.fabricacao} fab</span>
-                      <span className="text-[10px] text-purple-400 font-medium">{f.solda} solda</span>
-                      <span className="text-[10px] text-cyan-400 font-medium">{f.pintura} pint</span>
-                      <span className="text-[10px] text-emerald-400 font-medium">{f.expedicao} exp</span>
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-sm font-bold text-white" style={{ textShadow: '0 0 10px rgba(255,255,255,0.1)' }}>{f.total}</div>
-                    <div className="text-[10px] text-slate-500">{formatWeight(f.peso)}</div>
-                  </div>
-                </motion.div>
-              )) : (
-                <div className="text-center py-6 text-slate-500 text-xs">Sem dados de responsável registrados</div>
-              )}
-            </div>
-          </SectionCard>
-
-          {/* FUNCIONÁRIOS - CORTE */}
-          <SectionCard title="Corte por Funcionário" icon={Factory}
-            action={<PeriodFilter value={periodo} onChange={setPeriodo} />}
-          >
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-              {cortePorFuncionario.length > 0 ? cortePorFuncionario.map((f, i) => (
-                <motion.div
-                  key={i}
-                  className="flex items-center gap-3 p-3 rounded-lg bg-slate-800/20"
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                >
-                  <div className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{
-                    background: 'linear-gradient(135deg, rgba(245,158,11,0.12), rgba(245,158,11,0.04))',
-                    border: '1px solid rgba(245,158,11,0.15)',
-                    boxShadow: '0 2px 8px rgba(245,158,11,0.08), inset 0 1px 0 rgba(255,255,255,0.05)',
-                  }}>
-                    <User size={14} className="text-amber-400" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-xs font-semibold text-white truncate">{f.nome}</div>
-                    <div className="flex items-center gap-1 mt-1 flex-wrap">
-                      {(f.pecas || []).slice(0, 4).map((p, pi) => (
-                        <span key={pi} className="text-[9px] bg-amber-500/10 text-amber-300 px-1.5 py-0.5 rounded">
-                          {typeof p === 'string' ? p : (p.peca || p.marca || '-')}
-                        </span>
-                      ))}
-                      {(f.pecas || []).length > 4 && (
-                        <span className="text-[9px] text-slate-500">+{f.pecas.length - 4}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <div className="text-sm font-bold text-white">{f.qtd}</div>
-                    <div className="text-[10px] text-slate-500">{formatWeight(f.peso)}</div>
-                  </div>
-                </motion.div>
-              )) : (
-                <div className="text-center py-6 text-slate-500 text-xs">Sem dados de responsável registrados</div>
-              )}
-            </div>
-          </SectionCard>
-        </div>
-
-        {/* ROW 5: ESTOQUE + EXPEDIÇÃO + ALERTAS */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-
-          {/* ESTOQUE */}
-          <SectionCard title="Estoque" icon={Package}>
-            <div className="space-y-4">
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <div className="text-2xl font-bold text-white">{estoque?.totalItens || 0}</div>
-                  <div className="text-xs text-slate-400">itens cadastrados</div>
-                </div>
-                <div className="text-right">
-                  <div className="text-sm font-bold text-emerald-400">{formatCurrency(estoque?.valorTotal || 0)}</div>
-                  <div className="text-[10px] text-slate-500">valor total</div>
-                </div>
-              </div>
-
-              {/* Mini PieChart for estoque distribution */}
-              {(() => {
-                const estoqueData = [
-                  { name: 'Normal', value: estoque?.normal || 0, color: '#10B981' },
-                  { name: 'Baixo', value: estoque?.baixo || 0, color: '#F59E0B' },
-                  { name: 'Crítico', value: estoque?.critico || 0, color: '#EF4444' },
-                ].filter(d => d.value > 0);
-                const total = estoqueData.reduce((a, b) => a + b.value, 0) || 1;
-                return (
-                  <div className="flex items-center gap-4">
-                    <div className="relative" style={{ width: 100, height: 100 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <defs>
-                            {estoqueData.map((d, i) => (
-                              <linearGradient key={i} id={`estGrad${i}`} x1="0" y1="0" x2="1" y2="1">
-                                <stop offset="0%" stopColor={d.color} stopOpacity={1} />
-                                <stop offset="100%" stopColor={d.color} stopOpacity={0.6} />
-                              </linearGradient>
-                            ))}
-                          </defs>
-                          <Pie
-                            data={estoqueData}
-                            cx="50%" cy="50%"
-                            innerRadius={28} outerRadius={44}
-                            paddingAngle={3}
-                            dataKey="value"
-                            stroke="none"
-                            animationBegin={200}
-                            animationDuration={1200}
-                          >
-                            {estoqueData.map((d, i) => (
-                              <Cell key={i} fill={`url(#estGrad${i})`} style={{ filter: `drop-shadow(0 0 4px ${d.color}40)` }} />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
-                      <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xs font-bold text-white">{total}</span>
-                      </div>
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      {[
-                        { name: 'Normal', value: estoque?.normal || 0, color: '#10B981' },
-                        { name: 'Baixo', value: estoque?.baixo || 0, color: '#F59E0B' },
-                        { name: 'Crítico', value: estoque?.critico || 0, color: '#EF4444' },
-                      ].map((s, i) => (
-                        <div key={i} className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className="w-2.5 h-2.5 rounded-sm" style={{ background: `linear-gradient(135deg, ${s.color}, ${s.color}88)`, boxShadow: `0 0 4px ${s.color}30` }} />
-                              <span className="text-xs text-slate-300">{s.name}</span>
-                            </div>
-                            <span className="text-xs font-bold text-white">{s.value}</span>
-                          </div>
-                          <MiniBar value={s.value} max={total} color={s.color} height={5} />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
-            </div>
-          </SectionCard>
-
-          {/* EXPEDIÇÃO */}
-          <SectionCard title="Expedição" icon={Truck}>
-            <div className="space-y-4">
-              {/* Resumo numérico com 3D depth */}
-              <div className="grid grid-cols-4 gap-2">
-                {[
-                  { label: 'Total', value: campo?.totalEnvios || 0, color: '#3B82F6' },
-                  { label: 'Entregues', value: campo?.entregues || 0, color: '#10B981' },
-                  { label: 'Em Trânsito', value: campo?.emTransito || 0, color: '#06B6D4' },
-                  { label: 'Pendentes', value: campo?.pendentes || 0, color: '#F59E0B' },
-                ].map((item, i) => (
-                  <motion.div key={i}
-                    className="text-center p-2.5 rounded-lg border overflow-hidden relative"
-                    style={{
-                      background: `linear-gradient(160deg, ${item.color}08, transparent)`,
-                      borderColor: `${item.color}15`,
-                      boxShadow: `0 2px 12px ${item.color}08, inset 0 1px 0 rgba(255,255,255,0.03)`,
-                    }}
-                    whileHover={{ borderColor: `${item.color}35`, boxShadow: `0 4px 20px ${item.color}15` }}
-                  >
-                    <div className="text-lg font-bold" style={{ color: item.color, textShadow: `0 0 12px ${item.color}25` }}>{item.value}</div>
-                    <div className="text-[9px] text-slate-400 font-medium">{item.label}</div>
-                  </motion.div>
-                ))}
-              </div>
-
-              {/* Progresso */}
-              <div className="space-y-2">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-slate-400">Progresso Envios</span>
-                  <span className="text-xs font-bold text-white">
-                    {campo?.totalEnvios > 0 ? Math.round(((campo?.enviados || 0) / campo.totalEnvios) * 100) : 0}%
-                  </span>
-                </div>
-                <MiniBar value={campo?.enviados || 0} max={campo?.totalEnvios || 1} color="#10B981" />
-              </div>
-
-              {/* Peso e envios hoje */}
-              <div className="grid grid-cols-3 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
-                <div className="text-center">
-                  <div className="text-xs text-slate-500">Peso Env.</div>
-                  <div className="text-sm font-bold text-blue-400">{formatWeight(campo?.pesoEnviado || 0)}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xs text-slate-500">Peças Env.</div>
-                  <div className="text-sm font-bold text-cyan-400">{campo?.pecasEnviadas || 0}</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-xs text-slate-500">Hoje</div>
-                  <div className="text-sm font-bold text-emerald-400">{campo?.enviosHoje || 0}</div>
-                </div>
-              </div>
-
-              {/* Lista detalhada de envios recentes */}
-              {enviosDetalhados.length > 0 && (
-                <div className="pt-3 border-t space-y-2" style={{ borderColor: colors.border }}>
-                  <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Envios Recentes</div>
-                  <div className="space-y-1.5 max-h-[260px] overflow-y-auto pr-1" style={{ scrollbarWidth: 'thin' }}>
-                    {enviosDetalhados.map((env, idx) => {
-                      const statusColor = env.status === 'ENTREGUE' ? 'text-emerald-400' :
-                        env.status === 'EM_TRANSITO' ? 'text-cyan-400' :
-                        env.status === 'ENVIADO' ? 'text-blue-400' : 'text-amber-400';
-                      const statusBg = env.status === 'ENTREGUE' ? 'bg-emerald-500/10' :
-                        env.status === 'EM_TRANSITO' ? 'bg-cyan-500/10' :
-                        env.status === 'ENVIADO' ? 'bg-blue-500/10' : 'bg-amber-500/10';
-                      return (
-                        <motion.div key={env.id || idx}
-                          initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: idx * 0.05 }}
-                          className="p-2.5 rounded-lg border"
-                          style={{ background: colors.cardBg, borderColor: colors.border }}
-                        >
-                          <div className="flex items-center justify-between mb-1.5">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-white">ROM {env.numero}</span>
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium ${statusColor} ${statusBg}`}>
-                                {env.status === 'EM_TRANSITO' ? 'EM TRÂNSITO' : env.status}
-                              </span>
-                            </div>
-                            <span className="text-[10px] text-slate-500">{env.data ? env.data.slice(0, 10) : '-'}</span>
-                          </div>
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
-                            <div className="text-[10px] text-slate-400">
-                              <span className="text-slate-500">Transp:</span> <span className="text-slate-300">{env.transportadora}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              <span className="text-slate-500">Motorista:</span> <span className="text-slate-300">{env.motorista}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              <span className="text-slate-500">Placa:</span> <span className="text-slate-300">{env.placa}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              <span className="text-slate-500">Destino:</span> <span className="text-slate-300">{env.destino}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              <span className="text-slate-500">Peso:</span> <span className="text-blue-400 font-medium">{formatWeight(env.peso)}</span>
-                            </div>
-                            <div className="text-[10px] text-slate-400">
-                              <span className="text-slate-500">Peças:</span> <span className="text-cyan-400 font-medium">{env.pecas}</span>
-                            </div>
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-            </div>
-          </SectionCard>
-
-          {/* ALERTAS */}
-          <SectionCard title="Alertas" icon={Bell}
-            action={
-              <span className="text-[10px] font-bold text-white bg-red-500/20 text-red-400 px-2 py-0.5 rounded-full">
-                {alertas.length}
-              </span>
-            }
-          >
-            <div className="space-y-2">
-              {alertas.map((a, i) => (
-                <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.1 }}>
-                  <AlertItem {...a} />
-                </motion.div>
-              ))}
-            </div>
-          </SectionCard>
-        </div>
-
-        {/* ROW 6: 3D PRODUCTION CHART + FINANCIAL COMPOSITION */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-
-          {/* 3D PRODUCTION PIPELINE CHART */}
-          <SectionCard title="Produção 3D - Pipeline" icon={Factory}>
-            <div className="flex flex-col gap-4">
-              <Production3DChart
-                data={producaoStages}
-                width="100%"
-                height={350}
-                title="Produção por Estágio"
-              />
-              <div className="grid grid-cols-5 gap-2 pt-3 border-t" style={{ borderColor: colors.border }}>
-                {producaoStages.map((stage, i) => (
-                  <div key={i} className="text-center">
-                    <div className="text-[11px] text-slate-400 font-medium">{stage.label}</div>
-                    <div className="text-sm font-bold mt-1" style={{ color: stage.color }}>
-                      {stage.value}
-                    </div>
-                    <div className="text-[10px] text-slate-500 mt-0.5">
-                      de {stage.total}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </SectionCard>
-
-          {/* ENHANCED FINANCIAL COMPOSITION CHART */}
-          <SectionCard title="Composição Financeira" icon={DollarSign}>
-            <div className="space-y-4">
-              {(() => {
-                const totalContrato = valorContrato || 1;
-                const percFaturado = (faturamentoTotal / totalContrato) * 100;
-                const percGasto = (despesaTotal / totalContrato) * 100;
-                const margem = ((valorContrato - faturamentoTotal - despesaTotal) / totalContrato) * 100;
-
-                const financialData = [
-                  { name: '% do Contrato Faturado', value: Math.min(percFaturado, 100), fill: '#10B981' },
-                  { name: '% do Contrato Gasto', value: Math.min(percGasto, 100), fill: '#EF4444' },
-                  { name: 'Margem %', value: Math.max(margem, 0), fill: '#8B5CF6' },
-                ];
-
-                return (
-                  <>
-                    <div className="relative" style={{ height: 180 }}>
-                      <ResponsiveContainer width="100%" height="100%">
-                        <RadialBarChart cx="50%" cy="50%" innerRadius="30%" outerRadius="80%"
-                          data={financialData} startAngle={90} endAngle={450}>
-                          <RadialBar background={{ fill: 'rgba(51,65,85,0.2)' }} dataKey="value"
-                            cornerRadius={8} />
-                          <Legend
-                            layout="vertical" verticalAlign="middle" align="right"
-                            wrapperStyle={{ paddingLeft: '10px' }}
-                            formatter={(value) => <span style={{ fontSize: '11px', color: '#cbd5e1' }}>{value}</span>}
-                          />
-                        </RadialBarChart>
-                      </ResponsiveContainer>
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-3 pt-3 border-t" style={{ borderColor: colors.border }}>
-                      <div className="text-center">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Faturado</div>
-                        <div className="text-sm font-bold text-emerald-400 mt-1">
-                          {percFaturado.toFixed(1)}%
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-1">
-                          {formatCurrencyCompact(faturamentoTotal)}
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Gasto</div>
-                        <div className="text-sm font-bold text-red-400 mt-1">
-                          {percGasto.toFixed(1)}%
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-1">
-                          {formatCurrencyCompact(despesaTotal)}
-                        </div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">Margem</div>
-                        <div className={`text-sm font-bold mt-1 ${resultadoFinanceiro >= 0 ? 'text-purple-400' : 'text-red-400'}`}>
-                          {margem.toFixed(1)}%
-                        </div>
-                        <div className="text-[10px] text-slate-500 mt-1">
-                          {formatCurrencyCompact(resultadoFinanceiro)}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-          </SectionCard>
-
-        </div>
-      </main>
-
-      {/* FOOTER */}
-      <footer className="border-t py-2 mt-1" style={{ borderColor: colors.border, background: 'rgba(6,10,20,0.7)' }}>
-        <div className="w-full px-6 flex items-center justify-between text-[10px] text-slate-600">
+      {/* ============ HEADER ============ */}
+      <div className="relative mb-4 rounded-lg overflow-hidden"
+        style={{
+          background: `linear-gradient(135deg, ${OM.bgPanel}, ${OM.bgPanelAlt})`,
+          border: `1px solid ${OM.borderStrong}`,
+          boxShadow: `0 4px 24px -4px ${OM.blue}20`,
+        }}>
+        <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: `linear-gradient(90deg, ${OM.blue}, ${OM.orange}, ${OM.emerald})` }} />
+        <div className="px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <span>Supabase <span className="text-emerald-500">●</span> Conectado</span>
-            <span>Real-time <span className="text-blue-500">●</span> Ativo</span>
+            <div className="relative">
+              <div className="absolute inset-0 rounded-xl blur opacity-60" style={{ background: OM.blue }} />
+              <div className="relative p-2.5 rounded-xl" style={{ background: `linear-gradient(135deg, ${OM.blueDeep}, ${OM.navy})`, border: `1px solid ${OM.borderStrong}` }}>
+                <Cog className="h-6 w-6 text-white animate-spin-slow" style={{ animationDuration: '12s' }} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-mono uppercase tracking-[0.3em]" style={{ color: OM.blue }}>MONTEX OMEGA // CMD_CTRL</p>
+              <h1 className="text-2xl font-black text-white tracking-tight">Command Center Ultra</h1>
+              <p className="text-xs mt-0.5" style={{ color: OM.textDim }}>{now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p>
+            </div>
           </div>
-          <span>Última atualização: {lastUpdate?.toLocaleTimeString('pt-BR') || '--:--'}</span>
+
+          <div className="flex items-center gap-8">
+            <div className="text-center">
+              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Operações</p>
+              <p className="text-2xl font-black tabular-nums" style={{ color: OM.blue }}>{obrasAtivas.length}</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>obras ativas</p>
+            </div>
+            <div className="w-px h-12" style={{ background: OM.border }} />
+            <div className="text-center">
+              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Produção</p>
+              <p className="text-2xl font-black tabular-nums" style={{ color: OM.orange }}>{fmt(totalPcs)}</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>peças total</p>
+            </div>
+            <div className="w-px h-12" style={{ background: OM.border }} />
+            <div className="text-center">
+              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Eficiência</p>
+              <p className="text-2xl font-black tabular-nums" style={{ color: eficiencia >= 75 ? OM.emerald : eficiencia >= 50 ? OM.amber : OM.rose }}>{Math.round(eficiencia)}%</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>conclusão</p>
+            </div>
+            <div className="w-px h-12" style={{ background: OM.border }} />
+            <div className="text-center">
+              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Backlog</p>
+              <p className="text-2xl font-black tabular-nums" style={{ color: OM.violet }}>{fmtR$(backlog)}</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>{obrasAtivas.length} contratos</p>
+            </div>
+          </div>
         </div>
-      </footer>
+      </div>
+
+      {/* ============ STAT ROW ============ */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <StatBlock label="Receita Mensal" value={fmtR$(recMes)} sub={`meta ${fmtR$(fi.kpisGerais?.metaReceitaDinamica || 0)}`} accent={OM.emerald} icon={DollarSign} delta={comp.deltaReceitas} />
+        <StatBlock label="Despesa Mensal" value={fmtR$(desMes)} sub="todos custos" accent={OM.rose} icon={Flame} delta={comp.deltaDespesas} deltaPositive={comp.deltaDespesas <= 0} />
+        <StatBlock label="Lucro Operacional" value={fmtR$(recMes - desMes)} sub={`margem ${fmtPct(margem)}`} accent={OM.blue} icon={TrendingUp} delta={comp.deltaLucro} />
+        <StatBlock label="Saldo Caixa" value={fmtR$(saldo)} sub={saldo >= 0 ? 'positivo' : 'atenção'} accent={saldo >= 0 ? OM.cyan : OM.rose} icon={Wallet} />
+      </div>
+
+      {/* ============ PRODUCTION FLOW ============ */}
+      <Section title="Production Flow" sub="funil de produção em tempo real" icon={Factory} accent={OM.orange} className="mb-4"
+        action={<span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmt(totalPcs)} pcs · {fmtPeso((pecas || []).reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0))}</span>}>
+        <div className="flex items-stretch gap-1">
+          {pipeline.map((s, i) => (
+            <FlowStage key={s.key} {...s} value={s.qtd} percent={s.percent} isLast={i === pipeline.length - 1} />
+          ))}
+          <div className="flex flex-col items-center justify-center px-3 ml-2 rounded-lg"
+            style={{ background: `linear-gradient(135deg, ${OM.emerald}20, ${OM.emerald}10)`, border: `1px solid ${OM.emerald}40` }}>
+            <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.emerald }}>Finalizado</p>
+            <p className="text-2xl font-black tabular-nums" style={{ color: OM.emerald }}>{fmt(finalizadas)}</p>
+            <p className="text-[9px] tabular-nums" style={{ color: OM.emerald }}>{fmtPct(eficiencia)}</p>
+          </div>
+        </div>
+      </Section>
+
+      {/* ============ MIDDLE ROW: Cash Flow + Categorias ============ */}
+      <div className="grid grid-cols-12 gap-4 mb-4">
+        <Section title="Cash Flow Histórico" sub="evolução 6 meses" icon={BarChart3} accent={OM.blue} className="col-span-8">
+          <ResponsiveContainer width="100%" height={240}>
+            <ComposedChart data={cashHist}>
+              <defs>
+                <linearGradient id="rec-ult" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={OM.emerald} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={OM.emerald} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="des-ult" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={OM.rose} stopOpacity={0.4} />
+                  <stop offset="100%" stopColor={OM.rose} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke={OM.border} />
+              <XAxis dataKey="mes" stroke={OM.textDim} fontSize={10} />
+              <YAxis stroke={OM.textDim} fontSize={10} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
+              <Tooltip
+                contentStyle={{ background: OM.bgPanel, border: `1px solid ${OM.borderStrong}`, borderRadius: '6px', fontSize: '11px' }}
+                formatter={(v) => fmtR$(v)}
+              />
+              <Legend wrapperStyle={{ fontSize: '10px', color: OM.textDim }} />
+              <Area type="monotone" dataKey="receita" name="Receita" stroke={OM.emerald} fill="url(#rec-ult)" strokeWidth={2} />
+              <Area type="monotone" dataKey="despesa" name="Despesa" stroke={OM.rose} fill="url(#des-ult)" strokeWidth={2} />
+              <Line type="monotone" dataKey="lucro" name="Lucro" stroke={OM.blue} strokeWidth={2.5} dot={{ r: 4, fill: OM.blue }} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        </Section>
+
+        <Section title="Top Categorias" sub="despesas operacionais" icon={Layers} accent={OM.violet} className="col-span-4">
+          {categorias.length === 0 ? (
+            <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem categorização</p>
+          ) : (
+            <BarList items={categorias} valueFormatter={fmtR$} />
+          )}
+        </Section>
+      </div>
+
+      {/* ============ TEAM PERFORMANCE + RECEITA POR OBRA ============ */}
+      <div className="grid grid-cols-12 gap-4 mb-4">
+        <Section title="Team Performance" sub="ranking de produção por funcionário" icon={Users} accent={OM.amber} className="col-span-7">
+          {funcionarios.length === 0 ? (
+            <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem registros de produção por funcionário</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              {funcionarios.map((f, i) => {
+                const top = funcionarios[0]?.total || 1;
+                const pct = (f.total / top) * 100;
+                const medalha = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
+                const corRank = i === 0 ? OM.amber : i === 1 ? OM.cyan : i === 2 ? OM.orange : OM.blue;
+                return (
+                  <div key={f.nome} className="relative p-3 rounded-lg"
+                    style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full font-mono text-xs font-bold"
+                        style={{ background: `${corRank}20`, color: corRank, border: `1px solid ${corRank}40` }}>
+                        {medalha || `#${i + 1}`}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold truncate text-white">{f.nome}</p>
+                        <p className="text-[9px]" style={{ color: OM.textDim }}>{Object.keys(f.etapas).length} etapa(s) ativa(s)</p>
+                      </div>
+                      <span className="text-lg font-black tabular-nums" style={{ color: corRank }}>{fmt(f.total)}</span>
+                    </div>
+                    <div className="relative h-1 rounded-full overflow-hidden" style={{ background: OM.bgPanel }}>
+                      <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct}%`, background: corRank, boxShadow: `0 0 4px ${corRank}80` }} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Receita por Obra" sub="treemap de faturamento" icon={Map} accent={OM.cyan} className="col-span-5">
+          {receitaPorObra.length === 0 ? (
+            <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem receitas registradas</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={240}>
+              <Treemap data={receitaPorObra} dataKey="size" stroke={OM.bgDeep} fill={OM.blue}
+                content={({ x, y, width, height, name, size }) => (
+                  <g>
+                    <rect x={x} y={y} width={width} height={height}
+                      fill={OM.blue}
+                      fillOpacity={Math.min(0.9, 0.3 + (size / (receitaPorObra[0]?.size || 1)) * 0.6)}
+                      stroke={OM.bgDeep} strokeWidth={2} />
+                    {width > 50 && height > 30 && (
+                      <>
+                        <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle"
+                          fill="white" fontSize={Math.min(11, width / 8)} fontWeight="bold">{name}</text>
+                        <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle"
+                          fill="rgba(255,255,255,0.7)" fontSize={9}>{fmtR$(size)}</text>
+                      </>
+                    )}
+                  </g>
+                )}
+              />
+            </ResponsiveContainer>
+          )}
+        </Section>
+      </div>
+
+      {/* ============ OBRAS RANKING (DETAIL) ============ */}
+      <Section title="Portfolio de Obras" sub="top 6 por valor de contrato" icon={Briefcase} accent={OM.blue} className="mb-4"
+        action={<span className="text-[10px]" style={{ color: OM.textDim }}>{obrasAtivas.length} ativas</span>}>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {obrasRank.map(o => {
+            const corProg = o.prog >= 75 ? OM.emerald : o.prog >= 50 ? OM.cyan : o.prog >= 25 ? OM.amber : OM.rose;
+            const corFat = o.fatura >= 75 ? OM.emerald : o.fatura >= 50 ? OM.cyan : OM.violet;
+            return (
+              <div key={o.id} className="relative p-4 rounded-lg group hover:border-blue-500/40 transition-all"
+                style={{ background: OM.bgPanel, border: `1px solid ${OM.border}` }}>
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="min-w-0 flex-1">
+                    <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${OM.blue}15`, color: OM.blue }}>{o.codigo}</span>
+                    <p className="text-sm font-bold text-white mt-1 truncate">{o.nome}</p>
+                    <p className="text-[10px] truncate" style={{ color: OM.textDim }}>{o.cliente || '—'}</p>
+                  </div>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <ProgressRing value={o.prog} color={corProg} size={48} label="Prod" />
+                    <ProgressRing value={o.fatura} color={corFat} size={48} label="Fat" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
+                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Contrato</p>
+                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.violet }}>{fmtR$(o.valor)}</p>
+                  </div>
+                  <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
+                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Recebido</p>
+                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.emerald }}>{fmtR$(o.recObra)}</p>
+                  </div>
+                  <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
+                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Peças</p>
+                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.blue }}>{fmt(o.fin)}/{fmt(o.pcs)}</p>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Section>
+
+      {/* ============ FOOTER: VENCIMENTOS + ATRASADAS ============ */}
+      <div className="grid grid-cols-12 gap-4">
+        <Section title="Próximos Vencimentos" sub="30 dias" icon={Calendar} accent={OM.amber} className="col-span-7">
+          {proxVenc.length === 0 ? (
+            <div className="text-center py-6">
+              <CheckCircle2 className="h-8 w-8 mx-auto mb-2" style={{ color: OM.emerald }} />
+              <p className="text-xs font-bold" style={{ color: OM.emerald }}>Sem vencimentos nos próximos 30 dias</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {proxVenc.map((v, i) => {
+                const dt = parseLocalDate(v.dataVencimento || v.data_vencimento);
+                const hoje = new Date(); hoje.setHours(0,0,0,0);
+                const dias = Math.ceil((dt - hoje) / (1000 * 60 * 60 * 24));
+                const urg = dias <= 3 ? OM.rose : dias <= 7 ? OM.amber : OM.blue;
+                return (
+                  <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg group hover:bg-blue-500/5 transition-all"
+                    style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
+                    <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg flex-shrink-0"
+                      style={{ background: `${urg}15`, border: `1px solid ${urg}40` }}>
+                      <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: urg }}>{dt?.toLocaleDateString('pt-BR', { month: 'short' }).slice(0, 3)}</span>
+                      <span className="text-base font-black tabular-nums" style={{ color: urg }}>{dt?.getDate()}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-white truncate">{v.descricao || v.fornecedor || 'Despesa'}</p>
+                      <p className="text-[10px]" style={{ color: OM.textDim }}>{v.categoria || '—'} · em {dias} dia(s)</p>
+                    </div>
+                    <p className="text-sm font-bold tabular-nums" style={{ color: urg }}>{fmtR$(v.valor)}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Section>
+
+        <Section title="Atrasadas" sub="ação necessária" icon={AlertTriangle} accent={OM.rose} className="col-span-5">
+          {atrasadas.length === 0 ? (
+            <div className="text-center py-6">
+              <CheckCircle2 className="h-8 w-8 mx-auto mb-2" style={{ color: OM.emerald }} />
+              <p className="text-xs font-bold" style={{ color: OM.emerald }}>Nenhuma despesa atrasada</p>
+              <p className="text-[10px] mt-1" style={{ color: OM.textDim }}>Operação em dia</p>
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 p-3 rounded-lg text-center" style={{ background: `${OM.rose}10`, border: `1px solid ${OM.rose}40` }}>
+                <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.rose }}>Total atrasado</p>
+                <p className="text-2xl font-black tabular-nums" style={{ color: OM.rose, textShadow: `0 0 8px ${OM.rose}40` }}>{fmtR$(atrasadasTotal)}</p>
+                <p className="text-[10px]" style={{ color: OM.textDim }}>{atrasadas.length} lançamento(s) vencido(s)</p>
+              </div>
+              <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scroll">
+                {atrasadas.slice(0, 6).map((a, i) => {
+                  const dt = parseLocalDate(a.dataVencimento || a.data_vencimento);
+                  const hoje = new Date(); hoje.setHours(0,0,0,0);
+                  const dias = Math.floor((hoje - dt) / (1000 * 60 * 60 * 24));
+                  return (
+                    <div key={i} className="flex items-center justify-between gap-2 p-2 rounded text-[11px]"
+                      style={{ background: OM.bgRail, border: `1px solid ${OM.rose}20` }}>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white truncate font-medium">{a.descricao || a.fornecedor || 'Despesa'}</p>
+                        <p style={{ color: OM.rose }} className="text-[9px] font-bold">-{dias} dia(s) · {dt?.toLocaleDateString('pt-BR')}</p>
+                      </div>
+                      <p className="font-bold tabular-nums" style={{ color: OM.rose }}>{fmtR$(a.valor)}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
+        </Section>
+      </div>
+
+      {/* Footer */}
+      <div className="mt-4 text-center text-[10px] font-mono" style={{ color: OM.textDim }}>
+        MONTEX OMEGA · COMMAND CENTER ULTRA v5 · {now.toLocaleTimeString('pt-BR')}
+      </div>
+
+      <style>{`
+        @keyframes spin-slow {
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow { animation: spin-slow 12s linear infinite; }
+        .custom-scroll::-webkit-scrollbar { width: 4px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background: ${OM.blue}40; border-radius: 2px; }
+      `}</style>
     </div>
   );
 }
