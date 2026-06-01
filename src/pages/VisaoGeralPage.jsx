@@ -1,446 +1,653 @@
 // ============================================
-// VISÃO GERAL - Command Center em Tempo Real
+// VISÃO GERAL - Painel Operacional MONTEX
 // ============================================
-// Integra: Corte, Produção, Estoque, Financeiro, Campo
-// Supabase realtime + comparação diária
+// Foco: produção, obras, expedição, funcionários.
+// Financeiro como apoio secundário.
 // ============================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Scissors, Factory, Package, DollarSign, Truck, RefreshCw, Clock,
-  AlertTriangle, CheckCircle2, Activity, BarChart3,
-  ArrowUpRight, ArrowDownRight, Minus, Eye,
-  Layers, Target, Zap, Shield
+  Factory, Package, Truck, Users, AlertTriangle, CheckCircle2,
+  Activity, BarChart3, ArrowUpRight, ArrowDownRight, RefreshCw,
+  Building2, Target, Zap, Clock, TrendingUp, Award, Layers,
+  Wrench, Paintbrush, Send, Hammer, Scissors,
 } from 'lucide-react';
-import { useCommandCenter } from '../hooks/useCommandCenter';
-import { useObras } from '../contexts/ERPContext';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  PieChart, Pie, Cell, Legend, AreaChart, Area,
+} from 'recharts';
+import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { supabase } from '../api/supabaseClient';
+import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
+import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 
-// ===== FORMATADORES =====
-const fmt = (v) => v == null ? '—' : v.toLocaleString('pt-BR');
-const fmtR$ = (v) => v == null ? '—' : 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 0 });
+// ============================================
+// HELPERS
+// ============================================
+const fmt = (v) => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
+const fmtR$ = (v) => v == null || isNaN(v) ? 'R$ —' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
 const fmtPeso = (kg) => {
-  if (kg == null) return '—';
+  if (kg == null || isNaN(kg)) return '—';
   if (Math.abs(kg) >= 1000) return (kg / 1000).toFixed(1) + 't';
-  return kg.toFixed(0) + ' kg';
+  return Math.round(kg).toLocaleString('pt-BR') + ' kg';
 };
-const fmtPct = (v) => v == null ? '—' : v + '%';
-
-// ===== CORES DOS MÓDULOS =====
-const CORES = {
-  corte:     { bg: '#0f2942', border: '#3b82f6', text: '#60a5fa', glow: 'rgba(59,130,246,0.15)' },
-  producao:  { bg: '#1a2e1a', border: '#22c55e', text: '#4ade80', glow: 'rgba(34,197,94,0.15)' },
-  estoque:   { bg: '#2d1f0e', border: '#f59e0b', text: '#fbbf24', glow: 'rgba(245,158,11,0.15)' },
-  financeiro:{ bg: '#1a0e2e', border: '#a855f7', text: '#c084fc', glow: 'rgba(168,85,247,0.15)' },
-  campo:     { bg: '#0e1a2e', border: '#06b6d4', text: '#22d3ee', glow: 'rgba(6,182,212,0.15)' },
+const fmtPct = (v) => v == null || isNaN(v) ? '—' : Math.round(v) + '%';
+const parseLocalDate = (s) => {
+  if (!s) return null;
+  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
+  return new Date(s);
 };
+const hojeISO = () => new Date().toISOString().split('T')[0];
 
-// ===== COMPONENTE: INDICADOR DE DIFERENÇA =====
-function DiffBadge({ value, suffix = '', invertColors = false }) {
-  if (value == null || value === 0) return <span className="text-xs text-gray-500 flex items-center gap-0.5"><Minus size={10} /> sem mudança</span>;
-  const isPositive = value > 0;
-  const color = invertColors
-    ? (isPositive ? '#ef4444' : '#22c55e')
-    : (isPositive ? '#22c55e' : '#ef4444');
-  const Icon = isPositive ? ArrowUpRight : ArrowDownRight;
-  return (
-    <span className="text-xs font-medium flex items-center gap-0.5" style={{ color }}>
-      <Icon size={12} />
-      {isPositive ? '+' : ''}{value}{suffix}
-    </span>
-  );
+// ============================================
+// HOOK: produção do dia + ranking funcionários
+// ============================================
+function useProducaoHoje() {
+  const [lancamentosHoje, setLancamentosHoje] = useState([]);
+  const [rankingMes, setRankingMes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      try {
+        const hoje = new Date();
+        const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString();
+        const inicioHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).toISOString();
+        const { data } = await supabase
+          .from('producao_historico')
+          .select('id, peca_id, funcionario_id, funcionario_nome, etapa_de, etapa_para, quantidade, data_movimentacao, obra_id')
+          .gte('data_movimentacao', inicioMes)
+          .limit(5000);
+
+        if (cancel) return;
+        const all = data || [];
+        const hojeData = all.filter(h => (h.data_movimentacao || '') >= inicioHoje);
+        setLancamentosHoje(hojeData);
+
+        // Ranking do mês por funcionário
+        const map = {};
+        all.forEach(h => {
+          const nome = h.funcionario_nome || 'Sem responsável';
+          if (!map[nome]) map[nome] = { nome, qtd: 0, etapas: new Set() };
+          map[nome].qtd += parseInt(h.quantidade) || 1;
+          map[nome].etapas.add(h.etapa_para || h.etapa_de);
+        });
+        const rank = Object.values(map)
+          .map(r => ({ ...r, etapas: Array.from(r.etapas).join(', ') }))
+          .sort((a, b) => b.qtd - a.qtd)
+          .slice(0, 10);
+        setRankingMes(rank);
+      } catch (e) {
+        console.warn('[VisaoGeral] erro produção hoje:', e?.message);
+      } finally {
+        if (!cancel) setLoading(false);
+      }
+    })();
+    return () => { cancel = true; };
+  }, []);
+
+  return { lancamentosHoje, rankingMes, loading };
 }
 
-// ===== COMPONENTE: BARRA DE PROGRESSO ANIMADA =====
-function ProgressBar({ value = 0, color = '#3b82f6', height = 6, showLabel = false }) {
-  return (
-    <div className="w-full relative" style={{ height }}>
-      <div className="absolute inset-0 rounded-full" style={{ backgroundColor: color + '20' }} />
-      <motion.div
-        className="absolute inset-y-0 left-0 rounded-full"
-        style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}40` }}
-        initial={{ width: 0 }}
-        animate={{ width: `${Math.min(value, 100)}%` }}
-        transition={{ duration: 1, ease: 'easeOut' }}
-      />
-      {showLabel && (
-        <span className="absolute right-0 -top-5 text-xs font-bold" style={{ color }}>{value}%</span>
-      )}
-    </div>
-  );
+// ============================================
+// HOOK: expedição (peças em fila de embarque + romaneios)
+// ============================================
+function useExpedicaoResumo(pecas) {
+  return useMemo(() => {
+    const expedidas = (pecas || []).filter(p => p.etapa === 'expedido');
+    const enviadas = (pecas || []).filter(p => p.etapa === 'enviado');
+    const pesoExpedido = expedidas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
+    const pesoEnviado = enviadas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
+    const qtdExpedida = expedidas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const qtdEnviada = enviadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+
+    // Por obra
+    const porObra = {};
+    expedidas.forEach(p => {
+      const id = p.obraId || 'sem-obra';
+      const nome = p.obraNome || '—';
+      if (!porObra[id]) porObra[id] = { nome, qtd: 0, peso: 0 };
+      porObra[id].qtd += parseInt(p.quantidade) || 1;
+      porObra[id].peso += parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0;
+    });
+    const filaPorObra = Object.values(porObra).sort((a, b) => b.peso - a.peso).slice(0, 6);
+
+    return { qtdExpedida, qtdEnviada, pesoExpedido, pesoEnviado, filaPorObra };
+  }, [pecas]);
 }
 
-// ===== COMPONENTE: CARD DE MÓDULO =====
-function ModuleCard({ title, icon: Icon, cor, children, href, pulse = false }) {
-  const c = CORES[cor] || CORES.corte;
+// ============================================
+// COMPONENTE: KPI Card Operacional
+// ============================================
+function KPIOpCard({ icon: Icon, label, value, sub, cor = 'blue', extra }) {
+  const cores = {
+    blue: 'from-blue-500/20 to-cyan-500/10 border-blue-500/30 text-blue-300',
+    emerald: 'from-emerald-500/20 to-green-500/10 border-emerald-500/30 text-emerald-300',
+    amber: 'from-amber-500/20 to-orange-500/10 border-amber-500/30 text-amber-300',
+    purple: 'from-purple-500/20 to-violet-500/10 border-purple-500/30 text-purple-300',
+    rose: 'from-rose-500/20 to-pink-500/10 border-rose-500/30 text-rose-300',
+    cyan: 'from-cyan-500/20 to-teal-500/10 border-cyan-500/30 text-cyan-300',
+  };
   return (
     <motion.div
-      className="relative rounded-xl p-4 overflow-hidden"
-      style={{
-        backgroundColor: c.bg,
-        border: `1px solid ${c.border}30`,
-        boxShadow: `0 0 20px ${c.glow}`,
-      }}
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-      whileHover={{ scale: 1.01, boxShadow: `0 0 30px ${c.glow}` }}
+      className={`bg-gradient-to-br ${cores[cor]} border rounded-xl p-4 backdrop-blur-sm`}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg" style={{ backgroundColor: c.border + '20' }}>
-            <Icon size={16} style={{ color: c.text }} />
-          </div>
-          <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: c.text }}>{title}</h3>
-          {pulse && (
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: c.border }} />
-              <span className="relative inline-flex rounded-full h-2 w-2" style={{ backgroundColor: c.text }} />
-            </span>
-          )}
-        </div>
-        {href && (
-          <button
-            onClick={() => { if (window.__setCurrentPage) window.__setCurrentPage(href); }}
-            className="text-xs opacity-60 hover:opacity-100 transition-opacity flex items-center gap-1"
-            style={{ color: c.text }}
-          >
-            <Eye size={12} /> Abrir
-          </button>
-        )}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] uppercase tracking-wider font-bold opacity-80">{label}</span>
+        <Icon className="h-4 w-4 opacity-70" />
       </div>
-      {/* Content */}
-      <div className="space-y-2">
-        {children}
+      <div className="text-2xl font-black text-white">{value}</div>
+      {sub && <div className="text-[10px] text-slate-400 mt-1">{sub}</div>}
+      {extra}
+    </motion.div>
+  );
+}
+
+// ============================================
+// COMPONENTE: Card Obra
+// ============================================
+function ObraCard({ obra, pecas, medicoes }) {
+  const pecasObra = (pecas || []).filter(p => p.obraId === obra.id);
+  const totalPecas = pecasObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+  const expedidas = pecasObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa));
+  const qtdExpedida = expedidas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+  const pct = totalPecas > 0 ? Math.round((qtdExpedida / totalPecas) * 100) : 0;
+  const pesoTotal = pecasObra.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
+  const pesoProduzido = expedidas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
+
+  // Receita acumulada (medições pagas)
+  const receitaRecebida = (medicoes || [])
+    .filter(m => (m.obraId || m.obra_id) === obra.id)
+    .filter(m => ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
+    .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
+  const valorContrato = obra.contratoValorTotal || obra.valorContrato || obra.valor_contrato || 0;
+  const pctRec = valorContrato > 0 ? (receitaRecebida / valorContrato * 100) : 0;
+
+  const corPct = pct >= 90 ? '#10b981' : pct >= 60 ? '#3b82f6' : pct >= 30 ? '#f59e0b' : '#ef4444';
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.96 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className="bg-slate-900/70 border border-slate-700/50 rounded-xl p-4 hover:border-slate-500/60 transition-all"
+    >
+      <div className="flex items-start justify-between mb-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-mono text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded">{obra.codigo}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${obra.status === 'cancelada' ? 'bg-red-500/20 text-red-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+              {obra.status || 'ativo'}
+            </span>
+          </div>
+          <p className="text-sm font-bold text-white truncate">{obra.nome || obra.name || obra.id}</p>
+          <p className="text-[10px] text-slate-500 truncate">{obra.cliente || '—'}</p>
+        </div>
+        <div className="text-right ml-3 flex-shrink-0">
+          <div className="text-3xl font-black" style={{ color: corPct }}>{pct}%</div>
+          <p className="text-[9px] text-slate-500 uppercase tracking-wider">concluído</p>
+        </div>
+      </div>
+
+      <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-3">
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 1, ease: 'easeOut' }}
+          className="h-full rounded-full"
+          style={{ backgroundColor: corPct, boxShadow: `0 0 8px ${corPct}80` }}
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-[9px] text-slate-500 uppercase">Peças</p>
+          <p className="text-white font-semibold">{fmt(qtdExpedida)}<span className="text-slate-500"> / {fmt(totalPecas)}</span></p>
+        </div>
+        <div>
+          <p className="text-[9px] text-slate-500 uppercase">Peso</p>
+          <p className="text-white font-semibold">{fmtPeso(pesoProduzido)}<span className="text-slate-500"> / {fmtPeso(pesoTotal)}</span></p>
+        </div>
+        <div>
+          <p className="text-[9px] text-slate-500 uppercase">Contrato</p>
+          <p className="text-purple-400 font-semibold">{fmtR$(valorContrato)}</p>
+        </div>
+        <div>
+          <p className="text-[9px] text-slate-500 uppercase">Faturado</p>
+          <p className="text-emerald-400 font-semibold">{fmtR$(receitaRecebida)} <span className="text-[9px] text-slate-500">({pctRec.toFixed(0)}%)</span></p>
+        </div>
       </div>
     </motion.div>
   );
 }
 
-// ===== COMPONENTE: KPI INLINE =====
-function KPI({ label, value, sub, diff, diffInvert }) {
-  return (
-    <div className="flex items-center justify-between py-1">
-      <span className="text-xs text-gray-400">{label}</span>
-      <div className="flex items-center gap-2">
-        <span className="text-sm font-bold text-white">{value}</span>
-        {sub && <span className="text-xs text-gray-500">{sub}</span>}
-        {diff !== undefined && <DiffBadge value={diff} invertColors={diffInvert} />}
-      </div>
-    </div>
-  );
-}
-
-// ===== COMPONENTE: PIPELINE DE PRODUÇÃO =====
-function ProductionPipeline({ producao }) {
-  if (!producao) return null;
-  const stages = [
-    { label: 'Fabricação', value: producao.fabricacao, color: '#3b82f6' },
-    { label: 'Solda', value: producao.solda, color: '#f59e0b' },
-    { label: 'Pintura', value: producao.pintura, color: '#a855f7' },
-    { label: 'Expedição', value: producao.expedicao, color: '#22c55e' },
-  ];
-  const total = producao.total || 1;
-  return (
-    <div className="flex items-center gap-1 mt-2">
-      {stages.map((s, i) => (
-        <React.Fragment key={s.label}>
-          <div className="flex-1 text-center">
-            <div className="text-xs text-gray-500 mb-1">{s.label}</div>
-            <div className="h-6 rounded-md flex items-center justify-center text-xs font-bold"
-              style={{
-                backgroundColor: s.color + '20',
-                border: `1px solid ${s.color}50`,
-                color: s.color
-              }}
-            >
-              {s.value}
-            </div>
-            <div className="text-[10px] text-gray-600 mt-0.5">
-              {total > 0 ? Math.round((s.value / total) * 100) : 0}%
-            </div>
-          </div>
-          {i < stages.length - 1 && (
-            <div className="text-gray-600 text-xs">→</div>
-          )}
-        </React.Fragment>
-      ))}
-    </div>
-  );
-}
-
-// ===== COMPONENTE PRINCIPAL =====
+// ============================================
+// COMPONENTE PRINCIPAL
+// ============================================
 export default function VisaoGeralPage() {
-  const { obraAtual } = useObras();
-  const {
-    corte, producao, estoque, financeiro, campo,
-    loading, lastUpdate, comparacaoDiaria, refresh
-  } = useCommandCenter(obraAtual);
+  const { obras } = useObras();
+  const { pecas } = useProducao();
+  const { lancamentosDespesas } = useLancamentos();
+  const { medicoes } = useMedicoes();
+  const fi = useFinancialIntelligence();
+  const { lancamentosHoje, rankingMes } = useProducaoHoje();
+  const expedicao = useExpedicaoResumo(pecas);
+  const [refreshKey, setRefreshKey] = useState(0);
 
-  const [view, setView] = useState('grid'); // grid | list
+  // KPIs Produção Globais
+  const kpisProducao = useMemo(() => {
+    const pcs = pecas || [];
+    const total = pcs.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const fabricacao = pcs.filter(p => ['fabricacao','aguardando','corte'].includes(p.etapa)).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const solda = pcs.filter(p => p.etapa === 'solda').reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const pintura = pcs.filter(p => p.etapa === 'pintura').reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const expedido = pcs.filter(p => p.etapa === 'expedido').reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const enviado = pcs.filter(p => ['enviado','entregue','montagem'].includes(p.etapa)).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const pesoTotal = pcs.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
+    const pesoFinalizado = pcs.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
+      .reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
+    const pct = total > 0 ? Math.round(((expedido + enviado) / total) * 100) : 0;
+    return { total, fabricacao, solda, pintura, expedido, enviado, pesoTotal, pesoFinalizado, pct };
+  }, [pecas]);
 
-  // ===== RESUMO GERAL =====
-  const resumo = useMemo(() => {
-    if (!corte || !producao || !estoque) return null;
-    const progressoTotal = Math.round(
-      ((corte.progressoPecas || 0) * 0.25 +
-       (producao.progressoGeral || 0) * 0.50 +
-       (corte.progressoPeso || 0) * 0.25)
-    );
-    const atividadesHoje = (corte.cortadasHoje || 0) + (producao.movidasHoje || 0) +
-      (estoque.entradasHoje || 0) + (estoque.saidasHoje || 0) + (campo?.enviosHoje || 0);
-    return { progressoTotal, atividadesHoje };
-  }, [corte, producao, estoque, campo]);
+  // Obras ativas ordenadas por progresso
+  const obrasAtivas = useMemo(() => {
+    return (obras || [])
+      .filter(o => !['cancelada','concluida','orcamento'].includes(o.status))
+      .slice(0, 8);
+  }, [obras]);
 
-  const comp = comparacaoDiaria;
+  // KPIs Produção Hoje
+  const kpisHoje = useMemo(() => {
+    const total = (lancamentosHoje || []).reduce((s, h) => s + (parseInt(h.quantidade) || 1), 0);
+    const funcionariosAtivos = new Set((lancamentosHoje || []).map(h => h.funcionario_nome).filter(Boolean));
+    return { totalMovs: lancamentosHoje?.length || 0, pecasMovimentadas: total, funcionariosAtivos: funcionariosAtivos.size };
+  }, [lancamentosHoje]);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <motion.div
-          className="flex flex-col items-center gap-4"
-          animate={{ opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-        >
-          <Activity size={40} className="text-cyan-400" />
-          <span className="text-gray-400 text-sm">Carregando Command Center...</span>
-        </motion.div>
-      </div>
-    );
-  }
+  // Pipeline data para gráfico
+  const pipelineData = useMemo(() => [
+    { etapa: 'Fab', valor: kpisProducao.fabricacao, cor: '#3b82f6' },
+    { etapa: 'Solda', valor: kpisProducao.solda, cor: '#8b5cf6' },
+    { etapa: 'Pintura', valor: kpisProducao.pintura, cor: '#ec4899' },
+    { etapa: 'Expedido', valor: kpisProducao.expedido, cor: '#10b981' },
+    { etapa: 'Enviado', valor: kpisProducao.enviado, cor: '#06b6d4' },
+  ], [kpisProducao]);
+
+  // Distribuição de peças por obra (pizza)
+  const distPorObra = useMemo(() => {
+    const map = {};
+    (pecas || []).forEach(p => {
+      const nome = p.obraNome || 'Sem obra';
+      const qtd = parseInt(p.quantidade) || 1;
+      if (!map[nome]) map[nome] = 0;
+      map[nome] += qtd;
+    });
+    const arr = Object.entries(map).map(([nome, valor]) => ({ nome, valor }));
+    return arr.sort((a, b) => b.valor - a.valor).slice(0, 6);
+  }, [pecas]);
+
+  // Cores para pizza
+  const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444'];
+
+  // Alertas operacionais
+  const alertasOperacionais = useMemo(() => {
+    const al = [];
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    // Despesas vencidas/atrasadas
+    const atrasadas = (lancamentosDespesas || []).filter(l => {
+      if (l.status === 'pago') return false;
+      const venc = l.dataVencimento || l.data_vencimento;
+      if (!venc) return false;
+      return parseLocalDate(venc) < hoje;
+    });
+    if (atrasadas.length > 0) {
+      al.push({ tipo: 'danger', icon: AlertTriangle, titulo: `${atrasadas.length} despesa(s) atrasada(s)`, valor: fmtR$(atrasadas.reduce((s, a) => s + (a.valor || 0), 0)) });
+    }
+    // Peças paradas há muito tempo (vamos simplificar e considerar muitas em uma etapa)
+    if (kpisProducao.fabricacao > 200) {
+      al.push({ tipo: 'warn', icon: Wrench, titulo: `${kpisProducao.fabricacao} pcs em fabricação`, valor: 'Verificar gargalo' });
+    }
+    // Fila de expedição grande
+    if (expedicao.qtdExpedida > 100) {
+      al.push({ tipo: 'info', icon: Truck, titulo: `${fmt(expedicao.qtdExpedida)} pcs aguardando envio`, valor: fmtPeso(expedicao.pesoExpedido) });
+    }
+    // Saldo baixo
+    if (fi.kpisGerais?.saldoReal != null && fi.kpisGerais.saldoReal < 0) {
+      al.push({ tipo: 'danger', icon: TrendingUp, titulo: 'Saldo mensal negativo', valor: fmtR$(fi.kpisGerais.saldoReal) });
+    }
+    return al;
+  }, [lancamentosDespesas, kpisProducao, expedicao, fi]);
 
   return (
-    <div className="space-y-4 p-2 sm:p-4">
-      {/* ===== HEADER ===== */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+    <div className="space-y-5">
+      {/* ============================================ */}
+      {/* HEADER                                       */}
+      {/* ============================================ */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
-            <Target className="text-cyan-400" size={24} />
-            Command Center
+          <h1 className="text-2xl font-black text-white flex items-center gap-2">
+            <Activity className="h-6 w-6 text-emerald-400" />
+            Painel Operacional · Visão Geral
           </h1>
-          <p className="text-xs text-gray-400 mt-0.5">
-            Monitoramento integrado em tempo real — Obra SUPER LUNA
-          </p>
+          <p className="text-xs text-slate-400 mt-1">Produção • Obras • Expedição • Funcionários — atualização em tempo real</p>
         </div>
-        <div className="flex items-center gap-3">
-          {lastUpdate && (
-            <span className="text-xs text-gray-500 flex items-center gap-1">
-              <Clock size={12} />
-              Atualizado {lastUpdate.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-            </span>
-          )}
-          <span className="relative flex h-2.5 w-2.5">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500" />
-          </span>
-          <span className="text-xs text-green-400 font-medium">LIVE</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-2 text-xs text-slate-400">
+            <Clock className="h-3 w-3" />
+            <span>Hoje: {new Date().toLocaleDateString('pt-BR')}</span>
+          </div>
           <button
-            onClick={refresh}
-            className="p-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white transition-all"
+            onClick={() => setRefreshKey(k => k + 1)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs text-slate-300"
           >
-            <RefreshCw size={14} />
+            <RefreshCw className="h-3 w-3" />
+            Atualizar
           </button>
         </div>
       </div>
 
-      {/* ===== RESUMO TOP KPIs ===== */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-3">
-        {/* Progresso Geral */}
-        <motion.div className="col-span-1 rounded-xl p-3 bg-gradient-to-br from-cyan-900/40 to-blue-900/40 border border-cyan-800/30"
-          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}>
-          <div className="text-xs text-cyan-300/70 mb-1 flex items-center gap-1">
-            <Target size={10} /> Progresso Geral
+      {/* ============================================ */}
+      {/* KPIs PRINCIPAIS (Produção)                  */}
+      {/* ============================================ */}
+      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <KPIOpCard icon={Package} cor="blue" label="Total Peças"
+          value={fmt(kpisProducao.total)} sub={fmtPeso(kpisProducao.pesoTotal)} />
+        <KPIOpCard icon={Wrench} cor="amber" label="Em Fabricação"
+          value={fmt(kpisProducao.fabricacao)} sub={`${fmtPct(kpisProducao.total > 0 ? kpisProducao.fabricacao / kpisProducao.total * 100 : 0)} do total`} />
+        <KPIOpCard icon={Zap} cor="purple" label="Em Solda"
+          value={fmt(kpisProducao.solda)} sub={`${fmtPct(kpisProducao.total > 0 ? kpisProducao.solda / kpisProducao.total * 100 : 0)} do total`} />
+        <KPIOpCard icon={Paintbrush} cor="rose" label="Em Pintura"
+          value={fmt(kpisProducao.pintura)} sub={`${fmtPct(kpisProducao.total > 0 ? kpisProducao.pintura / kpisProducao.total * 100 : 0)} do total`} />
+        <KPIOpCard icon={Truck} cor="emerald" label="Expedido / Enviado"
+          value={fmt(kpisProducao.expedido + kpisProducao.enviado)} sub={`${fmtPeso(kpisProducao.pesoFinalizado)} prontos`} />
+        <KPIOpCard icon={Target} cor="cyan" label="% Concluído Geral"
+          value={fmtPct(kpisProducao.pct)} sub={`${fmt(kpisProducao.expedido + kpisProducao.enviado)} de ${fmt(kpisProducao.total)} pcs`} />
+      </div>
+
+      {/* ============================================ */}
+      {/* PRODUÇÃO HOJE + PIPELINE + DIST POR OBRA    */}
+      {/* ============================================ */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Produção Hoje */}
+        <motion.div
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-gradient-to-br from-emerald-900/20 to-green-900/10 border border-emerald-700/30 rounded-xl p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              <h3 className="text-sm font-bold text-emerald-300">PRODUÇÃO HOJE</h3>
+            </div>
+            <span className="text-[10px] text-slate-500">{new Date().toLocaleDateString('pt-BR')}</span>
           </div>
-          <div className="text-2xl font-black text-cyan-300">{fmtPct(resumo?.progressoTotal || 0)}</div>
-          <ProgressBar value={resumo?.progressoTotal || 0} color="#22d3ee" height={4} />
+          <div className="space-y-2">
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs text-slate-400">Lançamentos</span>
+              <span className="text-2xl font-black text-emerald-400">{kpisHoje.totalMovs}</span>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs text-slate-400">Peças movimentadas</span>
+              <span className="text-xl font-bold text-white">{fmt(kpisHoje.pecasMovimentadas)}</span>
+            </div>
+            <div className="flex justify-between items-baseline">
+              <span className="text-xs text-slate-400">Funcionários ativos</span>
+              <span className="text-xl font-bold text-cyan-300">{kpisHoje.funcionariosAtivos}</span>
+            </div>
+            <div className="mt-3 pt-3 border-t border-emerald-700/20">
+              <div className="text-[10px] text-slate-500 mb-1">Movimentos nas últimas horas</div>
+              <div className="grid grid-cols-6 gap-0.5 h-8">
+                {Array.from({ length: 24 }).map((_, h) => {
+                  const hora = new Date(); hora.setHours(h, 0, 0, 0);
+                  const horaProxima = new Date(); horaProxima.setHours(h + 1, 0, 0, 0);
+                  const count = (lancamentosHoje || []).filter(l => {
+                    const d = new Date(l.data_movimentacao);
+                    return d >= hora && d < horaProxima;
+                  }).length;
+                  const max = Math.max(1, ...Array.from({ length: 24 }).map((_, hh) => {
+                    const a = new Date(); a.setHours(hh, 0, 0, 0);
+                    const b = new Date(); b.setHours(hh + 1, 0, 0, 0);
+                    return (lancamentosHoje || []).filter(l => {
+                      const d = new Date(l.data_movimentacao);
+                      return d >= a && d < b;
+                    }).length;
+                  }));
+                  const altura = (count / max) * 100;
+                  return (
+                    <div key={h} className="bg-emerald-500/20 rounded-sm" style={{ height: `${Math.max(8, altura)}%` }} title={`${h}h: ${count} movs`} />
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </motion.div>
 
-        {/* Peças Cortadas */}
-        <motion.div className="rounded-xl p-3 bg-gradient-to-br from-blue-900/40 to-indigo-900/40 border border-blue-800/30"
-          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.05 }}>
-          <div className="text-xs text-blue-300/70 mb-1 flex items-center gap-1">
-            <Scissors size={10} /> Corte
+        {/* Pipeline Produção */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-4"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Layers className="h-4 w-4 text-blue-400" />
+            <h3 className="text-sm font-bold text-white">PIPELINE DE PRODUÇÃO</h3>
           </div>
-          <div className="text-2xl font-black text-blue-300">{fmt(corte?.finalizado || 0)}<span className="text-sm text-blue-400/60">/{fmt(corte?.total || 0)}</span></div>
-          <ProgressBar value={corte?.progressoPecas || 0} color="#3b82f6" height={4} />
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={pipelineData} layout="vertical" margin={{ left: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+              <XAxis type="number" stroke="#64748b" fontSize={10} />
+              <YAxis type="category" dataKey="etapa" stroke="#94a3b8" fontSize={11} width={60} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                formatter={(v) => [fmt(v) + ' pcs', '']}
+              />
+              <Bar dataKey="valor" radius={[0, 6, 6, 0]}>
+                {pipelineData.map((e, i) => <Cell key={i} fill={e.cor} />)}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
         </motion.div>
 
-        {/* Produção Expedida */}
-        <motion.div className="rounded-xl p-3 bg-gradient-to-br from-green-900/40 to-emerald-900/40 border border-green-800/30"
-          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 }}>
-          <div className="text-xs text-green-300/70 mb-1 flex items-center gap-1">
-            <Factory size={10} /> Produção
+        {/* Distribuição por Obra */}
+        <motion.div
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-4"
+        >
+          <div className="flex items-center gap-2 mb-3">
+            <Building2 className="h-4 w-4 text-purple-400" />
+            <h3 className="text-sm font-bold text-white">PEÇAS POR OBRA</h3>
           </div>
-          <div className="text-2xl font-black text-green-300">{fmtPeso(producao?.pesoExpedido || 0)}</div>
-          <div className="text-xs text-gray-500">{fmt(producao?.total || 0)} conjuntos</div>
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie data={distPorObra} cx="50%" cy="50%" innerRadius={40} outerRadius={75} paddingAngle={2} dataKey="valor">
+                {distPorObra.map((e, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
+              </Pie>
+              <Tooltip
+                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
+                formatter={(v) => [fmt(v) + ' pcs', '']}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div className="space-y-1 mt-2 max-h-24 overflow-y-auto">
+            {distPorObra.map((o, i) => (
+              <div key={i} className="flex items-center justify-between text-[10px]">
+                <span className="flex items-center gap-1.5 text-slate-300 truncate flex-1">
+                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
+                  <span className="truncate">{o.nome}</span>
+                </span>
+                <span className="text-white font-semibold ml-2">{fmt(o.valor)}</span>
+              </div>
+            ))}
+          </div>
         </motion.div>
+      </div>
 
-        {/* Estoque */}
-        <motion.div className="rounded-xl p-3 bg-gradient-to-br from-yellow-900/40 to-amber-900/40 border border-yellow-800/30"
-          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.15 }}>
-          <div className="text-xs text-yellow-300/70 mb-1 flex items-center gap-1">
-            <Package size={10} /> Estoque
+      {/* ============================================ */}
+      {/* OBRAS ATIVAS                                 */}
+      {/* ============================================ */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-blue-400" />
+            <h2 className="text-lg font-bold text-white">OBRAS ATIVAS</h2>
+            <span className="text-xs text-slate-500">{obrasAtivas.length} obras em andamento</span>
           </div>
-          <div className="text-2xl font-black text-yellow-300">{fmt(estoque?.totalItens || 0)}</div>
-          <div className="text-xs flex items-center gap-1">
-            {estoque?.alertas > 0 ? (
-              <span className="text-red-400 flex items-center gap-0.5"><AlertTriangle size={10} /> {estoque.alertas} alertas</span>
-            ) : (
-              <span className="text-green-400 flex items-center gap-0.5"><CheckCircle2 size={10} /> Normal</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          {obrasAtivas.map(o => (
+            <ObraCard key={o.id} obra={o} pecas={pecas} medicoes={medicoes} />
+          ))}
+        </div>
+      </div>
+
+      {/* ============================================ */}
+      {/* EXPEDIÇÃO + RANKING FUNCIONÁRIOS            */}
+      {/* ============================================ */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Expedição */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-br from-cyan-900/20 to-blue-900/10 border border-cyan-700/30 rounded-xl p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Truck className="h-5 w-5 text-cyan-400" />
+              <h3 className="text-sm font-bold text-cyan-300">EXPEDIÇÃO & ENVIOS</h3>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="bg-slate-900/40 rounded-lg p-3">
+              <p className="text-[10px] text-slate-400 uppercase">Fila de Embarque</p>
+              <p className="text-2xl font-black text-cyan-300">{fmt(expedicao.qtdExpedida)}</p>
+              <p className="text-[10px] text-slate-500">{fmtPeso(expedicao.pesoExpedido)}</p>
+            </div>
+            <div className="bg-slate-900/40 rounded-lg p-3">
+              <p className="text-[10px] text-slate-400 uppercase">Já Enviado</p>
+              <p className="text-2xl font-black text-emerald-300">{fmt(expedicao.qtdEnviada)}</p>
+              <p className="text-[10px] text-slate-500">{fmtPeso(expedicao.pesoEnviado)}</p>
+            </div>
+          </div>
+          <p className="text-[10px] text-slate-400 uppercase mb-2">Fila por Obra (top 6)</p>
+          <div className="space-y-1.5">
+            {expedicao.filaPorObra.length === 0 && (
+              <p className="text-xs text-slate-500 italic">Nenhuma peça em fila de embarque.</p>
             )}
+            {expedicao.filaPorObra.map((o, i) => (
+              <div key={i} className="flex items-center justify-between text-xs bg-slate-900/40 rounded px-2 py-1.5">
+                <span className="text-slate-300 truncate flex-1">{o.nome}</span>
+                <span className="text-cyan-300 font-semibold ml-2">{fmt(o.qtd)} pcs</span>
+                <span className="text-slate-500 ml-2">{fmtPeso(o.peso)}</span>
+              </div>
+            ))}
           </div>
         </motion.div>
 
-        {/* Atividades Hoje */}
-        <motion.div className="rounded-xl p-3 bg-gradient-to-br from-purple-900/40 to-pink-900/40 border border-purple-800/30 col-span-2 sm:col-span-1"
-          initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.2 }}>
-          <div className="text-xs text-purple-300/70 mb-1 flex items-center gap-1">
-            <Zap size={10} /> Atividade Hoje
-          </div>
-          <div className="text-2xl font-black text-purple-300">{fmt(resumo?.atividadesHoje || 0)}</div>
-          <div className="text-xs text-gray-500">ações registradas</div>
-        </motion.div>
-      </div>
-
-      {/* ===== GRID DE MÓDULOS ===== */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-
-        {/* CORTE */}
-        <ModuleCard title="Kanban Corte" icon={Scissors} cor="corte" href="KanbanCortePage" pulse={corte?.cortando > 0}>
-          <KPI label="Total de Peças" value={fmt(corte?.total)} />
-          <KPI label="Aguardando" value={fmt(corte?.aguardando)} />
-          <KPI label="Em Corte" value={fmt(corte?.cortando)} />
-          <KPI label="Finalizadas" value={fmt(corte?.finalizado)} diff={comp?.corte?.finalizadasDiff} />
-          <div className="border-t border-gray-700/30 pt-2 mt-1">
-            <KPI label="Peso Cortado" value={fmtPeso(corte?.pesoFinalizado)} sub={`de ${fmtPeso(corte?.pesoTotal)}`} />
-            <div className="mt-1.5">
-              <div className="flex justify-between text-xs mb-0.5">
-                <span className="text-gray-500">Progresso</span>
-                <span className="text-blue-300 font-bold">{fmtPct(corte?.progressoPecas)}</span>
-              </div>
-              <ProgressBar value={corte?.progressoPecas || 0} color="#3b82f6" />
+        {/* Ranking Funcionários */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-gradient-to-br from-amber-900/20 to-orange-900/10 border border-amber-700/30 rounded-xl p-4"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Award className="h-5 w-5 text-amber-400" />
+              <h3 className="text-sm font-bold text-amber-300">RANKING DE FUNCIONÁRIOS (mês)</h3>
             </div>
           </div>
-          <KPI label="Cortadas Hoje" value={fmt(corte?.cortadasHoje)} />
-        </ModuleCard>
-
-        {/* PRODUÇÃO */}
-        <ModuleCard title="Kanban Produção" icon={Factory} cor="producao" href="KanbanProducaoIntegrado">
-          <KPI label="Total Conjuntos" value={fmt(producao?.total)} />
-          <KPI label="Peso Total" value={fmtPeso(producao?.pesoTotal)} />
-          <KPI label="Peso Expedido" value={fmtPeso(producao?.pesoExpedido)} />
-          <ProductionPipeline producao={producao} />
-          <div className="border-t border-gray-700/30 pt-2 mt-1">
-            <div className="flex justify-between text-xs mb-0.5">
-              <span className="text-gray-500">Progresso Geral</span>
-              <span className="text-green-300 font-bold">{fmtPct(producao?.progressoGeral)}</span>
-            </div>
-            <ProgressBar value={producao?.progressoGeral || 0} color="#22c55e" />
-          </div>
-          <KPI label="Movidas Hoje" value={fmt(producao?.movidasHoje)} />
-        </ModuleCard>
-
-        {/* ESTOQUE */}
-        <ModuleCard title="Gestão Estoque" icon={Package} cor="estoque" href="EstoquePage">
-          <KPI label="Total de Itens" value={fmt(estoque?.totalItens)} />
-          <KPI label="Valor em Estoque" value={fmtR$(estoque?.valorTotal)} />
-          <div className="flex gap-2 py-1">
-            <div className="flex-1 text-center rounded-lg py-1.5" style={{ backgroundColor: '#22c55e15', border: '1px solid #22c55e30' }}>
-              <div className="text-xs text-green-400 font-bold">{fmt(estoque?.normal)}</div>
-              <div className="text-[10px] text-gray-500">Normal</div>
-            </div>
-            <div className="flex-1 text-center rounded-lg py-1.5" style={{ backgroundColor: '#f59e0b15', border: '1px solid #f59e0b30' }}>
-              <div className="text-xs text-yellow-400 font-bold">{fmt(estoque?.baixo)}</div>
-              <div className="text-[10px] text-gray-500">Baixo</div>
-            </div>
-            <div className="flex-1 text-center rounded-lg py-1.5" style={{ backgroundColor: '#ef444415', border: '1px solid #ef444430' }}>
-              <div className="text-xs text-red-400 font-bold">{fmt(estoque?.critico)}</div>
-              <div className="text-[10px] text-gray-500">Crítico</div>
-            </div>
-          </div>
-          <div className="border-t border-gray-700/30 pt-2 mt-1">
-            <KPI label="Entradas Hoje" value={fmt(estoque?.entradasHoje)} />
-            <KPI label="Saídas Hoje" value={fmt(estoque?.saidasHoje)} />
-          </div>
-        </ModuleCard>
-
-        {/* FINANCEIRO */}
-        <ModuleCard title="Financeiro Obra" icon={DollarSign} cor="financeiro" href="GestaoFinanceiraObra">
-          <KPI label="Total Despesas" value={fmtR$(financeiro?.totalDespesas)} diff={comp?.financeiro?.despesasDiff} diffInvert />
-          <KPI label="Despesas Pagas" value={fmtR$(financeiro?.despesasPagas)} />
-          <KPI label="Despesas Pendentes" value={fmtR$(financeiro?.despesasPendentes)} />
-          <div className="border-t border-gray-700/30 pt-2 mt-1">
-            <KPI label="Total Medições" value={fmtR$(financeiro?.totalMedicoes)} />
-            <KPI label="Medições Aprovadas" value={fmtR$(financeiro?.medicoesAprovadas)} />
-          </div>
-          <div className="mt-2 p-2 rounded-lg" style={{
-            backgroundColor: (financeiro?.saldoObra || 0) >= 0 ? '#22c55e10' : '#ef444410',
-            border: `1px solid ${(financeiro?.saldoObra || 0) >= 0 ? '#22c55e30' : '#ef444430'}`
-          }}>
-            <div className="flex justify-between items-center">
-              <span className="text-xs text-gray-400">Saldo Obra</span>
-              <span className={`text-sm font-black ${(financeiro?.saldoObra || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                {fmtR$(financeiro?.saldoObra)}
-              </span>
-            </div>
-          </div>
-        </ModuleCard>
-
-        {/* CAMPO / EXPEDIÇÃO */}
-        <ModuleCard title="Produção Campo" icon={Truck} cor="campo" href="ExpedicaoIntegrado">
-          <KPI label="Total de Envios" value={fmt(campo?.totalEnvios)} />
-          <KPI label="Enviados" value={fmt(campo?.enviados)} />
-          <KPI label="Pendentes" value={fmt(campo?.pendentes)} />
-          <div className="border-t border-gray-700/30 pt-2 mt-1">
-            <KPI label="Peso Enviado" value={fmtPeso(campo?.pesoEnviado)} />
-            <KPI label="Peças Enviadas" value={fmt(campo?.pecasEnviadas)} />
-            <KPI label="Envios Hoje" value={fmt(campo?.enviosHoje)} />
-          </div>
-        </ModuleCard>
-
-        {/* COMPARAÇÃO DIÁRIA */}
-        <ModuleCard title="Análise Diária" icon={BarChart3} cor="corte">
-          {comp ? (
-            <>
-              <div className="text-xs text-gray-400 mb-2 flex items-center gap-1">
-                <Activity size={10} /> Comparação com dia anterior
-              </div>
-              <KPI label="Peças Cortadas" value={comp.corte?.finalizadasDiff != null ? (comp.corte.finalizadasDiff > 0 ? '+' : '') + comp.corte.finalizadasDiff : '—'} diff={comp.corte?.finalizadasDiff} />
-              <KPI label="Progresso Corte" value={comp.corte?.progressoDiff != null ? (comp.corte.progressoDiff > 0 ? '+' : '') + comp.corte.progressoDiff + '%' : '—'} diff={comp.corte?.progressoDiff} />
-              <KPI label="Progresso Produção" value={comp.producao?.progressoDiff != null ? (comp.producao.progressoDiff > 0 ? '+' : '') + comp.producao.progressoDiff + '%' : '—'} diff={comp.producao?.progressoDiff} />
-              <KPI label="Novas Despesas" value={comp.financeiro?.despesasDiff != null ? fmtR$(comp.financeiro.despesasDiff) : '—'} diff={comp.financeiro?.despesasDiff} diffInvert />
-              <div className="border-t border-gray-700/30 pt-2 mt-1">
-                <div className="text-[10px] text-gray-600 text-center">
-                  Snapshot salvo automaticamente a cada atualização
+          <div className="space-y-1.5">
+            {rankingMes.length === 0 && (
+              <p className="text-xs text-slate-500 italic">Sem lançamentos de produção neste mês.</p>
+            )}
+            {rankingMes.map((f, i) => {
+              const medalha = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
+              const max = rankingMes[0]?.qtd || 1;
+              const pct = (f.qtd / max) * 100;
+              return (
+                <div key={i} className="bg-slate-900/40 rounded p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <span className="text-sm">{medalha}</span>
+                      <span className="text-xs text-white font-medium truncate">{f.nome}</span>
+                    </div>
+                    <span className="text-amber-400 font-bold text-sm ml-2">{fmt(f.qtd)}</span>
+                  </div>
+                  <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style={{ width: `${pct}%` }} />
+                  </div>
+                  <p className="text-[9px] text-slate-500 mt-0.5">{f.etapas}</p>
                 </div>
-              </div>
-            </>
-          ) : (
-            <div className="text-center py-6">
-              <Shield className="mx-auto text-gray-600 mb-2" size={24} />
-              <div className="text-xs text-gray-500">
-                Análise disponível amanhã.<br />
-                O sistema está coletando dados de hoje para comparação.
-              </div>
-            </div>
-          )}
-        </ModuleCard>
+              );
+            })}
+          </div>
+        </motion.div>
       </div>
 
-      {/* ===== FOOTER STATUS ===== */}
-      <div className="flex items-center justify-center gap-4 pt-2 pb-4">
-        <span className="text-xs text-gray-600 flex items-center gap-1">
-          <Layers size={10} /> 6 módulos integrados
-        </span>
-        <span className="text-xs text-gray-600">•</span>
-        <span className="text-xs text-gray-600 flex items-center gap-1">
-          <Activity size={10} /> Supabase Realtime ativo
-        </span>
-        <span className="text-xs text-gray-600">•</span>
-        <span className="text-xs text-gray-600 flex items-center gap-1">
-          <RefreshCw size={10} /> Auto-refresh 60s
-        </span>
+      {/* ============================================ */}
+      {/* RESUMO FINANCEIRO (secundário)              */}
+      {/* ============================================ */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <BarChart3 className="h-4 w-4 text-emerald-400" />
+          <h2 className="text-sm font-bold text-slate-300">RESUMO FINANCEIRO DO MÊS</h2>
+          <span className="text-[10px] text-slate-500">(visão de apoio — detalhes em Painel Financeiro)</span>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <KPIOpCard icon={ArrowUpRight} cor="emerald" label="Receita Mês"
+            value={fmtR$(fi.kpisGerais?.faturamentoRealMes || 0)}
+            sub={`${fi.kpisGerais?.qtdReceitasLancadas || 0} lançamentos`} />
+          <KPIOpCard icon={ArrowDownRight} cor="rose" label="Despesa Mês"
+            value={fmtR$(fi.kpisGerais?.despesaMensalMedia || 0)}
+            sub={`média ${fi.kpisGerais?.mesesBaseCalculo || 0}M`} />
+          <KPIOpCard icon={TrendingUp} cor={fi.kpisGerais?.saldoReal >= 0 ? 'blue' : 'rose'} label="Saldo Mensal"
+            value={fmtR$(fi.kpisGerais?.saldoReal || 0)}
+            sub={`Margem ${(fi.kpisGerais?.margemReal || 0).toFixed(1)}%`} />
+          <KPIOpCard icon={Target} cor="purple" label="Obras Ativas"
+            value={obrasAtivas.length}
+            sub={`Valor total: ${fmtR$(obrasAtivas.reduce((s, o) => s + (o.contratoValorTotal || o.valorContrato || 0), 0))}`} />
+        </div>
+      </div>
+
+      {/* ============================================ */}
+      {/* ALERTAS OPERACIONAIS                         */}
+      {/* ============================================ */}
+      {alertasOperacionais.length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-3">
+            <AlertTriangle className="h-4 w-4 text-amber-400" />
+            <h2 className="text-sm font-bold text-amber-300">ALERTAS OPERACIONAIS</h2>
+            <span className="text-[10px] text-slate-500">{alertasOperacionais.length} alerta(s)</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            {alertasOperacionais.map((a, i) => {
+              const Icon = a.icon;
+              const cor = a.tipo === 'danger' ? 'border-red-700/40 bg-red-900/20 text-red-300'
+                : a.tipo === 'warn' ? 'border-amber-700/40 bg-amber-900/20 text-amber-300'
+                : 'border-blue-700/40 bg-blue-900/20 text-blue-300';
+              return (
+                <div key={i} className={`rounded-lg border p-3 ${cor}`}>
+                  <div className="flex items-start gap-2">
+                    <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-bold truncate">{a.titulo}</p>
+                      <p className="text-[10px] opacity-80 truncate">{a.valor}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Rodapé */}
+      <div className="text-center text-[10px] text-slate-600 pt-2">
+        MONTEX ERP · Painel Operacional · Dados em tempo real
       </div>
     </div>
   );
