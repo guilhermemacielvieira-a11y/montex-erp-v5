@@ -1,36 +1,45 @@
 // ============================================
-// VISÃO GERAL - Painel Operacional MONTEX
+// MONTEX VISÃO GERAL — HUD Operacional Sci-Fi
 // ============================================
-// Foco: produção, obras, expedição, funcionários.
-// Financeiro como apoio secundário.
+// Painel futurista com analytics profundo:
+// - Score Saúde Sistêmica + gauges
+// - Pipeline produção (peças/peso por etapa)
+// - Forecast cash flow 6 meses
+// - Heatmap atividade (24h × 7 dias)
+// - Comparativo mês × mês
+// - Ranking obras + funcionários
+// - Activity feed live + alertas
 // ============================================
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Factory, Package, Truck, Users, AlertTriangle, CheckCircle2,
-  Activity, BarChart3, ArrowUpRight, ArrowDownRight, RefreshCw,
-  Building2, Target, Zap, Clock, TrendingUp, Award, Layers,
-  Wrench, Paintbrush, Send, Hammer, Scissors,
+  Activity, AlertTriangle, BarChart3, Building2, Cpu, DollarSign,
+  Factory, Layers, Package, Paintbrush, Send, Shield, Target, Truck,
+  Users, Wrench, Zap, RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp,
+  TrendingDown, Clock, Award, Eye, CheckCircle2, Radio, Power, Flame,
+  Gauge,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, AreaChart, Area,
+  AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
+  ReferenceLine,
 } from 'recharts';
 import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
-import { supabase } from '../api/supabaseClient';
-import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
+import { supabase } from '../api/supabaseClient';
 
 // ============================================
 // HELPERS
 // ============================================
 const fmt = (v) => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
 const fmtR$ = (v) => v == null || isNaN(v) ? 'R$ —' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
+const fmtR$k = (v) => v == null || isNaN(v) ? '—' : 'R$ ' + (Math.round(v / 1000)).toLocaleString('pt-BR') + 'k';
 const fmtPeso = (kg) => {
   if (kg == null || isNaN(kg)) return '—';
   if (Math.abs(kg) >= 1000) return (kg / 1000).toFixed(1) + 't';
-  return Math.round(kg).toLocaleString('pt-BR') + ' kg';
+  return Math.round(kg) + 'kg';
 };
 const fmtPct = (v) => v == null || isNaN(v) ? '—' : Math.round(v) + '%';
 const parseLocalDate = (s) => {
@@ -39,194 +48,145 @@ const parseLocalDate = (s) => {
   if (m) return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
   return new Date(s);
 };
-const hojeISO = () => new Date().toISOString().split('T')[0];
+const COR_ETAPAS = {
+  fabricacao: '#3b82f6', solda: '#8b5cf6', pintura: '#ec4899',
+  expedido: '#10b981', enviado: '#06b6d4', corte: '#f59e0b', aguardando: '#64748b',
+};
 
 // ============================================
-// HOOK: produção do dia + ranking funcionários
+// HOOK: clock em tempo real
 // ============================================
-function useProducaoHoje() {
-  const [lancamentosHoje, setLancamentosHoje] = useState([]);
-  const [rankingMes, setRankingMes] = useState([]);
-  const [loading, setLoading] = useState(true);
-
+function useClock() {
+  const [now, setNow] = useState(new Date());
   useEffect(() => {
-    let cancel = false;
+    const t = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
+
+// ============================================
+// HOOK: histórico de produção (últimos 30 dias)
+// ============================================
+function useHistoricoProducao() {
+  const [data, setData] = useState([]);
+  useEffect(() => {
     (async () => {
       try {
-        const hoje = new Date();
-        const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1).toISOString();
-        const inicioHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate()).toISOString();
-        const { data } = await supabase
+        const since = new Date();
+        since.setDate(since.getDate() - 30);
+        const { data: rows } = await supabase
           .from('producao_historico')
-          .select('id, peca_id, funcionario_id, funcionario_nome, etapa_de, etapa_para, quantidade, data_movimentacao, obra_id')
-          .gte('data_movimentacao', inicioMes)
+          .select('id,peca_id,funcionario_nome,etapa_de,etapa_para,quantidade,data_movimentacao,obra_id')
+          .gte('data_movimentacao', since.toISOString())
+          .order('data_movimentacao', { ascending: true })
           .limit(5000);
-
-        if (cancel) return;
-        const all = data || [];
-        const hojeData = all.filter(h => (h.data_movimentacao || '') >= inicioHoje);
-        setLancamentosHoje(hojeData);
-
-        // Ranking do mês por funcionário
-        const map = {};
-        all.forEach(h => {
-          const nome = h.funcionario_nome || 'Sem responsável';
-          if (!map[nome]) map[nome] = { nome, qtd: 0, etapas: new Set() };
-          map[nome].qtd += parseInt(h.quantidade) || 1;
-          map[nome].etapas.add(h.etapa_para || h.etapa_de);
-        });
-        const rank = Object.values(map)
-          .map(r => ({ ...r, etapas: Array.from(r.etapas).join(', ') }))
-          .sort((a, b) => b.qtd - a.qtd)
-          .slice(0, 10);
-        setRankingMes(rank);
-      } catch (e) {
-        console.warn('[VisaoGeral] erro produção hoje:', e?.message);
-      } finally {
-        if (!cancel) setLoading(false);
-      }
+        setData(rows || []);
+      } catch (e) { /* ignore */ }
     })();
-    return () => { cancel = true; };
   }, []);
-
-  return { lancamentosHoje, rankingMes, loading };
+  return data;
 }
 
 // ============================================
-// HOOK: expedição (peças em fila de embarque + romaneios)
+// COMPONENT: HUD Gauge Circular
 // ============================================
-function useExpedicaoResumo(pecas) {
-  return useMemo(() => {
-    const expedidas = (pecas || []).filter(p => p.etapa === 'expedido');
-    const enviadas = (pecas || []).filter(p => p.etapa === 'enviado');
-    const pesoExpedido = expedidas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-    const pesoEnviado = enviadas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-    const qtdExpedida = expedidas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const qtdEnviada = enviadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-
-    // Por obra
-    const porObra = {};
-    expedidas.forEach(p => {
-      const id = p.obraId || 'sem-obra';
-      const nome = p.obraNome || '—';
-      if (!porObra[id]) porObra[id] = { nome, qtd: 0, peso: 0 };
-      porObra[id].qtd += parseInt(p.quantidade) || 1;
-      porObra[id].peso += parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0;
-    });
-    const filaPorObra = Object.values(porObra).sort((a, b) => b.peso - a.peso).slice(0, 6);
-
-    return { qtdExpedida, qtdEnviada, pesoExpedido, pesoEnviado, filaPorObra };
-  }, [pecas]);
-}
-
-// ============================================
-// COMPONENTE: KPI Card Operacional
-// ============================================
-function KPIOpCard({ icon: Icon, label, value, sub, cor = 'blue', extra }) {
-  const cores = {
-    blue: 'from-blue-500/20 to-cyan-500/10 border-blue-500/30 text-blue-300',
-    emerald: 'from-emerald-500/20 to-green-500/10 border-emerald-500/30 text-emerald-300',
-    amber: 'from-amber-500/20 to-orange-500/10 border-amber-500/30 text-amber-300',
-    purple: 'from-purple-500/20 to-violet-500/10 border-purple-500/30 text-purple-300',
-    rose: 'from-rose-500/20 to-pink-500/10 border-rose-500/30 text-rose-300',
-    cyan: 'from-cyan-500/20 to-teal-500/10 border-cyan-500/30 text-cyan-300',
-  };
+function HUDGauge({ value, max = 100, label, color = '#06b6d4', size = 110, suffix = '%', sublabel }) {
+  const pct = Math.min(100, Math.max(0, (value / max) * 100));
+  const R = size / 2 - 8;
+  const C = 2 * Math.PI * R;
+  const offset = C - (pct / 100) * C;
+  const gradId = `grad-${label || 'g'}-${color.replace('#','')}`;
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`bg-gradient-to-br ${cores[cor]} border rounded-xl p-4 backdrop-blur-sm`}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] uppercase tracking-wider font-bold opacity-80">{label}</span>
-        <Icon className="h-4 w-4 opacity-70" />
+    <div className="relative inline-flex flex-col items-center" style={{ width: size }}>
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <defs>
+            <linearGradient id={gradId} x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor={color} stopOpacity="1" />
+              <stop offset="100%" stopColor={color} stopOpacity="0.3" />
+            </linearGradient>
+          </defs>
+          <circle cx={size/2} cy={size/2} r={R} stroke="#1e293b" strokeWidth="6" fill="none" />
+          <motion.circle
+            cx={size/2} cy={size/2} r={R}
+            stroke={`url(#${gradId})`} strokeWidth="6" fill="none" strokeLinecap="round"
+            strokeDasharray={C}
+            initial={{ strokeDashoffset: C }}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 1.2, ease: 'easeOut' }}
+            style={{ filter: `drop-shadow(0 0 6px ${color})` }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-2xl font-black text-white tabular-nums">{Math.round(value)}{suffix}</span>
+          {sublabel && <span className="text-[8px] text-slate-500 uppercase">{sublabel}</span>}
+        </div>
       </div>
-      <div className="text-2xl font-black text-white">{value}</div>
-      {sub && <div className="text-[10px] text-slate-400 mt-1">{sub}</div>}
-      {extra}
-    </motion.div>
+      {label && <span className="text-[9px] text-slate-400 uppercase tracking-widest font-bold mt-1">{label}</span>}
+    </div>
   );
 }
 
 // ============================================
-// COMPONENTE: Card Obra
+// COMPONENT: HUD Panel wrapper
 // ============================================
-function ObraCard({ obra, pecas, medicoes }) {
-  const pecasObra = (pecas || []).filter(p => p.obraId === obra.id);
-  const totalPecas = pecasObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-  const expedidas = pecasObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa));
-  const qtdExpedida = expedidas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-  const pct = totalPecas > 0 ? Math.round((qtdExpedida / totalPecas) * 100) : 0;
-  const pesoTotal = pecasObra.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-  const pesoProduzido = expedidas.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-
-  // Receita acumulada (medições pagas)
-  const receitaRecebida = (medicoes || [])
-    .filter(m => (m.obraId || m.obra_id) === obra.id)
-    .filter(m => ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
-    .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
-  const valorContrato = obra.contratoValorTotal || obra.valorContrato || obra.valor_contrato || 0;
-  const pctRec = valorContrato > 0 ? (receitaRecebida / valorContrato * 100) : 0;
-
-  const corPct = pct >= 90 ? '#10b981' : pct >= 60 ? '#3b82f6' : pct >= 30 ? '#f59e0b' : '#ef4444';
-
+function HUDPanel({ children, title, glow = '#06b6d4', className = '', subtitle, status = 'online', headerRight }) {
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.96 }}
+      initial={{ opacity: 0, scale: 0.99 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-slate-900/70 border border-slate-700/50 rounded-xl p-4 hover:border-slate-500/60 transition-all"
+      className={`relative rounded-lg border backdrop-blur-md overflow-hidden ${className}`}
+      style={{
+        backgroundColor: 'rgba(2,6,23,0.85)',
+        borderColor: `${glow}40`,
+        boxShadow: `0 0 20px ${glow}15, inset 0 0 30px ${glow}05`,
+      }}
     >
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-[10px] font-mono text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded">{obra.codigo}</span>
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${obra.status === 'cancelada' ? 'bg-red-500/20 text-red-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-              {obra.status || 'ativo'}
-            </span>
+      <div className="absolute top-0 left-0 w-3 h-3 border-t border-l rounded-tl" style={{ borderColor: glow }} />
+      <div className="absolute top-0 right-0 w-3 h-3 border-t border-r rounded-tr" style={{ borderColor: glow }} />
+      <div className="absolute bottom-0 left-0 w-3 h-3 border-b border-l rounded-bl" style={{ borderColor: glow }} />
+      <div className="absolute bottom-0 right-0 w-3 h-3 border-b border-r rounded-br" style={{ borderColor: glow }} />
+
+      {title && (
+        <div className="flex items-center justify-between px-3 pt-2 pb-1.5 border-b" style={{ borderColor: `${glow}25` }}>
+          <div className="flex items-center gap-2">
+            <div className={`w-1.5 h-1.5 rounded-full ${status === 'online' ? 'animate-pulse' : ''}`}
+              style={{ backgroundColor: glow, boxShadow: `0 0 6px ${glow}` }} />
+            <h3 className="text-[10px] font-bold uppercase tracking-[0.2em]" style={{ color: glow }}>{title}</h3>
+            {subtitle && <span className="text-[9px] text-slate-500">· {subtitle}</span>}
           </div>
-          <p className="text-sm font-bold text-white truncate">{obra.nome || obra.name || obra.id}</p>
-          <p className="text-[10px] text-slate-500 truncate">{obra.cliente || '—'}</p>
+          {headerRight ?? <span className="text-[8px] text-slate-600 uppercase tracking-wider">{status}</span>}
         </div>
-        <div className="text-right ml-3 flex-shrink-0">
-          <div className="text-3xl font-black" style={{ color: corPct }}>{pct}%</div>
-          <p className="text-[9px] text-slate-500 uppercase tracking-wider">concluído</p>
-        </div>
-      </div>
-
-      <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-3">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 1, ease: 'easeOut' }}
-          className="h-full rounded-full"
-          style={{ backgroundColor: corPct, boxShadow: `0 0 8px ${corPct}80` }}
-        />
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 text-xs">
-        <div>
-          <p className="text-[9px] text-slate-500 uppercase">Peças</p>
-          <p className="text-white font-semibold">{fmt(qtdExpedida)}<span className="text-slate-500"> / {fmt(totalPecas)}</span></p>
-        </div>
-        <div>
-          <p className="text-[9px] text-slate-500 uppercase">Peso</p>
-          <p className="text-white font-semibold">{fmtPeso(pesoProduzido)}<span className="text-slate-500"> / {fmtPeso(pesoTotal)}</span></p>
-        </div>
-        <div>
-          <p className="text-[9px] text-slate-500 uppercase">Contrato</p>
-          <p className="text-purple-400 font-semibold">{fmtR$(valorContrato)}</p>
-        </div>
-        <div>
-          <p className="text-[9px] text-slate-500 uppercase">Faturado</p>
-          <p className="text-emerald-400 font-semibold">{fmtR$(receitaRecebida)} <span className="text-[9px] text-slate-500">({pctRec.toFixed(0)}%)</span></p>
-        </div>
-      </div>
+      )}
+      <div className="p-3">{children}</div>
     </motion.div>
   );
 }
 
 // ============================================
-// COMPONENTE PRINCIPAL
+// COMPONENT: Sparkline mini
+// ============================================
+function Sparkline({ data, color = '#06b6d4', height = 30 }) {
+  if (!data || data.length === 0) return <div style={{ height }} className="bg-slate-800/30 rounded" />;
+  const id = `spk-${color.replace('#','')}-${Math.random().toString(36).slice(2,7)}`;
+  return (
+    <ResponsiveContainer width="100%" height={height}>
+      <AreaChart data={data.map((v, i) => ({ i, v }))}>
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.5} />
+            <stop offset="100%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill={`url(#${id})`} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ============================================
+// MAIN
 // ============================================
 export default function VisaoGeralPage() {
   const { obras } = useObras();
@@ -234,420 +194,646 @@ export default function VisaoGeralPage() {
   const { lancamentosDespesas } = useLancamentos();
   const { medicoes } = useMedicoes();
   const fi = useFinancialIntelligence();
-  const { lancamentosHoje, rankingMes } = useProducaoHoje();
-  const expedicao = useExpedicaoResumo(pecas);
-  const [refreshKey, setRefreshKey] = useState(0);
+  const historico = useHistoricoProducao();
+  const now = useClock();
+  const [bootMs, setBootMs] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const t = setInterval(() => setBootMs(Date.now() - start), 1000);
+    return () => clearInterval(t);
+  }, []);
 
-  // KPIs Produção Globais
-  const kpisProducao = useMemo(() => {
+  // ===== KPIs produção =====
+  const kpis = useMemo(() => {
     const pcs = pecas || [];
     const total = pcs.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const fabricacao = pcs.filter(p => ['fabricacao','aguardando','corte'].includes(p.etapa)).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const solda = pcs.filter(p => p.etapa === 'solda').reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const pintura = pcs.filter(p => p.etapa === 'pintura').reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const expedido = pcs.filter(p => p.etapa === 'expedido').reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const enviado = pcs.filter(p => ['enviado','entregue','montagem'].includes(p.etapa)).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const buckets = { fabricacao: 0, solda: 0, pintura: 0, expedido: 0, enviado: 0 };
+    pcs.forEach(p => {
+      const qtd = parseInt(p.quantidade) || 1;
+      const e = p.etapa;
+      if (['fabricacao','aguardando','corte'].includes(e)) buckets.fabricacao += qtd;
+      else if (e === 'solda') buckets.solda += qtd;
+      else if (e === 'pintura') buckets.pintura += qtd;
+      else if (e === 'expedido') buckets.expedido += qtd;
+      else if (['enviado','entregue','montagem'].includes(e)) buckets.enviado += qtd;
+    });
     const pesoTotal = pcs.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-    const pesoFinalizado = pcs.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
+    const pesoFin = pcs.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
       .reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-    const pct = total > 0 ? Math.round(((expedido + enviado) / total) * 100) : 0;
-    return { total, fabricacao, solda, pintura, expedido, enviado, pesoTotal, pesoFinalizado, pct };
+    const pct = total > 0 ? (buckets.expedido + buckets.enviado) / total * 100 : 0;
+    return { total, ...buckets, pesoTotal, pesoFin, pct };
   }, [pecas]);
 
-  // Obras ativas ordenadas por progresso
+  // ===== Sparkline produção últimos 30 dias =====
+  const sparkProducao = useMemo(() => {
+    const arr = Array.from({ length: 30 }, (_, i) => {
+      const d = new Date(); d.setDate(d.getDate() - (29 - i)); d.setHours(0,0,0,0);
+      const fim = new Date(d); fim.setDate(fim.getDate() + 1);
+      const qtd = (historico || []).filter(h => {
+        const md = new Date(h.data_movimentacao);
+        return md >= d && md < fim;
+      }).reduce((s, h) => s + (parseInt(h.quantidade) || 1), 0);
+      return qtd;
+    });
+    return arr;
+  }, [historico]);
+
+  // ===== Heatmap atividade (7 dias × 24h) =====
+  const heatmap = useMemo(() => {
+    // matriz[dia][hora] = qtd lançamentos
+    const matriz = Array.from({ length: 7 }, () => Array(24).fill(0));
+    const labelsDias = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+    let maxVal = 0;
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const inicio = new Date(hoje); inicio.setDate(inicio.getDate() - 6);
+    (historico || []).forEach(h => {
+      const d = new Date(h.data_movimentacao);
+      if (d < inicio) return;
+      const diaIdx = d.getDay();
+      const horaIdx = d.getHours();
+      matriz[diaIdx][horaIdx] += parseInt(h.quantidade) || 1;
+      if (matriz[diaIdx][horaIdx] > maxVal) maxVal = matriz[diaIdx][horaIdx];
+    });
+    return { matriz, labelsDias, max: maxVal || 1 };
+  }, [historico]);
+
+  // ===== Score Saúde Sistêmica =====
+  const score = useMemo(() => {
+    const margem = fi.kpisGerais?.margemReal || 0;
+    const fScore = Math.max(0, Math.min(100, (margem / 25) * 100));
+    const pScore = kpis.pct;
+    const expedScore = kpis.total > 0 ? Math.min(100, (kpis.expedido / kpis.total) * 100 * 1.5) : 0;
+    // Bonus se receita real > 0
+    const rScore = (fi.kpisGerais?.faturamentoRealMes || 0) > 0 ? 80 : 40;
+    return Math.round((fScore * 0.3 + pScore * 0.3 + expedScore * 0.2 + rScore * 0.2));
+  }, [kpis, fi]);
+  const scoreCor = score >= 80 ? '#10b981' : score >= 60 ? '#06b6d4' : score >= 40 ? '#f59e0b' : '#ef4444';
+  const scoreLabel = score >= 80 ? 'OPTIMAL' : score >= 60 ? 'NOMINAL' : score >= 40 ? 'CAUTION' : 'CRITICAL';
+
+  // ===== Obras ativas =====
   const obrasAtivas = useMemo(() => {
-    return (obras || [])
-      .filter(o => !['cancelada','concluida','orcamento'].includes(o.status))
-      .slice(0, 8);
+    return (obras || []).filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
   }, [obras]);
 
-  // KPIs Produção Hoje
-  const kpisHoje = useMemo(() => {
-    const total = (lancamentosHoje || []).reduce((s, h) => s + (parseInt(h.quantidade) || 1), 0);
-    const funcionariosAtivos = new Set((lancamentosHoje || []).map(h => h.funcionario_nome).filter(Boolean));
-    return { totalMovs: lancamentosHoje?.length || 0, pecasMovimentadas: total, funcionariosAtivos: funcionariosAtivos.size };
-  }, [lancamentosHoje]);
+  // ===== Cash flow 6 meses =====
+  const cashFlow = useMemo(() => {
+    if (!fi.evolucaoMensal) return [];
+    return fi.evolucaoMensal.slice(-6).map(m => ({
+      mes: m.mesLabel,
+      receita: m.faturamentoReal || 0,
+      despesa: m.custo || 0,
+      saldo: (m.faturamentoReal || 0) - (m.custo || 0),
+    }));
+  }, [fi]);
 
-  // Pipeline data para gráfico
+  // ===== Pipeline =====
   const pipelineData = useMemo(() => [
-    { etapa: 'Fab', valor: kpisProducao.fabricacao, cor: '#3b82f6' },
-    { etapa: 'Solda', valor: kpisProducao.solda, cor: '#8b5cf6' },
-    { etapa: 'Pintura', valor: kpisProducao.pintura, cor: '#ec4899' },
-    { etapa: 'Expedido', valor: kpisProducao.expedido, cor: '#10b981' },
-    { etapa: 'Enviado', valor: kpisProducao.enviado, cor: '#06b6d4' },
-  ], [kpisProducao]);
+    { name: 'FAB', value: kpis.fabricacao, peso: 0, cor: COR_ETAPAS.fabricacao },
+    { name: 'SOLDA', value: kpis.solda, peso: 0, cor: COR_ETAPAS.solda },
+    { name: 'PINT', value: kpis.pintura, peso: 0, cor: COR_ETAPAS.pintura },
+    { name: 'EXPED', value: kpis.expedido, peso: 0, cor: COR_ETAPAS.expedido },
+    { name: 'ENVD', value: kpis.enviado, peso: 0, cor: COR_ETAPAS.enviado },
+  ], [kpis]);
 
-  // Distribuição de peças por obra (pizza)
-  const distPorObra = useMemo(() => {
-    const map = {};
-    (pecas || []).forEach(p => {
-      const nome = p.obraNome || 'Sem obra';
-      const qtd = parseInt(p.quantidade) || 1;
-      if (!map[nome]) map[nome] = 0;
-      map[nome] += qtd;
+  // ===== Comparativo Mês vs Anterior =====
+  const comparativoMes = useMemo(() => {
+    if (!fi.comparativo) return null;
+    return fi.comparativo;
+  }, [fi]);
+
+  // ===== Radar das obras (top 5) =====
+  const radarObras = useMemo(() => {
+    const ativas = obrasAtivas.slice(0, 5);
+    return ativas.map(o => {
+      const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
+      const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+      const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
+        .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+      const pct = tot > 0 ? (fin / tot) * 100 : 0;
+      return { obra: o.codigo || o.id, valor: Math.round(pct) };
     });
-    const arr = Object.entries(map).map(([nome, valor]) => ({ nome, valor }));
-    return arr.sort((a, b) => b.valor - a.valor).slice(0, 6);
-  }, [pecas]);
+  }, [obrasAtivas, pecas]);
 
-  // Cores para pizza
-  const PIE_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6', '#06b6d4', '#ef4444'];
-
-  // Alertas operacionais
-  const alertasOperacionais = useMemo(() => {
+  // ===== Alertas =====
+  const alertas = useMemo(() => {
     const al = [];
     const hoje = new Date(); hoje.setHours(0,0,0,0);
-    // Despesas vencidas/atrasadas
     const atrasadas = (lancamentosDespesas || []).filter(l => {
       if (l.status === 'pago') return false;
-      const venc = l.dataVencimento || l.data_vencimento;
-      if (!venc) return false;
-      return parseLocalDate(venc) < hoje;
+      const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
+      return v && v < hoje;
     });
     if (atrasadas.length > 0) {
-      al.push({ tipo: 'danger', icon: AlertTriangle, titulo: `${atrasadas.length} despesa(s) atrasada(s)`, valor: fmtR$(atrasadas.reduce((s, a) => s + (a.valor || 0), 0)) });
+      al.push({ nivel: 'CRIT', icon: AlertTriangle, msg: `${atrasadas.length} despesas atrasadas`, valor: fmtR$(atrasadas.reduce((s, a) => s + (a.valor || 0), 0)) });
     }
-    // Peças paradas há muito tempo (vamos simplificar e considerar muitas em uma etapa)
-    if (kpisProducao.fabricacao > 200) {
-      al.push({ tipo: 'warn', icon: Wrench, titulo: `${kpisProducao.fabricacao} pcs em fabricação`, valor: 'Verificar gargalo' });
+    if (kpis.fabricacao > 200) {
+      al.push({ nivel: 'WARN', icon: Wrench, msg: `${fmt(kpis.fabricacao)} pcs paradas em fabricação`, valor: 'Possível gargalo' });
     }
-    // Fila de expedição grande
-    if (expedicao.qtdExpedida > 100) {
-      al.push({ tipo: 'info', icon: Truck, titulo: `${fmt(expedicao.qtdExpedida)} pcs aguardando envio`, valor: fmtPeso(expedicao.pesoExpedido) });
+    if ((fi.kpisGerais?.saldoReal || 0) < 0) {
+      al.push({ nivel: 'CRIT', icon: TrendingDown, msg: 'Saldo mensal negativo', valor: fmtR$(fi.kpisGerais?.saldoReal) });
     }
-    // Saldo baixo
-    if (fi.kpisGerais?.saldoReal != null && fi.kpisGerais.saldoReal < 0) {
-      al.push({ tipo: 'danger', icon: TrendingUp, titulo: 'Saldo mensal negativo', valor: fmtR$(fi.kpisGerais.saldoReal) });
+    if (kpis.expedido > 50) {
+      al.push({ nivel: 'INFO', icon: Truck, msg: `${fmt(kpis.expedido)} pcs aguardando embarque`, valor: fmtPeso(kpis.pesoFin) });
     }
     return al;
-  }, [lancamentosDespesas, kpisProducao, expedicao, fi]);
+  }, [lancamentosDespesas, kpis, fi]);
+
+  // ===== Activity feed =====
+  const activityFeed = useMemo(() => {
+    return [...(historico || [])].reverse().slice(0, 15);
+  }, [historico]);
+
+  // ===== Ranking funcionários =====
+  const ranking = useMemo(() => {
+    const map = {};
+    (historico || []).forEach(h => {
+      const n = h.funcionario_nome || 'Sem nome';
+      if (!map[n]) map[n] = { nome: n, qtd: 0, etapas: new Set() };
+      map[n].qtd += parseInt(h.quantidade) || 1;
+      map[n].etapas.add(h.etapa_para || h.etapa_de);
+    });
+    return Object.values(map)
+      .map(r => ({ ...r, etapas: Array.from(r.etapas).slice(0, 3).join('·') }))
+      .sort((a, b) => b.qtd - a.qtd).slice(0, 8);
+  }, [historico]);
+
+  // ===== Próximos vencimentos =====
+  const proxVenc = useMemo(() => {
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    return (lancamentosDespesas || [])
+      .filter(l => {
+        if (l.status === 'pago') return false;
+        const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
+        if (!v) return false;
+        const dias = Math.round((v - hoje) / 86400000);
+        return dias >= -7 && dias <= 14;
+      })
+      .map(l => {
+        const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
+        const dias = v ? Math.round((v - hoje) / 86400000) : 0;
+        return { ...l, dias };
+      })
+      .sort((a, b) => a.dias - b.dias)
+      .slice(0, 6);
+  }, [lancamentosDespesas]);
+
+  const hora = now.toLocaleTimeString('pt-BR');
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3 -m-4 p-3" style={{
+      background: 'radial-gradient(ellipse at top, #0a1929 0%, #050510 50%, #000 100%)',
+      minHeight: 'calc(100vh - 0px)',
+    }}>
       {/* ============================================ */}
-      {/* HEADER                                       */}
+      {/* HEADER COMMAND BAR                          */}
       {/* ============================================ */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-black text-white flex items-center gap-2">
-            <Activity className="h-6 w-6 text-emerald-400" />
-            Painel Operacional · Visão Geral
-          </h1>
-          <p className="text-xs text-slate-400 mt-1">Produção • Obras • Expedição • Funcionários — atualização em tempo real</p>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          <div className="flex items-center gap-2 text-xs text-slate-400">
-            <Clock className="h-3 w-3" />
-            <span>Hoje: {new Date().toLocaleDateString('pt-BR')}</span>
+      <div className="grid grid-cols-12 gap-3 items-center bg-slate-950/80 border border-cyan-700/30 rounded-lg p-3 backdrop-blur-md"
+        style={{ boxShadow: '0 0 30px rgba(6,182,212,0.1)' }}>
+        <div className="col-span-3 flex items-center gap-3">
+          <div className="relative">
+            <Cpu className="h-7 w-7 text-cyan-400" style={{ filter: 'drop-shadow(0 0 6px #06b6d4)' }} />
+            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
           </div>
-          <button
-            onClick={() => setRefreshKey(k => k + 1)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 border border-slate-700 hover:bg-slate-700 text-xs text-slate-300"
-          >
-            <RefreshCw className="h-3 w-3" />
-            Atualizar
+          <div>
+            <h1 className="text-base font-black text-white tracking-widest">MONTEX <span className="text-cyan-400">VISÃO GERAL</span></h1>
+            <p className="text-[10px] text-slate-500 tracking-wider">SYS::OPERATIONAL-HUD · V5 · ALL MODULES ONLINE</p>
+          </div>
+        </div>
+
+        <div className="col-span-3 grid grid-cols-3 gap-2 text-center">
+          <div>
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest">Date</p>
+            <p className="text-xs text-cyan-300 font-mono">{now.toLocaleDateString('pt-BR')}</p>
+          </div>
+          <div>
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest">Time</p>
+            <p className="text-xs text-cyan-300 font-mono tabular-nums">{hora}</p>
+          </div>
+          <div>
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest">Session</p>
+            <p className="text-xs text-emerald-300 font-mono tabular-nums">{String(Math.floor((bootMs/60000)%60)).padStart(2,'0')}:{String(Math.floor((bootMs/1000)%60)).padStart(2,'0')}</p>
+          </div>
+        </div>
+
+        <div className="col-span-3 flex items-center justify-center gap-4">
+          <HUDGauge value={score} sublabel="health" color={scoreCor} size={70} />
+          <div>
+            <p className="text-[9px] text-slate-500 uppercase tracking-widest">System Status</p>
+            <p className="text-lg font-black tracking-wider" style={{ color: scoreCor }}>{scoreLabel}</p>
+            <p className="text-[9px] text-slate-500">Score: {score}/100</p>
+          </div>
+        </div>
+
+        <div className="col-span-3 flex items-center justify-end gap-3">
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <Radio className="h-3 w-3 text-emerald-400 animate-pulse" />
+            <span className="text-emerald-400 uppercase tracking-wider">Live</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px]">
+            <Shield className="h-3 w-3 text-blue-400" />
+            <span className="text-blue-400 uppercase tracking-wider">Secure</span>
+          </div>
+          <button onClick={() => window.location.reload()}
+            className="px-2 py-1 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded text-[10px] text-cyan-300 uppercase tracking-wider flex items-center gap-1">
+            <RefreshCw className="h-3 w-3" />Refresh
           </button>
         </div>
       </div>
 
       {/* ============================================ */}
-      {/* KPIs PRINCIPAIS (Produção)                  */}
+      {/* 4 GAUGES PRINCIPAIS                         */}
       {/* ============================================ */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
-        <KPIOpCard icon={Package} cor="blue" label="Total Peças"
-          value={fmt(kpisProducao.total)} sub={fmtPeso(kpisProducao.pesoTotal)} />
-        <KPIOpCard icon={Wrench} cor="amber" label="Em Fabricação"
-          value={fmt(kpisProducao.fabricacao)} sub={`${fmtPct(kpisProducao.total > 0 ? kpisProducao.fabricacao / kpisProducao.total * 100 : 0)} do total`} />
-        <KPIOpCard icon={Zap} cor="purple" label="Em Solda"
-          value={fmt(kpisProducao.solda)} sub={`${fmtPct(kpisProducao.total > 0 ? kpisProducao.solda / kpisProducao.total * 100 : 0)} do total`} />
-        <KPIOpCard icon={Paintbrush} cor="rose" label="Em Pintura"
-          value={fmt(kpisProducao.pintura)} sub={`${fmtPct(kpisProducao.total > 0 ? kpisProducao.pintura / kpisProducao.total * 100 : 0)} do total`} />
-        <KPIOpCard icon={Truck} cor="emerald" label="Expedido / Enviado"
-          value={fmt(kpisProducao.expedido + kpisProducao.enviado)} sub={`${fmtPeso(kpisProducao.pesoFinalizado)} prontos`} />
-        <KPIOpCard icon={Target} cor="cyan" label="% Concluído Geral"
-          value={fmtPct(kpisProducao.pct)} sub={`${fmt(kpisProducao.expedido + kpisProducao.enviado)} de ${fmt(kpisProducao.total)} pcs`} />
+      <div className="grid grid-cols-12 gap-3">
+        <HUDPanel className="col-span-3" title="PRODUCTION" glow="#3b82f6" subtitle="conclusão geral">
+          <div className="flex items-center gap-3">
+            <HUDGauge value={kpis.pct} color="#3b82f6" size={90} sublabel="completo" />
+            <div className="flex-1 space-y-1">
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Total</span><span className="text-white font-bold tabular-nums">{fmt(kpis.total)}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Finalizado</span><span className="text-emerald-300 font-bold tabular-nums">{fmt(kpis.expedido + kpis.enviado)}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Peso total</span><span className="text-white font-bold tabular-nums">{fmtPeso(kpis.pesoTotal)}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Peso pronto</span><span className="text-emerald-300 font-bold tabular-nums">{fmtPeso(kpis.pesoFin)}</span></div>
+            </div>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-800/60">
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest mb-1">30-day trend</p>
+            <Sparkline data={sparkProducao} color="#3b82f6" height={28} />
+          </div>
+        </HUDPanel>
+
+        <HUDPanel className="col-span-3" title="FINANCIAL" glow="#10b981" subtitle="margem operacional">
+          <div className="flex items-center gap-3">
+            <HUDGauge value={Math.max(0, Math.min(100, fi.kpisGerais?.margemReal || 0))} color="#10b981" size={90} sublabel="margem" />
+            <div className="flex-1 space-y-1">
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Receita</span><span className="text-emerald-300 font-bold tabular-nums">{fmtR$k(fi.kpisGerais?.faturamentoRealMes || 0)}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Despesa</span><span className="text-rose-300 font-bold tabular-nums">{fmtR$k(fi.kpisGerais?.despesaMensalMedia || 0)}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Saldo</span><span className={`font-bold tabular-nums ${(fi.kpisGerais?.saldoReal || 0) >= 0 ? 'text-blue-300' : 'text-rose-300'}`}>{fmtR$k(fi.kpisGerais?.saldoReal || 0)}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Margem</span><span className="text-amber-300 font-bold tabular-nums">{(fi.kpisGerais?.margemReal || 0).toFixed(1)}%</span></div>
+            </div>
+          </div>
+          <div className="mt-2 pt-2 border-t border-slate-800/60">
+            <p className="text-[8px] text-slate-500 uppercase tracking-widest mb-1">Cash flow 6M</p>
+            <Sparkline data={cashFlow.map(c => c.saldo)} color="#10b981" height={28} />
+          </div>
+        </HUDPanel>
+
+        <HUDPanel className="col-span-3" title="SHIPPING" glow="#06b6d4" subtitle="expedição & envios">
+          <div className="flex items-center gap-3">
+            <HUDGauge value={kpis.total > 0 ? (kpis.expedido + kpis.enviado) / kpis.total * 100 : 0} color="#06b6d4" size={90} sublabel="enviado" />
+            <div className="flex-1 space-y-1">
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Fila embarque</span><span className="text-cyan-300 font-bold tabular-nums">{fmt(kpis.expedido)} pcs</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Já enviado</span><span className="text-emerald-300 font-bold tabular-nums">{fmt(kpis.enviado)} pcs</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Em pintura</span><span className="text-pink-300 font-bold tabular-nums">{fmt(kpis.pintura)} pcs</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Em solda</span><span className="text-purple-300 font-bold tabular-nums">{fmt(kpis.solda)} pcs</span></div>
+            </div>
+          </div>
+        </HUDPanel>
+
+        <HUDPanel className="col-span-3" title="ALERTS" glow={alertas.length > 0 ? '#ef4444' : '#10b981'} subtitle={`${alertas.length} ativos`}
+          status={alertas.length > 0 ? 'alert' : 'online'}>
+          <div className="flex items-center gap-3">
+            <HUDGauge value={Math.max(0, 100 - alertas.length * 15)} color={alertas.length > 0 ? '#ef4444' : '#10b981'} size={90} sublabel="health" />
+            <div className="flex-1 space-y-1">
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Críticos</span><span className="text-red-300 font-bold tabular-nums">{alertas.filter(a => a.nivel === 'CRIT').length}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Atenção</span><span className="text-amber-300 font-bold tabular-nums">{alertas.filter(a => a.nivel === 'WARN').length}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Informativos</span><span className="text-cyan-300 font-bold tabular-nums">{alertas.filter(a => a.nivel === 'INFO').length}</span></div>
+              <div className="flex justify-between text-[10px]"><span className="text-slate-500">Obras ativas</span><span className="text-white font-bold tabular-nums">{obrasAtivas.length}</span></div>
+            </div>
+          </div>
+        </HUDPanel>
       </div>
 
       {/* ============================================ */}
-      {/* PRODUÇÃO HOJE + PIPELINE + DIST POR OBRA    */}
+      {/* PIPELINE + CASH FLOW + RADAR                */}
       {/* ============================================ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        {/* Produção Hoje */}
-        <motion.div
-          initial={{ opacity: 0, x: -20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-gradient-to-br from-emerald-900/20 to-green-900/10 border border-emerald-700/30 rounded-xl p-4"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
-              <h3 className="text-sm font-bold text-emerald-300">PRODUÇÃO HOJE</h3>
-            </div>
-            <span className="text-[10px] text-slate-500">{new Date().toLocaleDateString('pt-BR')}</span>
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between items-baseline">
-              <span className="text-xs text-slate-400">Lançamentos</span>
-              <span className="text-2xl font-black text-emerald-400">{kpisHoje.totalMovs}</span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-xs text-slate-400">Peças movimentadas</span>
-              <span className="text-xl font-bold text-white">{fmt(kpisHoje.pecasMovimentadas)}</span>
-            </div>
-            <div className="flex justify-between items-baseline">
-              <span className="text-xs text-slate-400">Funcionários ativos</span>
-              <span className="text-xl font-bold text-cyan-300">{kpisHoje.funcionariosAtivos}</span>
-            </div>
-            <div className="mt-3 pt-3 border-t border-emerald-700/20">
-              <div className="text-[10px] text-slate-500 mb-1">Movimentos nas últimas horas</div>
-              <div className="grid grid-cols-6 gap-0.5 h-8">
-                {Array.from({ length: 24 }).map((_, h) => {
-                  const hora = new Date(); hora.setHours(h, 0, 0, 0);
-                  const horaProxima = new Date(); horaProxima.setHours(h + 1, 0, 0, 0);
-                  const count = (lancamentosHoje || []).filter(l => {
-                    const d = new Date(l.data_movimentacao);
-                    return d >= hora && d < horaProxima;
-                  }).length;
-                  const max = Math.max(1, ...Array.from({ length: 24 }).map((_, hh) => {
-                    const a = new Date(); a.setHours(hh, 0, 0, 0);
-                    const b = new Date(); b.setHours(hh + 1, 0, 0, 0);
-                    return (lancamentosHoje || []).filter(l => {
-                      const d = new Date(l.data_movimentacao);
-                      return d >= a && d < b;
-                    }).length;
-                  }));
-                  const altura = (count / max) * 100;
-                  return (
-                    <div key={h} className="bg-emerald-500/20 rounded-sm" style={{ height: `${Math.max(8, altura)}%` }} title={`${h}h: ${count} movs`} />
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Pipeline Produção */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-4"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <Layers className="h-4 w-4 text-blue-400" />
-            <h3 className="text-sm font-bold text-white">PIPELINE DE PRODUÇÃO</h3>
-          </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={pipelineData} layout="vertical" margin={{ left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-              <XAxis type="number" stroke="#64748b" fontSize={10} />
-              <YAxis type="category" dataKey="etapa" stroke="#94a3b8" fontSize={11} width={60} />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                formatter={(v) => [fmt(v) + ' pcs', '']}
-              />
-              <Bar dataKey="valor" radius={[0, 6, 6, 0]}>
-                {pipelineData.map((e, i) => <Cell key={i} fill={e.cor} />)}
+      <div className="grid grid-cols-12 gap-3">
+        {/* Pipeline */}
+        <HUDPanel className="col-span-4" title="PIPELINE PRODUÇÃO" glow="#8b5cf6" subtitle="peças por etapa">
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={pipelineData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
+              <defs>
+                {pipelineData.map((d, i) => (
+                  <linearGradient key={i} id={`bar-${d.name}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={d.cor} stopOpacity={1} />
+                    <stop offset="100%" stopColor={d.cor} stopOpacity={0.4} />
+                  </linearGradient>
+                ))}
+              </defs>
+              <CartesianGrid strokeDasharray="2 2" stroke="#1e293b" vertical={false} />
+              <XAxis dataKey="name" stroke="#475569" fontSize={10} tick={{ fill: '#94a3b8', fontFamily: 'monospace' }} />
+              <YAxis stroke="#475569" fontSize={9} tick={{ fill: '#64748b' }} />
+              <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '6px', fontSize: '10px' }}
+                formatter={(v) => [fmt(v) + ' pcs', '']} />
+              <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                {pipelineData.map((e, i) => <Cell key={i} fill={`url(#bar-${e.name})`} stroke={e.cor} strokeWidth={1} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </motion.div>
-
-        {/* Distribuição por Obra */}
-        <motion.div
-          initial={{ opacity: 0, x: 20 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="bg-slate-900/60 border border-slate-700/50 rounded-xl p-4"
-        >
-          <div className="flex items-center gap-2 mb-3">
-            <Building2 className="h-4 w-4 text-purple-400" />
-            <h3 className="text-sm font-bold text-white">PEÇAS POR OBRA</h3>
+          <div className="grid grid-cols-5 gap-1 mt-2 text-center">
+            {pipelineData.map(d => (
+              <div key={d.name} className="text-[9px]">
+                <p className="text-slate-500 uppercase tracking-wider">{d.name}</p>
+                <p className="font-bold tabular-nums" style={{ color: d.cor }}>{fmt(d.value)}</p>
+              </div>
+            ))}
           </div>
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie data={distPorObra} cx="50%" cy="50%" innerRadius={40} outerRadius={75} paddingAngle={2} dataKey="valor">
-                {distPorObra.map((e, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-              </Pie>
-              <Tooltip
-                contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }}
-                formatter={(v) => [fmt(v) + ' pcs', '']}
-              />
-            </PieChart>
+        </HUDPanel>
+
+        {/* Cash Flow */}
+        <HUDPanel className="col-span-5" title="CASH FLOW ANALYSIS" glow="#10b981" subtitle="receitas × despesas 6M">
+          <ResponsiveContainer width="100%" height={220}>
+            <ComposedChart data={cashFlow}>
+              <defs>
+                <linearGradient id="recArea" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#10b981" stopOpacity={0.5} />
+                  <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="2 2" stroke="#1e293b" />
+              <XAxis dataKey="mes" stroke="#475569" fontSize={10} tick={{ fill: '#94a3b8' }} />
+              <YAxis stroke="#475569" fontSize={9} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} tick={{ fill: '#64748b' }} />
+              <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '6px', fontSize: '10px' }}
+                formatter={(v) => fmtR$(v)} />
+              <Legend wrapperStyle={{ fontSize: '10px', color: '#94a3b8' }} />
+              <Area type="monotone" dataKey="receita" name="Receita" stroke="#10b981" strokeWidth={2} fill="url(#recArea)" />
+              <Bar dataKey="despesa" name="Despesa" fill="#ef4444" radius={[2, 2, 0, 0]} barSize={20} />
+              <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#06b6d4" strokeWidth={2.5} dot={{ r: 3, fill: '#06b6d4' }} />
+            </ComposedChart>
           </ResponsiveContainer>
-          <div className="space-y-1 mt-2 max-h-24 overflow-y-auto">
-            {distPorObra.map((o, i) => (
-              <div key={i} className="flex items-center justify-between text-[10px]">
-                <span className="flex items-center gap-1.5 text-slate-300 truncate flex-1">
-                  <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: PIE_COLORS[i % PIE_COLORS.length] }} />
-                  <span className="truncate">{o.nome}</span>
-                </span>
-                <span className="text-white font-semibold ml-2">{fmt(o.valor)}</span>
-              </div>
-            ))}
-          </div>
-        </motion.div>
+        </HUDPanel>
+
+        {/* Radar Obras */}
+        <HUDPanel className="col-span-3" title="OBRAS RADAR" glow="#ec4899" subtitle="top 5 conclusão">
+          {radarObras.length > 0 ? (
+            <ResponsiveContainer width="100%" height={220}>
+              <RadarChart data={radarObras}>
+                <PolarGrid stroke="#1e293b" />
+                <PolarAngleAxis dataKey="obra" tick={{ fill: '#94a3b8', fontSize: 10, fontFamily: 'monospace' }} />
+                <PolarRadiusAxis stroke="#1e293b" tick={{ fill: '#475569', fontSize: 9 }} />
+                <Radar name="Conclusão" dataKey="valor" stroke="#ec4899" fill="#ec4899" fillOpacity={0.4}
+                  style={{ filter: 'drop-shadow(0 0 4px #ec4899)' }} />
+              </RadarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex items-center justify-center h-[220px]">
+              <p className="text-xs text-slate-500 italic">Sem obras ativas</p>
+            </div>
+          )}
+        </HUDPanel>
       </div>
 
       {/* ============================================ */}
-      {/* OBRAS ATIVAS                                 */}
+      {/* HEATMAP + COMPARATIVO + OBRAS LISTA          */}
       {/* ============================================ */}
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <Building2 className="h-5 w-5 text-blue-400" />
-            <h2 className="text-lg font-bold text-white">OBRAS ATIVAS</h2>
-            <span className="text-xs text-slate-500">{obrasAtivas.length} obras em andamento</span>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          {obrasAtivas.map(o => (
-            <ObraCard key={o.id} obra={o} pecas={pecas} medicoes={medicoes} />
-          ))}
-        </div>
-      </div>
-
-      {/* ============================================ */}
-      {/* EXPEDIÇÃO + RANKING FUNCIONÁRIOS            */}
-      {/* ============================================ */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Expedição */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-br from-cyan-900/20 to-blue-900/10 border border-cyan-700/30 rounded-xl p-4"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Truck className="h-5 w-5 text-cyan-400" />
-              <h3 className="text-sm font-bold text-cyan-300">EXPEDIÇÃO & ENVIOS</h3>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-slate-900/40 rounded-lg p-3">
-              <p className="text-[10px] text-slate-400 uppercase">Fila de Embarque</p>
-              <p className="text-2xl font-black text-cyan-300">{fmt(expedicao.qtdExpedida)}</p>
-              <p className="text-[10px] text-slate-500">{fmtPeso(expedicao.pesoExpedido)}</p>
-            </div>
-            <div className="bg-slate-900/40 rounded-lg p-3">
-              <p className="text-[10px] text-slate-400 uppercase">Já Enviado</p>
-              <p className="text-2xl font-black text-emerald-300">{fmt(expedicao.qtdEnviada)}</p>
-              <p className="text-[10px] text-slate-500">{fmtPeso(expedicao.pesoEnviado)}</p>
-            </div>
-          </div>
-          <p className="text-[10px] text-slate-400 uppercase mb-2">Fila por Obra (top 6)</p>
-          <div className="space-y-1.5">
-            {expedicao.filaPorObra.length === 0 && (
-              <p className="text-xs text-slate-500 italic">Nenhuma peça em fila de embarque.</p>
-            )}
-            {expedicao.filaPorObra.map((o, i) => (
-              <div key={i} className="flex items-center justify-between text-xs bg-slate-900/40 rounded px-2 py-1.5">
-                <span className="text-slate-300 truncate flex-1">{o.nome}</span>
-                <span className="text-cyan-300 font-semibold ml-2">{fmt(o.qtd)} pcs</span>
-                <span className="text-slate-500 ml-2">{fmtPeso(o.peso)}</span>
+      <div className="grid grid-cols-12 gap-3">
+        {/* Heatmap atividade */}
+        <HUDPanel className="col-span-5" title="ACTIVITY HEATMAP" glow="#f59e0b" subtitle="últimos 7 dias × 24h">
+          <div className="overflow-x-auto">
+            <div className="inline-block min-w-full">
+              <div className="flex items-center gap-px mb-1 ml-8">
+                {Array.from({ length: 24 }).map((_, h) => (
+                  <div key={h} className="w-[14px] text-center text-[8px] text-slate-600 font-mono">
+                    {h % 4 === 0 ? `${h}h` : ''}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Ranking Funcionários */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-gradient-to-br from-amber-900/20 to-orange-900/10 border border-amber-700/30 rounded-xl p-4"
-        >
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Award className="h-5 w-5 text-amber-400" />
-              <h3 className="text-sm font-bold text-amber-300">RANKING DE FUNCIONÁRIOS (mês)</h3>
+              {heatmap.matriz.map((row, di) => (
+                <div key={di} className="flex items-center gap-px mb-px">
+                  <div className="w-7 text-[9px] text-slate-500 font-mono uppercase">{heatmap.labelsDias[di]}</div>
+                  {row.map((val, hi) => {
+                    const intensity = val / heatmap.max;
+                    const bg = val === 0
+                      ? 'rgba(15,23,42,0.4)'
+                      : `rgba(245, 158, 11, ${0.15 + intensity * 0.85})`;
+                    return (
+                      <div key={hi}
+                        title={`${heatmap.labelsDias[di]} ${hi}h: ${val} movs`}
+                        className="w-[14px] h-[14px] rounded-[2px] transition-all hover:ring-1 hover:ring-amber-400"
+                        style={{
+                          backgroundColor: bg,
+                          boxShadow: intensity > 0.5 ? `0 0 4px rgba(245,158,11,${intensity})` : 'none',
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
             </div>
           </div>
-          <div className="space-y-1.5">
-            {rankingMes.length === 0 && (
-              <p className="text-xs text-slate-500 italic">Sem lançamentos de produção neste mês.</p>
-            )}
-            {rankingMes.map((f, i) => {
-              const medalha = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i + 1}`;
-              const max = rankingMes[0]?.qtd || 1;
-              const pct = (f.qtd / max) * 100;
-              return (
-                <div key={i} className="bg-slate-900/40 rounded p-2">
+          <div className="mt-2 pt-2 border-t border-slate-800/60 flex items-center justify-between text-[9px] text-slate-500">
+            <span>Total semana: <strong className="text-amber-300">{fmt(heatmap.matriz.flat().reduce((s, v) => s + v, 0))}</strong> movs</span>
+            <div className="flex items-center gap-1">
+              <span>Menor</span>
+              {[0.15, 0.35, 0.55, 0.75, 1].map((i, idx) => (
+                <div key={idx} className="w-3 h-3 rounded-[2px]" style={{ backgroundColor: `rgba(245,158,11,${i})` }} />
+              ))}
+              <span>Maior</span>
+            </div>
+          </div>
+        </HUDPanel>
+
+        {/* Comparativo mês × anterior */}
+        <HUDPanel className="col-span-3" title="MONTH-OVER-MONTH" glow="#3b82f6" subtitle="comparativo">
+          <div className="space-y-2">
+            {comparativoMes ? (
+              <>
+                <div className="bg-slate-900/40 rounded p-2">
                   <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2 flex-1 min-w-0">
-                      <span className="text-sm">{medalha}</span>
-                      <span className="text-xs text-white font-medium truncate">{f.nome}</span>
-                    </div>
-                    <span className="text-amber-400 font-bold text-sm ml-2">{fmt(f.qtd)}</span>
+                    <span className="text-[10px] text-emerald-300 uppercase tracking-wider">Receita</span>
+                    <span className={`text-[10px] font-bold flex items-center gap-0.5 ${comparativoMes.deltaReceitas >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {comparativoMes.deltaReceitas >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {Math.abs(comparativoMes.deltaReceitas || 0).toFixed(1)}%
+                    </span>
                   </div>
-                  <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-amber-500 to-orange-500 rounded-full" style={{ width: `${pct}%` }} />
-                  </div>
-                  <p className="text-[9px] text-slate-500 mt-0.5">{f.etapas}</p>
+                  <p className="text-base font-black text-white tabular-nums">{fmtR$k(comparativoMes.atual?.receitas || 0)}</p>
+                  <p className="text-[9px] text-slate-500">vs {fmtR$k(comparativoMes.anterior?.receitas || 0)}</p>
                 </div>
-              );
-            })}
+                <div className="bg-slate-900/40 rounded p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-rose-300 uppercase tracking-wider">Despesa</span>
+                    <span className={`text-[10px] font-bold flex items-center gap-0.5 ${comparativoMes.deltaDespesas <= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {comparativoMes.deltaDespesas >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {Math.abs(comparativoMes.deltaDespesas || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                  <p className="text-base font-black text-white tabular-nums">{fmtR$k(comparativoMes.atual?.despesas || 0)}</p>
+                  <p className="text-[9px] text-slate-500">vs {fmtR$k(comparativoMes.anterior?.despesas || 0)}</p>
+                </div>
+                <div className="bg-slate-900/40 rounded p-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-blue-300 uppercase tracking-wider">Lucro</span>
+                    <span className={`text-[10px] font-bold flex items-center gap-0.5 ${comparativoMes.deltaLucro >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                      {comparativoMes.deltaLucro >= 0 ? <TrendingUp className="h-3 w-3" /> : <TrendingDown className="h-3 w-3" />}
+                      {Math.abs(comparativoMes.deltaLucro || 0).toFixed(1)}%
+                    </span>
+                  </div>
+                  <p className={`text-base font-black tabular-nums ${(comparativoMes.atual?.lucro || 0) >= 0 ? 'text-blue-300' : 'text-rose-300'}`}>{fmtR$k(comparativoMes.atual?.lucro || 0)}</p>
+                  <p className="text-[9px] text-slate-500">vs {fmtR$k(comparativoMes.anterior?.lucro || 0)}</p>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-slate-500 italic text-center py-4">Sem dados de comparação</p>
+            )}
           </div>
-        </motion.div>
-      </div>
+        </HUDPanel>
 
-      {/* ============================================ */}
-      {/* RESUMO FINANCEIRO (secundário)              */}
-      {/* ============================================ */}
-      <div>
-        <div className="flex items-center gap-2 mb-3">
-          <BarChart3 className="h-4 w-4 text-emerald-400" />
-          <h2 className="text-sm font-bold text-slate-300">RESUMO FINANCEIRO DO MÊS</h2>
-          <span className="text-[10px] text-slate-500">(visão de apoio — detalhes em Painel Financeiro)</span>
-        </div>
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KPIOpCard icon={ArrowUpRight} cor="emerald" label="Receita Mês"
-            value={fmtR$(fi.kpisGerais?.faturamentoRealMes || 0)}
-            sub={`${fi.kpisGerais?.qtdReceitasLancadas || 0} lançamentos`} />
-          <KPIOpCard icon={ArrowDownRight} cor="rose" label="Despesa Mês"
-            value={fmtR$(fi.kpisGerais?.despesaMensalMedia || 0)}
-            sub={`média ${fi.kpisGerais?.mesesBaseCalculo || 0}M`} />
-          <KPIOpCard icon={TrendingUp} cor={fi.kpisGerais?.saldoReal >= 0 ? 'blue' : 'rose'} label="Saldo Mensal"
-            value={fmtR$(fi.kpisGerais?.saldoReal || 0)}
-            sub={`Margem ${(fi.kpisGerais?.margemReal || 0).toFixed(1)}%`} />
-          <KPIOpCard icon={Target} cor="purple" label="Obras Ativas"
-            value={obrasAtivas.length}
-            sub={`Valor total: ${fmtR$(obrasAtivas.reduce((s, o) => s + (o.contratoValorTotal || o.valorContrato || 0), 0))}`} />
-        </div>
-      </div>
-
-      {/* ============================================ */}
-      {/* ALERTAS OPERACIONAIS                         */}
-      {/* ============================================ */}
-      {alertasOperacionais.length > 0 && (
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle className="h-4 w-4 text-amber-400" />
-            <h2 className="text-sm font-bold text-amber-300">ALERTAS OPERACIONAIS</h2>
-            <span className="text-[10px] text-slate-500">{alertasOperacionais.length} alerta(s)</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {alertasOperacionais.map((a, i) => {
-              const Icon = a.icon;
-              const cor = a.tipo === 'danger' ? 'border-red-700/40 bg-red-900/20 text-red-300'
-                : a.tipo === 'warn' ? 'border-amber-700/40 bg-amber-900/20 text-amber-300'
-                : 'border-blue-700/40 bg-blue-900/20 text-blue-300';
+        {/* Obras lista compacta */}
+        <HUDPanel className="col-span-4" title="ACTIVE OPERATIONS" glow="#3b82f6" subtitle={`${obrasAtivas.length} obras`}>
+          <div className="space-y-1 max-h-[260px] overflow-y-auto pr-1">
+            {obrasAtivas.length === 0 ? (
+              <p className="text-xs text-slate-500 italic text-center py-4">Sem operações ativas</p>
+            ) : obrasAtivas.map(o => {
+              const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
+              const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+              const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
+                .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+              const pct = tot > 0 ? Math.round((fin / tot) * 100) : 0;
+              const cor = pct >= 80 ? '#10b981' : pct >= 50 ? '#06b6d4' : pct >= 25 ? '#f59e0b' : '#ef4444';
               return (
-                <div key={i} className={`rounded-lg border p-3 ${cor}`}>
-                  <div className="flex items-start gap-2">
-                    <Icon className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                <div key={o.id} className="bg-slate-900/40 hover:bg-slate-900/70 border border-slate-800 rounded p-2 transition-all">
+                  <div className="flex items-center gap-2">
+                    <div className="font-mono text-[9px] text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded">{o.codigo}</div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold truncate">{a.titulo}</p>
-                      <p className="text-[10px] opacity-80 truncate">{a.valor}</p>
+                      <p className="text-xs text-white truncate font-medium">{o.nome}</p>
+                      <p className="text-[9px] text-slate-500">{fmt(fin)}/{fmt(tot)} · {fmtR$k(o.contratoValorTotal || o.valorContrato || 0)}</p>
                     </div>
+                    <p className="text-sm font-black tabular-nums" style={{ color: cor }}>{pct}%</p>
+                  </div>
+                  <div className="h-1 bg-slate-800 rounded-full overflow-hidden mt-1.5">
+                    <motion.div initial={{ width: 0 }} animate={{ width: `${pct}%` }} transition={{ duration: 1 }}
+                      className="h-full rounded-full" style={{ backgroundColor: cor, boxShadow: `0 0 4px ${cor}80` }} />
                   </div>
                 </div>
               );
             })}
           </div>
-        </div>
-      )}
+        </HUDPanel>
+      </div>
 
-      {/* Rodapé */}
-      <div className="text-center text-[10px] text-slate-600 pt-2">
-        MONTEX ERP · Painel Operacional · Dados em tempo real
+      {/* ============================================ */}
+      {/* ACTIVITY FEED + RANKING + ALERTAS + VENCIMENTOS */}
+      {/* ============================================ */}
+      <div className="grid grid-cols-12 gap-3">
+        {/* Activity Feed */}
+        <HUDPanel className="col-span-3" title="ACTIVITY FEED" glow="#06b6d4" subtitle="últimas movs">
+          <div className="space-y-1 max-h-[280px] overflow-y-auto pr-1">
+            {activityFeed.length === 0 ? (
+              <p className="text-xs text-slate-500 italic text-center py-4">Aguardando dados...</p>
+            ) : activityFeed.map((h, i) => {
+              const tempo = new Date(h.data_movimentacao);
+              const diff = (new Date() - tempo) / 60000;
+              const tempoTxt = diff < 60 ? `${Math.round(diff)}m` : diff < 1440 ? `${Math.round(diff/60)}h` : `${Math.round(diff/1440)}d`;
+              const corEtapa = COR_ETAPAS[h.etapa_para] || '#94a3b8';
+              return (
+                <div key={i} className="flex items-center gap-2 text-[10px] py-1 border-b border-slate-800/50">
+                  <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ backgroundColor: corEtapa, boxShadow: `0 0 4px ${corEtapa}` }} />
+                  <span className="text-slate-500 font-mono w-7 flex-shrink-0">{tempoTxt}</span>
+                  <span className="text-cyan-300 truncate flex-1">{(h.funcionario_nome || '—').split(' ')[0]}</span>
+                  <span className="text-slate-400 uppercase font-mono text-[9px]">{h.etapa_para}</span>
+                  <span className="text-white font-bold ml-1 tabular-nums">×{h.quantidade}</span>
+                </div>
+              );
+            })}
+          </div>
+        </HUDPanel>
+
+        {/* Ranking funcionários */}
+        <HUDPanel className="col-span-3" title="TOP PERFORMERS" glow="#f59e0b" subtitle="ranking mês">
+          <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+            {ranking.length === 0 ? (
+              <p className="text-xs text-slate-500 italic text-center py-4">Sem lançamentos</p>
+            ) : ranking.map((f, i) => {
+              const max = ranking[0]?.qtd || 1;
+              const pct = (f.qtd / max) * 100;
+              const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : `#${i+1}`;
+              return (
+                <div key={i} className="bg-slate-900/40 rounded p-1.5">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                      <span className="text-[10px] flex-shrink-0">{medal}</span>
+                      <span className="text-[11px] text-white truncate">{f.nome}</span>
+                    </div>
+                    <span className="text-amber-300 font-bold text-xs tabular-nums ml-2">{fmt(f.qtd)}</span>
+                  </div>
+                  <div className="h-0.5 bg-slate-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-gradient-to-r from-amber-500 to-orange-500" style={{ width: `${pct}%`, boxShadow: '0 0 4px #f59e0b' }} />
+                  </div>
+                  <p className="text-[8px] text-slate-500 truncate mt-0.5 uppercase">{f.etapas}</p>
+                </div>
+              );
+            })}
+          </div>
+        </HUDPanel>
+
+        {/* Alertas */}
+        <HUDPanel className="col-span-3" title="ALERT SYSTEM" glow={alertas.length ? '#ef4444' : '#10b981'} subtitle={`${alertas.length} alerts`}
+          status={alertas.length ? 'alert' : 'online'}>
+          <div className="space-y-1.5 max-h-[280px] overflow-y-auto">
+            {alertas.length === 0 ? (
+              <div className="text-center py-6">
+                <CheckCircle2 className="h-8 w-8 text-emerald-400 mx-auto mb-2" />
+                <p className="text-xs text-emerald-300 uppercase tracking-wider">All Systems Nominal</p>
+              </div>
+            ) : alertas.map((a, i) => {
+              const cor = a.nivel === 'CRIT' ? '#ef4444' : a.nivel === 'WARN' ? '#f59e0b' : '#06b6d4';
+              const Icon = a.icon;
+              return (
+                <motion.div key={i}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="bg-slate-900/60 border-l-2 rounded-r p-2 flex items-start gap-2"
+                  style={{ borderLeftColor: cor }}
+                >
+                  <Icon className="h-3 w-3 mt-0.5 flex-shrink-0" style={{ color: cor }} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[8px] font-bold uppercase tracking-wider" style={{ color: cor }}>[{a.nivel}]</span>
+                    </div>
+                    <p className="text-[10px] text-white">{a.msg}</p>
+                    {a.valor && <p className="text-[9px] text-slate-400">{a.valor}</p>}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </HUDPanel>
+
+        {/* Próximos vencimentos */}
+        <HUDPanel className="col-span-3" title="UPCOMING PAYMENTS" glow="#ec4899" subtitle="próximos 14 dias">
+          <div className="space-y-1 max-h-[280px] overflow-y-auto pr-1">
+            {proxVenc.length === 0 ? (
+              <p className="text-xs text-slate-500 italic text-center py-4">Sem vencimentos próximos</p>
+            ) : proxVenc.map((l, i) => {
+              const cor = l.dias < 0 ? '#ef4444' : l.dias <= 2 ? '#f59e0b' : l.dias <= 7 ? '#06b6d4' : '#64748b';
+              return (
+                <div key={i} className="bg-slate-900/40 rounded p-1.5 border-l-2" style={{ borderLeftColor: cor }}>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[10px] text-white truncate flex-1">{l.descricao || l.fornecedor || '—'}</p>
+                    <span className="text-[9px] font-bold tabular-nums whitespace-nowrap" style={{ color: cor }}>
+                      {l.dias < 0 ? `${Math.abs(l.dias)}d atraso` : l.dias === 0 ? 'HOJE' : `${l.dias}d`}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[9px] mt-0.5">
+                    <span className="text-slate-500 truncate">{l.fornecedor}</span>
+                    <span className="text-rose-300 font-bold tabular-nums ml-2">{fmtR$(l.valor || 0)}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </HUDPanel>
+      </div>
+
+      {/* Footer */}
+      <div className="flex items-center justify-between text-[9px] text-slate-600 px-2 py-1 border-t border-slate-800/50">
+        <div className="flex items-center gap-4">
+          <span>MONTEX ERP V5 · VISÃO GERAL HUD</span>
+          <span className="flex items-center gap-1"><Activity className="h-2.5 w-2.5 text-emerald-400" /> SUPABASE LIVE</span>
+          <span className="flex items-center gap-1"><Power className="h-2.5 w-2.5 text-emerald-400" /> ALL SYSTEMS GO</span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="font-mono">SESS::{Date.now().toString(36).toUpperCase().slice(-8)}</span>
+        </div>
       </div>
     </div>
   );
