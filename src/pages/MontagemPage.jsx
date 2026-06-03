@@ -21,6 +21,7 @@ import * as Select from '@radix-ui/react-select';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useObras, useProducao, useEquipes } from '../contexts/ERPContext';
+import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal } from '../utils/montagemSync';
 
 // ============================================
 // HELPERS
@@ -39,28 +40,21 @@ const fmtData = (d) => {
 };
 
 // ============================================
-// MÓDULO INDEPENDENTE — usa localStorage para status
+// MÓDULO INDEPENDENTE — status persistido em localStorage + Supabase
 // ============================================
 // Apenas peças com etapa='enviado' entram no módulo (AUTO-PULL).
-// O status "Montado" é gerenciado VIA localStorage neste módulo,
-// SEM alterar a etapa do banco (independente da Fabricação/Expedição).
-const LS_KEY_CONCLUIDAS = 'montex_montagem_concluidas_v1';
+// O status "Montado" é gerenciado neste módulo SEM alterar a etapa do
+// banco principal (independente da Fabricação/Expedição). Persistência:
+//   - localStorage (cache rápido)
+//   - Supabase entity_store (sync entre máquinas)
+// Ver: src/utils/montagemSync.js
 
-const carregarConcluidas = () => {
-  try {
-    const raw = localStorage.getItem(LS_KEY_CONCLUIDAS);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
-};
-const salvarConcluidas = (obj) => {
-  try { localStorage.setItem(LS_KEY_CONCLUIDAS, JSON.stringify(obj)); } catch {}
-};
+const carregarConcluidas = loadConcluidasLocal;
+const salvarConcluidas = saveConcluidasSmart;
 
-// Status do módulo (derivado da etapa + override localStorage)
+// Status do módulo (derivado da etapa + override de concluidas)
 const statusFromEtapa = (etapa, concluidas, pecaId) => {
-  // Só peças explicitamente em etapa='enviado' fazem parte do módulo
   if (etapa !== 'enviado') return null;
-  // Override: se foi marcada como montada no módulo, vira 'montado'
   if (concluidas && concluidas[pecaId]) return 'montado';
   return 'aguardando_montagem';
 };
@@ -223,8 +217,11 @@ export default function MontagemPage() {
   const [viewMode, setViewMode] = useState('kanban'); // kanban | lista
   const [pecaDetalhe, setPecaDetalhe] = useState(null);
 
-  // ===== Concluídas (independente do banco — localStorage) =====
-  const [concluidas, setConcluidas] = useState(() => carregarConcluidas());
+  // ===== Concluídas (localStorage + Supabase sync) =====
+  const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(remoto => {
+    // Callback quando o remoto for diferente do local — atualiza UI
+    setConcluidas(remoto);
+  }));
 
   const setConcluida = (pecaId, montada) => {
     setConcluidas(prev => {

@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
+import { loadConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY } from '../utils/montagemSync';
 
 // Load web-ifc dynamically from same-origin public folder to avoid Vercel build issues
 let _WebIFC = null;
@@ -123,21 +124,22 @@ async function downloadIFCFromSupabase() {
 }
 
 // ==============================================
-// CONFIGURACOES DE STATUS ERP
+// CONFIGURACOES DE STATUS (3 status do fluxo Expedicao/Montagem)
+// Sincronizado com MontagemPage:
+//   - EMBARQUE: peca em etapa=expedido (Fila de Embarque)
+//   - EM_OBRA:  peca em etapa=enviado (Aguardando Montagem)
+//   - MONTADO:  peca marcada como Concluida no MontagemPage (localStorage)
 // ==============================================
 
 const STATUS_CONFIG = {
-  NAO_INICIADO: { color: new THREE.Color(0.42, 0.45, 0.50), label: 'Nao Iniciado',       hex: '#6b7280', opacity: 0.35 },
-  CORTE:        { color: new THREE.Color(0.96, 0.62, 0.04), label: 'Em Corte',            hex: '#f59e0b', opacity: 0.7 },
-  FABRICACAO:   { color: new THREE.Color(0.23, 0.51, 0.96), label: 'Fabricacao',           hex: '#3b82f6', opacity: 0.75 },
-  SOLDA:        { color: new THREE.Color(0.55, 0.36, 0.96), label: 'Solda',                hex: '#8b5cf6', opacity: 0.8 },
-  PINTURA:      { color: new THREE.Color(0.06, 0.73, 0.51), label: 'Pintura',              hex: '#10b981', opacity: 0.85 },
-  EXPEDICAO:    { color: new THREE.Color(0.06, 0.52, 0.96), label: 'Expedicao',            hex: '#0ea5e9', opacity: 0.9 },
-  CARREGANDO:   { color: new THREE.Color(0.97, 0.52, 0.10), label: 'Em Carregamento',      hex: '#f97316', opacity: 0.9 },
-  EM_TRANSITO:  { color: new THREE.Color(0.49, 0.27, 0.96), label: 'Em Transito',          hex: '#7c3aed', opacity: 0.92 },
-  ENTREGUE:     { color: new THREE.Color(0.92, 0.70, 0.05), label: 'Entregue em Obra',     hex: '#eab308', opacity: 0.95 },
-  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',              hex: '#22c55e', opacity: 1.0 },
+  NAO_INICIADO: { color: new THREE.Color(0.18, 0.20, 0.25), label: 'Sem Escopo',            hex: '#374151', opacity: 0.18, order: 0 },
+  EMBARQUE:     { color: new THREE.Color(0.97, 0.52, 0.10), label: 'Fila de Embarque',      hex: '#f97316', opacity: 0.85, order: 1 },
+  EM_OBRA:      { color: new THREE.Color(0.92, 0.70, 0.05), label: 'Entregue em Obra',      hex: '#eab308', opacity: 0.92, order: 2 },
+  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',               hex: '#22c55e', opacity: 1.0,  order: 3 },
 };
+
+// Alias para o helper compartilhado (sincroniza com MontagemPage)
+const loadConcluidasFromLS = loadConcluidasLocal;
 
 // IFC type IDs - CORRIGIDOS conforme web-ifc v0.0.76 runtime
 const IFC_TYPES = {
@@ -512,16 +514,33 @@ class SceneManager {
     }
   }
 
-  applyStatusColors(statusMap) {
+  applyStatusColors(statusMap, statusFilter = null) {
     // statusMap: { expressID -> statusKey }
+    // statusFilter: Set de status ativos. Se vazio = mostrar TODOS com cor cheia.
+    // Pecas fora do filtro ficam em modo "ghost" (cinza translucido) para manter
+    // o IFC completo visivel como contexto.
+    const hasFilter = statusFilter && statusFilter.size > 0;
+    const GHOST = new THREE.Color(0.10, 0.12, 0.15);
+
     for (const [expressID, mesh] of this.meshMap.entries()) {
-      const statusKey = statusMap.get(expressID);
-      const cfg = statusKey ? STATUS_CONFIG[statusKey] : STATUS_CONFIG.NAO_INICIADO;
-      if (cfg) {
+      const statusKey = statusMap.get(expressID) || 'NAO_INICIADO';
+      const cfg = STATUS_CONFIG[statusKey] || STATUS_CONFIG.NAO_INICIADO;
+
+      const isHighlighted = !hasFilter || statusFilter.has(statusKey);
+
+      if (isHighlighted) {
         mesh.material.color.copy(cfg.color);
         mesh.material.opacity = cfg.opacity;
-        mesh.material.needsUpdate = true;
+        mesh.material.emissive = new THREE.Color(cfg.color.r * 0.15, cfg.color.g * 0.15, cfg.color.b * 0.15);
+        mesh.material.emissiveIntensity = hasFilter ? 0.4 : 0;
+      } else {
+        // Ghost mode — peca fora do filtro mas IFC permanece visivel
+        mesh.material.color.copy(GHOST);
+        mesh.material.opacity = 0.08;
+        mesh.material.emissive = new THREE.Color(0x000000);
+        mesh.material.emissiveIntensity = 0;
       }
+      mesh.material.needsUpdate = true;
     }
   }
 
@@ -638,6 +657,31 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   const [showFasteners, setShowFasteners] = useState(false);
   const [loadingStage, setLoadingStage] = useState(''); // 'primary' | 'secondary' | ''
   const [expedicoes, setExpedicoes] = useState([]);
+  // Sincronizado com MontagemPage (localStorage + Supabase entity_store)
+  const [concluidasMontagem, setConcluidasMontagem] = useState(() =>
+    loadConcluidasSmart(remoto => setConcluidasMontagem(remoto))
+  );
+
+  // Listener: sincroniza quando MontagemPage marca/desmarca peca
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === MONTAGEM_LS_KEY || e.key === null) {
+        setConcluidasMontagem(loadConcluidasFromLS());
+      }
+    };
+    window.addEventListener('storage', handler);
+    // Poll a cada 3s para detectar mudancas na mesma aba (storage event nao dispara local)
+    const interval = setInterval(() => {
+      const fresh = loadConcluidasFromLS();
+      setConcluidasMontagem(prev => {
+        const pks = Object.keys(prev);
+        const fks = Object.keys(fresh);
+        if (pks.length !== fks.length || pks.some(k => !fresh[k])) return fresh;
+        return prev;
+      });
+    }, 3000);
+    return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
+  }, []);
 
   const fileInputRef = useRef(null);
 
@@ -711,31 +755,24 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     loadERP();
   }, [obraAtual]);
 
-  function mapCorteStatus(st) {
-    if (!st || st === 'aguardando' || st === 'programacao') return 'NAO_INICIADO';
-    if (st === 'cortando' || st === 'em_corte') return 'CORTE';
-    if (st === 'finalizado' || st === 'liberado') return 'FABRICACAO';
+  // Apenas pecas em etapas Expedido (Embarque) / Enviado (Em Obra) entram no escopo.
+  // Demais etapas (fabricacao, solda, pintura, aguardando, corte) sao consideradas "Sem Escopo"
+  // pois nao fazem parte do fluxo de Montagem.
+  function mapCorteStatus(_st) {
     return 'NAO_INICIADO';
   }
 
   function mapProducaoEtapa(etapa) {
-    if (!etapa || etapa === 'fabricacao') return 'FABRICACAO';
-    if (etapa === 'solda') return 'SOLDA';
-    if (etapa === 'pintura') return 'PINTURA';
-    if (etapa === 'expedicao' || etapa === 'expedido') return 'EXPEDICAO';
-    if (etapa === 'finalizado' || etapa === 'entregue' || etapa === 'montado') return 'MONTADO';
-    return 'FABRICACAO';
+    if (etapa === 'expedicao' || etapa === 'expedido') return 'EMBARQUE';
+    if (etapa === 'enviado' || etapa === 'entregue') return 'EM_OBRA';
+    if (etapa === 'montagem' || etapa === 'montado') return 'EM_OBRA'; // ainda nao concluido manualmente
+    return 'NAO_INICIADO';
   }
 
-  function mapExpedicaoStatus(status) {
-    if (!status) return 'EXPEDICAO';
-    const s = status.toLowerCase().replace(/[\s-]/g, '_');
-    if (s === 'preparando' || s === 'aguardando' || s === 'aguardando_carregamento') return 'EXPEDICAO';
-    if (s === 'carregando' || s === 'em_carregamento') return 'CARREGANDO';
-    if (s === 'em_transito' || s === 'transito') return 'EM_TRANSITO';
-    if (s === 'entregue' || s === 'entregue_em_obra' || s === 'delivered') return 'ENTREGUE';
-    if (s === 'montado' || s === 'instalado') return 'MONTADO';
-    return 'EXPEDICAO';
+  function mapExpedicaoStatus(_status) {
+    // Status do romaneio nao usado: a verdade vem da etapa da peca.
+    // Manter fallback EM_OBRA para pecas listadas em romaneios entregues.
+    return 'EM_OBRA';
   }
 
   // ==============================================
@@ -784,7 +821,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const map = new Map();
     if (ifcElements.length === 0 || erpPecas.length === 0) return map;
 
-    const statusPriority = ['MONTADO', 'ENTREGUE', 'EM_TRANSITO', 'CARREGANDO', 'EXPEDICAO', 'PINTURA', 'SOLDA', 'FABRICACAO', 'CORTE', 'NAO_INICIADO'];
+    // Override: aplicar MONTADO para pecas marcadas no MontagemPage (localStorage)
+    // Verificado por id da peca apos o matching
+    const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
+
+    const statusPriority = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'];
 
     // Pre-index ERP peças por marca (upper)
     const marcaIndex = new Map();
@@ -910,13 +951,18 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
 
       if (bestMatch) {
-        map.set(el.expressID, bestMatch.status);
+        // Override MONTADO: se a peca foi marcada como montada na MontagemPage
+        if (pecaIdsMontadas.has(String(bestMatch.id))) {
+          map.set(el.expressID, 'MONTADO');
+        } else {
+          map.set(el.expressID, bestMatch.status);
+        }
       } else if (matchedStatus) {
         map.set(el.expressID, matchedStatus);
       }
     }
     return map;
-  }, [ifcElements, erpPecas]);
+  }, [ifcElements, erpPecas, concluidasMontagem]);
 
   // ==============================================
   // INIT THREE.JS SCENE
@@ -935,11 +981,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const sm = sceneManagerRef.current;
     if (!sm || ifcElements.length === 0) return;
     if (colorMode === 'status') {
-      sm.applyStatusColors(statusMap);
+      // Passa o filtro de status para aplicar "ghost mode" nas pecas fora do filtro
+      sm.applyStatusColors(statusMap, statusFilter);
     } else {
       sm.applyTypeColors();
     }
-  }, [statusMap, colorMode, ifcElements]);
+  }, [statusMap, colorMode, ifcElements, statusFilter]);
 
   // ==============================================
   // IFC FILE HANDLING
@@ -948,11 +995,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   const applyColorsToScene = useCallback((sm, _elements) => {
     if (!sm) return;
     if (colorMode === 'status') {
-      sm.applyStatusColors(statusMap);
+      sm.applyStatusColors(statusMap, statusFilter);
     } else {
       sm.applyTypeColors();
     }
-  }, [statusMap, colorMode]);
+  }, [statusMap, colorMode, statusFilter]);
 
   // ==============================================
   // TOGGLE FASTENERS (parafusos) - carrega sob demanda
@@ -993,22 +1040,19 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   useEffect(() => {
     const sm = sceneManagerRef.current;
     if (!sm || ifcElements.length === 0) return;
+    // IFC completo permanece visivel como contexto. Filtro de status NAO oculta -
+    // apenas escurece pecas fora do filtro via applyStatusColors (ghost mode).
+    // Filtros de Tipo e Search continuam ocultando pecas para foco rapido.
     sm.setVisibility(el => {
-      // Parafusos controlados pelo toggle separado
       if (el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER) return showFasteners;
       if (typeFilter !== 'ALL' && el.typeName !== typeFilter) return false;
-      // Multi-status filter: se Set vazio = ALL (sem filtro)
-      if (statusFilter.size > 0) {
-        const st = statusMap.get(el.expressID) || 'NAO_INICIADO';
-        if (!statusFilter.has(st)) return false;
-      }
       if (searchText) {
         const q = searchText.toUpperCase();
         if (!(el.name || '').toUpperCase().includes(q) && !(el.typeName || '').toUpperCase().includes(q)) return false;
       }
       return true;
     });
-  }, [typeFilter, statusFilter, searchText, ifcElements, statusMap, showFasteners]);
+  }, [typeFilter, searchText, ifcElements, showFasteners]);
 
   const handleFile = useCallback(async (file, { skipUpload = false } = {}) => {
     if (!file || !file.name.match(/\.ifc$/i)) return;
@@ -1302,23 +1346,17 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                 </div>
                 {/* Atalhos rapidos */}
                 <div className="flex gap-1.5 mt-2">
-                  <button onClick={() => {
-                    setStatusFilter(new Set(['EXPEDICAO', 'CARREGANDO', 'EM_TRANSITO', 'ENTREGUE', 'MONTADO']));
-                  }}
-                    className="flex-1 px-2 py-1 rounded text-[10px] bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 transition-all">
-                    Expedidos+
+                  <button onClick={() => setStatusFilter(new Set(['EMBARQUE']))}
+                    className="flex-1 px-2 py-1 rounded text-[10px] bg-orange-500/10 border border-orange-500/30 text-orange-300 hover:bg-orange-500/20 transition-all">
+                    🚚 Embarque
                   </button>
-                  <button onClick={() => {
-                    setStatusFilter(new Set(['FABRICACAO', 'SOLDA', 'PINTURA']));
-                  }}
-                    className="flex-1 px-2 py-1 rounded text-[10px] bg-blue-500/10 border border-blue-500/20 text-blue-400 hover:bg-blue-500/20 transition-all">
-                    Em Producao
+                  <button onClick={() => setStatusFilter(new Set(['EM_OBRA']))}
+                    className="flex-1 px-2 py-1 rounded text-[10px] bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/20 transition-all">
+                    🏗️ Em Obra
                   </button>
-                  <button onClick={() => {
-                    setStatusFilter(new Set(['NAO_INICIADO']));
-                  }}
-                    className="flex-1 px-2 py-1 rounded text-[10px] bg-slate-500/10 border border-slate-500/20 text-slate-400 hover:bg-slate-500/20 transition-all">
-                    Pendentes
+                  <button onClick={() => setStatusFilter(new Set(['MONTADO']))}
+                    className="flex-1 px-2 py-1 rounded text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 transition-all">
+                    ✓ Montado
                   </button>
                 </div>
               </div>
