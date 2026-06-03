@@ -267,6 +267,66 @@ function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgre
   return elements;
 }
 
+// Props uteis para extrair dos PropertySets (Tekla)
+const USEFUL_PSET_PROPS = new Set([
+  'Assembly mark', 'Part mark',
+  'Assembly/Cast unit Mark', 'Assembly/Cast unit name', 'Assembly/Cast unit position code',
+  'Profile', 'Class', 'Grade',
+  'Top elevation', 'Bottom elevation',
+  'Assembly/Cast unit top elevation', 'Assembly/Cast unit bottom elevation',
+]);
+
+// Extrai PropertySets do IFC e retorna Map: expressID -> { propName: value }
+// IFC do Tekla expõe Pset_BeamCommon e similares com Assembly mark, Position code, etc.
+function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctEnd) {
+  const elementProps = new Map();
+  const IFCRELDEFINESBYPROPERTIES = WebIFC.IFCRELDEFINESBYPROPERTIES || 4186316022;
+  let relIds;
+  try {
+    relIds = ifcAPI.GetLineIDsWithType(modelID, IFCRELDEFINESBYPROPERTIES);
+  } catch (e) {
+    console.warn('Não foi possivel ler IFCRELDEFINESBYPROPERTIES:', e?.message);
+    return elementProps;
+  }
+  const total = relIds.size();
+  for (let i = 0; i < total; i++) {
+    const relId = relIds.get(i);
+    let rel;
+    try { rel = ifcAPI.GetLine(modelID, relId, true); } catch (e) { continue; }
+    if (!rel) continue;
+    const psetRef = rel.RelatingPropertyDefinition;
+    if (!psetRef) continue;
+    const psetId = (psetRef.value !== undefined) ? psetRef.value : psetRef;
+    let pset;
+    try { pset = ifcAPI.GetLine(modelID, psetId, true); } catch (e) { continue; }
+    if (!pset?.HasProperties) continue;
+    const props = {};
+    for (const propRef of pset.HasProperties) {
+      try {
+        const propId = (propRef.value !== undefined) ? propRef.value : propRef;
+        const prop = ifcAPI.GetLine(modelID, propId);
+        const name = prop?.Name?.value;
+        if (!name || !USEFUL_PSET_PROPS.has(name)) continue;
+        const val = prop?.NominalValue?.value ?? prop?.NominalValue;
+        if (val !== undefined && val !== null) props[name] = String(val).trim();
+      } catch (_) { /* prop inválida */ }
+    }
+    if (Object.keys(props).length === 0) continue;
+    const objects = rel.RelatedObjects || [];
+    for (const objRef of objects) {
+      const eid = (objRef.value !== undefined) ? objRef.value : objRef;
+      if (!elementProps.has(eid)) elementProps.set(eid, {});
+      Object.assign(elementProps.get(eid), props);
+    }
+    // Progresso
+    if (i % 2000 === 0) {
+      const pct = pctStart + Math.round((i / total) * (pctEnd - pctStart));
+      onProgress?.(pct, `Lendo propriedades IFC: ${i}/${total}`);
+    }
+  }
+  return elementProps;
+}
+
 // Parser principal com carregamento em 2 etapas
 async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
   const WebIFC = await getWebIFC();
@@ -291,23 +351,35 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
 
   // ETAPA 1: Estrutura principal (vigas, colunas, chapas)
   const primaryElements = extractElementsForTypes(
-    ifcAPI, modelID, PRIMARY_TYPES, 0, onProgress, 15, 60
+    ifcAPI, modelID, PRIMARY_TYPES, 0, onProgress, 15, 55
   );
-  onProgress?.(60, `Etapa 1 concluida: ${primaryElements.length} elementos estruturais`);
+  onProgress?.(55, `Etapa 1 concluida: ${primaryElements.length} elementos estruturais`);
 
   // Notifica que a estrutura principal esta pronta para renderizar
   onStageComplete?.('primary', primaryElements);
 
   // ETAPA 2: Detalhes e conexoes (parafusos, assemblies)
-  onProgress?.(62, 'Etapa 2: Conexoes e detalhes...');
+  onProgress?.(57, 'Etapa 2: Conexoes e detalhes...');
   const secondaryElements = extractElementsForTypes(
-    ifcAPI, modelID, SECONDARY_TYPES, primaryElements.length, onProgress, 62, 90
+    ifcAPI, modelID, SECONDARY_TYPES, primaryElements.length, onProgress, 57, 80
   );
-  onProgress?.(90, `Etapa 2 concluida: ${secondaryElements.length} conexoes/detalhes`);
+  onProgress?.(80, `Etapa 2 concluida: ${secondaryElements.length} conexoes/detalhes`);
+
+  // ETAPA 3: Extrair PropertySets (Tekla expõe Assembly mark, Position code, Profile, etc.)
+  onProgress?.(82, 'Etapa 3: Lendo PropertySets...');
+  const elementProps = extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, 82, 95);
+  let enriched = 0;
+  for (const el of [...primaryElements, ...secondaryElements]) {
+    const props = elementProps.get(el.expressID);
+    if (props) {
+      el.props = props;
+      enriched++;
+    }
+  }
+  console.log(`[IFC] ${enriched}/${primaryElements.length + secondaryElements.length} elementos enriquecidos com PropertySets`);
 
   const allElements = [...primaryElements, ...secondaryElements];
-
-  onProgress?.(95, `Finalizando... ${allElements.length} elementos totais`);
+  onProgress?.(98, `Finalizando... ${allElements.length} elementos, ${enriched} com props`);
   ifcAPI.CloseModel(modelID);
   ifcAPI.delete?.();
   onProgress?.(100, `Concluido! ${allElements.length} elementos carregados`);
@@ -916,6 +988,10 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const elDesc = (el.description || '').toUpperCase().trim();
       const elGlobalId = (el.globalId || '').toUpperCase().trim();
       const elTag = (el.tag || el.objectType || '').toUpperCase().trim();
+      // PropertySets (Tekla): perfil estrutural é fonte adicional de match
+      const elProps = el.props || {};
+      const elProfile = (elProps['Profile'] || '').toUpperCase().trim();
+      const elGrade = (elProps['Grade'] || '').toUpperCase().trim();
 
       let bestMatch = null;
       let matchedStatus = null;
@@ -977,11 +1053,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       }
 
-      // Strategy 6: Match by perfil in description
-      if (!bestMatch && elDesc) {
-        const pecasByPerfil = perfilIndex.get(elDesc);
-        if (pecasByPerfil && pecasByPerfil.length > 0) {
-          bestMatch = getMostAdvancedStatus(pecasByPerfil);
+      // Strategy 6: Match by perfil in description ou PropertySet Profile
+      if (!bestMatch) {
+        const perfisCandidatos = [elDesc, elProfile].filter(Boolean);
+        for (const perfil of perfisCandidatos) {
+          const pecasByPerfil = perfilIndex.get(perfil);
+          if (pecasByPerfil && pecasByPerfil.length > 0) {
+            bestMatch = getMostAdvancedStatus(pecasByPerfil);
+            break;
+          }
         }
       }
 
@@ -1693,20 +1773,36 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   </div>
                 </div>
 
-                {/* ERP Status */}
+                {/* Propriedades Tekla (PropertySets) */}
+                {selectedElement.props && Object.keys(selectedElement.props).length > 0 && (
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                    <h4 className="text-cyan-400 text-xs font-semibold mb-3">Propriedades Tekla</h4>
+                    <div className="space-y-1.5 text-xs">
+                      {Object.entries(selectedElement.props).map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2">
+                          <span className="text-slate-500 text-[10px] flex-shrink-0">{k}</span>
+                          <span className="text-white text-[11px] font-mono text-right truncate max-w-[160px]" title={v}>{v}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Status ERP (4 niveis do fluxo Montagem) */}
                 <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-                  <h4 className="text-cyan-400 text-xs font-semibold mb-3">Status ERP</h4>
+                  <h4 className="text-cyan-400 text-xs font-semibold mb-3">Status no Fluxo</h4>
                   <div className="flex items-center gap-2 mb-3">
                     <div className="w-4 h-4 rounded" style={{ backgroundColor: STATUS_CONFIG[selectedElement.erpStatus]?.hex || '#6b7280' }} />
-                    <span className="text-white text-sm font-semibold">{STATUS_CONFIG[selectedElement.erpStatus]?.label || 'Nao Iniciado'}</span>
+                    <span className="text-white text-sm font-semibold">{STATUS_CONFIG[selectedElement.erpStatus]?.label || 'Sem Escopo'}</span>
                   </div>
 
-                  {/* Pipeline */}
+                  {/* Pipeline 4 niveis: NAO_INICIADO -> EMBARQUE -> EM_OBRA -> MONTADO */}
                   <div className="space-y-1.5">
-                    {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
-                      const statusOrder = ['NAO_INICIADO', 'CORTE', 'FABRICACAO', 'SOLDA', 'PINTURA', 'EXPEDICAO', 'CARREGANDO', 'EM_TRANSITO', 'ENTREGUE', 'MONTADO'];
-                      const currentIdx = statusOrder.indexOf(selectedElement.erpStatus);
-                      const thisIdx = statusOrder.indexOf(key);
+                    {['NAO_INICIADO', 'EMBARQUE', 'EM_OBRA', 'MONTADO'].map((key) => {
+                      const cfg = STATUS_CONFIG[key];
+                      const order = ['NAO_INICIADO', 'EMBARQUE', 'EM_OBRA', 'MONTADO'];
+                      const currentIdx = order.indexOf(selectedElement.erpStatus);
+                      const thisIdx = order.indexOf(key);
                       const done = thisIdx <= currentIdx;
                       return (
                         <div key={key} className={`flex items-center gap-2 px-2 py-1 rounded text-xs ${done ? 'bg-white/5' : 'opacity-40'}`}>
