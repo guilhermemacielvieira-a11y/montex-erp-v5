@@ -319,17 +319,17 @@ function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctE
     let rel;
     try { rel = ifcAPI.GetLine(modelID, relId, true); } catch (e) { continue; }
     if (!rel) continue;
-    const psetRef = rel.RelatingPropertyDefinition;
-    if (!psetRef) continue;
-    const psetId = (psetRef.value !== undefined) ? psetRef.value : psetRef;
-    let pset;
-    try { pset = ifcAPI.GetLine(modelID, psetId, true); } catch (e) { continue; }
-    if (!pset?.HasProperties) continue;
+    // rel foi lido com flatten=true => RelatingPropertyDefinition JÁ vem expandido
+    // (não é um ref {value}). O bug anterior re-buscava via GetLine(psetId) e falhava,
+    // zerando TODOS os PropertySets (position code, Profile, etc.). Usar direto.
+    const pset = rel.RelatingPropertyDefinition;
+    if (!pset || !Array.isArray(pset.HasProperties) || pset.HasProperties.length === 0) continue;
     const props = {};
-    for (const propRef of pset.HasProperties) {
+    for (const propRaw of pset.HasProperties) {
       try {
-        const propId = (propRef.value !== undefined) ? propRef.value : propRef;
-        const prop = ifcAPI.GetLine(modelID, propId);
+        // flatten => propRaw já é o objeto completo; fallback defensivo se vier como ref
+        const prop = (propRaw && propRaw.Name === undefined && propRaw.value !== undefined)
+          ? ifcAPI.GetLine(modelID, propRaw.value) : propRaw;
         const name = prop?.Name?.value;
         if (!name || !USEFUL_PSET_PROPS.has(name)) continue;
         const val = prop?.NominalValue?.value ?? prop?.NominalValue;
@@ -339,7 +339,10 @@ function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctE
     if (Object.keys(props).length === 0) continue;
     const objects = rel.RelatedObjects || [];
     for (const objRef of objects) {
-      const eid = (objRef.value !== undefined) ? objRef.value : objRef;
+      // flatten => objRef é objeto com expressID; senão ref {value}
+      const eid = (objRef && objRef.expressID !== undefined) ? objRef.expressID
+                : (objRef && objRef.value !== undefined) ? objRef.value : objRef;
+      if (eid === undefined || eid === null) continue;
       if (!elementProps.has(eid)) elementProps.set(eid, {});
       Object.assign(elementProps.get(eid), props);
     }
