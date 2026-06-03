@@ -925,6 +925,47 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
     }
 
+    // ===== NOVO: Distribuição por Position code (peça individual) =====
+    // Como o IFC do Tekla nao expõe marca explicita (apenas tipo + position code),
+    // mapeamos cada Position code unico a UMA peca do ERP daquele tipo.
+    // Funciona perfeitamente para tipos com correspondencia 1:1 (ex VIGA-MESTRA: 7 IFC = 7 ERP).
+    // Para tipos com mais IFC que ERP, peças repetem; o inverso, position codes ficam sem match.
+    const IFC_TIPO_NAME_TO_ERP = {
+      'COLUNA': 'COLUNA', 'TESOURA': 'TESOURA',
+      'VIGA': 'VIGA', 'VIGA-MESTRA': 'VIGA-MESTRA', 'VIGAMESTRA': 'VIGA-MESTRA',
+      'TERÇA': 'TERÇA', 'TERCA': 'TERÇA', 'TERÇA-TAP': 'TERÇA-TAP', 'TERCA-TAP': 'TERÇA-TAP',
+      'TRELIÇA': 'TRELIÇA', 'TRELICA': 'TRELIÇA',
+      'CONTRAVENTAMENTO': 'CONTRAVENTAMENTO', 'TIRANTE': 'TIRANTE',
+      'CHUMBADOR': 'CHUMBADOR', 'CALHA': 'CALHA',
+      'MÃO FRANCESA': 'MÃO-FRANCESA', 'MAO FRANCESA': 'MÃO-FRANCESA', 'MÃO-FRANCESA': 'MÃO-FRANCESA',
+      'COLUNETA': 'COLUNETA', 'BOCAL': 'BOCAL', 'DIAGONAL': 'DIAGONAL', 'SUPORTE': 'SUPORTE',
+    };
+    // 1. Coletar position codes unicos por tipo IFC name
+    const positionsByTipoIfc = new Map(); // tipoIfc -> Set de position codes
+    for (const el of ifcElements) {
+      const pos = el.props?.['Assembly/Cast unit position code'];
+      const tipoIfc = (el.name || el.props?.['Assembly/Cast unit name'] || '').toUpperCase().trim();
+      if (!pos || !tipoIfc) continue;
+      if (!positionsByTipoIfc.has(tipoIfc)) positionsByTipoIfc.set(tipoIfc, new Set());
+      positionsByTipoIfc.get(tipoIfc).add(pos);
+    }
+    // 2. Construir mapa: (tipo, position) -> peca ERP especifica
+    //    Ordena posicoes alfabeticamente e atribui sequencialmente as pecas do tipo
+    const positionToPecaMap = new Map(); // key "TIPO::POSITION" -> peca
+    for (const [tipoIfc, posicoesSet] of positionsByTipoIfc) {
+      const tipoErp = IFC_TIPO_NAME_TO_ERP[tipoIfc];
+      if (!tipoErp) continue;
+      const pecasDoTipo = (erpPecas.filter(p => p.tipo === tipoErp))
+        .sort((a, b) => (a.marca || '').localeCompare(b.marca || ''));
+      if (pecasDoTipo.length === 0) continue;
+      const posicoesOrdenadas = Array.from(posicoesSet).sort();
+      for (let i = 0; i < posicoesOrdenadas.length; i++) {
+        const pos = posicoesOrdenadas[i];
+        const peca = pecasDoTipo[i % pecasDoTipo.length]; // ciclico se IFC tem mais que ERP
+        positionToPecaMap.set(`${tipoIfc}::${pos}`, peca);
+      }
+    }
+
     // Pre-index ERP peças por tipo (upper) - NOVO: para match por tipo de peça
     const tipoIndex = new Map();
     for (const peca of erpPecas) {
@@ -996,8 +1037,19 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       let bestMatch = null;
       let matchedStatus = null;
 
+      // Strategy 0 (PRIORITARIA): Match por Position code do PropertySet (Tekla)
+      // Cada peca fisica tem 1 position code unico. Atribuimos sequencialmente as pecas do ERP.
+      const elPosition = elProps['Assembly/Cast unit position code'];
+      const elTipoAssembly = (elProps['Assembly/Cast unit name'] || elName || '').toUpperCase().trim();
+      if (elPosition && elTipoAssembly) {
+        const key = `${elTipoAssembly}::${elPosition}`;
+        if (positionToPecaMap.has(key)) {
+          bestMatch = positionToPecaMap.get(key);
+        }
+      }
+
       // Strategy 1: Marca exata no name (mais confiavel)
-      if (marcaIndex.has(elName)) {
+      if (!bestMatch && marcaIndex.has(elName)) {
         bestMatch = marcaIndex.get(elName);
       }
 
@@ -1119,30 +1171,69 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   }, [ifcElements, erpPecas, concluidasMontagem]);
 
   // pecaMap: expressID -> peça do ERP correspondente (para acao Marcar como Montada)
+  // Usa MESMA logica de matching do statusMap (incluindo Strategy 0 por Position code)
   const pecaMap = useMemo(() => {
     const map = new Map();
     if (ifcElements.length === 0 || erpPecas.length === 0) return map;
+
     const marcaIndex = new Map();
     for (const peca of erpPecas) {
       const marca = (peca.marca || '').toUpperCase().trim();
       if (marca && marca.length >= 2) marcaIndex.set(marca, peca);
     }
+
+    // Construir mesmo position-to-peca mapping
+    const IFC_T = {
+      'COLUNA':'COLUNA','TESOURA':'TESOURA','VIGA':'VIGA','VIGA-MESTRA':'VIGA-MESTRA','VIGAMESTRA':'VIGA-MESTRA',
+      'TERÇA':'TERÇA','TERCA':'TERÇA','TERÇA-TAP':'TERÇA-TAP','TERCA-TAP':'TERÇA-TAP',
+      'TRELIÇA':'TRELIÇA','TRELICA':'TRELIÇA','CONTRAVENTAMENTO':'CONTRAVENTAMENTO',
+      'TIRANTE':'TIRANTE','CHUMBADOR':'CHUMBADOR','CALHA':'CALHA',
+      'MÃO FRANCESA':'MÃO-FRANCESA','MAO FRANCESA':'MÃO-FRANCESA','MÃO-FRANCESA':'MÃO-FRANCESA',
+      'COLUNETA':'COLUNETA','BOCAL':'BOCAL','DIAGONAL':'DIAGONAL','SUPORTE':'SUPORTE',
+    };
+    const positionsByTipo = new Map();
+    for (const el of ifcElements) {
+      const pos = el.props?.['Assembly/Cast unit position code'];
+      const tipoIfc = (el.name || el.props?.['Assembly/Cast unit name'] || '').toUpperCase().trim();
+      if (!pos || !tipoIfc) continue;
+      if (!positionsByTipo.has(tipoIfc)) positionsByTipo.set(tipoIfc, new Set());
+      positionsByTipo.get(tipoIfc).add(pos);
+    }
+    const posToPeca = new Map();
+    for (const [tipoIfc, posicoes] of positionsByTipo) {
+      const tipoErp = IFC_T[tipoIfc];
+      if (!tipoErp) continue;
+      const pecasDoTipo = erpPecas.filter(p => p.tipo === tipoErp).sort((a,b) => (a.marca||'').localeCompare(b.marca||''));
+      if (!pecasDoTipo.length) continue;
+      const posList = Array.from(posicoes).sort();
+      for (let i = 0; i < posList.length; i++) {
+        posToPeca.set(`${tipoIfc}::${posList[i]}`, pecasDoTipo[i % pecasDoTipo.length]);
+      }
+    }
+
     const tokenize = (s) => !s ? [] : s.toUpperCase().split(/[-_.\s\/\\:,]+/).filter(t => t.length >= 2);
     const MR = /\b((?:VM|WM|VS|C|CT|CV|TS|TC|TP|TR|DN|MF|SP|TL|TI)\d{1,4}[A-Z]?)\b/gi;
     for (const el of ifcElements) {
       const elName = (el.name || '').toUpperCase().trim();
       const elDesc = (el.description || '').toUpperCase().trim();
       const elTag = (el.tag || el.objectType || '').toUpperCase().trim();
-      // marca exata
+      const elPos = el.props?.['Assembly/Cast unit position code'];
+      const elTipoAssembly = (el.props?.['Assembly/Cast unit name'] || elName).toUpperCase().trim();
+      // Strategy 0: position code (mais confiavel)
+      if (elPos && elTipoAssembly) {
+        const key = `${elTipoAssembly}::${elPos}`;
+        if (posToPeca.has(key)) { map.set(el.expressID, posToPeca.get(key)); continue; }
+      }
+      // Strategy 1: marca exata
       if (marcaIndex.has(elName)) { map.set(el.expressID, marcaIndex.get(elName)); continue; }
-      // tokens
+      // Strategy 2: tokens
       const tokens = [...tokenize(elName), ...tokenize(elDesc), ...tokenize(elTag)];
       let found = null;
       for (const tk of tokens) {
         if (marcaIndex.has(tk)) { found = marcaIndex.get(tk); break; }
       }
       if (found) { map.set(el.expressID, found); continue; }
-      // regex
+      // Strategy 3: regex
       const text = `${elName} ${elDesc} ${elTag}`;
       MR.lastIndex = 0;
       let m;
