@@ -887,30 +887,85 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       return dominantStatus;
     };
 
+    // Helper: tokeniza string em tokens significativos para matching
+    // Ex: "VM50A_D1-DIAG" -> ["VM50A", "D1", "DIAG"]
+    // Ex: "DIAGONAL-VM50A.01" -> ["DIAGONAL", "VM50A", "01"]
+    const tokenize = (s) => {
+      if (!s) return [];
+      return s.toUpperCase().split(/[-_.\s\/\\:,]+/).filter(t => t.length >= 2);
+    };
+
+    // Helper: extrai marcas-padrao via regex
+    // Padroes conhecidos: VM, V, C, CT, TS, TC, TP, DN, TR, WM, CV
+    //  - 1-3 letras maiusculas iniciais + digitos + 0-2 letras finais (variante)
+    //  - Ex: VM50A, C1A, TS59A, CT125F, V128H, TC163C, TP145A, DN170A
+    const MARCA_REGEX = /\b((?:VM|WM|VS|C|CT|CV|TS|TC|TP|TR|DN|TC|MF|SP|TL|TI|VS)\d{1,4}[A-Z]?)\b/i;
+    const extrairMarcasDoTexto = (s) => {
+      if (!s) return [];
+      const matches = [];
+      const regex = new RegExp(MARCA_REGEX.source, 'gi');
+      let m;
+      while ((m = regex.exec(s.toUpperCase())) !== null) {
+        matches.push(m[1].toUpperCase());
+      }
+      return matches;
+    };
+
     for (const el of ifcElements) {
       const elName = (el.name || '').toUpperCase().trim();
       const elDesc = (el.description || '').toUpperCase().trim();
       const elGlobalId = (el.globalId || '').toUpperCase().trim();
+      const elTag = (el.tag || el.objectType || '').toUpperCase().trim();
 
       let bestMatch = null;
       let matchedStatus = null;
 
-      // Strategy 1: Exact marca match on name
+      // Strategy 1: Marca exata no name (mais confiavel)
       if (marcaIndex.has(elName)) {
         bestMatch = marcaIndex.get(elName);
       }
 
-      // Strategy 2: Name contains marca or marca contains name (min 3 chars to avoid false positives)
+      // Strategy 2 (NOVO): Tokenizar e buscar marca exata em cada token
+      // Cobre: "VM50A_DIAG" -> token VM50A bate
+      //         "DIAG-VM50A-1" -> token VM50A bate
+      //         "C1A.PL" -> token C1A bate
+      if (!bestMatch) {
+        const tokens = [...tokenize(elName), ...tokenize(elDesc), ...tokenize(elTag), ...tokenize(elGlobalId)];
+        for (const tk of tokens) {
+          if (marcaIndex.has(tk)) {
+            bestMatch = marcaIndex.get(tk);
+            break;
+          }
+        }
+      }
+
+      // Strategy 3 (NOVO): Regex extrai padroes de marca do texto bruto
+      // Cobre nomes como "Beam-VM50A-Diag" sem separadores limpos
+      if (!bestMatch) {
+        const candidatos = [
+          ...extrairMarcasDoTexto(elName),
+          ...extrairMarcasDoTexto(elDesc),
+          ...extrairMarcasDoTexto(elTag),
+        ];
+        for (const c of candidatos) {
+          if (marcaIndex.has(c)) {
+            bestMatch = marcaIndex.get(c);
+            break;
+          }
+        }
+      }
+
+      // Strategy 4: Substring contains (fallback mais permissivo)
       if (!bestMatch && elName.length >= 3) {
         for (const [marca, peca] of marcaIndex) {
-          if (marca.length >= 3 && (elName.includes(marca) || marca.includes(elName))) {
+          if (marca.length >= 3 && elName.includes(marca)) {
             bestMatch = peca;
             break;
           }
         }
       }
 
-      // Strategy 3: Description/GlobalId contains marca
+      // Strategy 5: Description/GlobalId contains marca
       if (!bestMatch && (elDesc || elGlobalId)) {
         for (const [marca, peca] of marcaIndex) {
           if (marca.length >= 3) {
@@ -922,7 +977,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       }
 
-      // Strategy 4: Match by perfil in description
+      // Strategy 6: Match by perfil in description
       if (!bestMatch && elDesc) {
         const pecasByPerfil = perfilIndex.get(elDesc);
         if (pecasByPerfil && pecasByPerfil.length > 0) {
@@ -930,10 +985,10 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       }
 
-      // FIM: matching apenas POR MARCA EXATA (estrategias 1-4 acima)
-      // O fallback por tipo IFC (Strategy 5 antiga) foi REMOVIDO pois espalhava
-      // status indevidamente entre todos elementos do mesmo tipo, distorcendo KPIs.
-      // Elementos sem match com marca especifica ficam como NAO_INICIADO (Sem Escopo).
+      // FIM: matching agressivo POR MARCA. Elementos subsidiarios (diagonais,
+      // chapas de conexao, parafusos) sao agregados a peca pai via marca extraida
+      // por tokenizacao + regex de padroes. Elementos sem marca reconhecivel
+      // permanecem NAO_INICIADO (cinza ghost no 3D).
 
       if (bestMatch) {
         // Override MONTADO: peca marcada como montada via MontagemPage (localStorage)
