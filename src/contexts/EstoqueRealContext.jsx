@@ -12,7 +12,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useState, useEffect } from 'react';
-import { estoqueApi, movEstoqueApi } from '../api/supabaseClient';
+import { estoqueApi, movEstoqueApi, supabase, isSupabaseConfigured } from '../api/supabaseClient';
 
 // ========================================
 // DADOS INICIAIS DE ESTOQUE REAL
