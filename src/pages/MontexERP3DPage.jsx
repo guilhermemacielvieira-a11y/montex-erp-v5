@@ -224,9 +224,11 @@ function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgre
         props = ifcAPI.GetLine(modelID, expressID);
       } catch (e) { /* some elements may fail */ }
 
-      const name = props.Name?.value || props.Tag?.value || `Element-${expressID}`;
+      const name = decodeIfcString(props.Name?.value || props.Tag?.value || `Element-${expressID}`);
       const globalId = props.GlobalId?.value || '';
-      const description = props.Description?.value || '';
+      const description = decodeIfcString(props.Description?.value || '');
+      const objectType = decodeIfcString(props.ObjectType?.value || '');
+      const tag = props.Tag?.value || '';
 
       // Get geometry
       let geometry = null;
@@ -253,6 +255,8 @@ function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgre
           name,
           globalId,
           description,
+          objectType,
+          tag,
           geometry,
           isPrimary: PRIMARY_TYPES.includes(ifcType),
         });
@@ -275,6 +279,27 @@ const USEFUL_PSET_PROPS = new Set([
   'Top elevation', 'Bottom elevation',
   'Assembly/Cast unit top elevation', 'Assembly/Cast unit bottom elevation',
 ]);
+
+// IFC usa escape \S\letra para acentos (encoding ISO-8859-1 short form)
+// Ex: TRELI\S\GA -> TRELIÇA, M\S\CO-FRANCESA -> MÃO-FRANCESA
+const IFC_ESCAPE_MAP = {
+  'A': 'Á', 'C': 'Ã', 'E': 'É', 'I': 'Í', 'O': 'Ó', 'U': 'Ú',
+  'a': 'á', 'c': 'ã', 'e': 'é', 'i': 'í', 'o': 'ó', 'u': 'ú',
+  'GA': 'Ç', 'ga': 'ç',
+  'CO': 'Ã', 'co': 'ã',
+};
+function decodeIfcString(s) {
+  if (!s || typeof s !== 'string') return s;
+  return s.replace(/\\S\\([A-Za-z]{1,2})/g, (m, letra) => {
+    // \S\GA -> Ç (mapeia G+A para Ç), \S\C -> Ã (apenas C)
+    if (IFC_ESCAPE_MAP[letra]) return IFC_ESCAPE_MAP[letra];
+    // fallback: tenta mapear primeira letra como acentuada
+    const single = letra[0];
+    if (single === 'C' || single === 'c') return single === 'C' ? 'Ã' : 'ã';
+    if (single === 'G' || single === 'g') return single === 'G' ? 'Ç' : 'ç';
+    return m; // mantém original se nao reconhecer
+  });
+}
 
 // Extrai PropertySets do IFC e retorna Map: expressID -> { propName: value }
 // IFC do Tekla expõe Pset_BeamCommon e similares com Assembly mark, Position code, etc.
@@ -308,7 +333,7 @@ function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctE
         const name = prop?.Name?.value;
         if (!name || !USEFUL_PSET_PROPS.has(name)) continue;
         const val = prop?.NominalValue?.value ?? prop?.NominalValue;
-        if (val !== undefined && val !== null) props[name] = String(val).trim();
+        if (val !== undefined && val !== null) props[name] = decodeIfcString(String(val).trim());
       } catch (_) { /* prop inválida */ }
     }
     if (Object.keys(props).length === 0) continue;
@@ -367,7 +392,7 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
 
   // ETAPA 3: Extrair PropertySets (Tekla expõe Assembly mark, Position code, Profile, etc.)
   onProgress?.(82, 'Etapa 3: Lendo PropertySets...');
-  const elementProps = extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, 82, 95);
+  const elementProps = extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, 82, 92);
   let enriched = 0;
   for (const el of [...primaryElements, ...secondaryElements]) {
     const props = elementProps.get(el.expressID);
@@ -377,6 +402,45 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
     }
   }
   console.log(`[IFC] ${enriched}/${primaryElements.length + secondaryElements.length} elementos enriquecidos com PropertySets`);
+
+  // ETAPA 4: Propagar props do Assembly pai para os filhos (IFCRELAGGREGATES)
+  // Tekla agrega elementos em IFCELEMENTASSEMBLY. Assembly tem position_code,
+  // mas seus filhos (DIAGONAL-VM, MONTANTE-VM, CHAPA, etc.) podem nao ter.
+  // Vamos propagar position_code + Assembly/Cast unit name do pai para os filhos.
+  onProgress?.(93, 'Etapa 4: Propagando dados de Assembly para filhos...');
+  try {
+    const IFCRELAGGREGATES = WebIFC.IFCRELAGGREGATES || 160246688;
+    const relIds = ifcAPI.GetLineIDsWithType(modelID, IFCRELAGGREGATES);
+    const total = relIds.size();
+    const allEls = new Map();
+    for (const el of [...primaryElements, ...secondaryElements]) allEls.set(el.expressID, el);
+    let propagated = 0;
+    for (let i = 0; i < total; i++) {
+      try {
+        const rel = ifcAPI.GetLine(modelID, relIds.get(i), true);
+        if (!rel) continue;
+        const parentRef = rel.RelatingObject;
+        if (!parentRef) continue;
+        const parentId = (parentRef.value !== undefined) ? parentRef.value : parentRef;
+        const parentProps = elementProps.get(parentId);
+        if (!parentProps) continue;
+        const objects = rel.RelatedObjects || [];
+        for (const objRef of objects) {
+          const childId = (objRef.value !== undefined) ? objRef.value : objRef;
+          const child = allEls.get(childId);
+          if (!child) continue;
+          // Propagar props do pai (mas sem sobrescrever as proprias)
+          child.props = { ...parentProps, ...(child.props || {}) };
+          // Marcar elemento com referencia ao assembly pai
+          child.assemblyId = parentId;
+          propagated++;
+        }
+      } catch (_) { /* relacao invalida */ }
+    }
+    console.log(`[IFC] ${propagated} elementos receberam props propagadas de Assembly pai`);
+  } catch (e) {
+    console.warn('Erro ao propagar Assembly props:', e?.message);
+  }
 
   const allElements = [...primaryElements, ...secondaryElements];
   onProgress?.(98, `Finalizando... ${allElements.length} elementos, ${enriched} com props`);
@@ -986,15 +1050,18 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     };
 
     // Helper: calcular status representativo de um grupo (o mais comum, nao o mais avançado)
+    // Usa o status EFETIVO: aplica o override MONTADO (montagem via localStorage/Supabase)
+    // para que elementos colorizados por TIPO (Strategy 7) fiquem VERDES quando montados.
     const getRepresentativeStatus = (pecas) => {
       const statusCount = {};
       let maxCount = 0;
       let dominantStatus = 'NAO_INICIADO';
       for (const p of pecas) {
-        statusCount[p.status] = (statusCount[p.status] || 0) + 1;
-        if (statusCount[p.status] > maxCount) {
-          maxCount = statusCount[p.status];
-          dominantStatus = p.status;
+        const st = pecaIdsMontadas.has(String(p.id)) ? 'MONTADO' : p.status;
+        statusCount[st] = (statusCount[st] || 0) + 1;
+        if (statusCount[st] > maxCount) {
+          maxCount = statusCount[st];
+          dominantStatus = st;
         }
       }
       return dominantStatus;
@@ -1128,9 +1195,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           'COLUNA': 'COLUNA', 'COLUMN': 'COLUNA',
           'TESOURA': 'TESOURA', 'TRUSS': 'TESOURA',
           'VIGA': 'VIGA', 'BEAM': 'VIGA',
-          'VIGA MESTRA': 'VIGA-MESTRA', 'VIGAMESTRA': 'VIGA-MESTRA',
+          'VIGA MESTRA': 'VIGA-MESTRA', 'VIGAMESTRA': 'VIGA-MESTRA', 'VIGA-MESTRA': 'VIGA-MESTRA',
+          // Sub-elementos da Viga-Mestra herdam o status do conjunto VIGA-MESTRA
+          // (o IFC do Tekla nao expõe a marca; diagonais/montantes/misulas pertencem ao mesmo conjunto)
+          'DIAGONAL-VM': 'VIGA-MESTRA', 'MONTANTE-VM': 'VIGA-MESTRA', 'MISULA': 'VIGA-MESTRA',
           'TERÇA': 'TERÇA', 'TERCA': 'TERÇA', 'PURLIN': 'TERÇA',
+          'TERÇA-TAP': 'TERÇA-TAP', 'TERCA-TAP': 'TERÇA-TAP',
           'TRELIÇA': 'TRELIÇA', 'TRELICA': 'TRELIÇA',
+          // Sub-elementos da Treliça herdam o status do conjunto TRELIÇA
+          'DIAGONAL-TL': 'TRELIÇA', 'MONTANTE-TL': 'TRELIÇA',
           'CONTRAVENTAMENTO': 'CONTRAVENTAMENTO', 'BRACE': 'CONTRAVENTAMENTO',
           'TIRANTE': 'TIRANTE',
           'CHUMBADOR': 'CHUMBADOR',
@@ -1164,8 +1237,14 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         } else {
           map.set(el.expressID, bestMatch.status);
         }
+      } else if (matchedStatus) {
+        // Strategy 7 (FALLBACK POR TIPO): sem marca/perfil/position casavel.
+        // matchedStatus ja é o status representativo (montado-aware) do TIPO ERP.
+        // Garante que familias sem ERP proprio (DIAGONAL-VM, MONTANTE-VM, DIAGONAL-TL...)
+        // destaquem herdando o status do conjunto-pai (VIGA-MESTRA / TRELIÇA).
+        map.set(el.expressID, matchedStatus);
       }
-      // sem else: elemento sem match permanece sem status -> NAO_INICIADO no render
+      // sem else: elemento sem match e sem tipo conhecido -> NAO_INICIADO no render
     }
     return map;
   }, [ifcElements, erpPecas, concluidasMontagem]);
