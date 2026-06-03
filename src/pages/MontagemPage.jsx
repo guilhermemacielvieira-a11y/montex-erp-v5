@@ -7,13 +7,14 @@
 // Operações: Aguardando → Em Montagem → Montado/Entregue
 // ============================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as XLSX from 'xlsx';
 import {
   Wrench, CheckCircle2, Clock, MapPin, Users, Package, Building2,
   ChevronDown, Plus, Download, Filter, TrendingUp, Calendar, Search,
-  ArrowRight, Truck, Box, AlertCircle, Eye,
+  ArrowRight, Truck, Box, AlertCircle, Eye, Upload, FileSpreadsheet,
   ChevronRight, X, Settings, FileText, BarChart3, Activity,
   HardHat, Layers, Send,
 } from 'lucide-react';
@@ -233,6 +234,143 @@ export default function MontagemPage() {
     });
   };
 
+  // ===== Importar planilha XLSX =====
+  const fileInputRef = useRef(null);
+  const [importPreview, setImportPreview] = useState(null);
+
+  // Normalizador de marca (corrige typos comuns)
+  const normalizarMarca = (m) => {
+    if (!m) return '';
+    let s = String(m).toUpperCase().trim().replace(/\s+/g, '');
+    // Correções comuns: WM (typo de digitação) → VM (Viga-Mestra)
+    s = s.replace(/^WM/, 'VM');
+    // Remover barra (V/28H → V28H)
+    s = s.replace(/\//g, '');
+    return s;
+  };
+
+  const handleArquivoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = new Uint8Array(ev.target.result);
+        const wb = XLSX.read(data, { type: 'array' });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+
+        // Detecta header: linha que contém "Marca" e "Status"
+        let headerIdx = -1;
+        for (let i = 0; i < Math.min(rows.length, 10); i++) {
+          const r = rows[i].map(c => String(c).toLowerCase());
+          if (r.some(c => c.includes('marca')) && (r.some(c => c.includes('status')) || r.some(c => c.includes('tipo')))) {
+            headerIdx = i;
+            break;
+          }
+        }
+        if (headerIdx < 0) {
+          toast.error('Não foi possível detectar o cabeçalho da planilha (esperado: Item / Data / Tipo / Marca / Qtd / Status)');
+          return;
+        }
+        const header = rows[headerIdx].map(c => String(c).toLowerCase().trim());
+        const colMarca = header.findIndex(c => c.includes('marca'));
+        const colStatus = header.findIndex(c => c.includes('status'));
+        const colTipo = header.findIndex(c => c.includes('tipo'));
+        const colQtd = header.findIndex(c => c.includes('qtd') || c.includes('quantidade'));
+        const colData = header.findIndex(c => c === 'data' || c.includes('data'));
+
+        // Coleta linhas válidas
+        const linhas = [];
+        for (let i = headerIdx + 1; i < rows.length; i++) {
+          const r = rows[i];
+          const marca = r[colMarca];
+          if (!marca) continue;
+          const status = colStatus >= 0 ? String(r[colStatus] || '').toLowerCase() : 'montada';
+          // Aceita "Montada", "Montado", "Mont."
+          if (!status.includes('mont')) continue;
+          linhas.push({
+            marca: String(marca).trim(),
+            marcaNorm: normalizarMarca(marca),
+            tipo: colTipo >= 0 ? String(r[colTipo] || '').trim() : '',
+            qtd: colQtd >= 0 ? (Number(r[colQtd]) || 1) : 1,
+            data: colData >= 0 ? String(r[colData] || '').trim() : '',
+          });
+        }
+        if (linhas.length === 0) {
+          toast.error('Nenhuma linha "Montada" encontrada na planilha');
+          return;
+        }
+
+        // Match com peças do contexto (priorizar etapa=enviado)
+        const porMarca = {};
+        (pecas || []).forEach(p => {
+          const m = normalizarMarca(p.marca);
+          if (m) {
+            if (!porMarca[m]) porMarca[m] = [];
+            porMarca[m].push(p);
+          }
+        });
+
+        const matched = [];
+        const naoEncontradas = [];
+        for (const linha of linhas) {
+          const candidatas = porMarca[linha.marcaNorm];
+          if (!candidatas || candidatas.length === 0) {
+            naoEncontradas.push(linha);
+            continue;
+          }
+          const filtroObra = obraFiltro !== 'todas'
+            ? candidatas.filter(c => (c.obraId || c.obra_id) === obraFiltro)
+            : candidatas;
+          const usar = filtroObra.length > 0 ? filtroObra : candidatas;
+          const enviadas = usar.filter(p => p.etapa === 'enviado');
+          const selecao = enviadas.length > 0 ? enviadas : usar;
+          for (const p of selecao) {
+            matched.push({ ...linha, peca: p });
+          }
+        }
+
+        const pesoTotal = matched.reduce((s, m) => s + (m.peca.pesoTotal || m.peca.peso || 0), 0);
+        setImportPreview({
+          fileName: file.name,
+          linhasPlanilha: linhas.length,
+          totalLinhas: rows.length - headerIdx - 1,
+          matched,
+          naoEncontradas,
+          pesoTotal,
+        });
+      } catch (err) {
+        toast.error('Erro ao ler planilha: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+    e.target.value = '';
+  };
+
+  const aplicarImportacao = () => {
+    if (!importPreview || importPreview.matched.length === 0) return;
+    const ids = importPreview.matched.map(m => m.peca.id);
+    setConcluidas(prev => {
+      const next = { ...prev };
+      const agora = new Date().toISOString();
+      ids.forEach(id => {
+        const linha = importPreview.matched.find(m => m.peca.id === id);
+        next[id] = {
+          montadoEm: agora,
+          origem: importPreview.fileName,
+          marcaPlanilha: linha?.marca,
+          dataMontagem: linha?.data,
+        };
+      });
+      salvarConcluidas(next);
+      return next;
+    });
+    toast.success(`✅ ${ids.length} peças marcadas como Montadas (${importPreview.naoEncontradas.length} não encontradas)`);
+    setImportPreview(null);
+  };
+
   // ===== Equipes de Montagem =====
   const equipesMontagem = useMemo(() => {
     if (!equipes || equipes.length === 0) return [];
@@ -421,6 +559,21 @@ export default function MontagemPage() {
               <FileText className="h-3.5 w-3.5" /> Lista
             </button>
           </div>
+          {/* Importar planilha XLSX */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,.csv"
+            className="hidden"
+            onChange={handleArquivoUpload}
+          />
+          <Button
+            onClick={() => fileInputRef.current?.click()}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Upload className="h-4 w-4 mr-2" />
+            Importar Planilha
+          </Button>
           <Button
             onClick={() => toast.success('Relatório de montagem em desenvolvimento')}
             variant="outline"
@@ -851,6 +1004,118 @@ export default function MontagemPage() {
           </div>
         </div>
       </div>
+
+      {/* ============================================ */}
+      {/* MODAL IMPORTAÇÃO PLANILHA                    */}
+      {/* ============================================ */}
+      <AnimatePresence>
+        {importPreview && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+            onClick={() => setImportPreview(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-slate-900 border border-slate-700 rounded-xl max-w-2xl w-full max-h-[85vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-start justify-between p-5 border-b border-slate-800">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-emerald-500/15 border border-emerald-500/30">
+                    <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-emerald-400 font-bold">Preview da Importação</p>
+                    <h3 className="text-lg font-bold text-white">{importPreview.fileName}</h3>
+                  </div>
+                </div>
+                <button onClick={() => setImportPreview(null)} className="text-slate-400 hover:text-white">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+
+              <div className="p-5 overflow-y-auto flex-1">
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-3 text-center">
+                    <p className="text-[10px] uppercase tracking-widest text-slate-400">Linhas planilha</p>
+                    <p className="text-2xl font-black text-white tabular-nums">{importPreview.linhasPlanilha}</p>
+                  </div>
+                  <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3 text-center">
+                    <p className="text-[10px] uppercase tracking-widest text-emerald-300">A marcar como Montada</p>
+                    <p className="text-2xl font-black text-emerald-300 tabular-nums">{importPreview.matched.length}</p>
+                    <p className="text-[10px] text-emerald-400 mt-1">{fmtPeso(importPreview.pesoTotal)}</p>
+                  </div>
+                  <div className="bg-rose-500/10 border border-rose-500/30 rounded-lg p-3 text-center">
+                    <p className="text-[10px] uppercase tracking-widest text-rose-300">Não encontradas</p>
+                    <p className="text-2xl font-black text-rose-300 tabular-nums">{importPreview.naoEncontradas.length}</p>
+                  </div>
+                </div>
+
+                {importPreview.naoEncontradas.length > 0 && (
+                  <div className="bg-rose-500/5 border border-rose-500/20 rounded-lg p-3 mb-3">
+                    <p className="text-xs font-bold text-rose-300 mb-1">⚠️ Marcas sem correspondência:</p>
+                    <p className="text-[11px] text-rose-200">
+                      {importPreview.naoEncontradas.map(n => n.marca).join(', ')}
+                    </p>
+                    <p className="text-[10px] text-rose-400/70 mt-1">Estas peças serão ignoradas na importação.</p>
+                  </div>
+                )}
+
+                <div className="bg-slate-800/30 rounded-lg overflow-hidden">
+                  <div className="px-3 py-2 bg-slate-800/60 border-b border-slate-700 flex items-center justify-between">
+                    <p className="text-xs font-bold text-white">Peças que serão marcadas:</p>
+                    <p className="text-[10px] text-slate-400">{importPreview.matched.length} peças</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto custom-scroll">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-800/40 text-[9px] uppercase text-slate-500">
+                          <th className="px-3 py-1.5 text-left">Marca</th>
+                          <th className="px-3 py-1.5 text-left">Tipo</th>
+                          <th className="px-3 py-1.5 text-left">Peça ERP</th>
+                          <th className="px-3 py-1.5 text-right">Peso</th>
+                          <th className="px-3 py-1.5 text-left">Data</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.matched.slice(0, 100).map((m, i) => (
+                          <tr key={i} className="border-t border-slate-800/50">
+                            <td className="px-3 py-1 text-emerald-300 font-mono">{m.marca}</td>
+                            <td className="px-3 py-1 text-slate-400">{m.tipo}</td>
+                            <td className="px-3 py-1 text-slate-300 font-mono text-[10px]">{m.peca.id}</td>
+                            <td className="px-3 py-1 text-right text-slate-300">{fmtPeso(m.peca.pesoTotal || m.peca.peso)}</td>
+                            <td className="px-3 py-1 text-slate-500">{m.data || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                    {importPreview.matched.length > 100 && (
+                      <p className="text-center text-[10px] text-slate-500 py-2">+ {importPreview.matched.length - 100} peças adicionais</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex gap-2 p-5 border-t border-slate-800">
+                <button
+                  onClick={() => setImportPreview(null)}
+                  className="flex-1 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-sm font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={aplicarImportacao}
+                  disabled={importPreview.matched.length === 0}
+                  className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white text-sm font-bold"
+                >
+                  ✓ Aplicar — Marcar {importPreview.matched.length} como Montadas
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ============================================ */}
       {/* MODAL DETALHE                                */}
