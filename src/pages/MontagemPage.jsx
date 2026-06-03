@@ -785,6 +785,8 @@ export default function MontagemPage() {
             const items = kanban[statusKey];
             const Icon = s.icon;
             const totalPesoCol = items.reduce((sum, p) => sum + (p.pesoTotal || p.peso || 0), 0);
+            // Contagem por UNIDADES (não por marcas): marca com qtd>1 conta cada unidade.
+            const totalUnidadesCol = items.reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0);
             return (
               <div key={statusKey}
                 className={cn('rounded-xl border bg-slate-900/40 backdrop-blur overflow-hidden flex flex-col', s.border)}
@@ -799,7 +801,9 @@ export default function MontagemPage() {
                     </h3>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className={cn('text-xs font-bold tabular-nums', s.text)}>{items.length}</span>
+                    <span className={cn('text-xs font-bold tabular-nums', s.text)}>{totalUnidadesCol}</span>
+                    <span className="text-[10px] text-slate-500">un</span>
+                    <span className="text-[10px] text-slate-600">({items.length} marcas)</span>
                     <span className="text-[10px] text-slate-500">·</span>
                     <span className="text-[10px] font-mono text-slate-400">{fmtPeso(totalPesoCol)}</span>
                   </div>
