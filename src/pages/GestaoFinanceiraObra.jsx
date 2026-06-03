@@ -736,21 +736,35 @@ export default function GestaoFinanceiraObra() {
   const [showImportNF, setShowImportNF] = useState(false);
 
   const adicionarLancamento = useCallback(async (novoLanc) => {
+    // FIX persistência: garantir obraId sempre vinculado à obra atual,
+    // status do form preservado (não forçar PENDENTE), e propagar para o
+    // estado local mesmo que o useEffect que sincroniza lancamentosSupabase
+    // rode em paralelo (deduplicar por id).
     const lancamento = {
-        id: `lanc-${Date.now()}`,
-        obraId: obra.id,
         ...novoLanc,
+        id: novoLanc.id || `lanc-${Date.now()}`,
+        obraId: obra.id,                                 // força obra atual (sobrescreve qualquer obraId do form)
+        obra_id: obra.id,                                 // snake_case também (compatibilidade)
         data: novoLanc.dataEmissao || new Date().toISOString().split('T')[0],
+        dataEmissao: novoLanc.dataEmissao || new Date().toISOString().split('T')[0],
         nf: novoLanc.notaFiscal || novoLanc.nf || null,
-        status: STATUS_LANCAMENTO.PENDENTE
+        notaFiscal: novoLanc.notaFiscal || novoLanc.nf || null,
+        status: novoLanc.status || STATUS_LANCAMENTO.PENDENTE,  // preserva escolha do form
       };
-    setLancamentos(prev => [...prev, lancamento]);
+    // Adicionar localmente com deduplicação (evita perder lançamento se useEffect re-rodar)
+    setLancamentos(prev => {
+      if (prev.some(l => l.id === lancamento.id)) return prev;
+      return [...prev, lancamento];
+    });
     setShowNovoLancamento(false);
     // Persistir no Supabase via ERPContext
     try {
       await addLancamentoCtx(lancamento);
+      console.log(`[GFO] Lançamento ${lancamento.id} persistido para obra ${obra.id}`);
+      toast.success('Lançamento salvo!');
     } catch (err) {
-      console.error('Erro ao salvar lançamento:', err);
+      console.error('[GFO] Erro ao salvar lançamento:', err);
+      toast.error('Erro ao salvar: ' + (err.message || 'desconhecido'));
     }
   }, [obra.id, addLancamentoCtx]);
 
