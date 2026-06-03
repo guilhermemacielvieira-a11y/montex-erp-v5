@@ -1978,13 +1978,12 @@ export default function GestaoFinanceiraObra() {
               </div>
 
               {/* Lista de Materiais com Pendência */}
-              <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden"
+              <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden p-5"
             style={{
               background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
               borderColor: 'rgba(56,72,100,0.35)',
               boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
-            }}
-            className=" p-5">
+            }}>
                 <h3 className="text-lg font-semibold text-white flex items-center gap-2 mb-4">
                   <AlertTriangle className="w-5 h-5 text-amber-400" />
                   Materiais com Entrega Pendente
@@ -2204,13 +2203,12 @@ export default function GestaoFinanceiraObra() {
           <Tabs.Content value="medicoes" className="space-y-4">
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Lista de Medições */}
-              <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden"
+              <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden p-5"
             style={{
               background: 'linear-gradient(145deg, rgba(12,20,38,0.75), rgba(8,15,30,0.65))',
               borderColor: 'rgba(56,72,100,0.35)',
               boxShadow: '0 4px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.02)',
-            }}
-            className=" p-5">
+            }}>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-lg font-semibold text-white">Medições Realizadas</h3>
                   <button
@@ -2474,8 +2472,8 @@ export default function GestaoFinanceiraObra() {
         <Dialog.Portal>
           <Dialog.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-gray-800 border border-gray-700 rounded-xl p-6 z-50 w-[400px]">
-            <Dialog.Title className="text-lg font-semibold text-white mb-2">Confirmar Exclus\u00e3o</Dialog.Title>
-            <Dialog.Description className="text-gray-400 mb-6">Tem certeza que deseja excluir este lan\u00e7amento? Esta a\u00e7\u00e3o n\u00e3o pode ser desfeita.</Dialog.Description>
+            <Dialog.Title className="text-lg font-semibold text-white mb-2">Confirmar Exclusão</Dialog.Title>
+            <Dialog.Description className="text-gray-400 mb-6">Tem certeza que deseja excluir este lançamento? Esta ação não pode ser desfeita.</Dialog.Description>
             <div className="flex justify-end gap-3">
               <button onClick={() => setLancParaExcluir(null)} className="px-4 py-2 rounded-lg bg-gray-700 text-gray-300 hover:bg-gray-600 transition-colors">Cancelar</button>
               <button onClick={confirmarExclusao} className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-500 transition-colors flex items-center gap-2"><Trash2 className="w-4 h-4" />Excluir</button>
