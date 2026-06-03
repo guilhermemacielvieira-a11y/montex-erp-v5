@@ -1050,14 +1050,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     };
 
     // Helper: calcular status representativo de um grupo (o mais comum, nao o mais avançado)
-    // Usa o status EFETIVO: aplica o override MONTADO (montagem via localStorage/Supabase)
-    // para que elementos colorizados por TIPO (Strategy 7) fiquem VERDES quando montados.
+    // Usa APENAS o status de PRODUÇÃO (p.status), NUNCA o override montado: montado é fato
+    // por peça física e não pode ser inferido por maioria de TIPO (super-marcaria famílias
+    // inteiras — ex: VIGA-MESTRA com 5/7 montadas pintaria 759 elementos de verde).
     const getRepresentativeStatus = (pecas) => {
       const statusCount = {};
       let maxCount = 0;
       let dominantStatus = 'NAO_INICIADO';
       for (const p of pecas) {
-        const st = pecaIdsMontadas.has(String(p.id)) ? 'MONTADO' : p.status;
+        const st = p.status;
         statusCount[st] = (statusCount[st] || 0) + 1;
         if (statusCount[st] > maxCount) {
           maxCount = statusCount[st];
@@ -1172,6 +1173,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       }
 
+      // Match preciso = position code (0) ou marca (1-5). A partir daqui (perfil/tipo)
+      // o match é COARSE e NÃO deve aplicar o override MONTADO (montado é dado por peça
+      // física específica; perfil/tipo compartilhados super-marcam famílias inteiras).
+      const preciseMatch = !!bestMatch;
+
       // Strategy 6: Match by perfil in description ou PropertySet Profile
       if (!bestMatch) {
         const perfisCandidatos = [elDesc, elProfile].filter(Boolean);
@@ -1231,17 +1237,18 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       // - Tipo majoritario (7) é fallback para IFC com marcas mascaradas (Tekla)
 
       if (bestMatch) {
-        // Override MONTADO: peca marcada como montada via MontagemPage (localStorage)
-        if (pecaIdsMontadas.has(String(bestMatch.id))) {
+        // Override MONTADO SOMENTE em match PRECISO (position code / marca exata).
+        // Match por perfil (coarse) usa o status de produção da peça — nunca finge montado.
+        if (preciseMatch && pecaIdsMontadas.has(String(bestMatch.id))) {
           map.set(el.expressID, 'MONTADO');
         } else {
           map.set(el.expressID, bestMatch.status);
         }
       } else if (matchedStatus) {
         // Strategy 7 (FALLBACK POR TIPO): sem marca/perfil/position casavel.
-        // matchedStatus ja é o status representativo (montado-aware) do TIPO ERP.
+        // matchedStatus = status de PRODUÇÃO representativo do TIPO ERP (NUNCA montado).
         // Garante que familias sem ERP proprio (DIAGONAL-VM, MONTANTE-VM, DIAGONAL-TL...)
-        // destaquem herdando o status do conjunto-pai (VIGA-MESTRA / TRELIÇA).
+        // destaquem herdando o status de produção do conjunto-pai (VIGA-MESTRA / TRELIÇA).
         map.set(el.expressID, matchedStatus);
       }
       // sem else: elemento sem match e sem tipo conhecido -> NAO_INICIADO no render
