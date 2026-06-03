@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
-import { loadConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY } from '../utils/montagemSync';
+import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY } from '../utils/montagemSync';
 
 // Load web-ifc dynamically from same-origin public folder to avoid Vercel build issues
 let _WebIFC = null;
@@ -1118,6 +1118,42 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     return map;
   }, [ifcElements, erpPecas, concluidasMontagem]);
 
+  // pecaMap: expressID -> peça do ERP correspondente (para acao Marcar como Montada)
+  const pecaMap = useMemo(() => {
+    const map = new Map();
+    if (ifcElements.length === 0 || erpPecas.length === 0) return map;
+    const marcaIndex = new Map();
+    for (const peca of erpPecas) {
+      const marca = (peca.marca || '').toUpperCase().trim();
+      if (marca && marca.length >= 2) marcaIndex.set(marca, peca);
+    }
+    const tokenize = (s) => !s ? [] : s.toUpperCase().split(/[-_.\s\/\\:,]+/).filter(t => t.length >= 2);
+    const MR = /\b((?:VM|WM|VS|C|CT|CV|TS|TC|TP|TR|DN|MF|SP|TL|TI)\d{1,4}[A-Z]?)\b/gi;
+    for (const el of ifcElements) {
+      const elName = (el.name || '').toUpperCase().trim();
+      const elDesc = (el.description || '').toUpperCase().trim();
+      const elTag = (el.tag || el.objectType || '').toUpperCase().trim();
+      // marca exata
+      if (marcaIndex.has(elName)) { map.set(el.expressID, marcaIndex.get(elName)); continue; }
+      // tokens
+      const tokens = [...tokenize(elName), ...tokenize(elDesc), ...tokenize(elTag)];
+      let found = null;
+      for (const tk of tokens) {
+        if (marcaIndex.has(tk)) { found = marcaIndex.get(tk); break; }
+      }
+      if (found) { map.set(el.expressID, found); continue; }
+      // regex
+      const text = `${elName} ${elDesc} ${elTag}`;
+      MR.lastIndex = 0;
+      let m;
+      while ((m = MR.exec(text)) !== null) {
+        const c = m[1].toUpperCase();
+        if (marcaIndex.has(c)) { map.set(el.expressID, marcaIndex.get(c)); break; }
+      }
+    }
+    return map;
+  }, [ifcElements, erpPecas]);
+
   // ==============================================
   // ESTATISTICAS BASEADAS NAS PEÇAS DO ERP (fonte da verdade)
   // ==============================================
@@ -1344,19 +1380,45 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const sm = sceneManagerRef.current;
     if (!sm) return;
     const hit = sm.raycast(e);
-    // Unhighlight previous
     if (hoveredRef.current) sm.highlightMesh(hoveredRef.current, false);
     if (hit) {
       sm.highlightMesh(hit, true);
       hoveredRef.current = hit;
       const el = hit.userData.element;
       const erpStatus = statusMap.get(el.expressID) || 'NAO_INICIADO';
-      setSelectedElement({ ...el, erpStatus });
+      const erpPeca = pecaMap.get(el.expressID) || null;
+      setSelectedElement({ ...el, erpStatus, erpPeca });
     } else {
       hoveredRef.current = null;
       setSelectedElement(null);
     }
-  }, [statusMap]);
+  }, [statusMap, pecaMap]);
+
+  // Toggle Marcar/Desmarcar peça como Montada (sincroniza com MontagemPage)
+  const toggleMontagem = useCallback((peca) => {
+    if (!peca) return;
+    const pecaId = String(peca.id);
+    const next = { ...concluidasMontagem };
+    const wasMontada = !!next[pecaId];
+    if (wasMontada) {
+      delete next[pecaId];
+    } else {
+      next[pecaId] = {
+        montadoEm: new Date().toISOString(),
+        origem: 'MontexERP3DPage',
+        marca: peca.marca,
+      };
+    }
+    setConcluidasMontagem(next);
+    saveConcluidasSmart(next);
+    // Refletir mudança imediata no painel selecionado
+    if (selectedElement) {
+      const novoStatus = wasMontada
+        ? (peca.status || 'NAO_INICIADO')
+        : 'MONTADO';
+      setSelectedElement({ ...selectedElement, erpStatus: novoStatus });
+    }
+  }, [concluidasMontagem, selectedElement]);
 
   // ==============================================
   // STATISTICS
@@ -1772,6 +1834,70 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                     )}
                   </div>
                 </div>
+
+                {/* Peça vinculada do ERP + ação Marcar como Montada */}
+                {selectedElement.erpPeca && (
+                  <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4">
+                    <h4 className="text-emerald-400 text-xs font-semibold mb-3 flex items-center gap-1">
+                      <span>🔗</span> Peça do ERP vinculada
+                    </h4>
+                    <div className="space-y-1.5 text-xs mb-3">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500 text-[10px]">Marca</span>
+                        <span className="text-white text-[11px] font-bold font-mono">{selectedElement.erpPeca.marca}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500 text-[10px]">Tipo</span>
+                        <span className="text-white text-[11px]">{selectedElement.erpPeca.tipo || '-'}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500 text-[10px]">Etapa atual</span>
+                        <span className="text-white text-[11px]">{selectedElement.erpPeca.etapa || '-'}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500 text-[10px]">Quantidade</span>
+                        <span className="text-white text-[11px] font-bold">{selectedElement.erpPeca.quantidade || 1} un</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="text-slate-500 text-[10px]">Peso total</span>
+                        <span className="text-white text-[11px] tabular-nums">{(selectedElement.erpPeca.peso || 0).toFixed(2)} kg</span>
+                      </div>
+                    </div>
+
+                    {/* Acao: Marcar / Desmarcar como Montada */}
+                    {(() => {
+                      const peca = selectedElement.erpPeca;
+                      const isMontada = !!concluidasMontagem[String(peca.id)];
+                      const podeMontar = ['enviado','entregue','montagem'].includes(peca.etapa) || isMontada;
+                      if (!podeMontar) {
+                        return (
+                          <div className="text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded p-2">
+                            ⚠️ Peça ainda em produção (etapa={peca.etapa}). Só pode marcar como montada após chegar em obra (etapa=enviado).
+                          </div>
+                        );
+                      }
+                      if (isMontada) {
+                        return (
+                          <button
+                            onClick={() => toggleMontagem(peca)}
+                            className="w-full px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold transition-all flex items-center justify-center gap-2"
+                          >
+                            ↩ Desmarcar Montagem
+                          </button>
+                        );
+                      }
+                      return (
+                        <button
+                          onClick={() => toggleMontagem(peca)}
+                          className="w-full px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30"
+                        >
+                          ✓ Marcar como Montada
+                        </button>
+                      );
+                    })()}
+                    <p className="text-[9px] text-slate-500 mt-2 text-center">Sincroniza automaticamente com a MontagemPage</p>
+                  </div>
+                )}
 
                 {/* Propriedades Tekla (PropertySets) */}
                 {selectedElement.props && Object.keys(selectedElement.props).length > 0 && (
