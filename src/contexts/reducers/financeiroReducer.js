@@ -13,6 +13,14 @@ import { ACTIONS } from '../actions';
 
 export function financeiroReducer(state, action) {
   switch (action.type) {
+    // Recarga completa (sincronização cross-device): substitui a lista inteira
+    // com os dados frescos do Supabase. Usado pelo refetch em foco/visibilidade.
+    case 'RELOAD_LANCAMENTOS':
+      return {
+        ...state,
+        lancamentosDespesas: action.payload
+      };
+
     case ACTIONS.ADD_LANCAMENTO:
       return {
         ...state,

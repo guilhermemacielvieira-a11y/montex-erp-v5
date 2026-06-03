@@ -663,6 +663,53 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  // Recarrega lançamentos do Supabase (sincronização cross-device/cross-user).
+  // Necessário porque os dados são carregados UMA vez no boot; sem isto, um
+  // lançamento criado por OUTRO usuário/dispositivo só aparecia após reload total.
+  const reloadLancamentos = useCallback(async () => {
+    if (dataSource !== 'supabase') return;
+    try {
+      const data = await lancamentosApi.getAll();
+      dispatch({ type: 'RELOAD_LANCAMENTOS', payload: transformArray(data) });
+    } catch (err) {
+      console.error('❌ Erro ao recarregar lançamentos:', err.message);
+    }
+  }, [dataSource]);
+
+  // Recarrega medições do Supabase (mesma sincronização cross-device).
+  const reloadMedicoes = useCallback(async () => {
+    if (dataSource !== 'supabase') return;
+    try {
+      const data = await medicoesApi.getAll();
+      dispatch({ type: 'RELOAD_MEDICOES', payload: transformArray(data) });
+    } catch (err) {
+      console.error('❌ Erro ao recarregar medições:', err.message);
+    }
+  }, [dataSource]);
+
+  // SINCRONIZAÇÃO CROSS-DEVICE: ao voltar o foco/visibilidade da aba, recarrega
+  // os dados colaborativos (lançamentos, medições, peças) com throttle de 15s.
+  // Resolve o sintoma "dados lançados por outro usuário não aparecem/persistem".
+  useEffect(() => {
+    if (dataSource !== 'supabase') return;
+    let lastSync = 0;
+    const sync = () => {
+      const now = Date.now();
+      if (now - lastSync < 15000) return; // throttle
+      lastSync = now;
+      reloadLancamentos();
+      reloadMedicoes();
+      reloadPecas();
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') sync(); };
+    window.addEventListener('focus', sync);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', sync);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [dataSource, reloadLancamentos, reloadMedicoes, reloadPecas]);
+
   // ===== AÇÕES - EXPEDIÇÃO =====
   const addExpedicao = useCallback(async (expedicao) => {
     dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });

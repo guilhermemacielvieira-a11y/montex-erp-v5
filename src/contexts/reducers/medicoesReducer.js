@@ -10,6 +10,14 @@ import { ACTIONS } from '../actions';
 
 export function medicoesReducer(state, action) {
   switch (action.type) {
+    // Recarga completa (sincronização cross-device): substitui a lista inteira
+    // com os dados frescos do Supabase. Usado pelo refetch em foco/visibilidade.
+    case 'RELOAD_MEDICOES':
+      return {
+        ...state,
+        medicoes: action.payload
+      };
+
     case ACTIONS.ADD_MEDICAO:
       return {
         ...state,
