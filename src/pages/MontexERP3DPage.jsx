@@ -688,64 +688,71 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   // ==============================================
   // FETCH ERP DATA + EXPEDICOES
   // ==============================================
+  // Carrega APENAS pecas_producao da obra (com paginação 1000+).
+  // Materiais de corte foram REMOVIDOS do escopo para evitar inflar contadores -
+  // o modulo 3D agora reflete fielmente as PECAS do ERP (532 na Super Luna), nao
+  // os materiais de corte (que sao etapas intermediarias).
   useEffect(() => {
     if (!obraAtual) return;
     async function loadERP() {
       setErpLoading(true);
       try {
-        const [{ data: corte }, { data: producao }, { data: expData }] = await Promise.all([
-          supabase.from('materiais_corte').select('id, marca, peca, status_corte, perfil, peso_teorico, comprimento_mm').eq('obra_id', obraAtual),
-          supabase.from('pecas_producao').select('id, marca, nome, tipo, etapa, status, peso_total, perfil').eq('obra_id', obraAtual),
-          supabase.from('expedicoes').select('id, numero_romaneio, status, peso_total, pecas, pecas_ids, data_expedicao, destino').eq('obra_id', obraAtual),
-        ]);
+        // Paginacao manual: PostgREST limita 1000 linhas/req
+        const producao = [];
+        let offset = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('pecas_producao')
+            .select('id, marca, nome, tipo, etapa, status, peso_total, peso_unitario, quantidade, perfil')
+            .eq('obra_id', obraAtual)
+            .range(offset, offset + 999);
+          if (error) throw error;
+          if (!data || data.length === 0) break;
+          producao.push(...data);
+          if (data.length < 1000) break;
+          offset += 1000;
+        }
 
-        // Guardar expedicoes
+        const { data: expData } = await supabase
+          .from('expedicoes')
+          .select('id, numero_romaneio, status, peso_total, pecas, pecas_ids, data_expedicao, destino')
+          .eq('obra_id', obraAtual);
+
         setExpedicoes(expData || []);
 
-        // Mapear pecas de expedicoes: id/marca -> status da expedicao
-        const expedicaoStatusMap = new Map(); // marca (upper) -> status expedição
+        // Mapear: id da peca -> status da expedicao (mantido como override secundario)
+        const expedicaoStatusMap = new Map();
         (expData || []).forEach(exp => {
           const expStatus = mapExpedicaoStatus(exp.status);
-          // pecas pode ser array de objetos {id, marca, ...} ou array de strings/ids
           const pecasArr = Array.isArray(exp.pecas) ? exp.pecas : [];
           pecasArr.forEach(p => {
             const marca = typeof p === 'string' ? p : (p.marca || p.nome || p.peca || '');
             if (marca) expedicaoStatusMap.set(marca.toUpperCase().trim(), expStatus);
           });
-          // pecas_ids pode ser array de IDs
           const idsArr = Array.isArray(exp.pecas_ids) ? exp.pecas_ids : [];
-          idsArr.forEach(id => {
-            expedicaoStatusMap.set(String(id), expStatus);
-          });
+          idsArr.forEach(id => expedicaoStatusMap.set(String(id), expStatus));
         });
 
-        const allPecas = [];
-        (corte || []).forEach(c => {
-          const marca = c.marca || c.peca || '';
-          const marcaKey = marca.toUpperCase().trim();
-          allPecas.push({
-            id: c.id,
-            marca,
-            tipo: '', // corte nao tem tipo direto
-            status: expedicaoStatusMap.get(marcaKey) || expedicaoStatusMap.get(String(c.id)) || mapCorteStatus(c.status_corte),
-            perfil: c.perfil,
-            peso: parseFloat(c.peso_teorico) || 0,
-            source: 'corte',
-          });
-        });
-        (producao || []).forEach(p => {
-          const marca = p.marca || p.nome || '';
-          const marcaKey = marca.toUpperCase().trim();
-          allPecas.push({
+        const allPecas = (producao || []).map(p => {
+          const marca = (p.marca || p.nome || '').trim();
+          const marcaKey = marca.toUpperCase();
+          const status = expedicaoStatusMap.get(marcaKey)
+            || expedicaoStatusMap.get(String(p.id))
+            || mapProducaoEtapa(p.etapa);
+          return {
             id: p.id,
             marca,
             tipo: (p.tipo || '').toUpperCase().trim(),
-            status: expedicaoStatusMap.get(marcaKey) || expedicaoStatusMap.get(String(p.id)) || mapProducaoEtapa(p.etapa),
+            etapa: p.etapa,
+            status,
             perfil: p.perfil,
             peso: parseFloat(p.peso_total) || 0,
-            source: 'producao',
-          });
+            pesoUnit: parseFloat(p.peso_unitario) || 0,
+            quantidade: parseInt(p.quantidade) || 1,
+          };
         });
+
+        console.log(`[3D] Carregadas ${allPecas.length} pecas da obra ${obraAtual}`);
         setErpPecas(allPecas);
       } catch (e) {
         console.warn('Erro ao carregar ERP:', e);
@@ -923,46 +930,60 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       }
 
-      // Strategy 5: Match IFC element name/typeName → ERP tipo (usando dados de DWG/conjuntos)
-      // Ex: IFC name "TERÇA" → ERP tipo "TERÇA" → status representativo das terças
-      if (!bestMatch) {
-        // Tentar pelo nome do elemento primeiro (mais específico que typeName)
-        const erpTipoFromName = IFC_TO_ERP_TIPO[elName] || null;
-        if (erpTipoFromName && tipoIndex.has(erpTipoFromName)) {
-          matchedStatus = getRepresentativeStatus(tipoIndex.get(erpTipoFromName));
-        }
-        // Se não achou, tentar pelo typeName do IFC (Viga, Coluna, Chapa)
-        if (!matchedStatus) {
-          const typeName = (el.typeName || '').toUpperCase().trim();
-          const erpTipoFromType = IFC_TO_ERP_TIPO[typeName] || null;
-          if (erpTipoFromType && tipoIndex.has(erpTipoFromType)) {
-            matchedStatus = getRepresentativeStatus(tipoIndex.get(erpTipoFromType));
-          }
-        }
-        // Strategy 5b: busca parcial no tipo — ex: desc contem parte do tipo
-        if (!matchedStatus && elDesc) {
-          for (const [tipo, pecas] of tipoIndex) {
-            if (elDesc.includes(tipo) || tipo.includes(elDesc)) {
-              matchedStatus = getRepresentativeStatus(pecas);
-              break;
-            }
-          }
-        }
-      }
+      // FIM: matching apenas POR MARCA EXATA (estrategias 1-4 acima)
+      // O fallback por tipo IFC (Strategy 5 antiga) foi REMOVIDO pois espalhava
+      // status indevidamente entre todos elementos do mesmo tipo, distorcendo KPIs.
+      // Elementos sem match com marca especifica ficam como NAO_INICIADO (Sem Escopo).
 
       if (bestMatch) {
-        // Override MONTADO: se a peca foi marcada como montada na MontagemPage
+        // Override MONTADO: peca marcada como montada via MontagemPage (localStorage)
         if (pecaIdsMontadas.has(String(bestMatch.id))) {
           map.set(el.expressID, 'MONTADO');
         } else {
           map.set(el.expressID, bestMatch.status);
         }
-      } else if (matchedStatus) {
-        map.set(el.expressID, matchedStatus);
       }
+      // sem else: elemento sem match permanece sem status -> NAO_INICIADO no render
     }
     return map;
   }, [ifcElements, erpPecas, concluidasMontagem]);
+
+  // ==============================================
+  // ESTATISTICAS BASEADAS NAS PEÇAS DO ERP (fonte da verdade)
+  // ==============================================
+  // O painel mostra DADOS DAS PEÇAS, nao dos elementos IFC, pois:
+  //  - IFC e granular (cada parafuso, cada placa = 1 elemento -> 13.669 elementos)
+  //  - ERP organiza por marca (532 peças, cada uma com quantidade fisica)
+  //  - KPI correto = quantas peças/unidades estao em cada status
+  const erpStats = useMemo(() => {
+    const result = {
+      total: erpPecas.length,
+      totalUnidades: 0,
+      totalPeso: 0,
+      byStatus: { MONTADO: { pecas: 0, unidades: 0, peso: 0 },
+                  EM_OBRA:  { pecas: 0, unidades: 0, peso: 0 },
+                  EMBARQUE: { pecas: 0, unidades: 0, peso: 0 },
+                  NAO_INICIADO: { pecas: 0, unidades: 0, peso: 0 } },
+      byType: {},
+    };
+    const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
+    for (const p of erpPecas) {
+      // Override montado via MontagemPage
+      const status = pecaIdsMontadas.has(String(p.id)) ? 'MONTADO' : p.status;
+      const qtd = p.quantidade || 1;
+      const peso = p.peso || 0;
+      result.totalUnidades += qtd;
+      result.totalPeso += peso;
+      const b = result.byStatus[status] || result.byStatus.NAO_INICIADO;
+      b.pecas++; b.unidades += qtd; b.peso += peso;
+      const tipo = p.tipo || 'SEM_TIPO';
+      if (!result.byType[tipo]) result.byType[tipo] = { pecas: 0, unidades: 0, peso: 0 };
+      result.byType[tipo].pecas++;
+      result.byType[tipo].unidades += qtd;
+      result.byType[tipo].peso += peso;
+    }
+    return result;
+  }, [erpPecas, concluidasMontagem]);
 
   // ==============================================
   // INIT THREE.JS SCENE
@@ -1264,36 +1285,44 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50" />
               </div>
 
-              {/* Model Info */}
-              {stats && (
-                <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4">
-                  <h3 className="text-cyan-400 text-sm font-bold mb-3">Modelo IFC</h3>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <div className="text-white text-lg font-bold">{stats.total.toLocaleString()}</div>
-                      <div className="text-slate-400 text-[10px]">Elementos</div>
-                    </div>
-                    <div className="bg-white/5 rounded-lg p-2 text-center">
-                      <div className="text-emerald-400 text-lg font-bold">{stats.matchRate}%</div>
-                      <div className="text-slate-400 text-[10px]">Match ERP</div>
-                    </div>
+              {/* Model Info — agora baseado em PEÇAS DO ERP (fonte da verdade) */}
+              <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4">
+                <h3 className="text-cyan-400 text-sm font-bold mb-3">Peças do ERP (Obra)</h3>
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-white/5 rounded-lg p-2 text-center">
+                    <div className="text-white text-lg font-bold">{erpStats.total.toLocaleString()}</div>
+                    <div className="text-slate-400 text-[10px]">Marcas</div>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2 text-center">
+                    <div className="text-amber-400 text-lg font-bold">{erpStats.totalUnidades.toLocaleString()}</div>
+                    <div className="text-slate-400 text-[10px]">Unidades</div>
+                  </div>
+                  <div className="bg-white/5 rounded-lg p-2 text-center">
+                    <div className="text-emerald-400 text-lg font-bold">{(erpStats.totalPeso/1000).toFixed(1)}t</div>
+                    <div className="text-slate-400 text-[10px]">Peso</div>
                   </div>
                 </div>
-              )}
+                {stats && (
+                  <div className="mt-2 pt-2 border-t border-cyan-500/20 grid grid-cols-2 gap-2 text-[10px]">
+                    <div className="flex justify-between"><span className="text-slate-500">Elementos IFC</span><span className="text-slate-300">{stats.total.toLocaleString()}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Match IFC</span><span className="text-emerald-400">{stats.matchRate}%</span></div>
+                  </div>
+                )}
+              </div>
 
-              {/* Filter by Type */}
+              {/* Filter by Type — usa peças do ERP */}
               <div>
                 <h3 className="text-white text-xs font-semibold mb-2">Filtrar por Tipo</h3>
                 <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs">
                   <option value="ALL">Todos os Tipos</option>
-                  {stats && Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
-                    <option key={type} value={type}>{type} ({count})</option>
+                  {Object.entries(erpStats.byType).sort((a, b) => b[1].unidades - a[1].unidades).map(([type, d]) => (
+                    <option key={type} value={type}>{type} ({d.pecas} peças · {d.unidades} un)</option>
                   ))}
                 </select>
               </div>
 
-              {/* Filter by Status (Multi-select) + Legenda integrada */}
+              {/* Filter by Status — usa peças/unidades do ERP */}
               <div>
                 <div className="flex items-center justify-between mb-2">
                   <h3 className="text-white text-xs font-semibold">Filtrar por Status</h3>
@@ -1305,12 +1334,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   )}
                 </div>
                 {statusFilter.size === 0 && (
-                  <p className="text-[10px] text-slate-500 mb-2">Clique para filtrar (multi-select)</p>
+                  <p className="text-[10px] text-slate-500 mb-2">Clique para filtrar (multi-select) · números em peças / unidades</p>
                 )}
                 <div className="space-y-1">
                   {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
                     const isActive = statusFilter.size === 0 || statusFilter.has(key);
-                    const count = stats?.byStatus[key] || 0;
+                    const erp = erpStats.byStatus[key] || { pecas: 0, unidades: 0 };
+                    const count = erp.pecas; // mostra PEÇAS DO ERP
                     return (
                       <button key={key}
                         onClick={() => {
@@ -1337,8 +1367,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                         <span className={`flex-1 text-left ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>
                           {cfg.label}
                         </span>
-                        <span className={`tabular-nums ${count > 0 ? 'text-white font-medium' : 'text-slate-600'}`}>
-                          {count.toLocaleString()}
+                        <span className={`tabular-nums text-right ${count > 0 ? 'text-white font-medium' : 'text-slate-600'}`}>
+                          {count} <span className="text-[9px] text-slate-500">/ {erp.unidades} un</span>
                         </span>
                       </button>
                     );
@@ -1361,39 +1391,51 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                 </div>
               </div>
 
-              {/* Type Distribution */}
-              {stats && (
-                <div>
-                  <h3 className="text-white text-xs font-semibold mb-2">Distribuicao por Tipo</h3>
-                  <div className="space-y-1.5">
-                    {Object.entries(stats.byType).sort((a, b) => b[1] - a[1]).map(([type, count]) => (
-                      <div key={type} className="flex items-center gap-2 text-xs">
-                        <span className="text-slate-300 flex-1">{type}</span>
-                        <span className="text-slate-500">{count}</span>
-                        <div className="w-16 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                          <div className="h-full bg-cyan-500/60 rounded-full" style={{ width: `${(count / stats.total) * 100}%` }} />
-                        </div>
+              {/* Type Distribution — usa peças do ERP */}
+              <div>
+                <h3 className="text-white text-xs font-semibold mb-2">Distribuição por Tipo (peças do ERP)</h3>
+                <div className="space-y-1.5 max-h-72 overflow-y-auto">
+                  {Object.entries(erpStats.byType).sort((a, b) => b[1].unidades - a[1].unidades).map(([type, d]) => (
+                    <div key={type} className="flex items-center gap-2 text-xs">
+                      <span className="text-slate-300 flex-1 truncate" title={type}>{type}</span>
+                      <span className="text-slate-400 tabular-nums">{d.pecas}</span>
+                      <span className="text-slate-500 tabular-nums text-[9px]">/ {d.unidades}un</span>
+                      <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden">
+                        <div className="h-full bg-cyan-500/60 rounded-full" style={{ width: `${(d.unidades / (erpStats.totalUnidades || 1)) * 100}%` }} />
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
-              )}
+              </div>
 
-              {/* ERP Data Status */}
+              {/* ERP vs IFC integridade */}
               <div className="bg-white/5 border border-white/10 rounded-xl p-3">
-                <h3 className="text-white text-xs font-semibold mb-2">Dados ERP</h3>
+                <h3 className="text-white text-xs font-semibold mb-2">Integridade ERP × IFC</h3>
                 <div className="text-xs text-slate-400 space-y-1">
                   <div className="flex justify-between">
-                    <span>Pecas no ERP</span>
-                    <span className="text-white">{erpPecas.length}</span>
+                    <span>Peças/Marcas no ERP</span>
+                    <span className="text-cyan-300 font-bold">{erpStats.total.toLocaleString()}</span>
                   </div>
+                  <div className="flex justify-between">
+                    <span>Unidades físicas</span>
+                    <span className="text-amber-300 font-bold">{erpStats.totalUnidades.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Peso total contratado</span>
+                    <span className="text-white">{(erpStats.totalPeso/1000).toFixed(2)} t</span>
+                  </div>
+                  <div className="h-px bg-white/10 my-2" />
                   <div className="flex justify-between">
                     <span>Elementos IFC</span>
-                    <span className="text-white">{ifcElements.length}</span>
+                    <span className="text-white">{ifcElements.length.toLocaleString()}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span>Mapeados</span>
+                    <span>IFC com marca ERP</span>
                     <span className="text-emerald-400">{stats?.matched || 0}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>IFC sem escopo</span>
+                    <span className="text-slate-500">{(ifcElements.length - (stats?.matched || 0)).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
@@ -1433,9 +1475,9 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
             {modelLoaded && stats && (
               <div className="absolute top-3 left-14 flex gap-2 pointer-events-none">
                 {[
-                  { val: stats.total.toLocaleString(), label: 'Elementos', bg: 'from-slate-700/80 to-slate-800/80' },
-                  { val: stats.matchRate + '%', label: 'ERP Match', bg: 'from-emerald-700/80 to-emerald-800/80' },
-                  { val: Object.keys(stats.byType).length, label: 'Tipos', bg: 'from-blue-700/80 to-blue-800/80' },
+                  { val: erpStats.total.toLocaleString(), label: 'Peças ERP', bg: 'from-cyan-700/80 to-cyan-800/80' },
+                  { val: erpStats.totalUnidades.toLocaleString(), label: 'Unidades', bg: 'from-amber-700/80 to-amber-800/80' },
+                  { val: erpStats.byStatus.MONTADO.unidades + '/' + erpStats.totalUnidades, label: 'Montadas', bg: 'from-emerald-700/80 to-emerald-800/80' },
                 ].map((b, i) => (
                   <div key={i} className={`bg-gradient-to-b ${b.bg} backdrop-blur rounded-lg px-3 py-1.5 text-center border border-white/10`}>
                     <div className="text-white text-sm font-bold">{b.val}</div>
