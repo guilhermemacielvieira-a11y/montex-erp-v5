@@ -444,26 +444,48 @@ export default function MontagemPage() {
     montado: pecasFiltradas.filter(p => p._status === 'montado'),
   }), [pecasFiltradas]);
 
-  // ===== KPIs (respeitam filtro de obra) =====
+  // ===== KPIs (em UNIDADES físicas; respeitam filtro de obra) =====
   const kpis = useMemo(() => {
+    // Peso total da OBRA (referência 100% do progresso geral)
+    // Quando obra é "todas", soma peso de todas obras ativas
+    const obrasReferencia = obraFiltro !== 'todas'
+      ? obras.filter(o => o.id === obraFiltro)
+      : obras.filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
+    const pesoObraTotal = obrasReferencia.reduce((s, o) =>
+      s + (o.contratoPesoTotal || o.contrato_peso_total || o.pesoTotal || 0), 0);
+
+    // Peso e unidades das peças no escopo
     const totalPeso = pecasFiltradas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const pesoAguardando = pecasFiltradas.filter(p => p._status === 'aguardando_montagem')
-      .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const pesoMontado = pecasFiltradas.filter(p => p._status === 'montado')
-      .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const totalQtd = pecasFiltradas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const qtdMontada = pecasFiltradas.filter(p => p._status === 'montado')
-      .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const itensMontados = pecasFiltradas.filter(p => p._status === 'montado').length;
+
+    // Aguardando
+    const aguardando = pecasFiltradas.filter(p => p._status === 'aguardando_montagem');
+    const pesoAguardando = aguardando.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
+    const qtdAguardando = aguardando.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+
+    // Montadas
+    const montadas = pecasFiltradas.filter(p => p._status === 'montado');
+    const pesoMontado = montadas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
+    const qtdMontada = montadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+
     return {
+      // Peso da obra (referência 100%)
+      pesoObraTotal,
+      // Pesos
       totalPeso, pesoAguardando, pesoMontado,
-      totalQtd, qtdMontada, itensMontados,
-      pctAvanco: totalPeso > 0 ? (pesoMontado / totalPeso * 100) : 0,
+      // Unidades (somatório de quantidade)
+      totalQtd, qtdAguardando, qtdMontada,
+      // Contadores de peças (banco)
+      itensMontados: montadas.length,
+      itensAguardando: aguardando.length,
+      // % do PESO TOTAL DA OBRA (não do escopo)
+      pctAvanco: pesoObraTotal > 0 ? (pesoMontado / pesoObraTotal * 100) : 0,
+      pctAguardando: pesoObraTotal > 0 ? (pesoAguardando / pesoObraTotal * 100) : 0,
       equipesAtivas: equipesMontagem.filter(e => e.status === 'em_campo').length,
       totalEquipes: equipesMontagem.length,
       totalPecas: pecasFiltradas.length,
     };
-  }, [pecasFiltradas, equipesMontagem]);
+  }, [pecasFiltradas, equipesMontagem, obras, obraFiltro]);
 
   // ===== Ações (apenas localStorage — NÃO altera o banco) =====
   // Concluir Montagem: marca peça como montada SOMENTE no módulo
@@ -532,7 +554,7 @@ export default function MontagemPage() {
               </span>
             </h1>
             <p className="text-sm text-slate-400">
-              Peças entram automaticamente após expedição · {kpis.totalPecas} peça(s) no módulo
+              Peças entram automaticamente após expedição · {fmt(kpis.totalQtd)} unidade(s) ({kpis.totalPecas} peças)
             </p>
           </div>
         </div>
@@ -589,36 +611,37 @@ export default function MontagemPage() {
       {/* KPIs                                         */}
       {/* ============================================ */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KPI label="Aguardando" value={fmtPeso(kpis.pesoAguardando)} sub={`${kanban.aguardando_montagem.length} peças`} icon={Truck} color="#f59e0b" delay={0} />
-        <KPI label="Montado" value={fmtPeso(kpis.pesoMontado)} sub={`${kpis.itensMontados} peças · ${fmt(kpis.qtdMontada)} pcs`} icon={CheckCircle2} color="#10b981" delay={0.05} />
+        <KPI label="Aguardando" value={`${fmt(kpis.qtdAguardando)} un`} sub={`${kpis.itensAguardando} peças · ${fmtPeso(kpis.pesoAguardando)}`} icon={Truck} color="#f59e0b" delay={0} />
+        <KPI label="Montado" value={`${fmt(kpis.qtdMontada)} un`} sub={`${kpis.itensMontados} peças · ${fmtPeso(kpis.pesoMontado)}`} icon={CheckCircle2} color="#10b981" delay={0.05} />
         <KPI label="Equipes em Campo" value={`${kpis.equipesAtivas}/${kpis.totalEquipes}`} sub="ativas / total" icon={Users} color="#a855f7" delay={0.1} />
-        <KPI label="Progresso Geral" value={`${kpis.pctAvanco.toFixed(1)}%`} sub={fmtPeso(kpis.totalPeso)} icon={TrendingUp} color="#06b6d4" delay={0.15} />
+        <KPI label="Progresso Obra" value={`${kpis.pctAvanco.toFixed(1)}%`} sub={`${fmtPeso(kpis.pesoMontado)} de ${fmtPeso(kpis.pesoObraTotal)}`} icon={TrendingUp} color="#06b6d4" delay={0.15} />
       </div>
 
       {/* ============================================ */}
-      {/* PROGRESSO GERAL                              */}
+      {/* PROGRESSO GERAL (% baseado no PESO TOTAL DA OBRA) */}
       {/* ============================================ */}
       <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-bold text-white flex items-center gap-2">
             <Activity className="h-4 w-4 text-cyan-400" />
             Pipeline de Montagem
+            <span className="text-[10px] font-mono text-slate-500 ml-2">100% = peso total contratual da obra</span>
           </h3>
-          <span className="text-[10px] font-mono text-slate-500">peso · peças</span>
+          <span className="text-[10px] font-mono text-cyan-300">{kpis.pctAvanco.toFixed(1)}% concluído</span>
         </div>
         <div className="h-3 bg-slate-800/80 rounded-full overflow-hidden flex">
-          {kpis.totalPeso > 0 && (
+          {kpis.pesoObraTotal > 0 && (
             <>
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${(kpis.pesoMontado / kpis.totalPeso) * 100}%` }}
+                animate={{ width: `${(kpis.pesoMontado / kpis.pesoObraTotal) * 100}%` }}
                 transition={{ duration: 1, ease: 'easeOut' }}
                 className="h-full"
                 style={{ background: 'linear-gradient(90deg, #10b981, #059669)', boxShadow: '0 0 8px #10b98180' }}
               />
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${(kpis.pesoAguardando / kpis.totalPeso) * 100}%` }}
+                animate={{ width: `${(kpis.pesoAguardando / kpis.pesoObraTotal) * 100}%` }}
                 transition={{ duration: 1, delay: 0.1, ease: 'easeOut' }}
                 className="h-full"
                 style={{ background: 'linear-gradient(90deg, #f59e0b, #d97706)' }}
@@ -629,13 +652,13 @@ export default function MontagemPage() {
         <div className="flex items-center justify-between mt-2 text-[11px]">
           <div className="flex gap-4">
             <span className="text-emerald-400 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Montado: {fmtPeso(kpis.pesoMontado)}
+              <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Montado: {fmtPeso(kpis.pesoMontado)} ({kpis.pctAvanco.toFixed(1)}%)
             </span>
             <span className="text-amber-400 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Aguardando: {fmtPeso(kpis.pesoAguardando)}
+              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Aguardando: {fmtPeso(kpis.pesoAguardando)} ({kpis.pctAguardando.toFixed(1)}%)
             </span>
           </div>
-          <span className="text-slate-400 font-mono">Total: {fmtPeso(kpis.totalPeso)}</span>
+          <span className="text-slate-400 font-mono">Obra: {fmtPeso(kpis.pesoObraTotal)} (100%)</span>
         </div>
       </div>
 
