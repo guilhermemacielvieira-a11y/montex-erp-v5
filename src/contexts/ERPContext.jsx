@@ -328,6 +328,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Obra ${id} atualizada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar obra no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -341,6 +342,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Obra ${obra.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar obra no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -368,6 +370,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Orçamento ${orcamentoId} aprovado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao aprovar orçamento no Supabase:', err.message);
+        throw err;
       }
     }
 
@@ -442,6 +445,7 @@ export function ERPProvider({ children }) {
         }
       } catch (err) {
         console.error('❌ Erro ao consumir estoque no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource, state.estoque]);
@@ -459,6 +463,7 @@ export function ERPProvider({ children }) {
         }
       } catch (err) {
         console.error('❌ Erro ao adicionar estoque no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource, state.estoque]);
@@ -477,6 +482,7 @@ export function ERPProvider({ children }) {
         }
       } catch (err) {
         console.error('❌ Erro ao reservar estoque no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource, state.estoque]);
@@ -522,6 +528,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Peça ${pecaId} → ${novaEtapa} (func: ${funcionarioId || 'N/A'}) salva no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar etapa no Supabase:', err.message);
+        throw err;
       }
     }
 
@@ -584,6 +591,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Status corte ${pecaId} → ${novoStatus} (func: ${funcionarioId || 'N/A'}) salvo no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar status corte no Supabase:', err.message);
+        throw err;
       }
     }
 
@@ -616,6 +624,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ ${pecas.length} peças adicionadas no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao adicionar peças no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -636,6 +645,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Peça ${pecaId} atualizada no Supabase`, snakeData);
       } catch (err) {
         console.error('❌ Erro ao atualizar peça no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -707,6 +717,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Expedição ${record.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar expedição no Supabase:', err.message);
+        throw err;
       }
     }
 
@@ -761,6 +772,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Expedição ${id} atualizada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource, state.expedicoes]);
@@ -773,6 +785,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Expedição ${id} deletada do Supabase`);
       } catch (err) {
         console.error('❌ Erro ao deletar expedição no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -809,6 +822,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Compra ${compraId} recebida no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao receber compra no Supabase:', err.message);
+        throw err;
       }
     }
 
@@ -860,6 +874,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Medição ${medicao.id} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar medição no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -874,6 +889,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Medição ${id} atualizada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar medição no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -886,6 +902,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Medição ${id} removida do Supabase`);
       } catch (err) {
         console.error('❌ Erro ao remover medição no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -916,6 +933,10 @@ export function ERPProvider({ children }) {
         console.log(`✅ Lançamento ${lancamentoComId.id} criado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar lançamento no Supabase:', err.message);
+        // Re-propaga: a falha NÃO pode ser silenciosa. Sem isto a UI mostrava
+        // "Lançamento salvo!" mesmo quando o INSERT falhava (ex: RLS bloqueando
+        // o role anon), e o dado não persistia para outros usuários/dispositivos.
+        throw err;
       }
     }
   }, [dataSource]);
@@ -929,6 +950,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Lançamento ${id} atualizado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar lançamento no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -941,6 +963,7 @@ export function ERPProvider({ children }) {
         console.log('Lancamento ' + id + ' removido do Supabase');
       } catch (err) {
         console.error('Erro ao remover lancamento do Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -954,6 +977,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Equipe ${equipeId} alocada à obra ${obraId} no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao alocar equipe no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -968,6 +992,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Funcionário ${funcionario.nome} criado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar funcionário no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -982,6 +1007,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Funcionário ${id} atualizado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar funcionário no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -994,6 +1020,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Funcionário ${id} removido do Supabase`);
       } catch (err) {
         console.error('❌ Erro ao remover funcionário no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -1008,6 +1035,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Equipe ${equipe.nome} criada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao criar equipe no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -1022,6 +1050,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Equipe ${id} atualizada no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao atualizar equipe no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -1034,6 +1063,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Equipe ${id} removida do Supabase`);
       } catch (err) {
         console.error('❌ Erro ao remover equipe no Supabase:', err.message);
+        throw err;
       }
     }
   }, [dataSource]);
@@ -1074,6 +1104,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Lista ${lista.tipo} salva no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar lista no Supabase:', err.message);
+        throw err;
       }
     }
 
@@ -1140,6 +1171,7 @@ export function ERPProvider({ children }) {
         console.log(`✅ Entrega material ${materialId} salva no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao salvar entrega no Supabase:', err.message);
+        throw err;
       }
     }
 
