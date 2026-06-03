@@ -39,14 +39,30 @@ const fmtData = (d) => {
 };
 
 // ============================================
-// STATUS DE MONTAGEM (derivado da etapa)
+// MÓDULO INDEPENDENTE — usa localStorage para status
 // ============================================
-// etapa === 'enviado'                → 'aguardando_montagem' (AUTO-PULL)
-// etapa === 'entregue' || 'montagem' → 'montado'
-const statusFromEtapa = (etapa) => {
-  if (etapa === 'enviado') return 'aguardando_montagem';
-  if (etapa === 'entregue' || etapa === 'montagem') return 'montado';
-  return null;
+// Apenas peças com etapa='enviado' entram no módulo (AUTO-PULL).
+// O status "Montado" é gerenciado VIA localStorage neste módulo,
+// SEM alterar a etapa do banco (independente da Fabricação/Expedição).
+const LS_KEY_CONCLUIDAS = 'montex_montagem_concluidas_v1';
+
+const carregarConcluidas = () => {
+  try {
+    const raw = localStorage.getItem(LS_KEY_CONCLUIDAS);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+};
+const salvarConcluidas = (obj) => {
+  try { localStorage.setItem(LS_KEY_CONCLUIDAS, JSON.stringify(obj)); } catch {}
+};
+
+// Status do módulo (derivado da etapa + override localStorage)
+const statusFromEtapa = (etapa, concluidas, pecaId) => {
+  // Só peças explicitamente em etapa='enviado' fazem parte do módulo
+  if (etapa !== 'enviado') return null;
+  // Override: se foi marcada como montada no módulo, vira 'montado'
+  if (concluidas && concluidas[pecaId]) return 'montado';
+  return 'aguardando_montagem';
 };
 
 const STATUS_CONFIG = {
@@ -195,7 +211,7 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, isSelected, onToggleSelec
 // ============================================
 export default function MontagemPage() {
   const { obras } = useObras();
-  const { pecas, updatePeca } = useProducao();
+  const { pecas } = useProducao();
   const { equipes, funcionarios } = useEquipes();
 
   // Filtros
@@ -206,6 +222,19 @@ export default function MontagemPage() {
   const [pecasSelecionadas, setPecasSelecionadas] = useState(new Set());
   const [viewMode, setViewMode] = useState('kanban'); // kanban | lista
   const [pecaDetalhe, setPecaDetalhe] = useState(null);
+
+  // ===== Concluídas (independente do banco — localStorage) =====
+  const [concluidas, setConcluidas] = useState(() => carregarConcluidas());
+
+  const setConcluida = (pecaId, montada) => {
+    setConcluidas(prev => {
+      const next = { ...prev };
+      if (montada) next[pecaId] = { montadoEm: new Date().toISOString() };
+      else delete next[pecaId];
+      salvarConcluidas(next);
+      return next;
+    });
+  };
 
   // ===== Equipes de Montagem =====
   const equipesMontagem = useMemo(() => {
@@ -226,16 +255,16 @@ export default function MontagemPage() {
   }, [equipes, funcionarios]);
 
   // ===== Peças do módulo de Montagem (auto-pull) =====
-  // Inclui peças com etapa: enviado | montagem | entregue
+  // Apenas peças com etapa=enviado. Status "Montado" via localStorage.
   const pecasMontagem = useMemo(() => {
     return (pecas || [])
       .map(p => {
-        const status = statusFromEtapa(p.etapa);
+        const status = statusFromEtapa(p.etapa, concluidas, p.id);
         if (!status) return null;
         return { ...p, _status: status };
       })
       .filter(Boolean);
-  }, [pecas]);
+  }, [pecas, concluidas]);
 
   // ===== Aplicar filtros =====
   const pecasFiltradas = useMemo(() => {
@@ -280,68 +309,63 @@ export default function MontagemPage() {
     montado: pecasFiltradas.filter(p => p._status === 'montado'),
   }), [pecasFiltradas]);
 
-  // ===== KPIs =====
+  // ===== KPIs (respeitam filtro de obra) =====
   const kpis = useMemo(() => {
-    const totalPeso = pecasMontagem.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const pesoAguardando = pecasMontagem.filter(p => p._status === 'aguardando_montagem')
+    const totalPeso = pecasFiltradas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
+    const pesoAguardando = pecasFiltradas.filter(p => p._status === 'aguardando_montagem')
       .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const pesoMontado = pecasMontagem.filter(p => p._status === 'montado')
+    const pesoMontado = pecasFiltradas.filter(p => p._status === 'montado')
       .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const totalQtd = pecasMontagem.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    const qtdMontada = pecasMontagem.filter(p => p._status === 'montado')
+    const totalQtd = pecasFiltradas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const qtdMontada = pecasFiltradas.filter(p => p._status === 'montado')
       .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const itensMontados = pecasFiltradas.filter(p => p._status === 'montado').length;
     return {
       totalPeso, pesoAguardando, pesoMontado,
-      totalQtd, qtdMontada,
+      totalQtd, qtdMontada, itensMontados,
       pctAvanco: totalPeso > 0 ? (pesoMontado / totalPeso * 100) : 0,
       equipesAtivas: equipesMontagem.filter(e => e.status === 'em_campo').length,
       totalEquipes: equipesMontagem.length,
-      totalPecas: pecasMontagem.length,
+      totalPecas: pecasFiltradas.length,
     };
-  }, [pecasMontagem, equipesMontagem]);
+  }, [pecasFiltradas, equipesMontagem]);
 
-  // ===== Ações =====
-  // Aguardando Montagem → Montado (etapa: enviado → entregue)
-  const handleAvancar = async (peca) => {
-    try {
-      await updatePeca(peca.id, { etapa: 'entregue' });
-      toast.success(`✅ Montado: ${peca.codigo || peca.marca}`);
-    } catch (err) {
-      toast.error('Erro ao concluir montagem: ' + err.message);
-    }
+  // ===== Ações (apenas localStorage — NÃO altera o banco) =====
+  // Concluir Montagem: marca peça como montada SOMENTE no módulo
+  const handleAvancar = (peca) => {
+    setConcluida(peca.id, true);
+    toast.success(`✅ Montada (módulo): ${peca.codigo || peca.marca}`);
   };
 
-  // Montado → Aguardando Montagem (etapa: entregue → enviado)
-  const handleRetornar = async (peca) => {
-    try {
-      await updatePeca(peca.id, { etapa: 'enviado' });
-      toast.success(`↩️ Retornado para Aguardando: ${peca.codigo || peca.marca}`);
-    } catch (err) {
-      toast.error('Erro ao retornar etapa: ' + err.message);
-    }
+  // Retornar para Aguardando: desmarca no módulo
+  const handleRetornar = (peca) => {
+    setConcluida(peca.id, false);
+    toast.success(`↩️ Retornada para Aguardando: ${peca.codigo || peca.marca}`);
   };
 
-  // Lote: marca todas selecionadas como Montado (Concluir Montagem)
-  const handleAcaoLote = async (acao) => {
+  // Lote: aplica para todas as selecionadas
+  const handleAcaoLote = (acao) => {
     const ids = Array.from(pecasSelecionadas);
     if (ids.length === 0) {
       toast.error('Selecione ao menos 1 peça');
       return;
     }
-    const t = toast.loading(`Processando ${ids.length} peça(s)...`);
     let ok = 0;
-    for (const id of ids) {
-      const p = pecasMontagem.find(x => x.id === id);
-      if (!p) continue;
-      const novaEtapa = acao === 'concluir' && p._status === 'aguardando_montagem' ? 'entregue'
-        : acao === 'retornar' && p._status === 'montado' ? 'enviado'
-        : null;
-      if (novaEtapa) {
-        try { await updatePeca(p.id, { etapa: novaEtapa }); ok++; } catch {}
+    setConcluidas(prev => {
+      const next = { ...prev };
+      for (const id of ids) {
+        const p = pecasMontagem.find(x => x.id === id);
+        if (!p) continue;
+        if (acao === 'concluir' && p._status === 'aguardando_montagem') {
+          next[id] = { montadoEm: new Date().toISOString() }; ok++;
+        } else if (acao === 'retornar' && p._status === 'montado') {
+          delete next[id]; ok++;
+        }
       }
-    }
-    toast.dismiss(t);
-    toast.success(`${ok}/${ids.length} peça(s) atualizadas`);
+      salvarConcluidas(next);
+      return next;
+    });
+    toast.success(`${ok}/${ids.length} peça(s) atualizadas (módulo)`);
     setPecasSelecionadas(new Set());
   };
 
@@ -416,7 +440,7 @@ export default function MontagemPage() {
       {/* ============================================ */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KPI label="Aguardando" value={fmtPeso(kpis.pesoAguardando)} sub={`${kanban.aguardando_montagem.length} peças`} icon={Truck} color="#f59e0b" delay={0} />
-        <KPI label="Montado" value={fmtPeso(kpis.pesoMontado)} sub={`${kanban.montado.length} peças · ${fmt(kpis.qtdMontada)} pcs`} icon={CheckCircle2} color="#10b981" delay={0.05} />
+        <KPI label="Montado" value={fmtPeso(kpis.pesoMontado)} sub={`${kpis.itensMontados} peças · ${fmt(kpis.qtdMontada)} pcs`} icon={CheckCircle2} color="#10b981" delay={0.05} />
         <KPI label="Equipes em Campo" value={`${kpis.equipesAtivas}/${kpis.totalEquipes}`} sub="ativas / total" icon={Users} color="#a855f7" delay={0.1} />
         <KPI label="Progresso Geral" value={`${kpis.pctAvanco.toFixed(1)}%`} sub={fmtPeso(kpis.totalPeso)} icon={TrendingUp} color="#06b6d4" delay={0.15} />
       </div>
