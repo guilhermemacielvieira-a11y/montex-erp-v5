@@ -1748,13 +1748,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   )}
                 </div>
                 {statusFilter.size === 0 && (
-                  <p className="text-[10px] text-slate-500 mb-2">Clique para filtrar (multi-select) · números em peças / unidades</p>
+                  <p className="text-[10px] text-slate-500 mb-2">Clique para filtrar (multi-select) · números em unidades / marcas</p>
                 )}
                 <div className="space-y-1">
                   {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
                     const isActive = statusFilter.size === 0 || statusFilter.has(key);
                     const erp = erpStats.byStatus[key] || { pecas: 0, unidades: 0 };
-                    const count = erp.pecas; // mostra PEÇAS DO ERP
+                    const count = erp.unidades; // mostra UNIDADES (qtd somada), não marcas
                     return (
                       <button key={key}
                         onClick={() => {
@@ -1782,7 +1782,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                           {cfg.label}
                         </span>
                         <span className={`tabular-nums text-right ${count > 0 ? 'text-white font-medium' : 'text-slate-600'}`}>
-                          {count} <span className="text-[9px] text-slate-500">/ {erp.unidades} un</span>
+                          {count} <span className="text-[9px] text-slate-500">un / {erp.pecas} marcas</span>
                         </span>
                       </button>
                     );
