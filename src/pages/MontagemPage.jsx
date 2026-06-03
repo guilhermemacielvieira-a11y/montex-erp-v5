@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Wrench, CheckCircle2, Clock, MapPin, Users, Package, Building2,
   ChevronDown, Plus, Download, Filter, TrendingUp, Calendar, Search,
-  ArrowRight, PlayCircle, Truck, Hammer, Box, AlertCircle, Eye,
+  ArrowRight, Truck, Box, AlertCircle, Eye,
   ChevronRight, X, Settings, FileText, BarChart3, Activity,
   HardHat, Layers, Send,
 } from 'lucide-react';
@@ -41,19 +41,12 @@ const fmtData = (d) => {
 // ============================================
 // STATUS DE MONTAGEM (derivado da etapa)
 // ============================================
-// etapa === 'enviado'   → 'aguardando_montagem' (vem automaticamente)
-// etapa === 'montagem'  → 'em_montagem'
-// etapa === 'entregue'  → 'montado'
+// etapa === 'enviado'                → 'aguardando_montagem' (AUTO-PULL)
+// etapa === 'entregue' || 'montagem' → 'montado'
 const statusFromEtapa = (etapa) => {
   if (etapa === 'enviado') return 'aguardando_montagem';
-  if (etapa === 'montagem') return 'em_montagem';
-  if (etapa === 'entregue') return 'montado';
+  if (etapa === 'entregue' || etapa === 'montagem') return 'montado';
   return null;
-};
-
-const proximaEtapa = {
-  aguardando_montagem: 'montagem',
-  em_montagem: 'entregue',
 };
 
 const STATUS_CONFIG = {
@@ -67,18 +60,8 @@ const STATUS_CONFIG = {
     border: 'border-amber-500/40',
     glow: 'shadow-amber-500/20',
   },
-  em_montagem: {
-    label: 'Em Montagem',
-    short: 'Em Montagem',
-    icon: Hammer,
-    color: '#3b82f6',
-    bg: 'bg-blue-500/20',
-    text: 'text-blue-300',
-    border: 'border-blue-500/40',
-    glow: 'shadow-blue-500/20',
-  },
   montado: {
-    label: 'Montado / Entregue',
+    label: 'Montado',
     short: 'Montado',
     icon: CheckCircle2,
     color: '#10b981',
@@ -184,29 +167,22 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, isSelected, onToggleSelec
 
       {/* Actions */}
       <div className="flex gap-1 mt-2">
-        {peca._status !== 'montado' && (
+        {peca._status === 'aguardando_montagem' && (
           <button
             onClick={(e) => { e.stopPropagation(); onAvancar?.(peca); }}
             className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-2 rounded transition-all hover:opacity-90"
-            style={{
-              background: peca._status === 'aguardando_montagem' ? '#3b82f6' : '#10b981',
-              color: 'white',
-            }}
+            style={{ background: '#10b981', color: 'white' }}
           >
-            {peca._status === 'aguardando_montagem' ? (
-              <><PlayCircle className="h-3 w-3" /> Iniciar Montagem</>
-            ) : (
-              <><CheckCircle2 className="h-3 w-3" /> Concluir</>
-            )}
+            <CheckCircle2 className="h-3 w-3" /> Concluir Montagem
           </button>
         )}
-        {peca._status !== 'aguardando_montagem' && (
+        {peca._status === 'montado' && (
           <button
             onClick={(e) => { e.stopPropagation(); onRetornar?.(peca); }}
-            className="px-2 py-1.5 text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded transition-all"
-            title="Retornar etapa anterior"
+            className="flex-1 flex items-center justify-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 py-1.5 px-2 rounded transition-all border border-slate-700"
+            title="Retornar para Aguardando Montagem"
           >
-            <ChevronDown className="h-3 w-3 rotate-90" />
+            <ChevronDown className="h-3 w-3 rotate-90" /> Retornar p/ Aguardando
           </button>
         )}
       </div>
@@ -298,10 +274,9 @@ export default function MontagemPage() {
     return arr;
   }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
 
-  // ===== Agrupamento Kanban =====
+  // ===== Agrupamento Kanban (apenas 2 colunas) =====
   const kanban = useMemo(() => ({
     aguardando_montagem: pecasFiltradas.filter(p => p._status === 'aguardando_montagem'),
-    em_montagem: pecasFiltradas.filter(p => p._status === 'em_montagem'),
     montado: pecasFiltradas.filter(p => p._status === 'montado'),
   }), [pecasFiltradas]);
 
@@ -310,15 +285,13 @@ export default function MontagemPage() {
     const totalPeso = pecasMontagem.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const pesoAguardando = pecasMontagem.filter(p => p._status === 'aguardando_montagem')
       .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const pesoEmMontagem = pecasMontagem.filter(p => p._status === 'em_montagem')
-      .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const pesoMontado = pecasMontagem.filter(p => p._status === 'montado')
       .reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const totalQtd = pecasMontagem.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
     const qtdMontada = pecasMontagem.filter(p => p._status === 'montado')
       .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
     return {
-      totalPeso, pesoAguardando, pesoEmMontagem, pesoMontado,
+      totalPeso, pesoAguardando, pesoMontado,
       totalQtd, qtdMontada,
       pctAvanco: totalPeso > 0 ? (pesoMontado / totalPeso * 100) : 0,
       equipesAtivas: equipesMontagem.filter(e => e.status === 'em_campo').length,
@@ -328,30 +301,27 @@ export default function MontagemPage() {
   }, [pecasMontagem, equipesMontagem]);
 
   // ===== Ações =====
+  // Aguardando Montagem → Montado (etapa: enviado → entregue)
   const handleAvancar = async (peca) => {
-    const novaEtapa = peca._status === 'aguardando_montagem' ? 'montagem' : 'entregue';
     try {
-      await updatePeca(peca.id, { etapa: novaEtapa });
-      toast.success(
-        novaEtapa === 'montagem'
-          ? `▶️ Montagem iniciada: ${peca.codigo || peca.marca}`
-          : `✅ Montagem concluída: ${peca.codigo || peca.marca}`
-      );
+      await updatePeca(peca.id, { etapa: 'entregue' });
+      toast.success(`✅ Montado: ${peca.codigo || peca.marca}`);
     } catch (err) {
-      toast.error('Erro ao avançar etapa: ' + err.message);
+      toast.error('Erro ao concluir montagem: ' + err.message);
     }
   };
 
+  // Montado → Aguardando Montagem (etapa: entregue → enviado)
   const handleRetornar = async (peca) => {
-    const novaEtapa = peca._status === 'em_montagem' ? 'enviado' : 'montagem';
     try {
-      await updatePeca(peca.id, { etapa: novaEtapa });
-      toast.success(`↩️ Retornado: ${peca.codigo || peca.marca}`);
+      await updatePeca(peca.id, { etapa: 'enviado' });
+      toast.success(`↩️ Retornado para Aguardando: ${peca.codigo || peca.marca}`);
     } catch (err) {
       toast.error('Erro ao retornar etapa: ' + err.message);
     }
   };
 
+  // Lote: marca todas selecionadas como Montado (Concluir Montagem)
   const handleAcaoLote = async (acao) => {
     const ids = Array.from(pecasSelecionadas);
     if (ids.length === 0) {
@@ -363,8 +333,8 @@ export default function MontagemPage() {
     for (const id of ids) {
       const p = pecasMontagem.find(x => x.id === id);
       if (!p) continue;
-      const novaEtapa = acao === 'iniciar' && p._status === 'aguardando_montagem' ? 'montagem'
-        : acao === 'concluir' && p._status === 'em_montagem' ? 'entregue'
+      const novaEtapa = acao === 'concluir' && p._status === 'aguardando_montagem' ? 'entregue'
+        : acao === 'retornar' && p._status === 'montado' ? 'enviado'
         : null;
       if (novaEtapa) {
         try { await updatePeca(p.id, { etapa: novaEtapa }); ok++; } catch {}
@@ -444,12 +414,11 @@ export default function MontagemPage() {
       {/* ============================================ */}
       {/* KPIs                                         */}
       {/* ============================================ */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KPI label="Aguardando" value={fmtPeso(kpis.pesoAguardando)} sub={`${kanban.aguardando_montagem.length} peças`} icon={Truck} color="#f59e0b" delay={0} />
-        <KPI label="Em Montagem" value={fmtPeso(kpis.pesoEmMontagem)} sub={`${kanban.em_montagem.length} peças`} icon={Hammer} color="#3b82f6" delay={0.05} />
-        <KPI label="Montado" value={fmtPeso(kpis.pesoMontado)} sub={`${kanban.montado.length} peças · ${fmt(kpis.qtdMontada)} pcs`} icon={CheckCircle2} color="#10b981" delay={0.1} />
-        <KPI label="Equipes em Campo" value={`${kpis.equipesAtivas}/${kpis.totalEquipes}`} sub="ativas / total" icon={Users} color="#a855f7" delay={0.15} />
-        <KPI label="Progresso Geral" value={`${kpis.pctAvanco.toFixed(1)}%`} sub={fmtPeso(kpis.totalPeso)} icon={TrendingUp} color="#06b6d4" delay={0.2} />
+        <KPI label="Montado" value={fmtPeso(kpis.pesoMontado)} sub={`${kanban.montado.length} peças · ${fmt(kpis.qtdMontada)} pcs`} icon={CheckCircle2} color="#10b981" delay={0.05} />
+        <KPI label="Equipes em Campo" value={`${kpis.equipesAtivas}/${kpis.totalEquipes}`} sub="ativas / total" icon={Users} color="#a855f7" delay={0.1} />
+        <KPI label="Progresso Geral" value={`${kpis.pctAvanco.toFixed(1)}%`} sub={fmtPeso(kpis.totalPeso)} icon={TrendingUp} color="#06b6d4" delay={0.15} />
       </div>
 
       {/* ============================================ */}
@@ -475,15 +444,8 @@ export default function MontagemPage() {
               />
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${(kpis.pesoEmMontagem / kpis.totalPeso) * 100}%` }}
-                transition={{ duration: 1, delay: 0.1, ease: 'easeOut' }}
-                className="h-full"
-                style={{ background: 'linear-gradient(90deg, #3b82f6, #2563eb)', boxShadow: '0 0 8px #3b82f680' }}
-              />
-              <motion.div
-                initial={{ width: 0 }}
                 animate={{ width: `${(kpis.pesoAguardando / kpis.totalPeso) * 100}%` }}
-                transition={{ duration: 1, delay: 0.2, ease: 'easeOut' }}
+                transition={{ duration: 1, delay: 0.1, ease: 'easeOut' }}
                 className="h-full"
                 style={{ background: 'linear-gradient(90deg, #f59e0b, #d97706)' }}
               />
@@ -494,9 +456,6 @@ export default function MontagemPage() {
           <div className="flex gap-4">
             <span className="text-emerald-400 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Montado: {fmtPeso(kpis.pesoMontado)}
-            </span>
-            <span className="text-blue-400 flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Em montagem: {fmtPeso(kpis.pesoEmMontagem)}
             </span>
             <span className="text-amber-400 flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> Aguardando: {fmtPeso(kpis.pesoAguardando)}
@@ -601,16 +560,16 @@ export default function MontagemPage() {
           >
             <span className="text-xs font-bold text-orange-300">{pecasSelecionadas.size} selecionada(s)</span>
             <button
-              onClick={() => handleAcaoLote('iniciar')}
-              className="text-[11px] font-bold px-2 py-1 rounded bg-blue-500 hover:bg-blue-600 text-white transition-all"
-            >
-              ▶ Iniciar
-            </button>
-            <button
               onClick={() => handleAcaoLote('concluir')}
               className="text-[11px] font-bold px-2 py-1 rounded bg-emerald-500 hover:bg-emerald-600 text-white transition-all"
             >
-              ✓ Concluir
+              ✓ Concluir Montagem
+            </button>
+            <button
+              onClick={() => handleAcaoLote('retornar')}
+              className="text-[11px] font-bold px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white transition-all"
+            >
+              ↩ Retornar
             </button>
             <button onClick={limparSelecao} className="text-slate-400 hover:text-white">
               <X className="h-4 w-4" />
@@ -623,8 +582,8 @@ export default function MontagemPage() {
       {/* CONTEÚDO: KANBAN OU LISTA                    */}
       {/* ============================================ */}
       {viewMode === 'kanban' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {['aguardando_montagem', 'em_montagem', 'montado'].map(statusKey => {
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {['aguardando_montagem', 'montado'].map(statusKey => {
             const s = STATUS_CONFIG[statusKey];
             const items = kanban[statusKey];
             const Icon = s.icon;
@@ -752,20 +711,20 @@ export default function MontagemPage() {
                       <td className="px-3 py-2 text-center text-[10px] text-slate-500 font-mono">{fmtData(peca.updated_at)}</td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-center gap-1">
-                          {peca._status !== 'montado' && (
+                          {peca._status === 'aguardando_montagem' && (
                             <button
                               onClick={() => handleAvancar(peca)}
-                              className={cn('p-1.5 rounded transition-all', peca._status === 'aguardando_montagem' ? 'bg-blue-500/15 text-blue-300 hover:bg-blue-500/25' : 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25')}
-                              title={peca._status === 'aguardando_montagem' ? 'Iniciar montagem' : 'Concluir'}
+                              className="p-1.5 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all"
+                              title="Concluir montagem"
                             >
-                              {peca._status === 'aguardando_montagem' ? <PlayCircle className="h-3.5 w-3.5" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                              <CheckCircle2 className="h-3.5 w-3.5" />
                             </button>
                           )}
-                          {peca._status !== 'aguardando_montagem' && (
+                          {peca._status === 'montado' && (
                             <button
                               onClick={() => handleRetornar(peca)}
                               className="p-1.5 rounded bg-slate-700/40 text-slate-400 hover:bg-slate-700 hover:text-slate-200"
-                              title="Retornar etapa"
+                              title="Retornar para Aguardando Montagem"
                             >
                               <ChevronDown className="h-3.5 w-3.5 rotate-90" />
                             </button>
@@ -857,13 +816,13 @@ export default function MontagemPage() {
             </div>
             <div className="flex items-center gap-2 pl-3 text-slate-500">
               <span className="w-1 h-3 border-l border-orange-500/40 inline-block" />
-              <span className="text-[10px]">Inicia montagem em campo</span>
+              <span className="text-[10px]">Conclui montagem em campo</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-              <span className="font-mono text-blue-300 font-bold">Em Montagem</span>
-              <ArrowRight className="h-3 w-3 text-blue-400" />
-              <span className="font-mono text-emerald-300 font-bold">Montado</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              <span className="font-mono text-emerald-300 font-bold">Aguardando</span>
+              <ArrowRight className="h-3 w-3 text-emerald-400" />
+              <span className="font-mono text-emerald-300 font-bold">MONTADO ✓</span>
             </div>
           </div>
           <div className="mt-3 pt-3 border-t border-slate-700/50 text-[10px] text-slate-500">
@@ -934,16 +893,21 @@ export default function MontagemPage() {
                 )}
               </div>
               <div className="flex gap-2 mt-4">
-                {pecaDetalhe._status !== 'montado' && (
+                {pecaDetalhe._status === 'aguardando_montagem' && (
                   <button
                     onClick={() => { handleAvancar(pecaDetalhe); setPecaDetalhe(null); }}
                     className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all"
-                    style={{
-                      background: pecaDetalhe._status === 'aguardando_montagem' ? '#3b82f6' : '#10b981',
-                      color: 'white',
-                    }}
+                    style={{ background: '#10b981', color: 'white' }}
                   >
-                    {pecaDetalhe._status === 'aguardando_montagem' ? '▶ Iniciar Montagem' : '✓ Concluir Montagem'}
+                    ✓ Concluir Montagem
+                  </button>
+                )}
+                {pecaDetalhe._status === 'montado' && (
+                  <button
+                    onClick={() => { handleRetornar(pecaDetalhe); setPecaDetalhe(null); }}
+                    className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-slate-700 text-slate-200 hover:bg-slate-600"
+                  >
+                    ↩ Retornar para Aguardando
                   </button>
                 )}
                 <button
