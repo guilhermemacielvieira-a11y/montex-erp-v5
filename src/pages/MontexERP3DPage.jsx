@@ -985,10 +985,45 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       }
 
-      // FIM: matching agressivo POR MARCA. Elementos subsidiarios (diagonais,
-      // chapas de conexao, parafusos) sao agregados a peca pai via marca extraida
-      // por tokenizacao + regex de padroes. Elementos sem marca reconhecivel
-      // permanecem NAO_INICIADO (cinza ghost no 3D).
+      // ========================================
+      // Strategy 7 (FALLBACK POR TIPO): IFC do Tekla nao expoe marca especifica
+      // (so prefixo como C0(?), VM0(?), TS0(?)). Para colorir o 3D usamos status
+      // majoritario do TIPO ERP correspondente ao name/description do IFC.
+      // ========================================
+      if (!bestMatch && !matchedStatus) {
+        // Mapeamento de IFC name -> ERP tipo (acentos e variantes)
+        const IFC_TO_ERP_TIPO_MAP = {
+          'COLUNA': 'COLUNA', 'COLUMN': 'COLUNA',
+          'TESOURA': 'TESOURA', 'TRUSS': 'TESOURA',
+          'VIGA': 'VIGA', 'BEAM': 'VIGA',
+          'VIGA MESTRA': 'VIGA-MESTRA', 'VIGAMESTRA': 'VIGA-MESTRA',
+          'TERÇA': 'TERÇA', 'TERCA': 'TERÇA', 'PURLIN': 'TERÇA',
+          'TRELIÇA': 'TRELIÇA', 'TRELICA': 'TRELIÇA',
+          'CONTRAVENTAMENTO': 'CONTRAVENTAMENTO', 'BRACE': 'CONTRAVENTAMENTO',
+          'TIRANTE': 'TIRANTE',
+          'CHUMBADOR': 'CHUMBADOR',
+          'MÃO FRANCESA': 'MÃO-FRANCESA', 'MAO FRANCESA': 'MÃO-FRANCESA', 'MÃO-FRANCESA': 'MÃO-FRANCESA',
+          'COLUNETA': 'COLUNETA',
+          'BOCAL': 'BOCAL',
+          'CALHA': 'CALHA',
+          'DIAGONAL': 'DIAGONAL',
+          'SUPORTE': 'SUPORTE',
+        };
+        const candidatos = [elName, elDesc, elTag];
+        for (const txt of candidatos) {
+          if (!txt) continue;
+          const erpTipo = IFC_TO_ERP_TIPO_MAP[txt];
+          if (erpTipo && tipoIndex.has(erpTipo)) {
+            matchedStatus = getRepresentativeStatus(tipoIndex.get(erpTipo));
+            break;
+          }
+        }
+      }
+
+      // FIM: matching multi-estrategia.
+      // - Marca exata (1-3) é prioritaria
+      // - Substring/regex (4-6) cobre nomes derivados
+      // - Tipo majoritario (7) é fallback para IFC com marcas mascaradas (Tekla)
 
       if (bestMatch) {
         // Override MONTADO: peca marcada como montada via MontagemPage (localStorage)
@@ -1339,6 +1374,18 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   placeholder="Buscar elemento..."
                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-sm placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50" />
               </div>
+
+              {/* Banner: IFC Tekla sem marcas explicitas */}
+              {modelLoaded && stats && stats.matchRate < 50 && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-[10px]">
+                  <p className="text-amber-300 font-bold mb-1">⚠️ IFC com marcas mascaradas (Tekla)</p>
+                  <p className="text-amber-200/80 leading-relaxed">
+                    Modelo IFC exportado sem nomenclatura de marca (apenas tipo).
+                    Coloração 3D usa <strong>status majoritário por TIPO</strong>.
+                    KPIs continuam fiéis aos dados do ERP.
+                  </p>
+                </div>
+              )}
 
               {/* Model Info — agora baseado em PEÇAS DO ERP (fonte da verdade) */}
               <div className="bg-cyan-500/5 border border-cyan-500/20 rounded-xl p-4">
