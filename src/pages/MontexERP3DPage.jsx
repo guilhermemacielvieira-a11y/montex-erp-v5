@@ -426,16 +426,16 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
         if (!parentRef) continue;
         const parentId = (parentRef.value !== undefined) ? parentRef.value : parentRef;
         const parentProps = elementProps.get(parentId);
-        if (!parentProps) continue;
         const objects = rel.RelatedObjects || [];
         for (const objRef of objects) {
           const childId = (objRef.value !== undefined) ? objRef.value : objRef;
           const child = allEls.get(childId);
           if (!child) continue;
-          // Propagar props do pai (mas sem sobrescrever as proprias)
-          child.props = { ...parentProps, ...(child.props || {}) };
-          // Marcar elemento com referencia ao assembly pai
+          // SEMPRE marcar referencia ao assembly pai (agrupamento por peca fisica),
+          // mesmo que o pai nao tenha props extraidos — necessario p/ montado por assembly.
           child.assemblyId = parentId;
+          // Propagar props do pai apenas se existirem (sem sobrescrever as proprias)
+          if (parentProps) child.props = { ...parentProps, ...(child.props || {}) };
           propagated++;
         }
       } catch (_) { /* relacao invalida */ }
@@ -1275,6 +1275,63 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
       // sem else: elemento sem match e sem tipo conhecido -> NAO_INICIADO no render
     }
+
+    // ============================================================
+    // CAMADA MONTADO POR ASSEMBLY (contagem-exata)
+    // ============================================================
+    // O IFC do Tekla mascara a marca (Assembly mark = "C0(?)") e nao tem position code,
+    // entao nao da p/ saber a marca exata de cada peca fisica. Mas cada peca fisica e um
+    // IFCELEMENTASSEMBLY (el.assemblyId). Agrupamos por assembly, atribuimos assemblies a
+    // pecas do ERP quantity-aware por PREFIXO de marca (C6A->C, TS55A->TS) e marcamos
+    // MONTADO os assemblies das pecas montadas. Resultado: exatamente N unidades fisicas
+    // montadas coloridas (contagem correta), com todas as partes de cada peca juntas.
+    // Se o IFC nao expuser assemblyId, esta camada nao faz nada (montado fica honesto).
+    const prefixoMarca = (m) => ((m || '').toUpperCase().match(/^[A-Z]+/) || [''])[0];
+    const prefixoAsmMark = (m) => (m || '').toUpperCase().replace(/\d.*$/, '').replace(/[^A-Z]/g, '');
+    const elemsByAsm = new Map();   // assemblyId -> [expressID]
+    const prefixoByAsm = new Map(); // assemblyId -> prefixo de marca
+    let temAssembly = false;
+    for (const el of ifcElements) {
+      if (el.assemblyId == null) continue;
+      temAssembly = true;
+      if (!elemsByAsm.has(el.assemblyId)) elemsByAsm.set(el.assemblyId, []);
+      elemsByAsm.get(el.assemblyId).push(el.expressID);
+      if (!prefixoByAsm.has(el.assemblyId)) {
+        const pre = prefixoAsmMark(el.props?.['Assembly mark']);
+        if (pre) prefixoByAsm.set(el.assemblyId, pre);
+      }
+    }
+    if (temAssembly && pecaIdsMontadas.size > 0) {
+      const asmByPrefixo = new Map(); // prefixo -> [assemblyId]
+      for (const [asmId, pre] of prefixoByAsm) {
+        if (!asmByPrefixo.has(pre)) asmByPrefixo.set(pre, []);
+        asmByPrefixo.get(pre).push(asmId);
+      }
+      const pecasByPrefixo = new Map(); // prefixo -> [peca]
+      for (const p of erpPecas) {
+        const pre = prefixoMarca(p.marca);
+        if (!pre) continue;
+        if (!pecasByPrefixo.has(pre)) pecasByPrefixo.set(pre, []);
+        pecasByPrefixo.get(pre).push(p);
+      }
+      for (const [pre, asms] of asmByPrefixo) {
+        const pecas = (pecasByPrefixo.get(pre) || []).slice()
+          .sort((a, b) => (a.marca || '').localeCompare(b.marca || ''));
+        if (!pecas.length) continue;
+        const asmsOrd = asms.slice().sort((a, b) => a - b);
+        let ai = 0;
+        for (const p of pecas) {
+          const montada = pecaIdsMontadas.has(String(p.id));
+          const qtd = parseInt(p.quantidade) || 1;
+          for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
+            if (montada) {
+              for (const eid of elemsByAsm.get(asmsOrd[ai])) map.set(eid, 'MONTADO');
+            }
+          }
+        }
+      }
+    }
+
     return map;
   }, [ifcElements, erpPecas, concluidasMontagem]);
 
