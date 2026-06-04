@@ -973,12 +973,17 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
     const statusPriority = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'];
 
-    // Pre-index ERP peças por marca (upper)
+    // Pre-index ERP peças por marca (upper). Indexa tambem a forma SEM espacos,
+    // para casar marcas reais do Tekla que venham como "C 16A" -> "C16A".
     const marcaIndex = new Map();
     for (const peca of erpPecas) {
       const marca = (peca.marca || '').toUpperCase().trim();
       if (marca && marca.length >= 2) {
         marcaIndex.set(marca, peca);
+        const marcaSemEspaco = marca.replace(/\s+/g, '');
+        if (marcaSemEspaco !== marca && !marcaIndex.has(marcaSemEspaco)) {
+          marcaIndex.set(marcaSemEspaco, peca);
+        }
       }
     }
 
@@ -1120,11 +1125,16 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       let matchedStatus = null;
 
       // Strategy 0a (MAIS PRECISA): marca REAL via PropertySet do Tekla.
-      // Se o export NÃO mascarar a marca (Assembly mark != TIPO0(?)), casa a peça exata.
-      // Se mascarado, não bate no marcaIndex e segue para o position code (inócuo).
-      const elMarcaPset = (elProps['Assembly/Cast unit Mark'] || elProps['Assembly mark'] || elProps['Part mark'] || '').toUpperCase().trim();
-      if (elMarcaPset && marcaIndex.has(elMarcaPset)) {
-        bestMatch = marcaIndex.get(elMarcaPset);
+      // Quando o export traz a marca real (Assembly mark = "C16A"), casa a peça EXATA.
+      // Marcas mascaradas do Tekla ("C0(?)") sao ignoradas. Normaliza espacos ("C 16A").
+      const rawMark = (elProps['Assembly/Cast unit Mark'] || elProps['Assembly mark'] || elProps['Part mark'] || '').toUpperCase().trim();
+      const elMarcaPset = rawMark.includes('(?)') ? '' : rawMark.replace(/\s+/g, '');
+      if (elMarcaPset) {
+        if (marcaIndex.has(elMarcaPset)) {
+          bestMatch = marcaIndex.get(elMarcaPset);
+        } else if (marcaIndex.has(rawMark)) {
+          bestMatch = marcaIndex.get(rawMark);
+        }
       }
 
       // Strategy 0 (PRIORITARIA): Match por Position code do PropertySet (Tekla)
