@@ -1026,10 +1026,21 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         .sort((a, b) => (a.marca || '').localeCompare(b.marca || ''));
       if (pecasDoTipo.length === 0) continue;
       const posicoesOrdenadas = Array.from(posicoesSet).sort();
-      for (let i = 0; i < posicoesOrdenadas.length; i++) {
-        const pos = posicoesOrdenadas[i];
-        const peca = pecasDoTipo[i % pecasDoTipo.length]; // ciclico se IFC tem mais que ERP
-        positionToPecaMap.set(`${tipoIfc}::${pos}`, peca);
+      // Atribuição QUANTITY-AWARE: cada peça consome 'quantidade' posições consecutivas.
+      // Assim o nº de posições de uma marca = suas unidades físicas → contagem (ex: montados)
+      // bate com as UNIDADES, não com nº de marcas. (Antes era cíclico e distorcia.)
+      let posIdx = 0;
+      for (const peca of pecasDoTipo) {
+        const qtd = parseInt(peca.quantidade) || 1;
+        for (let q = 0; q < qtd && posIdx < posicoesOrdenadas.length; q++) {
+          positionToPecaMap.set(`${tipoIfc}::${posicoesOrdenadas[posIdx]}`, peca);
+          posIdx++;
+        }
+      }
+      // Sobra de posições (IFC tem mais elementos que unidades ERP): distribui ciclicamente.
+      for (; posIdx < posicoesOrdenadas.length; posIdx++) {
+        const peca = pecasDoTipo[posIdx % pecasDoTipo.length];
+        positionToPecaMap.set(`${tipoIfc}::${posicoesOrdenadas[posIdx]}`, peca);
       }
     }
 
@@ -1108,11 +1119,19 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       let bestMatch = null;
       let matchedStatus = null;
 
+      // Strategy 0a (MAIS PRECISA): marca REAL via PropertySet do Tekla.
+      // Se o export NÃO mascarar a marca (Assembly mark != TIPO0(?)), casa a peça exata.
+      // Se mascarado, não bate no marcaIndex e segue para o position code (inócuo).
+      const elMarcaPset = (elProps['Assembly/Cast unit Mark'] || elProps['Assembly mark'] || elProps['Part mark'] || '').toUpperCase().trim();
+      if (elMarcaPset && marcaIndex.has(elMarcaPset)) {
+        bestMatch = marcaIndex.get(elMarcaPset);
+      }
+
       // Strategy 0 (PRIORITARIA): Match por Position code do PropertySet (Tekla)
       // Cada peca fisica tem 1 position code unico. Atribuimos sequencialmente as pecas do ERP.
       const elPosition = elProps['Assembly/Cast unit position code'];
       const elTipoAssembly = (elProps['Assembly/Cast unit name'] || elName || '').toUpperCase().trim();
-      if (elPosition && elTipoAssembly) {
+      if (!bestMatch && elPosition && elTipoAssembly) {
         const key = `${elTipoAssembly}::${elPosition}`;
         if (positionToPecaMap.has(key)) {
           bestMatch = positionToPecaMap.get(key);
