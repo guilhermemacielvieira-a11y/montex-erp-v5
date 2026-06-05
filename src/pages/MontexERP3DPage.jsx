@@ -94,31 +94,57 @@ const SUPABASE_IFC_PATH = 'current-model.ifc';
 
 async function uploadIFCToSupabase(buffer) {
   try {
+    const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
+    console.log(`[Storage] Upload IFC ${sizeMB} MB para bucket '${SUPABASE_STORAGE_BUCKET}'...`);
     const blob = new Blob([buffer], { type: 'application/octet-stream' });
-    const { error } = await supabase.storage
+    // upsert: sobrescreve se já existe (current-model.ifc é singleton)
+    const { data, error } = await supabase.storage
       .from(SUPABASE_STORAGE_BUCKET)
-      .upload(SUPABASE_IFC_PATH, blob, { upsert: true, cacheControl: '3600' });
-    if (error) throw error;
-    console.log('IFC uploaded to Supabase Storage');
+      .upload(SUPABASE_IFC_PATH, blob, {
+        upsert: true,
+        cacheControl: 'no-cache',  // forca outros dispositivos a refetch
+        contentType: 'application/octet-stream',
+      });
+    if (error) {
+      console.error('[Storage] Upload falhou:', error.message, error);
+      // Detectar tipos comuns de erro
+      if (error.message?.includes('row-level security') || error.statusCode === '403') {
+        console.error('[Storage] Falta política RLS! Aplicar SQL em docs/supabase-storage-policies.sql');
+      }
+      throw error;
+    }
+    console.log(`[Storage] ✅ IFC uploaded (${sizeMB} MB):`, data?.path || data);
     return true;
   } catch (e) {
-    console.warn('Erro ao enviar IFC para Supabase:', e);
+    console.warn('[Storage] Erro:', e?.message || e);
     return false;
   }
 }
 
 async function downloadIFCFromSupabase() {
   try {
+    console.log(`[Storage] Tentando baixar IFC do bucket '${SUPABASE_STORAGE_BUCKET}'...`);
     const { data, error } = await supabase.storage
       .from(SUPABASE_STORAGE_BUCKET)
       .download(SUPABASE_IFC_PATH);
-    if (error) throw error;
-    if (!data) return null;
+    if (error) {
+      // 404 = arquivo nao existe ainda
+      if (error.statusCode === '404' || error.message?.includes('not found')) {
+        console.log('[Storage] Nenhum IFC no Supabase ainda. Faça upload via UI Importar IFC.');
+        return null;
+      }
+      throw error;
+    }
+    if (!data) {
+      console.warn('[Storage] Download retornou vazio (sem erro)');
+      return null;
+    }
     const buffer = await data.arrayBuffer();
-    console.log('IFC downloaded from Supabase Storage:', (buffer.byteLength / 1024 / 1024).toFixed(1), 'MB');
+    const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
+    console.log(`[Storage] ✅ IFC baixado (${sizeMB} MB)`);
     return buffer;
   } catch (e) {
-    console.warn('Erro ao baixar IFC do Supabase:', e);
+    console.warn('[Storage] Erro ao baixar:', e?.message || e);
     return null;
   }
 }
