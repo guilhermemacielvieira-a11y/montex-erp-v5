@@ -1653,12 +1653,22 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       setModelLoaded(true);
       setLoadingStage('');
 
-      // Persistir: IndexedDB (cache local) + Supabase Storage (online, so em upload manual)
+      // Persistir: IndexedDB (cache local imediato) + Supabase Storage (sync online).
       saveIFCToLocal(file.name, buffer);
       if (!skipUpload) {
-        uploadIFCToSupabase(buffer).then(ok => {
-          if (ok) console.log('IFC persistido online com sucesso');
-        });
+        // Upload AGUARDADO com feedback visível (overlay não-bloqueante). Antes era
+        // fire-and-forget: o usuário via o modelo e saía ANTES de o upload de ~66 MB
+        // terminar, então o IFC nunca chegava ao Supabase (404 no Storage / sem sync).
+        const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(0);
+        setLoadingStage('primary');
+        setProgressText(`☁️ Sincronizando com a nuvem (${sizeMB} MB)… não feche a aba`);
+        const ok = await uploadIFCToSupabase(buffer);
+        setProgressText(ok
+          ? '✅ IFC sincronizado na nuvem — disponível em todos os dispositivos'
+          : '⚠️ Falha ao sincronizar na nuvem — modelo salvo localmente (ver Console)');
+        await new Promise(r => setTimeout(r, ok ? 2500 : 6000));
+        setLoadingStage('');
+        setProgressText('');
       }
     } catch (err) {
       console.error('Erro ao processar IFC:', err);
