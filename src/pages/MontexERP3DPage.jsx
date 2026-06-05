@@ -224,11 +224,25 @@ function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgre
         props = ifcAPI.GetLine(modelID, expressID);
       } catch (e) { /* some elements may fail */ }
 
-      const name = decodeIfcString(props.Name?.value || props.Tag?.value || `Element-${expressID}`);
+      const rawName = decodeIfcString(props.Name?.value || `Element-${expressID}`);
       const globalId = props.GlobalId?.value || '';
       const description = decodeIfcString(props.Description?.value || '');
       const objectType = decodeIfcString(props.ObjectType?.value || '');
-      const tag = props.Tag?.value || '';
+      const tag = decodeIfcString(props.Tag?.value || '');
+
+      // Extrair marca real do Name (novo IFC Tekla 100%): "VIGA-MESTRA [VM50A]" -> "VM50A"
+      // Tambem aceita "COLUNA [C1A] A/1" -> "C1A"
+      let extractedMark = '';
+      const m = rawName.match(/\[([^\]]+)\]/);
+      if (m) extractedMark = m[1].trim();
+
+      // Tag tambem pode conter marca real (Tekla 19.0 grava no campo 8 do IFCELEMENTASSEMBLY)
+      // Ex: '...,'VM50A',$,.NOTDEFINED.'
+      const tagMark = tag.match(/^[A-Z]{1,3}\d{1,4}[A-Z]?$/i) ? tag : '';
+
+      const name = rawName;
+      // marca final priorizando Tag, depois Name[brackets]
+      const marcaFromIfc = tagMark || extractedMark || '';
 
       // Get geometry
       let geometry = null;
@@ -257,6 +271,7 @@ function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgre
           description,
           objectType,
           tag,
+          marcaFromIfc,           // marca extraida do Tag/Name (Tekla 100%)
           geometry,
           isPrimary: PRIMARY_TYPES.includes(ifcType),
         });
@@ -436,6 +451,13 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
           child.assemblyId = parentId;
           // Propagar props do pai apenas se existirem (sem sobrescrever as proprias)
           if (parentProps) child.props = { ...parentProps, ...(child.props || {}) };
+          // CRITICO: propagar MARCA REAL do Assembly pai para os filhos.
+          // No novo IFC Tekla 100%, IFCELEMENTASSEMBLY tem marca em Tag/Name[..].
+          // Filhos (DIAGONAL-VM, MONTANTE-VM, CHAPA, PARAFUSOS) herdam essa marca.
+          const parent = allEls.get(parentId);
+          if (parent?.marcaFromIfc && !child.marcaFromIfc) {
+            child.marcaFromIfc = parent.marcaFromIfc;
+          }
           propagated++;
         }
       } catch (_) { /* relacao invalida */ }
@@ -1124,12 +1146,22 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       let bestMatch = null;
       let matchedStatus = null;
 
+      // Strategy -1 (MAXIMA PRIORIDADE): marca REAL extraida do IFC Tekla 100%
+      // No novo IFC, IFCELEMENTASSEMBLY tem:
+      //   - Tag (8o param) = 'VM50A'
+      //   - Name = 'VIGA-MESTRA [VM50A]'
+      // Filhos do Assembly herdam essa marca via propagacao IFCRELAGGREGATES (etapa 4 do parser).
+      const elMarcaFromIfc = (el.marcaFromIfc || '').toUpperCase().trim();
+      if (elMarcaFromIfc && marcaIndex.has(elMarcaFromIfc)) {
+        bestMatch = marcaIndex.get(elMarcaFromIfc);
+      }
+
       // Strategy 0a (MAIS PRECISA): marca REAL via PropertySet do Tekla.
       // Quando o export traz a marca real (Assembly mark = "C16A"), casa a peça EXATA.
       // Marcas mascaradas do Tekla ("C0(?)") sao ignoradas. Normaliza espacos ("C 16A").
       const rawMark = (elProps['Assembly/Cast unit Mark'] || elProps['Assembly mark'] || elProps['Part mark'] || '').toUpperCase().trim();
       const elMarcaPset = rawMark.includes('(?)') ? '' : rawMark.replace(/\s+/g, '');
-      if (elMarcaPset) {
+      if (!bestMatch && elMarcaPset) {
         if (marcaIndex.has(elMarcaPset)) {
           bestMatch = marcaIndex.get(elMarcaPset);
         } else if (marcaIndex.has(rawMark)) {
@@ -1394,7 +1426,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const elTag = (el.tag || el.objectType || '').toUpperCase().trim();
       const elPos = el.props?.['Assembly/Cast unit position code'];
       const elTipoAssembly = (el.props?.['Assembly/Cast unit name'] || elName).toUpperCase().trim();
-      // Strategy 0: position code (mais confiavel)
+      // Strategy -1: marca real do IFC (Tekla 100% com marcas)
+      const elMarcaIfc = (el.marcaFromIfc || '').toUpperCase().trim();
+      if (elMarcaIfc && marcaIndex.has(elMarcaIfc)) {
+        map.set(el.expressID, marcaIndex.get(elMarcaIfc));
+        continue;
+      }
+      // Strategy 0: position code (mais confiavel quando ha marcas mascaradas)
       if (elPos && elTipoAssembly) {
         const key = `${elTipoAssembly}::${elPos}`;
         if (posToPeca.has(key)) { map.set(el.expressID, posToPeca.get(key)); continue; }
