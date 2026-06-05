@@ -92,33 +92,68 @@ async function loadIFCFromLocal() {
 const SUPABASE_STORAGE_BUCKET = 'ifc-models';
 const SUPABASE_IFC_PATH = 'current-model.ifc';
 
-async function uploadIFCToSupabase(buffer) {
-  try {
-    const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
-    console.log(`[Storage] Upload IFC ${sizeMB} MB para bucket '${SUPABASE_STORAGE_BUCKET}'...`);
-    const blob = new Blob([buffer], { type: 'application/octet-stream' });
-    // upsert: sobrescreve se já existe (current-model.ifc é singleton)
-    const { data, error } = await supabase.storage
-      .from(SUPABASE_STORAGE_BUCKET)
-      .upload(SUPABASE_IFC_PATH, blob, {
-        upsert: true,
-        cacheControl: 'no-cache',  // forca outros dispositivos a refetch
-        contentType: 'application/octet-stream',
+// Upload IFC com fetch direto (mais confiavel para arquivos grandes 50+ MB)
+// Substitui supabase-js que tinha timeout/falhas silenciosas em uploads longos.
+// Inclui retry (3 tentativas) e diagnostico detalhado em caso de erro.
+async function uploadIFCToSupabase(buffer, onProgress) {
+  const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
+  const url = `${supabase.supabaseUrl}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${SUPABASE_IFC_PATH}`;
+  const apiKey = supabase.supabaseKey;
+  const headers = {
+    'apikey': apiKey,
+    'Authorization': `Bearer ${apiKey}`,
+    'Content-Type': 'application/octet-stream',
+    'x-upsert': 'true',
+    'Cache-Control': 'no-cache',
+  };
+  const MAX_TENTATIVAS = 3;
+  for (let tentativa = 1; tentativa <= MAX_TENTATIVAS; tentativa++) {
+    try {
+      console.log(`[Storage] Tentativa ${tentativa}/${MAX_TENTATIVAS} — upload IFC ${sizeMB} MB...`);
+      onProgress?.(tentativa, MAX_TENTATIVAS, 'enviando');
+      // AbortController com timeout de 5 minutos (suficiente para conexões lentas)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+      const inicio = Date.now();
+      const res = await fetch(url, {
+        method: 'POST',
+        headers,
+        body: buffer,
+        signal: controller.signal,
       });
-    if (error) {
-      console.error('[Storage] Upload falhou:', error.message, error);
-      // Detectar tipos comuns de erro
-      if (error.message?.includes('row-level security') || error.statusCode === '403') {
-        console.error('[Storage] Falta política RLS! Aplicar SQL em docs/supabase-storage-policies.sql');
+      clearTimeout(timeoutId);
+      const elapsed = ((Date.now() - inicio) / 1000).toFixed(1);
+      if (!res.ok) {
+        let bodyText = '';
+        try { bodyText = await res.text(); } catch {}
+        console.error(`[Storage] HTTP ${res.status} ${res.statusText} (${elapsed}s):`, bodyText.slice(0, 500));
+        // Erro 4xx (cliente) — não retry
+        if (res.status >= 400 && res.status < 500) {
+          if (res.status === 401 || res.status === 403) {
+            console.error('[Storage] Acesso negado. Verificar policies RLS em storage.objects');
+          }
+          throw new Error(`HTTP ${res.status}: ${bodyText.slice(0, 200)}`);
+        }
+        // 5xx — retry
+        throw new Error(`HTTP ${res.status} servidor`);
       }
-      throw error;
+      const responseData = await res.json().catch(() => ({}));
+      console.log(`[Storage] ✅ IFC uploaded (${sizeMB} MB em ${elapsed}s):`, responseData);
+      onProgress?.(tentativa, MAX_TENTATIVAS, 'sucesso');
+      return true;
+    } catch (e) {
+      const isAbort = e?.name === 'AbortError';
+      console.warn(`[Storage] Tentativa ${tentativa} falhou:`, isAbort ? 'TIMEOUT (5min)' : (e?.message || e));
+      onProgress?.(tentativa, MAX_TENTATIVAS, 'falhou');
+      if (tentativa === MAX_TENTATIVAS) {
+        console.error(`[Storage] ❌ Upload falhou após ${MAX_TENTATIVAS} tentativas:`, e);
+        return false;
+      }
+      // Aguardar antes da próxima tentativa (backoff exponencial)
+      await new Promise(r => setTimeout(r, 2000 * tentativa));
     }
-    console.log(`[Storage] ✅ IFC uploaded (${sizeMB} MB):`, data?.path || data);
-    return true;
-  } catch (e) {
-    console.warn('[Storage] Erro:', e?.message || e);
-    return false;
   }
+  return false;
 }
 
 async function downloadIFCFromSupabase() {
