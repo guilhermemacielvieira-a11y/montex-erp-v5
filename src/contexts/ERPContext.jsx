@@ -804,13 +804,23 @@ export function ERPProvider({ children }) {
     }
 
     // 2) Se status mudou para ENTREGUE ou EM_TRANSITO, atualizar etapa das peças
+    //    REGRA DO FLUXO: peças SEMPRE vão para 'enviado' quando expedição é
+    //    despachada (status ENTREGUE/EM_TRANSITO). Isso é o gatilho do Auto-Pull
+    //    da MontagemPage (etapa='enviado' = Aguardando Montagem em campo).
+    //    NÃO usar etapa='entregue' aqui — isso tira a peça do escopo do módulo
+    //    de Montagem e quebra os KPIs (peso embarcado vira "fora de escopo").
+    //    "Montado" é gerenciado SEPARADAMENTE via entity_store/localStorage na
+    //    MontagemPage (NÃO altera etapa do banco).
     if (statusUpper === 'ENTREGUE' || statusUpper === 'EM_TRANSITO') {
       // Buscar a expedição para pegar os IDs das peças
       const exp = state.expedicoes.find(e => e.id === id);
       if (exp) {
         const pecasIds = exp.pecas_ids || exp.pecasIds || exp.pecas || [];
-        const ids = pecasIds.map(p => typeof p === 'object' ? (p.id || p) : p);
-        const novaEtapa = statusUpper === 'ENTREGUE' ? 'entregue' : 'enviado';
+        const ids = pecasIds.map(p => typeof p === 'object' ? (p.id || p) : p).filter(Boolean);
+        // SEMPRE 'enviado' — independente de EM_TRANSITO ou ENTREGUE.
+        // Romaneio "Entregue" significa que saiu da fábrica e chegou em obra;
+        // peça vai para "Aguardando Montagem" no fluxo da MontagemPage.
+        const novaEtapa = 'enviado';
 
         // Atualizar no state local
         ids.forEach(pecaId => {
@@ -825,7 +835,7 @@ export function ERPProvider({ children }) {
         if (dataSource === 'supabase' && ids.length) {
           try {
             await pecasApi.updateMany(ids, { etapa: novaEtapa, status: novaEtapa });
-            console.log(`✅ ${ids.length} peças atualizadas para etapa '${novaEtapa}'`);
+            console.log(`✅ ${ids.length} peças atualizadas para etapa '${novaEtapa}' (Auto-Pull MontagemPage)`);
           } catch (err) {
             // Não relança: o status da expedição (passo 1) já foi salvo.
             console.error('⚠️ Erro ao atualizar etapa das peças:', err.message);
