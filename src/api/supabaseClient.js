@@ -243,6 +243,29 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
       return data;
     },
 
+    // 🔧 Atualiza VÁRIOS registros com os MESMOS valores numa única query
+    // (PATCH ... WHERE id IN (...)). Substitui loops de N updates sequenciais,
+    // que eram lentos (~1 req por peça) e propensos a perda de gravação se a
+    // página fosse recarregada no meio do loop. Faz chunking por segurança de
+    // tamanho de URL.
+    async updateMany(ids, updates) {
+      const list = (ids || []).map(v => (typeof v === 'object' ? (v.id ?? v) : v)).filter(Boolean);
+      if (list.length === 0) return [];
+      const CHUNK = 300;
+      const out = [];
+      for (let i = 0; i < list.length; i += CHUNK) {
+        const slice = list.slice(i, i + CHUNK);
+        const { data, error } = await client
+          .from(tableName)
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .in('id', slice)
+          .select();
+        if (error) throw error;
+        if (data) out.push(...data);
+      }
+      return out;
+    },
+
     async upsert(record) {
       const { data, error } = await client
         .from(tableName)

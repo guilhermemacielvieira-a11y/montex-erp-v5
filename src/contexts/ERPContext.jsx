@@ -783,8 +783,27 @@ export function ERPProvider({ children }) {
   const updateExpedicao = useCallback(async (id, data) => {
     dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data } });
 
-    // Se status mudou para ENTREGUE ou EM_TRANSITO, atualizar etapa das peças
     const statusUpper = (data.status || '').toUpperCase();
+
+    if (dataSource === 'supabase') {
+      // 1) PERSISTIR O STATUS DA EXPEDIÇÃO PRIMEIRO.
+      //    Esta é a fonte de verdade do badge na Lista de Envios. Precisa ser
+      //    gravada ANTES de qualquer atualização de peças, senão um envio com
+      //    muitas peças (ex: ENV-08 com 106) demora ~15-30s no loop e, se a
+      //    página for recarregada antes do fim, o status nunca era salvo e
+      //    voltava para "Preparando". (bug de não-persistência)
+      try {
+        const snakeData = reverseTransformRecord(data);
+        delete snakeData.id;
+        await expedicoesApi.update(id, snakeData);
+        console.log(`✅ Expedição ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
+        throw err;
+      }
+    }
+
+    // 2) Se status mudou para ENTREGUE ou EM_TRANSITO, atualizar etapa das peças
     if (statusUpper === 'ENTREGUE' || statusUpper === 'EM_TRANSITO') {
       // Buscar a expedição para pegar os IDs das peças
       const exp = state.expedicoes.find(e => e.id === id);
@@ -801,25 +820,17 @@ export function ERPProvider({ children }) {
           });
         });
 
-        // Atualizar no Supabase
-        if (dataSource === 'supabase') {
-          for (const pecaId of ids) {
-            await pecasApi.update(pecaId, { etapa: novaEtapa, status: novaEtapa }).catch(() => {});
+        // Atualizar no Supabase — UMA única query (PATCH ... WHERE id IN (...))
+        // em vez de N updates sequenciais. Mais rápido e atômico por chunk.
+        if (dataSource === 'supabase' && ids.length) {
+          try {
+            await pecasApi.updateMany(ids, { etapa: novaEtapa, status: novaEtapa });
+            console.log(`✅ ${ids.length} peças atualizadas para etapa '${novaEtapa}'`);
+          } catch (err) {
+            // Não relança: o status da expedição (passo 1) já foi salvo.
+            console.error('⚠️ Erro ao atualizar etapa das peças:', err.message);
           }
-          console.log(`✅ ${ids.length} peças atualizadas para etapa '${novaEtapa}'`);
         }
-      }
-    }
-
-    if (dataSource === 'supabase') {
-      try {
-        const snakeData = reverseTransformRecord(data);
-        delete snakeData.id;
-        await expedicoesApi.update(id, snakeData);
-        console.log(`✅ Expedição ${id} atualizada no Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
-        throw err;
       }
     }
   }, [dataSource, state.expedicoes]);
