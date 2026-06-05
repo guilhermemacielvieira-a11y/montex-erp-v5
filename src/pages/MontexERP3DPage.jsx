@@ -496,28 +496,35 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
     let propagated = 0;
     for (let i = 0; i < total; i++) {
       try {
-        const rel = ifcAPI.GetLine(modelID, relIds.get(i), true);
+        const rel = ifcAPI.GetLine(modelID, relIds.get(i), true); // flatten => refs viram objetos
         if (!rel) continue;
         const parentRef = rel.RelatingObject;
         if (!parentRef) continue;
-        const parentId = (parentRef.value !== undefined) ? parentRef.value : parentRef;
+        // FIX: com flatten, a ref é objeto expandido — usar .expressID (não .value).
+        const parentId = parentRef.expressID ?? parentRef.value ?? parentRef;
         const parentProps = elementProps.get(parentId);
+        // MARCA REAL do Assembly: vem no Name "TIPO [MARCA] GRID" (ex: "COLUNA [C1A] A/1")
+        // ou no pset 'Assembly/Cast unit Mark'. Ignora placeholders mascarados "(?)".
+        const parentName = parentRef?.Name?.value || '';
+        const markMatch = parentName.match(/\[([^\]]+)\]/);
+        let realMark = (markMatch ? markMatch[1].trim() : '')
+          || (parentProps && parentProps['Assembly/Cast unit Mark']) || '';
+        if (realMark.includes('(?)')) realMark = '';
         const objects = rel.RelatedObjects || [];
         for (const objRef of objects) {
-          const childId = (objRef.value !== undefined) ? objRef.value : objRef;
+          const childId = objRef?.expressID ?? objRef?.value ?? objRef;
           const child = allEls.get(childId);
           if (!child) continue;
-          // SEMPRE marcar referencia ao assembly pai (agrupamento por peca fisica),
-          // mesmo que o pai nao tenha props extraidos — necessario p/ montado por assembly.
+          // Referência ao assembly pai (agrupamento por peça física).
           child.assemblyId = parentId;
-          // Propagar props do pai apenas se existirem (sem sobrescrever as proprias)
+          // Propagar props do pai (sem sobrescrever as próprias).
           if (parentProps) child.props = { ...parentProps, ...(child.props || {}) };
-          // CRITICO: propagar MARCA REAL do Assembly pai para os filhos.
-          // No novo IFC Tekla 100%, IFCELEMENTASSEMBLY tem marca em Tag/Name[..].
-          // Filhos (DIAGONAL-VM, MONTANTE-VM, CHAPA, PARAFUSOS) herdam essa marca.
-          const parent = allEls.get(parentId);
-          if (parent?.marcaFromIfc && !child.marcaFromIfc) {
-            child.marcaFromIfc = parent.marcaFromIfc;
+          // CRÍTICO: injetar a MARCA REAL do conjunto nos filhos, para a Strategy 0a
+          // casar marca→ERP. As peças têm 'Assembly mark' mascarado (TS0(?)); aqui
+          // sobrescrevemos com a marca real do IFCELEMENTASSEMBLY (C1A, C6A, TS100A…).
+          if (realMark) {
+            child.props = child.props || {};
+            child.props['Assembly/Cast unit Mark'] = realMark;
           }
           propagated++;
         }
