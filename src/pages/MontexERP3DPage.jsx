@@ -1604,28 +1604,38 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       total: erpPecas.length,
       totalUnidades: 0,
       totalPeso: 0,
-      byStatus: { MONTADO: { pecas: 0, unidades: 0, peso: 0 },
-                  EM_OBRA:  { pecas: 0, unidades: 0, peso: 0 },
-                  EMBARQUE: { pecas: 0, unidades: 0, peso: 0 },
-                  NAO_INICIADO: { pecas: 0, unidades: 0, peso: 0 } },
+      // Para cada status: pecas = registros do banco, unidades = soma quantidade, peso = soma peso, marcas = marcas distintas (Set size)
+      byStatus: { MONTADO: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
+                  EM_OBRA:  { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
+                  EMBARQUE: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
+                  NAO_INICIADO: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() } },
       byType: {},
+      marcasMontadasDistintas: 0,
     };
     const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
     for (const p of erpPecas) {
-      // Override montado via MontagemPage
+      // Override montado via MontagemPage — MESMA fonte que MontagemPage (entity_store via concluidasMontagem)
       const status = pecaIdsMontadas.has(String(p.id)) ? 'MONTADO' : p.status;
       const qtd = p.quantidade || 1;
       const peso = p.peso || 0;
+      const marcaKey = (p.marca || '').toUpperCase().trim();
       result.totalUnidades += qtd;
       result.totalPeso += peso;
       const b = result.byStatus[status] || result.byStatus.NAO_INICIADO;
       b.pecas++; b.unidades += qtd; b.peso += peso;
+      if (marcaKey) b.marcasSet.add(marcaKey);
       const tipo = p.tipo || 'SEM_TIPO';
       if (!result.byType[tipo]) result.byType[tipo] = { pecas: 0, unidades: 0, peso: 0 };
       result.byType[tipo].pecas++;
       result.byType[tipo].unidades += qtd;
       result.byType[tipo].peso += peso;
     }
+    // Converter Sets em counts e expor lista para debugging
+    for (const k of Object.keys(result.byStatus)) {
+      result.byStatus[k].marcas = result.byStatus[k].marcasSet.size;
+      delete result.byStatus[k].marcasSet;
+    }
+    result.marcasMontadasDistintas = result.byStatus.MONTADO.marcas;
     return result;
   }, [erpPecas, concluidasMontagem]);
 
@@ -2060,7 +2070,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                           {cfg.label}
                         </span>
                         <span className={`tabular-nums text-right ${count > 0 ? 'text-white font-medium' : 'text-slate-600'}`}>
-                          {count} <span className="text-[9px] text-slate-500">un / {erp.pecas} marcas</span>
+                          {count} <span className="text-[9px] text-slate-500">un / {erp.pecas} peças / {erp.marcas || 0} marcas</span>
                         </span>
                       </button>
                     );

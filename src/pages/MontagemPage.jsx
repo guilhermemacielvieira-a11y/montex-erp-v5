@@ -54,9 +54,13 @@ const carregarConcluidas = loadConcluidasLocal;
 const salvarConcluidas = saveConcluidasSmart;
 
 // Status do módulo (derivado da etapa + override de concluidas)
+// REGRA: entity_store (concluidasMontagem) é fonte ÚNICA da verdade para "Montado".
+// Independentemente da etapa atual da peça, se está marcada no entity_store → 'montado'.
+// Para "Aguardando", continua exigindo etapa === 'enviado' (peças que foram para o canteiro
+// mas ainda não foram montadas). Isso garante alinhamento com MontexERP3DPage.
 const statusFromEtapa = (etapa, concluidas, pecaId) => {
-  if (etapa !== 'enviado') return null;
   if (concluidas && concluidas[pecaId]) return 'montado';
+  if (etapa !== 'enviado') return null;
   return 'aguardando_montagem';
 };
 
