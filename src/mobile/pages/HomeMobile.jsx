@@ -38,16 +38,22 @@ function KpiCard({ icon: Icon, label, value, color = 'amber', sub, to }) {
 
 export default function HomeMobile() {
   const erp = useERP?.() || {};
-  const { obras = [], pecas = [], despesas = [], receitas = [] } = erp;
+  // FIX: ERPContext expõe 'lancamentosDespesas' e 'medicoes' (não 'despesas'/'receitas').
+  const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [] } = erp;
+  const despesas = lancamentosDespesas;
+  const receitas = medicoes;
 
   const stats = useMemo(() => {
+    const hojeStr = new Date().toISOString().slice(0, 10);
+    const isAtrasada = (d) => { const v = d.dataVencimento || d.data_vencimento; return d.status !== 'pago' && d.status !== 'cancelado' && v && String(v).slice(0, 10) < hojeStr; };
+    const aPagar = despesas.filter(d => d.status !== 'pago' && d.status !== 'cancelado');
     const obrasAtivas = obras.filter(o => o.status !== 'concluida' && o.status !== 'cancelada').length;
     const pecasMontadas = pecas.filter(p => p.etapa === 'montado' || p.status === 'MONTADO').length;
     const pecasProducao = pecas.filter(p => ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'].includes(p.etapa)).length;
-    const desPendentes = despesas.filter(d => ['pendente', 'atrasado'].includes(d.status)).length;
-    const desValor = despesas.filter(d => ['pendente', 'atrasado'].includes(d.status)).reduce((s, d) => s + (Number(d.valor) || 0), 0);
+    const desPendentes = aPagar.length;
+    const desValor = aPagar.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const recPendentes = receitas.filter(r => r.status !== 'pago').reduce((s, r) => s + (Number(r.valor) || 0), 0);
-    const desAtrasadas = despesas.filter(d => d.status === 'atrasado').length;
+    const desAtrasadas = despesas.filter(isAtrasada).length;
     return { obrasAtivas, pecasMontadas, pecasProducao, desPendentes, desValor, recPendentes, desAtrasadas };
   }, [obras, pecas, despesas, receitas]);
 

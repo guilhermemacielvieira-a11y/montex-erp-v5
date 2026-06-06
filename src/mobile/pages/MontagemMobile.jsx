@@ -41,11 +41,18 @@ export default function MontagemMobile() {
   const toggle = (peca) => {
     const id = String(peca.id);
     const nova = { ...concluidas };
-    if (nova[id]) { delete nova[id]; } else { nova[id] = true; }
+    const estaMontada = !!nova[id];
+    if (estaMontada) {
+      delete nova[id];
+    } else {
+      // MESMO formato de MontagemPage/MontexERP3DPage (entity_store): objeto com
+      // metadados, não booleano. Garante interoperabilidade do montado entre módulos.
+      nova[id] = { montadoEm: new Date().toISOString(), origem: 'MontagemMobile', marca: peca.marca };
+    }
     setConcluidas(nova);
     try {
       saveConcluidasSmart(nova);
-      toast.success(nova[id] ? `${peca.marca} montada` : `${peca.marca} desmarcada`);
+      toast.success(estaMontada ? `${peca.marca} desmarcada` : `${peca.marca} montada`);
     } catch (_) {
       toast.error('Falha ao sincronizar');
     }
@@ -92,7 +99,7 @@ export default function MontagemMobile() {
           </div>
         )}
         {lista.map(p => {
-          const isOk = concluidas.has(String(p.id));
+          const isOk = !!concluidas[String(p.id)];
           return (
             <motion.button
               key={p.id}

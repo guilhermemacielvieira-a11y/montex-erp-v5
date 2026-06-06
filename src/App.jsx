@@ -128,7 +128,9 @@ const AuthenticatedApp = () => {
   // redireciona para /m. Pode ser desabilitado via localStorage 'force_desktop=1'.
   const isMobileViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
   const forceDesktop = typeof window !== 'undefined' && localStorage.getItem('force_desktop') === '1';
-  const isMobileRoute = location.pathname.startsWith('/m');
+  // ATENÇÃO: usar '/m/' (com barra) ou exatamente '/m' — senão captura rotas
+  // desktop legítimas como /medicoes, /montagem, /maquinas, /metas, etc.
+  const isMobileRoute = location.pathname === '/m' || location.pathname.startsWith('/m/');
   if (isMobileViewport && !forceDesktop && !isMobileRoute && location.pathname !== '/login' && location.pathname !== '/forgot-password' && location.pathname !== '/reset-password') {
     return <Navigate to="/m" replace />;
   }
