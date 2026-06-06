@@ -8,6 +8,8 @@
 // ============================================================
 import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { ERPProvider } from '@/contexts/ERPContext';
+import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import MobileLayout from './MobileLayout';
 import HomeMobile from './pages/HomeMobile';
 import ProducaoMobile from './pages/ProducaoMobile';
@@ -51,6 +53,16 @@ function DesktopWrap({ title, children }) {
 
 export default function MobileApp() {
   return (
+    <ERPProvider>
+      <ProducaoFabricaProvider>
+        <MobileRoutes />
+      </ProducaoFabricaProvider>
+    </ERPProvider>
+  );
+}
+
+function MobileRoutes() {
+  return (
     <Routes>
       <Route index element={<HomeMobile />} />
       <Route path="producao" element={<ProducaoMobile />} />
@@ -84,3 +96,4 @@ export default function MobileApp() {
     </Routes>
   );
 }
+
