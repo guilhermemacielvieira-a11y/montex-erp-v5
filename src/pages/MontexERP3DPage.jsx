@@ -1063,16 +1063,24 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
     const statusPriority = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'];
 
-    // Pre-index ERP peças por marca (upper). Indexa tambem a forma SEM espacos,
-    // para casar marcas reais do Tekla que venham como "C 16A" -> "C16A".
+    // Pre-index ERP peças por marca (upper). marcaIndex GUARDA A PRIMEIRA peça
+    // para compatibilidade com strategies legadas (qualquer peça do conjunto).
+    // marcaIndexAll guarda TODAS peças com a mesma marca — necessário p/ evitar
+    // super-marcação no Strategy -1 (TS59A tem 7 peças no banco; se 2 estão
+    // montadas e 5 não, NÃO podemos pintar todas verdes).
     const marcaIndex = new Map();
+    const marcaIndexAll = new Map(); // marca -> [pecas]
     for (const peca of erpPecas) {
       const marca = (peca.marca || '').toUpperCase().trim();
       if (marca && marca.length >= 2) {
-        marcaIndex.set(marca, peca);
+        if (!marcaIndex.has(marca)) marcaIndex.set(marca, peca);
+        if (!marcaIndexAll.has(marca)) marcaIndexAll.set(marca, []);
+        marcaIndexAll.get(marca).push(peca);
         const marcaSemEspaco = marca.replace(/\s+/g, '');
-        if (marcaSemEspaco !== marca && !marcaIndex.has(marcaSemEspaco)) {
-          marcaIndex.set(marcaSemEspaco, peca);
+        if (marcaSemEspaco !== marca) {
+          if (!marcaIndex.has(marcaSemEspaco)) marcaIndex.set(marcaSemEspaco, peca);
+          if (!marcaIndexAll.has(marcaSemEspaco)) marcaIndexAll.set(marcaSemEspaco, []);
+          marcaIndexAll.get(marcaSemEspaco).push(peca);
         }
       }
     }
@@ -1387,15 +1395,62 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     }
 
     // ============================================================
-    // CAMADA MONTADO POR ASSEMBLY (contagem-exata)
+    // CAMADA REDISTRIBUIÇÃO POR MARCA REAL (quantity-aware, anti super-marcação)
     // ============================================================
-    // O IFC do Tekla mascara a marca (Assembly mark = "C0(?)") e nao tem position code,
-    // entao nao da p/ saber a marca exata de cada peca fisica. Mas cada peca fisica e um
-    // IFCELEMENTASSEMBLY (el.assemblyId). Agrupamos por assembly, atribuimos assemblies a
-    // pecas do ERP quantity-aware por PREFIXO de marca (C6A->C, TS55A->TS) e marcamos
-    // MONTADO os assemblies das pecas montadas. Resultado: exatamente N unidades fisicas
-    // montadas coloridas (contagem correta), com todas as partes de cada peca juntas.
-    // Se o IFC nao expuser assemblyId, esta camada nao faz nada (montado fica honesto).
+    // Quando o IFC do Tekla expõe marca real (Strategy -1), MUITOS Assemblies
+    // podem ter a mesma marca (TS59A = 7 Assemblies no IFC; banco tem 7 peças).
+    // O statusMap acima pintou TODOS verdes se a 1ª peça do banco estava montada
+    // (super-marcação). Aqui redistribuímos: cada Assembly ↔ 1 peça do banco,
+    // ordenados; só pinta MONTADO quem corresponde a peça realmente montada.
+    const marcaByAsmReal = new Map(); // assemblyId -> marca real
+    const asmByMarcaReal = new Map(); // marca -> [assemblyId]
+    const elemsByAsmReal = new Map(); // assemblyId -> [expressID]
+    for (const el of ifcElements) {
+      if (el.assemblyId == null) continue;
+      const marcaReal = (el.marcaFromIfc || '').toUpperCase().trim();
+      if (!elemsByAsmReal.has(el.assemblyId)) elemsByAsmReal.set(el.assemblyId, []);
+      elemsByAsmReal.get(el.assemblyId).push(el.expressID);
+      if (marcaReal && marcaReal.length >= 2 && marcaIndexAll.has(marcaReal) && !marcaByAsmReal.has(el.assemblyId)) {
+        marcaByAsmReal.set(el.assemblyId, marcaReal);
+        if (!asmByMarcaReal.has(marcaReal)) asmByMarcaReal.set(marcaReal, []);
+        asmByMarcaReal.get(marcaReal).push(el.assemblyId);
+      }
+    }
+    const asmRedistribuidos = new Set(); // assemblies já tratados pela redistribuição por marca
+    for (const [marca, asms] of asmByMarcaReal) {
+      const pecas = marcaIndexAll.get(marca);
+      if (!pecas || !pecas.length) continue;
+      // Ordena Assemblies e Peças deterministicamente
+      const asmsOrd = asms.slice().sort((a, b) => a - b);
+      const pecasOrd = pecas.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      let ai = 0;
+      for (const p of pecasOrd) {
+        const montada = pecaIdsMontadas.has(String(p.id));
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
+          asmRedistribuidos.add(asmsOrd[ai]);
+          const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
+          // Se a peça atribuída ao Assembly está montada → MONTADO
+          // Senão → status de produção da própria peça (não super-marca o irmão)
+          const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+          for (const eid of elems) map.set(eid, novoStatus);
+        }
+      }
+      // Se o IFC tem MAIS assemblies que peças no banco (raro), reseta o excedente p/ status da última peça
+      // — evita herdar marcação verde indevida da peça #1.
+      const ultimaPecaStatus = pecasOrd[pecasOrd.length - 1]?.status || 'NAO_INICIADO';
+      for (; ai < asmsOrd.length; ai++) {
+        asmRedistribuidos.add(asmsOrd[ai]);
+        const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
+        for (const eid of elems) map.set(eid, ultimaPecaStatus);
+      }
+    }
+
+    // ============================================================
+    // CAMADA MONTADO POR ASSEMBLY (contagem-exata) — fallback por PREFIXO
+    // ============================================================
+    // Para IFCs sem marca real (Tekla mascarado: Assembly mark = "C0(?)"),
+    // agrupamos por PREFIXO (C6A->C). Pulamos assemblies já tratados acima.
     const prefixoMarca = (m) => ((m || '').toUpperCase().match(/^[A-Z]+/) || [''])[0];
     const prefixoAsmMark = (m) => (m || '').toUpperCase().replace(/\d.*$/, '').replace(/[^A-Z]/g, '');
     const elemsByAsm = new Map();   // assemblyId -> [expressID]
@@ -1403,6 +1458,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     let temAssembly = false;
     for (const el of ifcElements) {
       if (el.assemblyId == null) continue;
+      // Skip assemblies já tratados pela redistribuição por marca real
+      if (asmRedistribuidos.has(el.assemblyId)) continue;
       temAssembly = true;
       if (!elemsByAsm.has(el.assemblyId)) elemsByAsm.set(el.assemblyId, []);
       elemsByAsm.get(el.assemblyId).push(el.expressID);
@@ -1418,8 +1475,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         asmByPrefixo.get(pre).push(asmId);
       }
       const pecasByPrefixo = new Map(); // prefixo -> [peca]
+      // Excluir peças cujas marcas já foram redistribuídas via Strategy -1
+      const marcasRedistribuidas = new Set(asmByMarcaReal.keys());
       for (const p of erpPecas) {
-        const pre = prefixoMarca(p.marca);
+        const marca = (p.marca || '').toUpperCase().trim();
+        if (marcasRedistribuidas.has(marca)) continue; // já tratado pela camada anterior
+        const pre = prefixoMarca(marca);
         if (!pre) continue;
         if (!pecasByPrefixo.has(pre)) pecasByPrefixo.set(pre, []);
         pecasByPrefixo.get(pre).push(p);
