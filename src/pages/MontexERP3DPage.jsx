@@ -525,6 +525,11 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
           if (realMark) {
             child.props = child.props || {};
             child.props['Assembly/Cast unit Mark'] = realMark;
+            // CRÍTICO: também em marcaFromIfc — a peça tem Name "TESOURA" (sem marca)
+            // e Tag sem marca; o real está no Assembly pai. Sem isto, a camada de
+            // REDISTRIBUIÇÃO quantity-aware (que lê el.marcaFromIfc) fica inerte e
+            // a super-marcação de marcas com SPLIT (ex: TS59A) volta a acontecer.
+            child.marcaFromIfc = realMark;
           }
           propagated++;
         }
