@@ -19,6 +19,7 @@ import {
   Calculator, Receipt, TrendingUp, Activity, PieChart,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
+import ObraSelector from './components/ObraSelector';
 
 // 5 abas inferiores (sempre visíveis)
 const BOTTOM_TABS = [
@@ -71,7 +72,7 @@ const DRAWER_GROUPS = [
   },
 ];
 
-export default function MobileLayout({ children, title = 'Montex Mobile', back = false }) {
+export default function MobileLayout({ children, title = 'Montex Mobile', back = false, obraFilter = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth() || {};
@@ -113,6 +114,11 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
 
       {/* CONTEÚDO ──────────────────────────── */}
       <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
+        {obraFilter && (
+          <div className="sticky top-0 z-20">
+            <ObraSelector />
+          </div>
+        )}
         <div className="pb-24">{children}</div>
       </main>
 

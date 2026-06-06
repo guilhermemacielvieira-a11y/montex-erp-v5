@@ -10,6 +10,7 @@ import React, { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
+import { ObraMobileProvider } from './ObraContext';
 import MobileLayout from './MobileLayout';
 import HomeMobile from './pages/HomeMobile';
 import ProducaoMobile from './pages/ProducaoMobile';
@@ -55,7 +56,9 @@ export default function MobileApp() {
   return (
     <ERPProvider>
       <ProducaoFabricaProvider>
-        <MobileRoutes />
+        <ObraMobileProvider>
+          <MobileRoutes />
+        </ObraMobileProvider>
       </ProducaoFabricaProvider>
     </ERPProvider>
   );
