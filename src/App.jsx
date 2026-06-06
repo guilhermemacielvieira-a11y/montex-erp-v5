@@ -14,6 +14,7 @@ import { EstoqueRealProvider } from './contexts/EstoqueRealContext';
 import LoginPage from './pages/LoginPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import MobileApp from './mobile/MobileApp';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -123,10 +124,22 @@ const AuthenticatedApp = () => {
     </div>
   );
 
+  // Auto-detect mobile: se em mobile e usuário não está em /m/* nem em rota pública,
+  // redireciona para /m. Pode ser desabilitado via localStorage 'force_desktop=1'.
+  const isMobileViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+  const forceDesktop = typeof window !== 'undefined' && localStorage.getItem('force_desktop') === '1';
+  const isMobileRoute = location.pathname.startsWith('/m');
+  if (isMobileViewport && !forceDesktop && !isMobileRoute && location.pathname !== '/login' && location.pathname !== '/forgot-password' && location.pathname !== '/reset-password') {
+    return <Navigate to="/m" replace />;
+  }
+
   // Render the main app (autenticado)
   return (
     <Suspense fallback={PageLoadingFallback}>
       <Routes>
+        {/* ROTAS MOBILE — /m/* — Layout próprio, sem sidebar desktop */}
+        <Route path="/m/*" element={<MobileApp />} />
+
         <Route path="/" element={
           <LayoutWrapper currentPageName={mainPageKey}>
             <MainPage />

@@ -1,12 +1,19 @@
 {
-  "name": "MONTEX ERP Premium V5",
-  "short_name": "Montex ERP",
-  "description": "Sistema ERP para gestão de estruturas metálicas - Grupo MONTEX",
-  "start_url": "/",
+  "name": "MONTEX Mobile",
+  "short_name": "Montex",
+  "description": "App mobile do MONTEX ERP - Produção, montagem e financeiro na palma da mão",
+  "start_url": "/m",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#0f172a",
-  "theme_color": "#1e40af",
-  "orientation": "any",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "orientation": "portrait",
+  "prefer_related_applications": false,
+  "shortcuts": [
+    { "name": "Produção", "url": "/m/producao", "description": "Kanban resumido por etapa" },
+    { "name": "Montagem", "url": "/m/montagem", "description": "Marcar peças como montadas" },
+    { "name": "Financeiro", "url": "/m/financeiro", "description": "Saldos e vencimentos" }
+  ],
   "icons": [
     {
       "src": "/icons/icon-72x72.png",
