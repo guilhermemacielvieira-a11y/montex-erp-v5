@@ -76,22 +76,26 @@ export default function ObraSelector() {
         <ChevronDown className="w-5 h-5 text-slate-500 flex-shrink-0" />
       </button>
 
-      {/* Bottom sheet */}
+      {/* Bottom sheet — filhos keyed diretos (sem Fragment, p/ AnimatePresence
+          rastrear o exit e desmontar corretamente ao fechar) */}
       <AnimatePresence>
         {open && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="fixed inset-0 bg-black/60 z-[60]"
-              onClick={() => setOpen(false)}
-            />
-            <motion.div
-              initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-              transition={{ type: 'tween', duration: 0.26, ease: 'easeOut' }}
-              className="fixed left-0 right-0 bottom-0 z-[61] bg-slate-900 border-t border-slate-800 rounded-t-3xl flex flex-col max-h-[80vh]"
-              style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
-            >
+          <motion.div
+            key="obra-overlay"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 bg-black/60 z-[60]"
+            onClick={() => setOpen(false)}
+          />
+        )}
+        {open && (
+          <motion.div
+            key="obra-sheet"
+            initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
+            transition={{ type: 'tween', duration: 0.26, ease: 'easeOut' }}
+            className="fixed left-0 right-0 bottom-0 z-[61] bg-slate-900 border-t border-slate-800 rounded-t-3xl flex flex-col max-h-[80vh]"
+            style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
+          >
               {/* Handle + header */}
               <div className="flex-shrink-0 px-4 pt-3 pb-2">
                 <div className="w-10 h-1 rounded-full bg-slate-700 mx-auto mb-3" />
@@ -159,8 +163,7 @@ export default function ObraSelector() {
                   <div className="text-center py-8 text-slate-500 text-sm">Nenhuma obra encontrada</div>
                 )}
               </div>
-            </motion.div>
-          </>
+          </motion.div>
         )}
       </AnimatePresence>
     </>

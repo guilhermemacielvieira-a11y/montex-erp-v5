@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { TrendingUp, TrendingDown, Receipt, Wallet, AlertCircle, PieChart, ChevronRight, Calendar } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
+import { useObraFiltro } from '../ObraContext';
 
 const fmtMoney = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 
@@ -14,8 +15,10 @@ export default function FinanceiroMobile() {
   // FIX: o ERPContext expõe 'lancamentosDespesas' e 'medicoes' — NÃO 'despesas'/'receitas'.
   // Sem este alias, a página vinha 100% zerada.
   const { lancamentosDespesas = [], medicoes = [] } = erp;
-  const despesas = lancamentosDespesas;
-  const receitas = medicoes;
+  const { matchObra } = useObraFiltro();
+  // Aplica o filtro global por obra (quando "Todas", matchObra deixa tudo passar)
+  const despesas = useMemo(() => lancamentosDespesas.filter(matchObra), [lancamentosDespesas, matchObra]);
+  const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
 
   // Atraso por DATA de vencimento (não só status==='atrasado', que muitos lançamentos não têm).
   const hojeStr = new Date().toISOString().slice(0, 10);
@@ -53,7 +56,7 @@ export default function FinanceiroMobile() {
   }, [despesas]);
 
   return (
-    <MobileLayout title="Financeiro">
+    <MobileLayout title="Financeiro" obraFilter>
       {/* Saldo Projetado Hero */}
       <div className="px-4 pt-4">
         <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5">

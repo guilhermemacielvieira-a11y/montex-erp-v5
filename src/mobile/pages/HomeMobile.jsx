@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
+import { useObraFiltro } from '../ObraContext';
 
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtMoney = (n) => 'R$ ' + fmtBR(n, 0);
@@ -40,29 +41,33 @@ export default function HomeMobile() {
   const erp = useERP?.() || {};
   // FIX: ERPContext expõe 'lancamentosDespesas' e 'medicoes' (não 'despesas'/'receitas').
   const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [] } = erp;
-  const despesas = lancamentosDespesas;
-  const receitas = medicoes;
+  const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
+  // Aplica o filtro global por obra a todos os conjuntos de dados
+  const despesas = useMemo(() => lancamentosDespesas.filter(matchObra), [lancamentosDespesas, matchObra]);
+  const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
+  const pecasFiltradas = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
 
   const stats = useMemo(() => {
     const hojeStr = new Date().toISOString().slice(0, 10);
     const isAtrasada = (d) => { const v = d.dataVencimento || d.data_vencimento; return d.status !== 'pago' && d.status !== 'cancelado' && v && String(v).slice(0, 10) < hojeStr; };
     const aPagar = despesas.filter(d => d.status !== 'pago' && d.status !== 'cancelado');
-    const obrasAtivas = obras.filter(o => o.status !== 'concluida' && o.status !== 'cancelada').length;
-    const pecasMontadas = pecas.filter(p => p.etapa === 'montado' || p.status === 'MONTADO').length;
-    const pecasProducao = pecas.filter(p => ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'].includes(p.etapa)).length;
+    // "Obras ativas" reflete o filtro: 1 quando uma obra está selecionada
+    const obrasAtivas = isTodas ? obras.filter(o => o.status !== 'concluida' && o.status !== 'cancelada').length : 1;
+    const pecasMontadas = pecasFiltradas.filter(p => p.etapa === 'montado' || p.status === 'MONTADO').length;
+    const pecasProducao = pecasFiltradas.filter(p => ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'].includes(p.etapa)).length;
     const desPendentes = aPagar.length;
     const desValor = aPagar.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const recPendentes = receitas.filter(r => r.status !== 'pago').reduce((s, r) => s + (Number(r.valor) || 0), 0);
     const desAtrasadas = despesas.filter(isAtrasada).length;
     return { obrasAtivas, pecasMontadas, pecasProducao, desPendentes, desValor, recPendentes, desAtrasadas };
-  }, [obras, pecas, despesas, receitas]);
+  }, [obras, pecasFiltradas, despesas, receitas, isTodas]);
 
   return (
-    <MobileLayout title="Início">
+    <MobileLayout title="Início" obraFilter>
       {/* Saudação */}
       <div className="px-4 pt-4 pb-3">
         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Bem-vindo de volta</div>
-        <div className="text-xl font-bold mt-0.5">Painel Geral</div>
+        <div className="text-xl font-bold mt-0.5">{isTodas ? 'Painel Geral' : (obraSelecionada?.nome || 'Painel da Obra')}</div>
       </div>
 
       {/* Alerta crítico */}

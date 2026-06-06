@@ -7,6 +7,7 @@ import { motion } from 'framer-motion';
 import { Search, Factory, Scissors, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
+import { useObraFiltro } from '../ObraContext';
 
 const ETAPAS = [
   { key: 'aguardando', label: 'Aguardando', icon: Factory, color: 'slate' },
@@ -22,24 +23,18 @@ const C_TXT = { slate: 'text-slate-300', blue: 'text-blue-300', amber: 'text-amb
 
 export default function ProducaoMobile() {
   const erp = useERP?.() || {};
-  const { obras = [], pecas = [] } = erp;
-  const [obraFiltro, setObraFiltro] = useState('todas');
+  const { pecas = [] } = erp;
+  const { matchObra } = useObraFiltro();
   const [q, setQ] = useState('');
 
-  const obrasAtivas = useMemo(
-    () => obras.filter(o => o.status !== 'concluida').sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
-    [obras]
-  );
-
   const pecasFiltradas = useMemo(() => {
-    let lst = pecas;
-    if (obraFiltro !== 'todas') lst = lst.filter(p => p.obra_id === obraFiltro || p.obraId === obraFiltro);
+    let lst = pecas.filter(matchObra);
     if (q.trim()) {
       const qq = q.toUpperCase();
       lst = lst.filter(p => (p.marca || '').toUpperCase().includes(qq) || (p.id || '').toString().toUpperCase().includes(qq));
     }
     return lst;
-  }, [pecas, obraFiltro, q]);
+  }, [pecas, matchObra, q]);
 
   const porEtapa = useMemo(() => {
     const m = {};
@@ -57,9 +52,9 @@ export default function ProducaoMobile() {
   const totalConjuntos = pecasFiltradas.length;
 
   return (
-    <MobileLayout title="Produção">
-      {/* Filtros */}
-      <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
+    <MobileLayout title="Produção" obraFilter>
+      {/* Busca */}
+      <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
@@ -67,19 +62,6 @@ export default function ProducaoMobile() {
             placeholder="Buscar marca ou ID..."
             className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-3 py-2.5 text-sm placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50"
           />
-        </div>
-        <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1 no-scrollbar">
-          <button
-            onClick={() => setObraFiltro('todas')}
-            className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition ${obraFiltro === 'todas' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 border border-slate-800 text-slate-300'}`}
-          >Todas</button>
-          {obrasAtivas.map(o => (
-            <button
-              key={o.id}
-              onClick={() => setObraFiltro(o.id)}
-              className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold transition truncate max-w-[180px] ${obraFiltro === o.id ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 border border-slate-800 text-slate-300'}`}
-            >{o.codigo || o.nome}</button>
-          ))}
         </div>
       </div>
 

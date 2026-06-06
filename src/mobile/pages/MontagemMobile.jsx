@@ -6,33 +6,24 @@ import { motion } from 'framer-motion';
 import { Hammer, CheckCircle2, Clock, Box, Search } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
+import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart, saveConcluidasSmart } from '@/utils/montagemSync';
 import { toast } from 'react-hot-toast';
 
 export default function MontagemMobile() {
   const erp = useERP?.() || {};
-  const { obras = [], pecas = [] } = erp;
-  const [obraId, setObraId] = useState('');
+  const { pecas = [] } = erp;
+  const { matchObra } = useObraFiltro();
   const [tab, setTab] = useState('aguardando'); // aguardando | montadas
   const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(remoto => setConcluidas(remoto || {})) || {});
   const [q, setQ] = useState('');
 
-  // Obras com peças enviadas (em montagem)
-  const obrasComMontagem = useMemo(
-    () => obras.filter(o => pecas.some(p => (p.obra_id === o.id || p.obraId === o.id) && (p.etapa === 'enviado' || p.etapa === 'montado'))).sort((a, b) => (a.nome || '').localeCompare(b.nome || '')),
-    [obras, pecas]
-  );
-
-  // Selecionar obra default
-  React.useEffect(() => {
-    if (!obraId && obrasComMontagem.length) setObraId(obrasComMontagem[0].id);
-  }, [obrasComMontagem, obraId]);
-
+  // Peças em montagem (enviado/montado) da obra selecionada no filtro global
   const pecasObra = useMemo(() => {
-    const list = pecas.filter(p => (p.obra_id === obraId || p.obraId === obraId) && (p.etapa === 'enviado' || p.etapa === 'montado'));
+    const list = pecas.filter(p => matchObra(p) && (p.etapa === 'enviado' || p.etapa === 'montado'));
     const QQ = q.toUpperCase();
     return q.trim() ? list.filter(p => (p.marca || '').toUpperCase().includes(QQ)) : list;
-  }, [pecas, obraId, q]);
+  }, [pecas, matchObra, q]);
 
   const aguardando = pecasObra.filter(p => !concluidas[String(p.id)]);
   const montadas = pecasObra.filter(p => !!concluidas[String(p.id)]);
@@ -59,17 +50,9 @@ export default function MontagemMobile() {
   };
 
   return (
-    <MobileLayout title="Montagem">
+    <MobileLayout title="Montagem" obraFilter>
       {/* Filtros / Tabs */}
       <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
-        {/* Seletor obra */}
-        <select
-          value={obraId} onChange={e => setObraId(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50"
-        >
-          {obrasComMontagem.length === 0 && <option value="">Sem obras em montagem</option>}
-          {obrasComMontagem.map(o => <option key={o.id} value={o.id}>{o.codigo ? `[${o.codigo}] ` : ''}{o.nome}</option>)}
-        </select>
         {/* Tabs */}
         <div className="flex gap-2">
           <button
