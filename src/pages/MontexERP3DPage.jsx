@@ -1422,6 +1422,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
     }
     const asmRedistribuidos = new Set(); // assemblies já tratados pela redistribuição por marca
+    const pecasAtendidas = new Set();     // ids das peças que receberam Assembly via redistribuição
+    const consumoPorPeca = new Map();     // pecaId -> unidades atribuídas (para detectar atendimento parcial)
     for (const [marca, asms] of asmByMarcaReal) {
       const pecas = marcaIndexAll.get(marca);
       if (!pecas || !pecas.length) continue;
@@ -1432,17 +1434,20 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       for (const p of pecasOrd) {
         const montada = pecaIdsMontadas.has(String(p.id));
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        let consumido = 0;
         for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
           asmRedistribuidos.add(asmsOrd[ai]);
           const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
-          // Se a peça atribuída ao Assembly está montada → MONTADO
-          // Senão → status de produção da própria peça (não super-marca o irmão)
           const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
           for (const eid of elems) map.set(eid, novoStatus);
+          consumido++;
+        }
+        if (consumido > 0) {
+          pecasAtendidas.add(String(p.id));
+          consumoPorPeca.set(String(p.id), consumido);
         }
       }
-      // Se o IFC tem MAIS assemblies que peças no banco (raro), reseta o excedente p/ status da última peça
-      // — evita herdar marcação verde indevida da peça #1.
+      // Se o IFC tem MAIS assemblies que peças no banco, reseta o excedente p/ status da última peça
       const ultimaPecaStatus = pecasOrd[pecasOrd.length - 1]?.status || 'NAO_INICIADO';
       for (; ai < asmsOrd.length; ai++) {
         asmRedistribuidos.add(asmsOrd[ai]);
@@ -1473,36 +1478,39 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         if (pre) prefixoByAsm.set(el.assemblyId, pre);
       }
     }
-    if (temAssembly && pecaIdsMontadas.size > 0) {
+    if (temAssembly) {
       const asmByPrefixo = new Map(); // prefixo -> [assemblyId]
       for (const [asmId, pre] of prefixoByAsm) {
         if (!asmByPrefixo.has(pre)) asmByPrefixo.set(pre, []);
         asmByPrefixo.get(pre).push(asmId);
       }
-      const pecasByPrefixo = new Map(); // prefixo -> [peca]
-      // Excluir peças cujas marcas já foram redistribuídas via Strategy -1
-      const marcasRedistribuidas = new Set(asmByMarcaReal.keys());
+      // Coletar peças não-atendidas (ou parcialmente atendidas) pela redistribuição por marca real.
+      // Calcula 'falta' = qtd - consumido. Peças com 'falta>0' precisam de Assembly extra via prefixo.
+      const pecasByPrefixo = new Map(); // prefixo -> [{ peca, falta }]
       for (const p of erpPecas) {
         const marca = (p.marca || '').toUpperCase().trim();
-        if (marcasRedistribuidas.has(marca)) continue; // já tratado pela camada anterior
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        const consumido = consumoPorPeca.get(String(p.id)) || 0;
+        const falta = qtd - consumido;
+        if (falta <= 0) continue; // já totalmente atendida pela camada por marca
         const pre = prefixoMarca(marca);
         if (!pre) continue;
         if (!pecasByPrefixo.has(pre)) pecasByPrefixo.set(pre, []);
-        pecasByPrefixo.get(pre).push(p);
+        pecasByPrefixo.get(pre).push({ peca: p, falta });
       }
       for (const [pre, asms] of asmByPrefixo) {
-        const pecas = (pecasByPrefixo.get(pre) || []).slice()
-          .sort((a, b) => (a.marca || '').localeCompare(b.marca || ''));
-        if (!pecas.length) continue;
+        const itens = (pecasByPrefixo.get(pre) || []).slice()
+          .sort((a, b) => (a.peca.marca || '').localeCompare(b.peca.marca || ''));
+        if (!itens.length) continue;
         const asmsOrd = asms.slice().sort((a, b) => a - b);
         let ai = 0;
-        for (const p of pecas) {
+        for (const { peca: p, falta } of itens) {
           const montada = pecaIdsMontadas.has(String(p.id));
-          const qtd = parseInt(p.quantidade) || 1;
-          for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
-            if (montada) {
-              for (const eid of elemsByAsm.get(asmsOrd[ai])) map.set(eid, 'MONTADO');
-            }
+          for (let q = 0; q < falta && ai < asmsOrd.length; q++, ai++) {
+            const elems = elemsByAsm.get(asmsOrd[ai]) || [];
+            // Se peça está montada → MONTADO. Caso contrário, status produção.
+            const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+            for (const eid of elems) map.set(eid, novoStatus);
           }
         }
       }
