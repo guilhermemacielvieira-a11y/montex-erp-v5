@@ -482,9 +482,26 @@ function LayoutContent({ children, currentPageName }) {
   const [showDisplaySettings, setShowDisplaySettings] = useState(false);
   const [openCategories, setOpenCategories] = useState(['dashboard', 'comercial', 'suprimentos', 'producao', 'expedicao', 'obras', 'medicao', 'financeiro']);
   const [searchQuery, setSearchQuery] = useState('');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+  // Preferência MANUAL do usuário (persistida). Em telas largas (>=1024px) é o que vale.
+  const [userCollapsed, setUserCollapsed] = useState(() => {
     try { return localStorage.getItem('montex-sidebar-collapsed') === 'true'; } catch { return false; }
   });
+  // Faixa COMPACTA 768–1023px (notebook pequeno / janela dividida no PC): o sidebar
+  // vira trilho de ícones com flyout no hover automaticamente, para sobrar largura
+  // ao conteúdo — SEM cair no shell mobile (que só aparece abaixo de 768px).
+  const [isCompact, setIsCompact] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 768px) and (max-width: 1023.98px)').matches
+  );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(min-width: 768px) and (max-width: 1023.98px)');
+    const onChange = () => setIsCompact(mq.matches);
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+  // Valor EFETIVO usado por toda a UI: recolhido se o usuário pediu OU se está na faixa compacta.
+  const sidebarCollapsed = userCollapsed || isCompact;
   const location = useLocation();
   const { displaySettings, screenInfo, preferences, animationSettings } = useDisplay();
   const { user, logout, hasPermission } = useAuth();
@@ -499,8 +516,8 @@ function LayoutContent({ children, currentPageName }) {
   }, [user, hasPermission]);
 
   useEffect(() => {
-    try { localStorage.setItem('montex-sidebar-collapsed', sidebarCollapsed); } catch {}
-  }, [sidebarCollapsed]);
+    try { localStorage.setItem('montex-sidebar-collapsed', userCollapsed); } catch {}
+  }, [userCollapsed]);
 
   // Close mobile menu on route change
   useEffect(() => {
@@ -577,7 +594,7 @@ function LayoutContent({ children, currentPageName }) {
       <div className="min-h-screen bg-[#1a2332]" style={{ backgroundImage: 'linear-gradient(135deg, rgba(100,160,220,0.04) 0%, transparent 50%, rgba(80,140,200,0.03) 100%), repeating-linear-gradient(90deg, rgba(140,180,220,0.012) 0px, transparent 1px, transparent 3px)', backgroundSize: '100% 100%, 4px 100%' }}>
 
         {/* ============ MOBILE HEADER ============ */}
-        <div className="lg:hidden fixed top-0 left-0 right-0 z-50">
+        <div className="md:hidden fixed top-0 left-0 right-0 z-50">
           <div className="h-14 bg-[#243344]/95 backdrop-blur-xl border-b border-white/[0.06] flex items-center justify-between px-3">
             <div className="flex items-center gap-2">
               <MontexLogoIcon className="w-7 h-7" />
@@ -609,14 +626,14 @@ function LayoutContent({ children, currentPageName }) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="lg:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
+              className="md:hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-40"
               onClick={() => setMobileOpen(false)}
             />
           )}
         </AnimatePresence>
 
         {/* ============ MOBILE BOTTOM NAV ============ */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 z-50">
           <div className="bg-[#243344]/95 backdrop-blur-xl border-t border-white/[0.08] pb-[env(safe-area-inset-bottom)]">
             <div className="flex items-center justify-around h-16 px-1">
               {mobileBottomNav.map((item) => {
@@ -662,8 +679,8 @@ function LayoutContent({ children, currentPageName }) {
             "bg-[#243344]/95 backdrop-blur-xl",
             "border-r border-white/[0.06]",
             sidebarCollapsed ? "w-[68px]" : "w-[280px]",
-            "lg:translate-x-0",
-            mobileOpen ? "translate-x-0 !w-[280px]" : "-translate-x-full lg:translate-x-0"
+            "md:translate-x-0",
+            mobileOpen ? "translate-x-0 !w-[280px]" : "-translate-x-full md:translate-x-0"
           )}
         >
           {/* ---- Logo Header ---- */}
@@ -691,26 +708,26 @@ function LayoutContent({ children, currentPageName }) {
             {mobileOpen && (
               <button
                 onClick={() => setMobileOpen(false)}
-                className="lg:hidden w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-all active:scale-95"
+                className="md:hidden w-8 h-8 flex items-center justify-center rounded-xl text-slate-400 hover:text-white hover:bg-white/10 transition-all active:scale-95"
               >
                 <X className="h-5 w-5" />
               </button>
             )}
 
-            {/* Collapse/Expand button */}
-            {(!sidebarCollapsed || mobileOpen) && (
+            {/* Collapse/Expand button — escondido na faixa compacta (trilho forçado) */}
+            {(!sidebarCollapsed || mobileOpen) && !isCompact && (
               <button
-                onClick={() => setSidebarCollapsed(true)}
-                className="hidden lg:flex w-7 h-7 items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
+                onClick={() => setUserCollapsed(true)}
+                className="hidden md:flex w-7 h-7 items-center justify-center rounded-lg text-slate-500 hover:text-white hover:bg-white/10 transition-all"
                 title="Recolher menu"
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
             )}
-            {sidebarCollapsed && !mobileOpen && (
+            {sidebarCollapsed && !mobileOpen && !isCompact && (
               <button
-                onClick={() => setSidebarCollapsed(false)}
-                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#243344] border border-white/10 rounded-full hidden lg:flex items-center justify-center text-slate-400 hover:text-white hover:bg-orange-500 hover:border-orange-500 transition-all z-[60] shadow-lg"
+                onClick={() => setUserCollapsed(false)}
+                className="absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-[#243344] border border-white/10 rounded-full hidden md:flex items-center justify-center text-slate-400 hover:text-white hover:bg-orange-500 hover:border-orange-500 transition-all z-[60] shadow-lg"
                 title="Expandir menu"
               >
                 <ChevronRight className="h-3 w-3" />
@@ -720,7 +737,7 @@ function LayoutContent({ children, currentPageName }) {
 
           {/* ---- Obra Selector (desktop sidebar only, mobile uses header) ---- */}
           {!sidebarCollapsed && (
-            <div className="hidden lg:block px-3 py-2 border-b border-white/[0.04]">
+            <div className="hidden md:block px-3 py-2 border-b border-white/[0.04]">
               <SeletorObra />
             </div>
           )}
@@ -890,14 +907,14 @@ function LayoutContent({ children, currentPageName }) {
 
         {/* ============ TOP BAR (DESKTOP) ============ */}
         <header className={cn(
-          "fixed top-0 right-0 h-16 z-40 hidden lg:flex items-center justify-between px-6 transition-all duration-300",
+          "fixed top-0 right-0 h-16 z-40 hidden md:flex items-center justify-between px-6 transition-all duration-300",
           "bg-[#243344]/80 backdrop-blur-xl border-b border-white/[0.06]",
           sidebarCollapsed ? "left-[68px]" : "left-[280px]"
         )}>
           <div className="flex items-center gap-4">
-            {sidebarCollapsed && (
+            {sidebarCollapsed && !isCompact && (
               <button
-                onClick={() => setSidebarCollapsed(false)}
+                onClick={() => setUserCollapsed(false)}
                 className="text-slate-400 hover:text-white p-2 rounded-xl hover:bg-white/5 transition-all"
                 title="Expandir menu"
               >
@@ -944,12 +961,12 @@ function LayoutContent({ children, currentPageName }) {
         {/* ============ MAIN CONTENT ============ */}
         <main className={cn(
           "min-h-screen transition-all duration-300",
-          // Top padding: mobile header (h-14) + desktop header (h-16)
-          "pt-14 lg:pt-16",
-          // Bottom padding: mobile bottom nav bar
-          "pb-20 lg:pb-0",
-          // Left margin: sidebar on desktop
-          sidebarCollapsed ? "lg:ml-[68px]" : "lg:ml-[280px]"
+          // Top padding: mobile header (h-14, <768px) + desktop header (h-16, >=768px)
+          "pt-14 md:pt-16",
+          // Bottom padding: mobile bottom nav bar (só <768px)
+          "pb-20 md:pb-0",
+          // Left margin: sidebar a partir de 768px (68px no trilho compacto / 280px expandido)
+          sidebarCollapsed ? "md:ml-[68px]" : "md:ml-[280px]"
         )}>
           <motion.div
             key={currentPageName}
@@ -958,7 +975,7 @@ function LayoutContent({ children, currentPageName }) {
             transition={{ duration: 0.25, ease: "easeOut" }}
             className="p-3 sm:p-4 lg:p-5"
           >
-            <div className="hidden lg:block">
+            <div className="hidden md:block">
               <Breadcrumbs />
             </div>
             {children}
