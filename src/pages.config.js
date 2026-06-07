@@ -39,7 +39,6 @@ const Projetos = lazy(() => import('./pages/Projetos'));
 const ProducaoPage = lazy(() => import('./pages/ProducaoPage'));
 const ProducaoFuncionarioPage = lazy(() => import('./pages/ProducaoFuncionarioPage'));
 const DiarioProducaoPage = lazy(() => import('./pages/DiarioProducaoPage'));
-const AtualizacaoProducao = lazy(() => import('./pages/AtualizacaoProducao'));
 const AtualizacaoProducaoIndependente = lazy(() => import('./pages/AtualizacaoProducaoIndependente'));
 const AtualizacaoProducaoPublica = lazy(() => import('./pages/AtualizacaoProducaoPublica'));
 const AnaliseProducaoPage = lazy(() => import('./pages/AnaliseProducaoPage'));
@@ -47,7 +46,6 @@ const MontagemPage = lazy(() => import('./pages/MontagemPage'));
 
 // ===== KANBAN =====
 const KanbanCortePage = lazy(() => import('./pages/KanbanCortePage'));
-const KanbanCorteIntegrado = lazy(() => import('./pages/KanbanCorteIntegrado'));
 const KanbanProducaoIntegrado = lazy(() => import('./pages/KanbanProducaoIntegrado'));
 
 // ===== ESTOQUE (canônico: EstoquePageV2) =====
@@ -72,7 +70,6 @@ const SimuladorOrcamento = lazy(() => import('./pages/SimuladorOrcamento'));
 const SimuladorPage = lazy(() => import('./pages/SimuladorPage'));
 
 // ===== MEDIÇÃO =====
-const MedicaoPage = lazy(() => import('./pages/MedicaoPage'));
 const MedicaoAutomaticaPage = lazy(() => import('./pages/MedicaoAutomaticaPage'));
 
 // ===== EXPEDIÇÃO =====
@@ -112,7 +109,6 @@ const SugestoesIAPage = lazy(() => import('./pages/SugestoesIAPage'));
 const Tarefas = lazy(() => import('./pages/Tarefas'));
 const Automacoes = lazy(() => import('./pages/Automacoes'));
 const ColaboracaoProjetos = lazy(() => import('./pages/ColaboracaoProjetos'));
-const AssistenteTecnico = lazy(() => import('./pages/AssistenteTecnico'));
 const Chatbot = lazy(() => import('./pages/Chatbot'));
 const MultiObrasPage = lazy(() => import('./pages/MultiObrasPage'));
 const GestaoObrasPage = lazy(() => import('./pages/GestaoObrasPage'));
@@ -137,7 +133,6 @@ export const PAGES = {
     "ProducaoPage": ProducaoPage,
     "ProducaoFuncionarioPage": ProducaoFuncionarioPage,
     "DiarioProducaoPage": DiarioProducaoPage,
-    "AtualizacaoProducao": AtualizacaoProducao,
     "AtualizacaoProducaoIndependente": AtualizacaoProducaoIndependente,
     "AtualizacaoProducaoPublica": AtualizacaoProducaoPublica,
         "AnaliseProducaoPage": AnaliseProducaoPage,
@@ -145,7 +140,6 @@ export const PAGES = {
 
     // Kanban
     "KanbanCortePage": KanbanCortePage,
-    "KanbanCorteIntegrado": KanbanCorteIntegrado,
     "KanbanProducaoIntegrado": KanbanProducaoIntegrado,
 
     // Estoque (canônico: V2)
@@ -171,7 +165,6 @@ export const PAGES = {
     "SimuladorPage": SimuladorPage,
 
     // Medição
-    "MedicaoPage": MedicaoPage,
     "MedicaoAutomaticaPage": MedicaoAutomaticaPage,
 
     // Expedição
@@ -211,7 +204,6 @@ export const PAGES = {
     "Tarefas": Tarefas,
     "Automacoes": Automacoes,
     "ColaboracaoProjetos": ColaboracaoProjetos,
-    "AssistenteTecnico": AssistenteTecnico,
     "Chatbot": Chatbot,
     "MultiObrasPage": MultiObrasPage,
     "GestaoObrasPage": GestaoObrasPage,
