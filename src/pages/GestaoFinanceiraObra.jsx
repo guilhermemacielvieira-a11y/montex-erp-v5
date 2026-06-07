@@ -13,6 +13,7 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
+import DataTable from '@/components/ui/DataTable';
 import {
   DollarSign,
   TrendingUp,
@@ -1762,96 +1763,89 @@ export default function GestaoFinanceiraObra() {
                 </div>
               </div>
 
-              {/* Tabela de Lançamentos — sem limite, com scroll vertical no container */}
-              <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
-                <table className="w-full">
-                  <thead className="sticky top-0 bg-slate-900 z-10">
-                    <tr className="text-xs text-slate-400 border-b border-slate-700/50">
-                      <th className="text-left py-3 px-2">Descrição</th>
-                      <th className="text-left py-3 px-2">Categoria</th>
-                      <th className="text-left py-3 px-2">Fornecedor</th>
-                      <th className="text-center py-3 px-2">Vencimento</th>
-                      <th className="text-right py-3 px-2">Valor</th>
-                      <th className="text-center py-3 px-2">Status</th>
-                      <th className="text-center py-3 px-2">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {lancamentosFiltrados.map((lanc, idx) => {
-                      const statusStyle = STATUS_COLORS[lanc.status] || STATUS_COLORS[STATUS_LANCAMENTO.PENDENTE];
+              {/* Tabela de Lançamentos — DataTable (header fixo + ordenação por coluna) */}
+              <DataTable
+                data={lancamentosFiltrados}
+                getRowKey={(l) => l.id}
+                maxHeight="600px"
+                emptyMessage="Nenhum lançamento encontrado"
+                columns={[
+                  {
+                    key: 'descricao', header: 'Descrição', sortable: true,
+                    render: (l) => (
+                      <div>
+                        <p className="text-white">{l.descricao}</p>
+                        {l.notaFiscal && <p className="text-xs text-slate-500">{l.notaFiscal}</p>}
+                      </div>
+                    ),
+                  },
+                  {
+                    key: 'categoria', header: 'Categoria', sortable: true,
+                    sortAccessor: (l) => CATEGORIA_LABELS[l.categoria] || l.categoria || '',
+                    render: (l) => <span className="text-slate-400">{CATEGORIA_LABELS[l.categoria] || l.categoria}</span>,
+                  },
+                  {
+                    key: 'fornecedor', header: 'Fornecedor', sortable: true,
+                    render: (l) => <span className="text-slate-300">{l.fornecedor}</span>,
+                  },
+                  {
+                    key: 'dataVencimento', header: 'Vencimento', align: 'center', sortable: true,
+                    sortAccessor: (l) => l.dataVencimento || '',
+                    render: (l) => (
+                      <span className="text-slate-400">
+                        {l.dataVencimento ? new Date(l.dataVencimento).toLocaleDateString('pt-BR') : '-'}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'valor', header: 'Valor', align: 'right', sortable: true,
+                    sortAccessor: (l) => l.valor || 0,
+                    render: (l) => (
+                      <span className="text-white font-medium">
+                        R$ {(l.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                      </span>
+                    ),
+                  },
+                  {
+                    key: 'status', header: 'Status', align: 'center', sortable: true,
+                    render: (l) => {
+                      const s = STATUS_COLORS[l.status] || STATUS_COLORS[STATUS_LANCAMENTO.PENDENTE];
                       return (
-                        <motion.tr
-                          key={lanc.id}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: idx * 0.02 }}
-                          className="border-b border-slate-700/30 hover:bg-slate-700/20"
-                        >
-                          <td className="py-3 px-2">
-                            <div>
-                              <p className="text-white text-sm">{lanc.descricao}</p>
-                              {lanc.notaFiscal && (
-                                <p className="text-xs text-slate-500">{lanc.notaFiscal}</p>
-                              )}
-                            </div>
-                          </td>
-                          <td className="py-3 px-2 text-slate-400 text-sm">
-                            {CATEGORIA_LABELS[lanc.categoria] || lanc.categoria}
-                          </td>
-                          <td className="py-3 px-2 text-slate-300 text-sm">{lanc.fornecedor}</td>
-                          <td className="py-3 px-2 text-center text-slate-400 text-sm">
-                            {lanc.dataVencimento ? new Date(lanc.dataVencimento).toLocaleDateString('pt-BR') : '-'}
-                          </td>
-                          <td className="py-3 px-2 text-right text-white font-medium">
-                            R$ {(lanc.valor || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 text-xs rounded-full ${statusStyle.bg} ${statusStyle.text}`}>
-                              {lanc.status.charAt(0).toUpperCase() + lanc.status.slice(1)}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-center">
-                            <div className="flex items-center justify-center gap-1">
-                              {lanc.status === STATUS_LANCAMENTO.PENDENTE && (
-                                <button
-                                  onClick={() => atualizarStatusLancamento(lanc.id, STATUS_LANCAMENTO.APROVADO)}
-                                  className="p-1.5 text-blue-400 hover:bg-blue-500/20 rounded transition-colors"
-                                  title="Aprovar"
-                                >
-                                  <Check className="w-4 h-4" />
-                                </button>
-                              )}
-                              {lanc.status === STATUS_LANCAMENTO.APROVADO && (
-                                <button
-                                  onClick={() => atualizarStatusLancamento(lanc.id, STATUS_LANCAMENTO.PAGO)}
-                                  className="p-1.5 text-emerald-400 hover:bg-emerald-500/20 rounded transition-colors"
-                                  title="Marcar como Pago"
-                                >
-                                  <DollarSign className="w-4 h-4" />
-                                </button>
-                              )}
-                              <button
-                                onClick={() => abrirEdicaoLancamento(lanc)}
-                                className="p-1.5 text-cyan-400 hover:bg-cyan-500/20 rounded transition-colors"
-                                title="Editar"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => setLancParaExcluir(lanc.id)}
-                                className="p-1.5 text-red-400 hover:bg-red-500/20 rounded transition-colors"
-                                title="Excluir"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </motion.tr>
+                        <span className={`px-2 py-1 text-xs rounded-full ${s.bg} ${s.text}`}>
+                          {l.status.charAt(0).toUpperCase() + l.status.slice(1)}
+                        </span>
                       );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                    },
+                  },
+                  {
+                    key: 'acoes', header: 'Ações', align: 'center', sortable: false,
+                    render: (l) => (
+                      <div className="flex items-center justify-center gap-1">
+                        {l.status === STATUS_LANCAMENTO.PENDENTE && (
+                          <button onClick={() => atualizarStatusLancamento(l.id, STATUS_LANCAMENTO.APROVADO)}
+                            className="p-1.5 text-blue-400 hover:bg-blue-500/20 rounded transition-colors" title="Aprovar">
+                            <Check className="w-4 h-4" />
+                          </button>
+                        )}
+                        {l.status === STATUS_LANCAMENTO.APROVADO && (
+                          <button onClick={() => atualizarStatusLancamento(l.id, STATUS_LANCAMENTO.PAGO)}
+                            className="p-1.5 text-emerald-400 hover:bg-emerald-500/20 rounded transition-colors" title="Marcar como Pago">
+                            <DollarSign className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button onClick={() => abrirEdicaoLancamento(l)}
+                          className="p-1.5 text-cyan-400 hover:bg-cyan-500/20 rounded transition-colors" title="Editar">
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setLancParaExcluir(l.id)}
+                          className="p-1.5 text-red-400 hover:bg-red-500/20 rounded transition-colors" title="Excluir">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ),
+                  },
+                ]}
+              />
 
               {/* Totais */}
               <div className="mt-4 pt-4 border-t border-slate-700/50 flex items-center justify-between">
