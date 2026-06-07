@@ -7,10 +7,14 @@
 //   2) Web BarcodeDetector + getUserMedia — navegadores compatíveis
 //   3) Entrada manual (sempre disponível) — fallback universal
 // Chama onResult(codigo) ao detectar/confirmar.
+//
+// continuous=true: a câmera fica aberta e cada leitura confere um item
+// (háptico + contador + debounce de duplicatas), até "Concluir". Ideal
+// para conferência de carga (bipar vários itens em sequência).
 // ============================================================
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ScanLine, Keyboard, CameraOff } from 'lucide-react';
+import { X, ScanLine, Keyboard, CameraOff, CheckCircle2 } from 'lucide-react';
 import { tap } from './haptics';
 
 function nativeScanner() {
@@ -21,27 +25,55 @@ function nativeScanner() {
   return null;
 }
 
-export default function Scanner({ open, onClose, onResult, title = 'Escanear peça' }) {
+export default function Scanner({ open, onClose, onResult, title = 'Escanear peça', continuous = false }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
+  const lastScanRef = useRef({ code: '', ts: 0 });
+  const onResultRef = useRef(onResult);
+  useEffect(() => { onResultRef.current = onResult; }); // sempre o onResult mais recente (estado fresco)
+
   const [manual, setManual] = useState('');
   const [camState, setCamState] = useState('idle'); // idle | starting | live | unsupported | denied
   const [hint, setHint] = useState('');
+  const [lidos, setLidos] = useState(0);
+  const [ultimo, setUltimo] = useState('');
+
+  // Processa uma leitura (câmera ou manual). No contínuo: debounce do mesmo
+  // código por 1.5s, conta e mantém aberto; no normal: lê uma vez e fecha.
+  const processar = (code, fromCamera) => {
+    const v = String(code || '').trim();
+    if (!v) return;
+    if (continuous) {
+      const now = Date.now();
+      const last = lastScanRef.current;
+      if (fromCamera && last.code === v && now - last.ts < 1500) return; // duplicata recente
+      lastScanRef.current = { code: v, ts: now };
+      tap('heavy');
+      setLidos(n => n + 1);
+      setUltimo(v);
+      onResultRef.current?.(v);
+    } else {
+      tap('heavy');
+      onResultRef.current?.(v);
+      onClose?.();
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    setLidos(0); setUltimo(''); lastScanRef.current = { code: '', ts: 0 };
 
     (async () => {
-      // 1) Plugin nativo (assume controle da UI nativa)
+      // 1) Plugin nativo (assume controle da UI nativa) — modo one-shot.
       const ns = nativeScanner();
       if (ns?.scan) {
         try {
           const res = await ns.scan();
           const code = res?.barcodes?.[0]?.rawValue || res?.ScanResult || res?.content;
-          if (code && !cancelled) { onResult?.(String(code)); onClose?.(); }
-          return;
+          if (code && !cancelled) { processar(code, true); if (!continuous) return; }
+          if (!continuous) return;
         } catch { /* cai para web/manual */ }
       }
 
@@ -66,7 +98,10 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
             const codes = await detector.detect(videoRef.current);
             if (codes && codes.length) {
               const code = codes[0].rawValue;
-              if (code) { await tap('heavy'); onResult?.(String(code)); onClose?.(); return; }
+              if (code) {
+                processar(code, true);
+                if (!continuous) return; // one-shot fecha em processar()
+              }
             }
           } catch { /* frame sem código */ }
           rafRef.current = requestAnimationFrame(loop);
@@ -89,9 +124,9 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
   const confirmarManual = () => {
     const v = manual.trim();
     if (!v) return;
-    onResult?.(v);
+    processar(v, false); // manual não sofre debounce
     setManual('');
-    onClose?.();
+    // no contínuo, mantém aberto para a próxima
   };
 
   return (
@@ -106,7 +141,12 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
             <ScanLine className="w-5 h-5 text-amber-400" />
-            <h2 className="flex-1 font-bold text-base">{title}</h2>
+            <h2 className="flex-1 font-bold text-base truncate">{title}</h2>
+            {continuous && lidos > 0 && (
+              <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded-full px-2 py-0.5">
+                <CheckCircle2 className="w-3.5 h-3.5" /> {lidos}
+              </span>
+            )}
             <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar scanner">
               <X className="w-5 h-5" />
             </button>
@@ -132,6 +172,12 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
                 </div>
               </div>
             )}
+            {/* Feedback da última leitura (contínuo) */}
+            {continuous && ultimo && (
+              <div className="absolute bottom-3 left-3 right-3 z-20 bg-emerald-500/20 border border-emerald-500/40 text-emerald-200 text-sm font-semibold rounded-xl px-3 py-2 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 flex-shrink-0" /> Lido: {ultimo}
+              </div>
+            )}
           </div>
 
           {/* Entrada manual (sempre disponível) */}
@@ -152,8 +198,14 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
                 onClick={confirmarManual}
                 disabled={!manual.trim()}
                 className="px-5 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm active:scale-95 transition disabled:opacity-50"
-              >Buscar</button>
+              >{continuous ? 'Bipar' : 'Buscar'}</button>
             </div>
+            {continuous && (
+              <button
+                onClick={onClose}
+                className="w-full mt-1 py-3 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-slate-100 active:scale-[.99] transition"
+              >Concluir{lidos > 0 ? ` (${lidos} bipado${lidos !== 1 ? 's' : ''})` : ''}</button>
+            )}
           </div>
         </motion.div>
       )}

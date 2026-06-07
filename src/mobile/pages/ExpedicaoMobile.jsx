@@ -222,7 +222,7 @@ export default function ExpedicaoMobile() {
           </div>
         )}
 
-        <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peça do romaneio" />
+        <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças do romaneio" continuous />
 
         <Sheet
           open={despachar}
