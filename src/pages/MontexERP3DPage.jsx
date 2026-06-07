@@ -10,6 +10,17 @@ import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
 import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY } from '../utils/montagemSync';
 
+// Ícones SVG inline (evitam dependência de lucide-react sem impactar bundle)
+const Filter = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+);
+const Search = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+);
+const X = ({ className = 'w-4 h-4' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+);
+
 // Load web-ifc dynamically from same-origin public folder to avoid Vercel build issues
 let _WebIFC = null;
 async function getWebIFC() {
@@ -881,7 +892,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [selectedElement, setSelectedElement] = useState(null);
   const [colorMode, setColorMode] = useState('status'); // status | type
-  const [typeFilter, setTypeFilter] = useState('ALL');
+  const [typeFilter, setTypeFilter] = useState(() => new Set()); // empty = ALL; Set of active type names (multi-select)
   const [statusFilter, setStatusFilter] = useState(new Set()); // empty = ALL; Set of active status keys
   const [showStats, setShowStats] = useState(false);
   const [erpPecas, setErpPecas] = useState([]);
@@ -1728,10 +1739,16 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     // Filtros de Tipo e Search continuam ocultando pecas para foco rapido.
     sm.setVisibility(el => {
       if (el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER) return showFasteners;
-      if (typeFilter !== 'ALL' && el.typeName !== typeFilter) return false;
+      // Tipo é multi-select Set. Set vazio = mostra TODOS os tipos.
+      if (typeFilter.size > 0 && !typeFilter.has(el.typeName)) return false;
       if (searchText) {
         const q = searchText.toUpperCase();
-        if (!(el.name || '').toUpperCase().includes(q) && !(el.typeName || '').toUpperCase().includes(q)) return false;
+        const marca = (el.marcaFromIfc || el.props?.['Assembly/Cast unit Mark'] || '').toUpperCase();
+        if (
+          !(el.name || '').toUpperCase().includes(q) &&
+          !(el.typeName || '').toUpperCase().includes(q) &&
+          !marca.includes(q)
+        ) return false;
       }
       return true;
     });
@@ -2020,101 +2037,146 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                 )}
               </div>
 
-              {/* Filter by Type — usa peças do ERP */}
-              <div>
-                <h3 className="text-white text-xs font-semibold mb-2">Filtrar por Tipo</h3>
-                <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white text-xs">
-                  <option value="ALL">Todos os Tipos</option>
-                  {Object.entries(erpStats.byType).sort((a, b) => b[1].unidades - a[1].unidades).map(([type, d]) => (
-                    <option key={type} value={type}>{type} ({d.pecas} peças · {d.unidades} un)</option>
-                  ))}
-                </select>
-              </div>
+              {/* ===== BARRA DE FILTROS ATIVOS (header agregado) ===== */}
+              {(statusFilter.size > 0 || typeFilter.size > 0 || searchText) && (
+                <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-xl p-2.5 flex items-center gap-2">
+                  <Filter className="w-3.5 h-3.5 text-cyan-400 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[10px] uppercase tracking-wider text-cyan-300 font-bold leading-none mb-0.5">Filtros ativos</div>
+                    <div className="text-[10px] text-slate-300 truncate">
+                      {[
+                        statusFilter.size > 0 && `${statusFilter.size} status`,
+                        typeFilter.size > 0 && `${typeFilter.size} tipo${typeFilter.size > 1 ? 's' : ''}`,
+                        searchText && `busca "${searchText}"`,
+                      ].filter(Boolean).join(' · ')}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => { setStatusFilter(new Set()); setTypeFilter(new Set()); setSearchText(''); }}
+                    className="text-[10px] font-bold text-cyan-300 bg-cyan-500/20 hover:bg-cyan-500/30 px-2 py-1 rounded-md transition-colors"
+                    title="Limpar todos os filtros"
+                  >Limpar</button>
+                </div>
+              )}
 
-              {/* Filter by Status — usa peças/unidades do ERP */}
+              {/* ===== BUSCA por marca / ID / tipo ===== */}
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-white text-xs font-semibold">Filtrar por Status</h3>
-                  {statusFilter.size > 0 && (
-                    <button onClick={() => setStatusFilter(new Set())}
-                      className="text-[10px] text-cyan-400 hover:text-cyan-300 transition-colors">
-                      Limpar ({statusFilter.size})
+                <h3 className="text-white text-xs font-semibold mb-2 flex items-center gap-1.5">
+                  <Search className="w-3 h-3" /> Buscar
+                </h3>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+                  <input
+                    type="text"
+                    value={searchText}
+                    onChange={e => setSearchText(e.target.value)}
+                    placeholder="Marca, tipo ou ID..."
+                    className="w-full bg-white/5 border border-white/10 rounded-lg pl-8 pr-7 py-2 text-white text-xs placeholder:text-slate-500 focus:outline-none focus:border-cyan-500/50"
+                  />
+                  {searchText && (
+                    <button onClick={() => setSearchText('')} aria-label="Limpar busca"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-white/10">
+                      <X className="w-3.5 h-3.5 text-slate-400" />
                     </button>
                   )}
                 </div>
-                {statusFilter.size === 0 && (
-                  <p className="text-[10px] text-slate-500 mb-2">Clique para filtrar (multi-select) · números em unidades / marcas</p>
-                )}
+              </div>
+
+              {/* ===== STATUS — multi-select por badges grandes ===== */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-white text-xs font-semibold">Status da Peça</h3>
+                  {statusFilter.size > 0 && (
+                    <button onClick={() => setStatusFilter(new Set())}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold transition-colors">
+                      Limpar
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-1">
                   {Object.entries(STATUS_CONFIG).map(([key, cfg]) => {
-                    const isActive = statusFilter.size === 0 || statusFilter.has(key);
-                    const erp = erpStats.byStatus[key] || { pecas: 0, unidades: 0 };
-                    const count = erp.unidades; // mostra UNIDADES (qtd somada), não marcas
+                    const isSelecting = statusFilter.size > 0;
+                    const isActive = !isSelecting || statusFilter.has(key);
+                    const erp = erpStats.byStatus[key] || { pecas: 0, unidades: 0, marcas: 0 };
                     return (
                       <button key={key}
                         onClick={() => {
                           setStatusFilter(prev => {
                             const next = new Set(prev);
-                            if (next.has(key)) {
-                              next.delete(key);
-                            } else {
-                              next.add(key);
-                            }
+                            if (next.has(key)) next.delete(key); else next.add(key);
                             return next;
                           });
                         }}
-                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-all ${
-                          statusFilter.size > 0 && statusFilter.has(key)
-                            ? 'bg-white/10 border border-white/20'
-                            : statusFilter.size > 0
-                              ? 'opacity-30 hover:opacity-60'
-                              : 'hover:bg-white/5'
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-xs transition-all border ${
+                          isSelecting && statusFilter.has(key)
+                            ? 'bg-white/10 border-white/30'
+                            : isSelecting
+                              ? 'opacity-35 hover:opacity-65 border-transparent'
+                              : 'hover:bg-white/5 border-transparent'
                         }`}
+                        title={`${cfg.label}: ${erp.unidades} unidades · ${erp.pecas} peças · ${erp.marcas || 0} marcas`}
                       >
-                        <div className="w-3.5 h-3.5 rounded-sm flex-shrink-0 border border-white/10"
+                        <div className="w-3 h-3 rounded-sm flex-shrink-0 border border-white/10"
                           style={{ backgroundColor: isActive ? cfg.hex : 'transparent', borderColor: cfg.hex }} />
-                        <span className={`flex-1 text-left ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>
+                        <span className={`flex-1 text-left font-medium ${isActive ? 'text-slate-100' : 'text-slate-500'}`}>
                           {cfg.label}
                         </span>
-                        <span className={`tabular-nums text-right ${count > 0 ? 'text-white font-medium' : 'text-slate-600'}`}>
-                          {count} <span className="text-[9px] text-slate-500">un / {erp.pecas} peças / {erp.marcas || 0} marcas</span>
-                        </span>
+                        <div className="text-right tabular-nums">
+                          <div className={`text-xs font-bold ${erp.unidades > 0 ? 'text-white' : 'text-slate-600'}`}>{erp.unidades}</div>
+                          <div className="text-[9px] text-slate-500 leading-none mt-0.5">{erp.pecas}p · {erp.marcas || 0}m</div>
+                        </div>
                       </button>
                     );
                   })}
                 </div>
-                {/* Atalhos rapidos */}
-                <div className="flex gap-1.5 mt-2">
-                  <button onClick={() => setStatusFilter(new Set(['EMBARQUE']))}
-                    className="flex-1 px-2 py-1 rounded text-[10px] bg-orange-500/10 border border-orange-500/30 text-orange-300 hover:bg-orange-500/20 transition-all">
-                    🚚 Embarque
-                  </button>
-                  <button onClick={() => setStatusFilter(new Set(['EM_OBRA']))}
-                    className="flex-1 px-2 py-1 rounded text-[10px] bg-yellow-500/10 border border-yellow-500/30 text-yellow-300 hover:bg-yellow-500/20 transition-all">
-                    🏗️ Em Obra
-                  </button>
-                  <button onClick={() => setStatusFilter(new Set(['MONTADO']))}
-                    className="flex-1 px-2 py-1 rounded text-[10px] bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20 transition-all">
-                    ✓ Montado
-                  </button>
-                </div>
               </div>
 
-              {/* Type Distribution — usa peças do ERP */}
+              {/* ===== TIPO — multi-select unificado (filtro + distribuição) ===== */}
               <div>
-                <h3 className="text-white text-xs font-semibold mb-2">Distribuição por Tipo (peças do ERP)</h3>
-                <div className="space-y-1.5 max-h-72 overflow-y-auto">
-                  {Object.entries(erpStats.byType).sort((a, b) => b[1].unidades - a[1].unidades).map(([type, d]) => (
-                    <div key={type} className="flex items-center gap-2 text-xs">
-                      <span className="text-slate-300 flex-1 truncate" title={type}>{type}</span>
-                      <span className="text-slate-400 tabular-nums">{d.pecas}</span>
-                      <span className="text-slate-500 tabular-nums text-[9px]">/ {d.unidades}un</span>
-                      <div className="w-12 h-1.5 bg-white/5 rounded-full overflow-hidden">
-                        <div className="h-full bg-cyan-500/60 rounded-full" style={{ width: `${(d.unidades / (erpStats.totalUnidades || 1)) * 100}%` }} />
-                      </div>
-                    </div>
-                  ))}
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-white text-xs font-semibold">Tipo de Peça</h3>
+                  {typeFilter.size > 0 && (
+                    <button onClick={() => setTypeFilter(new Set())}
+                      className="text-[10px] text-cyan-400 hover:text-cyan-300 font-semibold transition-colors">
+                      Limpar ({typeFilter.size})
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1 max-h-72 overflow-y-auto pr-1">
+                  {Object.entries(erpStats.byType).sort((a, b) => b[1].unidades - a[1].unidades).map(([type, d]) => {
+                    const isSelecting = typeFilter.size > 0;
+                    const isActive = !isSelecting || typeFilter.has(type);
+                    const pct = (d.unidades / (erpStats.totalUnidades || 1)) * 100;
+                    return (
+                      <button key={type}
+                        onClick={() => {
+                          setTypeFilter(prev => {
+                            const next = new Set(prev);
+                            if (next.has(type)) next.delete(type); else next.add(type);
+                            return next;
+                          });
+                        }}
+                        className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs transition-all border ${
+                          isSelecting && typeFilter.has(type)
+                            ? 'bg-cyan-500/15 border-cyan-500/40'
+                            : isSelecting
+                              ? 'opacity-35 hover:opacity-65 border-transparent'
+                              : 'hover:bg-white/5 border-transparent'
+                        }`}
+                        title={`${type}: ${d.unidades} unidades · ${d.pecas} peças · ${(d.peso/1000).toFixed(2)} t`}
+                      >
+                        <span className={`flex-1 text-left truncate font-medium ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>{type}</span>
+                        <span className="text-slate-400 tabular-nums text-[10px]">{d.pecas}</span>
+                        <span className="text-slate-500 tabular-nums text-[9px]">/ {d.unidades}un</span>
+                        <div className="w-10 h-1 bg-white/5 rounded-full overflow-hidden flex-shrink-0">
+                          <div className="h-full bg-cyan-500/70 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </button>
+                    );
+                  })}
+                  {Object.keys(erpStats.byType).length === 0 && (
+                    <div className="text-center py-4 text-slate-500 text-xs">Sem tipos cadastrados</div>
+                  )}
                 </div>
               </div>
 
