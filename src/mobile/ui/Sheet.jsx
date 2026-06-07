@@ -40,7 +40,7 @@ export default function Sheet({ open, onClose, title, children, footer }) {
           {title && (
             <div className="flex-shrink-0 flex items-center gap-3 px-5 pb-3 pt-1 border-b border-slate-800">
               <h2 className="flex-1 font-bold text-base truncate">{title}</h2>
-              <button onClick={onClose} className="p-1.5 -mr-1.5 rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar">
+              <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar">
                 <X className="w-5 h-5 text-slate-400" />
               </button>
             </div>

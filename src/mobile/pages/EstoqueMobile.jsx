@@ -6,7 +6,7 @@
 //   Entrada (+) → adicionarEstoque   |   Saída (−) → consumirEstoque
 // Escrita real no Supabase (estoqueApi.update via ERPContext).
 // ============================================================
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   Package, Search, ScanLine, AlertTriangle, ChevronRight,
@@ -15,6 +15,9 @@ import {
 import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
+import LoadMore from '../ui/LoadMore';
+import EmptyState from '../ui/EmptyState';
+import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useEstoque } from '@/contexts/ERPContext';
 
@@ -39,14 +42,18 @@ export default function EstoqueMobile() {
   const [modo, setModo] = useState('entrada'); // entrada | saida
   const [qtd, setQtd] = useState(1);
   const [saving, setSaving] = useState(false);
+  const [limite, setLimite] = useState(40);
+  const qd = useDebounced(q, 250); // termo de busca com debounce (filtro pesado)
+  // Reinicia a paginação ao mudar busca/filtro (senão herda o limite anterior).
+  useEffect(() => { setLimite(40); }, [qd, soAlertas]);
 
   const lista = useMemo(() => {
     let lst = estoque;
     if (soAlertas) lst = lst.filter(i => nivel(i).key !== 'ok');
-    const QQ = norm(q);
-    if (q.trim()) lst = lst.filter(i => norm(`${i.descricao} ${i.codigo} ${i.material} ${i.categoria || i.tipo}`).includes(QQ));
+    const QQ = norm(qd);
+    if (qd.trim()) lst = lst.filter(i => norm(`${i.descricao} ${i.codigo} ${i.material} ${i.categoria || i.tipo}`).includes(QQ));
     return lst;
-  }, [estoque, q, soAlertas]);
+  }, [estoque, qd, soAlertas]);
 
   const nAlertas = useMemo(() => estoque.filter(i => nivel(i).key !== 'ok').length, [estoque]);
 
@@ -110,12 +117,15 @@ export default function EstoqueMobile() {
       {/* Lista */}
       <div className="px-4 pt-3 space-y-2">
         {lista.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
-            <Package className="w-10 h-10 mx-auto mb-2 opacity-40" />
-            <div className="text-sm">Nenhum item encontrado</div>
-          </div>
+          <EmptyState
+            icon={Package}
+            title="Nenhum item encontrado"
+            subtitle={(q || soAlertas) ? 'Ajuste a busca ou o filtro de alertas' : 'Sem itens no estoque'}
+            actionLabel={(q || soAlertas) ? 'Limpar busca e filtros' : undefined}
+            onAction={(q || soAlertas) ? (() => { setQ(''); setSoAlertas(false); }) : undefined}
+          />
         )}
-        {lista.slice(0, 200).map(item => {
+        {lista.slice(0, limite).map(item => {
           const nvl = nivel(item);
           const min = Number(item.minimo) || 0;
           const pct = min ? Math.min(100, Math.round(((Number(item.quantidade) || 0) / (min * 2)) * 100)) : 100;
@@ -143,6 +153,7 @@ export default function EstoqueMobile() {
             </button>
           );
         })}
+        <LoadMore total={lista.length} shown={limite} onMore={() => setLimite(l => l + 40)} />
       </div>
 
       {/* FAB Escanear material */}

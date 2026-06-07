@@ -19,7 +19,10 @@ import {
   Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
+import { useERP } from '@/contexts/ERPContext';
 import ObraSelector from './components/ObraSelector';
+import MobilePageSkeleton from './ui/Skeleton';
+import PullToRefresh from './ui/PullToRefresh';
 
 // 5 abas inferiores (sempre visíveis)
 const BOTTOM_TABS = [
@@ -77,7 +80,14 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth() || {};
+  const { dataSource, reloadPecas } = useERP() || {};
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Carregamento inicial dos dados do ERP (Supabase). Mostra esqueleto em vez de
+  // telas zeradas/vazias — importante em rede lenta de galpão/canteiro.
+  const carregando = dataSource === 'loading';
+  // Puxar-para-atualizar recarrega as peças (produção/montagem/expedição mudam
+  // o tempo todo no chão de fábrica).
+  const handleRefresh = async () => { await reloadPecas?.(); };
 
   // Fechar drawer ao navegar
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
@@ -92,7 +102,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         {back ? (
           <button
             onClick={() => navigate(-1)}
-            className="p-2 -ml-2 rounded-lg hover:bg-slate-800 active:bg-slate-700 transition"
+            className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition"
             aria-label="Voltar"
           >
             <ChevronRight className="w-6 h-6 rotate-180" />
@@ -100,27 +110,29 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         ) : (
           <button
             onClick={() => setDrawerOpen(true)}
-            className="p-2 -ml-2 rounded-lg hover:bg-slate-800 active:bg-slate-700 transition"
+            className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition"
             aria-label="Menu"
           >
             <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-sm">M</div>
           </button>
         )}
         <h1 className="flex-1 font-bold text-base tracking-tight truncate">{title}</h1>
-        <button className="p-2 rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label="Notificações" onClick={() => navigate('/m/notificacoes')}>
+        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label="Notificações" onClick={() => navigate('/m/notificacoes')}>
           <Bell className="w-5 h-5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" />
         </button>
       </header>
 
       {/* CONTEÚDO ──────────────────────────── */}
-      <main className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain" style={{ WebkitOverflowScrolling: 'touch' }}>
-        {obraFilter && (
-          <div className="sticky top-0 z-20">
-            <ObraSelector />
-          </div>
-        )}
-        <div className="pb-24">{children}</div>
+      <main className="flex-1 overflow-hidden">
+        <PullToRefresh onRefresh={handleRefresh}>
+          {obraFilter && !carregando && (
+            <div className="sticky top-0 z-20">
+              <ObraSelector />
+            </div>
+          )}
+          <div className="pb-24">{carregando ? <MobilePageSkeleton /> : children}</div>
+        </PullToRefresh>
       </main>
 
       {/* BOTTOM TABS ──────────────────────── */}
@@ -137,6 +149,18 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
             <Link
               key={t.path}
               to={t.path}
+              aria-current={active ? 'page' : undefined}
+              onClick={(e) => {
+                // Padrão iOS: tocar na aba JÁ ativa rola o conteúdo para o topo
+                // (em vez de re-navegar para a mesma rota).
+                if (active) {
+                  e.preventDefault();
+                  // Scroll instantâneo: o smooth não funciona neste scroller
+                  // (-webkit-overflow-scrolling: touch + overscroll-contain o ignoram).
+                  const sc = document.querySelector('main .overflow-y-auto');
+                  if (sc) sc.scrollTop = 0;
+                }
+              }}
               className="flex-1 flex flex-col items-center justify-center gap-0.5 py-2 active:bg-slate-800/70 transition relative"
             >
               {active && <span className="absolute top-0 left-1/2 -translate-x-1/2 w-10 h-0.5 bg-amber-500 rounded-b" />}
@@ -174,7 +198,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
                   <div className="font-bold text-sm truncate">{user?.full_name || 'Usuário'}</div>
                   <div className="text-[11px] text-slate-400 truncate">{user?.email || '—'}</div>
                 </div>
-                <button onClick={() => setDrawerOpen(false)} className="p-2 rounded-lg hover:bg-slate-800 active:bg-slate-700">
+                <button onClick={() => setDrawerOpen(false)} className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar menu">
                   <X className="w-5 h-5" />
                 </button>
               </div>

@@ -107,7 +107,7 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe√
           <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
             <ScanLine className="w-5 h-5 text-amber-400" />
             <h2 className="flex-1 font-bold text-base">{title}</h2>
-            <button onClick={onClose} className="p-2 -mr-2 rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar">
+            <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar scanner">
               <X className="w-5 h-5" />
             </button>
           </div>

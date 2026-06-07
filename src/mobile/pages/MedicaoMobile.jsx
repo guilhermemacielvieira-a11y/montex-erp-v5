@@ -244,8 +244,8 @@ export default function MedicaoMobile() {
             {foto ? (
               <div className="relative rounded-xl overflow-hidden border border-slate-700">
                 <img src={foto.url} alt="evidência" className="w-full h-40 object-cover" />
-                <button onClick={() => setFoto(null)} className="absolute top-2 right-2 p-1.5 rounded-lg bg-black/60 active:bg-black/80">
-                  <X className="w-4 h-4 text-white" />
+                <button onClick={() => setFoto(null)} aria-label="Remover foto" className="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 active:bg-black/80">
+                  <X className="w-5 h-5 text-white" />
                 </button>
               </div>
             ) : (

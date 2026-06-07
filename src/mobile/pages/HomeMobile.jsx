@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Building2, Hammer, Factory, Wallet, TrendingUp, TrendingDown,
-  AlertCircle, ChevronRight, Box, Truck, Receipt, Activity,
+  AlertCircle, ChevronRight, Box, Truck, Package, Ruler,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
@@ -89,7 +89,7 @@ export default function HomeMobile() {
       <div className="px-4 grid grid-cols-2 gap-3 mb-5">
         <KpiCard icon={Building2} label="Obras ativas" value={stats.obrasAtivas} color="amber" to="/m/obras" />
         <KpiCard icon={Hammer} label="Peças montadas" value={fmtBR(stats.pecasMontadas)} color="green" to="/m/montagem" />
-        <KpiCard icon={Factory} label="Em produção" value={fmtBR(stats.pecasProducao)} color="blue" to="/m/kanban" />
+        <KpiCard icon={Factory} label="Em produção" value={fmtBR(stats.pecasProducao)} color="blue" to="/m/producao" />
         <KpiCard icon={Wallet} label="A pagar" value={fmtMoney(stats.desValor)} sub={`${stats.desPendentes} título(s)`} color="red" to="/m/despesas" />
       </div>
 
@@ -98,10 +98,10 @@ export default function HomeMobile() {
         <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">Atalhos</div>
         <div className="grid grid-cols-4 gap-2">
           {[
-            { to: '/m/3d', icon: Box, label: '3D' },
             { to: '/m/expedicao', icon: Truck, label: 'Expedição' },
-            { to: '/m/receitas', icon: Receipt, label: 'Receitas' },
-            { to: '/m/dashboard', icon: Activity, label: 'BI' },
+            { to: '/m/estoque', icon: Package, label: 'Estoque' },
+            { to: '/m/medicao', icon: Ruler, label: 'Medição' },
+            { to: '/m/3d', icon: Box, label: '3D' },
           ].map(s => {
             const Icon = s.icon;
             return (

@@ -5,12 +5,15 @@
 // — regra #6 do CLAUDE.md). Operação de campo: ESCANEAR a etiqueta/QR da
 // peça → encontra a marca na obra → sheet de confirmação → marca montada.
 // ============================================================
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Hammer, CheckCircle2, Box, Search, ScanLine, RotateCcw } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import Scanner from '../ui/Scanner';
+import LoadMore from '../ui/LoadMore';
+import EmptyState from '../ui/EmptyState';
+import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
@@ -29,6 +32,9 @@ export default function MontagemMobile() {
   const [q, setQ] = useState('');
   const [scanOpen, setScanOpen] = useState(false);
   const [pecaSel, setPecaSel] = useState(null); // peça aberta no sheet de confirmação
+  const [limite, setLimite] = useState(40);
+  const qd = useDebounced(q, 250); // busca com debounce
+  useEffect(() => { setLimite(40); }, [tab, qd]);
 
   // Todas as peças da obra (p/ mensagem útil quando a marca existe mas não está em campo)
   const pecasDaObra = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
@@ -36,9 +42,9 @@ export default function MontagemMobile() {
   const pecasCampo = useMemo(() => pecasDaObra.filter(p => p.etapa === 'enviado' || p.etapa === 'montado'), [pecasDaObra]);
 
   const listaFiltrada = useMemo(() => {
-    const QQ = norm(q);
-    return q.trim() ? pecasCampo.filter(p => norm(p.marca).includes(QQ)) : pecasCampo;
-  }, [pecasCampo, q]);
+    const QQ = norm(qd);
+    return qd.trim() ? pecasCampo.filter(p => norm(p.marca).includes(QQ)) : pecasCampo;
+  }, [pecasCampo, qd]);
 
   const aguardando = listaFiltrada.filter(p => !concluidas[String(p.id)]);
   const montadas = listaFiltrada.filter(p => !!concluidas[String(p.id)]);
@@ -114,12 +120,15 @@ export default function MontagemMobile() {
       {/* Lista */}
       <div className="px-4 pt-3 space-y-2">
         {lista.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
-            <Box className="w-10 h-10 mx-auto mb-2 opacity-40" />
-            <div className="text-sm">{tab === 'aguardando' ? 'Sem peças aguardando' : 'Nenhuma peça montada ainda'}</div>
-          </div>
+          <EmptyState
+            icon={Box}
+            title={qd ? 'Nada encontrado' : (tab === 'aguardando' ? 'Sem peças aguardando' : 'Nenhuma peça montada ainda')}
+            subtitle={qd ? 'Tente outra marca' : (tab === 'aguardando' ? 'Use o scanner para registrar montagem' : 'Marque peças como montadas na aba Aguardando')}
+            actionLabel={q ? 'Limpar busca' : undefined}
+            onAction={q ? (() => setQ('')) : undefined}
+          />
         )}
-        {lista.map(p => {
+        {lista.slice(0, limite).map(p => {
           const isOk = !!concluidas[String(p.id)];
           return (
             <motion.button
@@ -147,6 +156,7 @@ export default function MontagemMobile() {
             </motion.button>
           );
         })}
+        <LoadMore total={lista.length} shown={limite} onMore={() => setLimite(l => l + 40)} />
       </div>
 
       {/* FAB Escanear */}

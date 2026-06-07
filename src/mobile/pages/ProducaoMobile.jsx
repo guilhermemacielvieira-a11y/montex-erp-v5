@@ -6,13 +6,16 @@
 // persiste no Supabase). Toque na etapa filtra; toque na peça abre o
 // sheet de avanço com escolha opcional de responsável e háptico.
 // ============================================================
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import { Search, Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
+import LoadMore from '../ui/LoadMore';
+import EmptyState from '../ui/EmptyState';
+import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
 import { useProducao } from '@/contexts/ERPContext';
@@ -48,15 +51,18 @@ export default function ProducaoMobile() {
   const [pecaSel, setPecaSel] = useState(null);    // peça aberta no sheet
   const [funcId, setFuncId] = useState('');
   const [saving, setSaving] = useState(false);
+  const [limite, setLimite] = useState(40);
+  const qd = useDebounced(q, 250); // busca com debounce (filtra 1103+ peças)
+  useEffect(() => { setLimite(40); }, [etapaSel, qd]);
 
   const pecasFiltradas = useMemo(() => {
     let lst = pecas.filter(matchObra);
-    if (q.trim()) {
-      const qq = q.toUpperCase();
+    if (qd.trim()) {
+      const qq = qd.toUpperCase();
       lst = lst.filter(p => (p.marca || '').toUpperCase().includes(qq) || (p.id || '').toString().toUpperCase().includes(qq));
     }
     return lst;
-  }, [pecas, matchObra, q]);
+  }, [pecas, matchObra, qd]);
 
   const porEtapa = useMemo(() => {
     const m = {};
@@ -76,11 +82,11 @@ export default function ProducaoMobile() {
   // Lista de peças do drill-down: só renderiza quando há etapa selecionada ou busca
   // (evita montar 500+ linhas por padrão).
   const listaPecas = useMemo(() => {
-    if (!etapaSel && !q.trim()) return [];
+    if (!etapaSel && !qd.trim()) return [];
     return pecasFiltradas
       .filter(p => !etapaSel || (p.etapa || 'aguardando').toLowerCase() === etapaSel)
-      .slice(0, 300);
-  }, [pecasFiltradas, etapaSel, q]);
+      .slice(0, 500);
+  }, [pecasFiltradas, etapaSel, qd]);
 
   const abrirPeca = (p) => { setPecaSel(p); setFuncId(p.responsavel || ''); tap('light'); };
   const fecharPeca = () => { if (!saving) { setPecaSel(null); setFuncId(''); } };
@@ -168,16 +174,22 @@ export default function ProducaoMobile() {
       </div>
 
       {/* Lista de peças (drill-down) */}
-      {(etapaSel || q.trim()) && (
+      {(etapaSel || qd.trim()) && (
         <div className="px-4 mt-4">
           <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">
             {etapaSel ? `Peças em ${labelDe(etapaSel)}` : 'Resultado da busca'} · {listaPecas.length}
           </div>
           <div className="space-y-2">
             {listaPecas.length === 0 && (
-              <div className="text-center py-8 text-slate-500 text-sm">Nenhuma peça nesta etapa.</div>
+              <EmptyState
+                icon={Factory}
+                title={etapaSel ? 'Nenhuma peça nesta etapa' : 'Nada encontrado'}
+                subtitle={etapaSel ? 'Toque em outra etapa ou limpe o filtro' : 'Tente outro termo de busca'}
+                actionLabel={etapaSel ? 'Limpar filtro' : (q ? 'Limpar busca' : undefined)}
+                onAction={etapaSel ? (() => setEtapaSel(null)) : (q ? (() => setQ('')) : undefined)}
+              />
             )}
-            {listaPecas.map(p => {
+            {listaPecas.slice(0, limite).map(p => {
               const np = proximaEtapa(p.etapa);
               return (
                 <button
@@ -204,6 +216,7 @@ export default function ProducaoMobile() {
                 </button>
               );
             })}
+            <LoadMore total={listaPecas.length} shown={limite} onMore={() => setLimite(l => l + 40)} />
           </div>
         </div>
       )}
