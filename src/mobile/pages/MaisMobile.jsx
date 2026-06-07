@@ -59,7 +59,7 @@ export default function MaisMobile() {
     <MobileLayout title="Mais">
       {MODULOS.map(grp => (
         <div key={grp.group} className="px-4 pt-4">
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">{grp.group}</div>
+          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{grp.group}</div>
           <div className="grid grid-cols-3 gap-2.5">
             {grp.items.map(it => {
               const Icon = it.icon;

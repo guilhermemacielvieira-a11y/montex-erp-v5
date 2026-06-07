@@ -143,7 +143,7 @@ export default function ExpedicaoMobile() {
         {/* Progresso de conferência */}
         <div className="px-4 mt-4">
           <div className="flex items-center justify-between mb-1.5">
-            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Conferência de carga</div>
+            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Conferência de carga</div>
             <div className="text-sm font-black text-amber-400">{conferidas}/{total}</div>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
@@ -153,7 +153,7 @@ export default function ExpedicaoMobile() {
 
         {/* Itens */}
         <div className="px-4 mt-3 space-y-2">
-          {itens.length === 0 && <div className="text-center py-10 text-slate-500 text-sm">Romaneio sem peças vinculadas.</div>}
+          {itens.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">Romaneio sem peças vinculadas.</div>}
           {itens.map(i => {
             const ok = !!conf[i.id];
             return (
@@ -162,7 +162,7 @@ export default function ExpedicaoMobile() {
                 onClick={() => toggleConf(i.id)}
                 className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${ok ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800'}`}
               >
-                {ok ? <CheckCircle2 className="w-7 h-7 text-emerald-400 flex-shrink-0" /> : <Circle className="w-7 h-7 text-slate-600 flex-shrink-0" />}
+                {ok ? <CheckCircle2 className="w-7 h-7 text-emerald-400 flex-shrink-0" /> : <Circle className="w-7 h-7 text-slate-500 flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm">{i.marca}</div>
                   <div className="text-[11px] text-slate-400 truncate">{i.tipo || '—'} · {i.peso.toFixed(0)} kg</div>
@@ -234,13 +234,13 @@ export default function ExpedicaoMobile() {
   return (
     <MobileLayout title="Expedição" obraFilter>
       <div className="px-4 pt-3 pb-2">
-        <div className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">
+        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
           {romaneios.length} romaneio(s)
         </div>
       </div>
       <div className="px-4 space-y-2">
         {romaneios.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
+          <div className="text-center py-12 text-slate-400">
             <Truck className="w-10 h-10 mx-auto mb-2 opacity-40" />
             <div className="text-sm">Nenhum romaneio para esta obra</div>
           </div>
@@ -266,7 +266,7 @@ export default function ExpedicaoMobile() {
                   {nIds} peça(s){nConf > 0 ? ` · ${nConf} conferida(s)` : ''}{r.destino ? ` · ${r.destino}` : ''}
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-600" />
+              <ChevronRight className="w-5 h-5 text-slate-500" />
             </button>
           );
         })}

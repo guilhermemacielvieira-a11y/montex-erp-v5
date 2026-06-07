@@ -132,13 +132,13 @@ export default function MedicaoMobile() {
   return (
     <MobileLayout title="Medição" obraFilter>
       <div className="px-4 pt-3 pb-2">
-        <div className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">{lista.length} medição(ões)</div>
+        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">{lista.length} medição(ões)</div>
       </div>
 
       {/* Lista */}
       <div className="px-4 space-y-2">
         {lista.length === 0 && (
-          <div className="text-center py-12 text-slate-500">
+          <div className="text-center py-12 text-slate-400">
             <Ruler className="w-10 h-10 mx-auto mb-2 opacity-40" />
             <div className="text-sm">Nenhuma medição{!isTodas ? ' para esta obra' : ''}</div>
           </div>
@@ -193,7 +193,7 @@ export default function MedicaoMobile() {
           <div>
             <Label>Obra</Label>
             <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
               <select
                 value={obraId} onChange={e => aplicarObra(e.target.value)}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
@@ -262,5 +262,5 @@ export default function MedicaoMobile() {
 }
 
 function Label({ children }) {
-  return <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">{children}</div>;
+  return <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">{children}</div>;
 }

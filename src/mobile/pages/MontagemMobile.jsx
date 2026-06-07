@@ -7,10 +7,11 @@
 // ============================================================
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Hammer, CheckCircle2, Box, Search, ScanLine, RotateCcw } from 'lucide-react';
+import { Hammer, CheckCircle2, Box, ScanLine, RotateCcw } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import Scanner from '../ui/Scanner';
+import SearchBar from '../ui/SearchBar';
 import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
 import { useDebounced } from '../ui/useDebounced';
@@ -108,13 +109,7 @@ export default function MontagemMobile() {
             className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab === 'montadas' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 border border-slate-800 text-slate-400'}`}
           >Montadas ({montadas.length})</button>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input
-            type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar marca..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-3 py-2 text-sm placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50"
-          />
-        </div>
+        <SearchBar value={q} onChange={setQ} placeholder="Buscar marca..." />
       </div>
 
       {/* Lista */}
@@ -210,7 +205,7 @@ export default function MontagemMobile() {
 function Info({ label, value }) {
   return (
     <div className="bg-slate-800/60 rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
+      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
       <div className="text-sm font-bold text-slate-100 mt-0.5 truncate">{value}</div>
     </div>
   );

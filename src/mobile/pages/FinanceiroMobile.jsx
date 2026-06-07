@@ -60,7 +60,7 @@ export default function FinanceiroMobile() {
       {/* Saldo Projetado Hero */}
       <div className="px-4 pt-4">
         <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Saldo projetado (30d)</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saldo projetado (30d)</div>
           <div className={`text-3xl font-black mt-1 ${k.saldoProj >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {k.saldoProj >= 0 ? '+' : ''}{fmtMoney(k.saldoProj)}
           </div>
@@ -101,7 +101,7 @@ export default function FinanceiroMobile() {
       {/* Próximos vencimentos */}
       {proximos.length > 0 && (
         <div className="px-4 mt-5">
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2 flex items-center gap-1.5">
+          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2 flex items-center gap-1.5">
             <Calendar className="w-3 h-3" /> Próximos 7 dias
           </div>
           <div className="space-y-2">
@@ -133,7 +133,7 @@ export default function FinanceiroMobile() {
 
       {/* Atalhos */}
       <div className="px-4 mt-5 mb-3">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">Mais</div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Mais</div>
         <div className="space-y-2">
           {[
             { to: '/m/dre', icon: PieChart, label: 'DRE Mensal', sub: 'Demonstrativo consolidado' },
@@ -150,7 +150,7 @@ export default function FinanceiroMobile() {
                   <div className="text-sm font-semibold">{s.label}</div>
                   <div className="text-[11px] text-slate-400">{s.sub}</div>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-600" />
+                <ChevronRight className="w-4 h-4 text-slate-500" />
               </Link>
             );
           })}

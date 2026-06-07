@@ -43,7 +43,7 @@ const DiarioProducaoPage = lazy(() => import('../pages/DiarioProducaoPage'));
 function DesktopWrap({ title, children }) {
   return (
     <MobileLayout title={title} back>
-      <Suspense fallback={<div className="p-8 text-center text-slate-500">Carregando…</div>}>
+      <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando…</div>}>
         <div className="px-2 py-2">
           {/* Wrapper que escala o conteúdo desktop */}
           <div className="origin-top-left transform" style={{ minWidth: '100%' }}>

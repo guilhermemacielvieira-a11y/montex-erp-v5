@@ -10,9 +10,10 @@ import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
-import { Search, Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2 } from 'lucide-react';
+import { Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
+import SearchBar from '../ui/SearchBar';
 import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
 import { useDebounced } from '../ui/useDebounced';
@@ -115,19 +116,12 @@ export default function ProducaoMobile() {
     <MobileLayout title="Produção" obraFilter>
       {/* Busca */}
       <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input
-            type="text" value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Buscar marca ou ID..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-3 py-2.5 text-sm placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50"
-          />
-        </div>
+        <SearchBar value={q} onChange={setQ} placeholder="Buscar marca ou ID..." />
       </div>
 
       {/* Resumo */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <div className="text-[11px] text-slate-500 uppercase tracking-wider font-semibold">
+        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
           {totalConjuntos.toLocaleString('pt-BR')} conjuntos · {Object.values(porEtapa).reduce((s, v) => s + v.unidades, 0).toLocaleString('pt-BR')} un
         </div>
         {etapaSel && (
@@ -162,7 +156,7 @@ export default function ProducaoMobile() {
                 </div>
                 <div className="text-right flex items-center gap-2">
                   <div className={`text-2xl font-black ${C_TXT[e.color]}`}>{pct}%</div>
-                  <ChevronRight className={`w-4 h-4 transition ${sel ? 'rotate-90 text-amber-400' : 'text-slate-600'}`} />
+                  <ChevronRight className={`w-4 h-4 transition ${sel ? 'rotate-90 text-amber-400' : 'text-slate-500'}`} />
                 </div>
               </div>
               <div className="h-1 bg-slate-800">
@@ -176,7 +170,7 @@ export default function ProducaoMobile() {
       {/* Lista de peças (drill-down) */}
       {(etapaSel || qd.trim()) && (
         <div className="px-4 mt-4">
-          <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">
+          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">
             {etapaSel ? `Peças em ${labelDe(etapaSel)}` : 'Resultado da busca'} · {listaPecas.length}
           </div>
           <div className="space-y-2">
@@ -264,7 +258,7 @@ export default function ProducaoMobile() {
             </div>
             {prox && funcionarios.length > 0 && (
               <div>
-                <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">Responsável (opcional)</div>
+                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Responsável (opcional)</div>
                 <select
                   value={funcId}
                   onChange={e => setFuncId(e.target.value)}
@@ -287,7 +281,7 @@ export default function ProducaoMobile() {
 function Info({ label, value }) {
   return (
     <div className="bg-slate-800/60 rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
+      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
       <div className="text-sm font-bold text-slate-100 mt-0.5 truncate">{value}</div>
     </div>
   );

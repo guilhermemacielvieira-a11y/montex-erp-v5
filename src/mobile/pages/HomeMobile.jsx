@@ -27,7 +27,7 @@ function KpiCard({ icon: Icon, label, value, color = 'amber', sub, to }) {
     <div className={`relative bg-gradient-to-br ${C.bg} border ${C.border} rounded-2xl p-4 active:scale-[.98] transition`}>
       <div className="flex items-start justify-between mb-2">
         <Icon className={`w-5 h-5 ${C.icon}`} />
-        {to && <ChevronRight className="w-4 h-4 text-slate-600" />}
+        {to && <ChevronRight className="w-4 h-4 text-slate-500" />}
       </div>
       <div className="text-xl font-black tracking-tight">{value}</div>
       <div className="text-[11px] text-slate-400 mt-0.5">{label}</div>
@@ -66,7 +66,7 @@ export default function HomeMobile() {
     <MobileLayout title="Início" obraFilter>
       {/* Saudação */}
       <div className="px-4 pt-4 pb-3">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-medium">Bem-vindo de volta</div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">Bem-vindo de volta</div>
         <div className="text-xl font-bold mt-0.5">{isTodas ? 'Painel Geral' : (obraSelecionada?.nome || 'Painel da Obra')}</div>
       </div>
 
@@ -95,7 +95,7 @@ export default function HomeMobile() {
 
       {/* Atalhos rápidos */}
       <div className="px-4 mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">Atalhos</div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Atalhos</div>
         <div className="grid grid-cols-4 gap-2">
           {[
             { to: '/m/expedicao', icon: Truck, label: 'Expedição' },
@@ -116,7 +116,7 @@ export default function HomeMobile() {
 
       {/* Resumo Financeiro */}
       <div className="px-4 mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-2">Financeiro</div>
+        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Financeiro</div>
         <Link to="/m/financeiro" className="block bg-slate-900/80 border border-slate-800 rounded-2xl p-4 active:scale-[.99] transition">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -125,7 +125,7 @@ export default function HomeMobile() {
                 {(stats.recPendentes - stats.desValor) >= 0 ? '+' : ''}{fmtMoney(stats.recPendentes - stats.desValor)}
               </div>
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-600" />
+            <ChevronRight className="w-5 h-5 text-slate-500" />
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-emerald-500/10 rounded-lg p-2.5">

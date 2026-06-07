@@ -9,12 +9,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import {
-  Package, Search, ScanLine, AlertTriangle, ChevronRight,
+  Package, ScanLine, AlertTriangle, ChevronRight,
   Plus, Minus, ArrowDownToLine, ArrowUpFromLine, Loader2,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
+import SearchBar from '../ui/SearchBar';
 import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
 import { useDebounced } from '../ui/useDebounced';
@@ -99,13 +100,7 @@ export default function EstoqueMobile() {
     <MobileLayout title="Estoque">
       {/* Busca + filtro */}
       <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2 sticky top-0 z-20">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-          <input
-            type="text" value={q} onChange={e => setQ(e.target.value)} placeholder="Buscar material, código..."
-            className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-10 pr-3 py-2.5 text-sm placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50"
-          />
-        </div>
+        <SearchBar value={q} onChange={setQ} placeholder="Buscar material, código..." />
         <button
           onClick={() => setSoAlertas(s => !s)}
           className={`w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition border ${soAlertas ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-slate-900 border-slate-800 text-slate-400'}`}
@@ -145,7 +140,7 @@ export default function EstoqueMobile() {
                   <div className="text-sm font-black">{fmt(item.quantidade)}<span className="text-[10px] text-slate-400 ml-0.5">{item.unidade || ''}</span></div>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${nvl.cls}`}>{nvl.label}</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
+                <ChevronRight className="w-4 h-4 text-slate-500 flex-shrink-0" />
               </div>
               <div className="h-1 bg-slate-800 rounded-full overflow-hidden mt-2.5">
                 <div className={`h-full ${nvl.bar} transition-all duration-300`} style={{ width: pct + '%' }} />
@@ -190,7 +185,7 @@ export default function EstoqueMobile() {
             {/* Saldo atual */}
             <div className="flex items-center justify-between bg-slate-800/60 rounded-xl p-3">
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Saldo atual</div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saldo atual</div>
                 <div className="text-xl font-black mt-0.5">{fmt(itemSel.quantidade)} <span className="text-xs text-slate-400">{itemSel.unidade || ''}</span></div>
               </div>
               <div className="text-right text-[11px] text-slate-400">
@@ -214,7 +209,7 @@ export default function EstoqueMobile() {
 
             {/* Stepper de quantidade */}
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1.5">Quantidade ({itemSel.unidade || 'un'})</div>
+              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Quantidade ({itemSel.unidade || 'un'})</div>
               <div className="flex items-center gap-2">
                 <button onClick={() => setQtdSafe(qtd - 1)} className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center active:scale-95"><Minus className="w-5 h-5" /></button>
                 <input

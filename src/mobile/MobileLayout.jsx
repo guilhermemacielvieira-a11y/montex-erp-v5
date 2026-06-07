@@ -207,7 +207,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
               <div className="flex-1 overflow-y-auto py-2" style={{ WebkitOverflowScrolling: 'touch' }}>
                 {DRAWER_GROUPS.map(g => (
                   <div key={g.title} className="mb-2">
-                    <div className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">{g.title}</div>
+                    <div className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{g.title}</div>
                     {g.items.map(item => {
                       const Icon = item.icon;
                       const active = location.pathname === item.path;
@@ -219,7 +219,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
                         >
                           <Icon className={`w-5 h-5 ${active ? 'text-amber-400' : 'text-slate-400'}`} />
                           <span className={`text-sm flex-1 ${active ? 'text-amber-400 font-semibold' : 'text-slate-200'}`}>{item.label}</span>
-                          <ChevronRight className="w-4 h-4 text-slate-600" />
+                          <ChevronRight className="w-4 h-4 text-slate-500" />
                         </Link>
                       );
                     })}

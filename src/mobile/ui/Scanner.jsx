@@ -126,7 +126,7 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
             )}
             {(camState === 'unsupported' || camState === 'denied' || camState === 'idle' || camState === 'starting') && (
               <div className="relative z-10 text-center px-8">
-                <CameraOff className="w-10 h-10 mx-auto mb-3 text-slate-600" />
+                <CameraOff className="w-10 h-10 mx-auto mb-3 text-slate-500" />
                 <div className="text-sm text-slate-400">
                   {camState === 'starting' ? 'Abrindo câmera…' : (hint || 'Câmera indisponível — use a entrada manual abaixo')}
                 </div>
@@ -136,7 +136,7 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
 
           {/* Entrada manual (sempre disponível) */}
           <div className="px-4 pt-3 space-y-2 border-t border-slate-800">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">
+            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
               <Keyboard className="w-3.5 h-3.5" /> Ou digite a marca da peça
             </div>
             <div className="flex gap-2">

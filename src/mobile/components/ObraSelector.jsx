@@ -69,11 +69,11 @@ export default function ObraSelector() {
           {isTodas ? <Layers className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
         </div>
         <div className="flex-1 min-w-0 text-left">
-          <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold leading-none mb-0.5">Filtrar por obra</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold leading-none mb-0.5">Filtrar por obra</div>
           <div className="text-sm font-bold truncate">{rotulo}</div>
           <div className="text-[10px] text-slate-400 truncate">{sub}</div>
         </div>
-        <ChevronDown className="w-5 h-5 text-slate-500 flex-shrink-0" />
+        <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
       </button>
 
       {/* Bottom sheet — filhos keyed diretos (sem Fragment, p/ AnimatePresence
@@ -107,12 +107,12 @@ export default function ObraSelector() {
                 </div>
                 {obras.length > 6 && (
                   <div className="relative mt-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <input
                       autoFocus={false}
                       value={q} onChange={e => setQ(e.target.value)}
                       placeholder="Buscar obra..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3 py-2 text-sm placeholder:text-slate-500 focus:outline-none focus:border-amber-500/50"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:border-amber-500/50"
                     />
                   </div>
                 )}
@@ -160,7 +160,7 @@ export default function ObraSelector() {
                 })}
 
                 {obrasFiltradas.length === 0 && (
-                  <div className="text-center py-8 text-slate-500 text-sm">Nenhuma obra encontrada</div>
+                  <div className="text-center py-8 text-slate-400 text-sm">Nenhuma obra encontrada</div>
                 )}
               </div>
           </motion.div>
