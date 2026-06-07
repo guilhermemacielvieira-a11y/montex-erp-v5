@@ -56,7 +56,9 @@ import {
   MoreHorizontal,
   Home,
   BarChart3,
-  Layers
+  Layers,
+  Star,
+  Clock
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -391,7 +393,7 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
 }
 
 // ====== SIDEBAR ACCORDION CATEGORY (EXPANDED) ======
-function AccordionCategory({ category, isOpen, onToggle, currentPageName, onNavigate }) {
+function AccordionCategory({ category, isOpen, onToggle, currentPageName, onNavigate, favorites = [], onToggleFavorite }) {
   const hasActiveItem = category.items.some(item => currentPageName === item.href);
 
   return (
@@ -439,31 +441,50 @@ function AccordionCategory({ category, isOpen, onToggle, currentPageName, onNavi
             <div className="pl-[22px] pr-2 py-1 space-y-0.5">
               {category.items.map((item) => {
                 const isActive = currentPageName === item.href;
+                const isFav = favorites.includes(item.href);
                 return (
                   <Link
                     key={item.href}
                     to={createPageUrl(item.href)}
                     onClick={onNavigate}
                     className={cn(
-                      "flex items-center justify-between px-3 py-[7px] rounded-xl transition-all duration-150 text-[13px] relative",
+                      "group/item flex items-center justify-between px-3 py-[7px] rounded-xl transition-all duration-150 text-[13px] relative",
                       isActive
                         ? `bg-gradient-to-r ${category.gradient} text-white shadow-md shadow-black/20`
                         : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
                     )}
                   >
-                    <div className="flex items-center gap-2.5">
-                      {!isActive && <div className="w-1 h-1 rounded-full bg-slate-600" />}
-                      <item.icon className={cn("h-3.5 w-3.5", isActive ? "text-white" : "text-slate-500")} />
-                      <span>{item.name}</span>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      {!isActive && <div className="w-1 h-1 rounded-full bg-slate-600 flex-shrink-0" />}
+                      <item.icon className={cn("h-3.5 w-3.5 flex-shrink-0", isActive ? "text-white" : "text-slate-500")} />
+                      <span className="truncate">{item.name}</span>
                     </div>
-                    {item.badge && (
-                      <span className={cn(
-                        "px-1.5 py-0.5 text-[9px] font-bold rounded-md",
-                        isActive ? "bg-white/20 text-white" : (item.badgeColor || "bg-slate-800 text-slate-500")
-                      )}>
-                        {item.badge}
-                      </span>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {item.badge && (
+                        <span className={cn(
+                          "px-1.5 py-0.5 text-[9px] font-bold rounded-md",
+                          isActive ? "bg-white/20 text-white" : (item.badgeColor || "bg-slate-800 text-slate-500")
+                        )}>
+                          {item.badge}
+                        </span>
+                      )}
+                      {onToggleFavorite && (
+                        <span
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleFavorite(item.href); }}
+                          title={isFav ? 'Desafixar dos favoritos' : 'Fixar nos favoritos'}
+                          className={cn(
+                            "transition-all cursor-pointer",
+                            isFav
+                              ? "text-amber-400 opacity-100"
+                              : "text-slate-500 opacity-0 group-hover/item:opacity-100 hover:text-amber-400"
+                          )}
+                        >
+                          <Star className="h-3 w-3" fill={isFav ? 'currentColor' : 'none'} />
+                        </span>
+                      )}
+                    </div>
                   </Link>
                 );
               })}
@@ -471,6 +492,39 @@ function AccordionCategory({ category, isOpen, onToggle, currentPageName, onNavi
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ====== QUICK LINK (Favoritos / Recentes) ======
+function QuickLink({ item, currentPageName, onNavigate, onUnpin }) {
+  const isActive = currentPageName === item.href;
+  const Icon = item.icon;
+  return (
+    <div className="group/q relative">
+      <Link
+        to={createPageUrl(item.href)}
+        onClick={onNavigate}
+        className={cn(
+          "flex items-center gap-2.5 pl-3 pr-8 py-[7px] rounded-xl text-[13px] transition-all",
+          isActive
+            ? `bg-gradient-to-r ${item.category?.gradient || 'from-slate-600 to-slate-700'} text-white shadow-md`
+            : "text-slate-400 hover:text-white hover:bg-white/[0.04]"
+        )}
+        title={item.name}
+      >
+        <Icon className={cn("h-3.5 w-3.5 flex-shrink-0", isActive ? "text-white" : "text-slate-500")} />
+        <span className="truncate">{item.name}</span>
+      </Link>
+      {onUnpin && (
+        <button
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); onUnpin(item.href); }}
+          title="Desafixar"
+          className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-400/80 hover:text-amber-300 transition-colors"
+        >
+          <Star className="h-3 w-3" fill="currentColor" />
+        </button>
+      )}
     </div>
   );
 }
@@ -506,6 +560,29 @@ function LayoutContent({ children, currentPageName }) {
   const navigate = useNavigate();
   const { displaySettings, screenInfo, preferences, animationSettings } = useDisplay();
   const { user, logout, hasPermission } = useAuth();
+
+  // ---- Favoritos & Recentes (navegação rápida em PC) ----
+  const [favorites, setFavorites] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('montex-sidebar-favorites') || '[]'); } catch { return []; }
+  });
+  const [recents, setRecents] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('montex-sidebar-recent') || '[]'); } catch { return []; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('montex-sidebar-favorites', JSON.stringify(favorites)); } catch {}
+  }, [favorites]);
+  const toggleFavorite = useCallback((href) => {
+    setFavorites(prev => prev.includes(href) ? prev.filter(h => h !== href) : [...prev, href].slice(0, 8));
+  }, []);
+  // Registra a página atual em "Recentes" a cada navegação (máx 6 mantidos).
+  useEffect(() => {
+    if (!currentPageName) return;
+    setRecents(prev => {
+      const next = [currentPageName, ...prev.filter(h => h !== currentPageName)].slice(0, 6);
+      try { localStorage.setItem('montex-sidebar-recent', JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }, [currentPageName]);
 
   const filteredCategoriesByRole = useMemo(() => {
     return navigationCategories.filter(cat => {
@@ -566,6 +643,19 @@ function LayoutContent({ children, currentPageName }) {
         )
       })).filter(cat => cat.items.length > 0)
     : filteredCategoriesByRole;
+
+  // Índice href -> item (com a categoria, p/ gradiente/ícone) e listas resolvidas
+  // de Favoritos e Recentes (respeitam permissões: só itens visíveis ao usuário).
+  const itemIndex = useMemo(() => {
+    const m = {};
+    filteredCategoriesByRole.forEach(cat => cat.items.forEach(it => { m[it.href] = { ...it, category: cat }; }));
+    return m;
+  }, [filteredCategoriesByRole]);
+  const favItems = useMemo(() => favorites.map(h => itemIndex[h]).filter(Boolean), [favorites, itemIndex]);
+  const recentItems = useMemo(
+    () => recents.filter(h => h !== currentPageName).map(h => itemIndex[h]).filter(Boolean).slice(0, 4),
+    [recents, currentPageName, itemIndex]
+  );
 
   // Resultados achatados da busca (todas as páginas que casam) — permite navegar
   // direto para QUALQUER página pelo sidebar (não só filtrar a categoria).
@@ -821,16 +911,56 @@ function LayoutContent({ children, currentPageName }) {
                     onNavigate={() => setMobileOpen(false)}
                   />
                 ))
-              : filteredCategories.map((category) => (
-                  <AccordionCategory
-                    key={category.id}
-                    category={category}
-                    isOpen={openCategories.includes(category.id) || searchQuery.length > 0}
-                    onToggle={() => toggleCategory(category.id)}
-                    currentPageName={currentPageName}
-                    onNavigate={() => setMobileOpen(false)}
-                  />
-                ))
+              : (
+                <>
+                  {/* Favoritos (fixados pelo usuário) — só fora da busca */}
+                  {!searchQuery && favItems.length > 0 && (
+                    <div className="mb-2">
+                      <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-400/80">
+                        <Star className="h-3 w-3" fill="currentColor" /> Favoritos
+                      </div>
+                      <div className="space-y-0.5">
+                        {favItems.map((it) => (
+                          <QuickLink key={`fav-${it.href}`} item={it} currentPageName={currentPageName}
+                            onNavigate={() => setMobileOpen(false)} onUnpin={toggleFavorite} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Recentes (últimas páginas visitadas) — só fora da busca */}
+                  {!searchQuery && recentItems.length > 0 && (
+                    <div className="mb-2">
+                      <div className="flex items-center gap-1.5 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        <Clock className="h-3 w-3" /> Recentes
+                      </div>
+                      <div className="space-y-0.5">
+                        {recentItems.map((it) => (
+                          <QuickLink key={`rec-${it.href}`} item={it} currentPageName={currentPageName}
+                            onNavigate={() => setMobileOpen(false)} />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(favItems.length > 0 || recentItems.length > 0) && !searchQuery && (
+                    <div className="mx-3 my-1 border-t border-white/[0.06]" />
+                  )}
+
+                  {filteredCategories.map((category) => (
+                    <AccordionCategory
+                      key={category.id}
+                      category={category}
+                      isOpen={openCategories.includes(category.id) || searchQuery.length > 0}
+                      onToggle={() => toggleCategory(category.id)}
+                      currentPageName={currentPageName}
+                      onNavigate={() => setMobileOpen(false)}
+                      favorites={favorites}
+                      onToggleFavorite={toggleFavorite}
+                    />
+                  ))}
+                </>
+              )
             }
           </nav>
 
