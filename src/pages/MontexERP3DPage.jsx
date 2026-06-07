@@ -250,6 +250,57 @@ const IFC_TYPE_NAMES = {
   [IFC_TYPES.IFCDISCRETEACCESSORY]: 'Acessorio',
 };
 
+// ==============================================
+// Tradução IFC → tipo ERP (compartilhada entre o matcher e o filtro de Tipo).
+// O painel "Tipo de Peça" lista os tipos ERP (granular: VIGA-MESTRA, TESOURA…),
+// mas os elementos IFC têm name granular (TESOURA, DIAGONAL-VM…) e typeName
+// grosso (Viga, Coluna, Chapa…). Para o filtro de visibilidade casar com o que
+// o painel exibe, traduzimos cada elemento para o MESMO vocabulário ERP.
+// ==============================================
+// 1) Por NAME/description/tag granular (Tekla nomeia o elemento pela categoria)
+const IFC_NAME_TO_ERP_TIPO = {
+  'COLUNA': 'COLUNA', 'COLUMN': 'COLUNA',
+  'TESOURA': 'TESOURA', 'TRUSS': 'TESOURA',
+  'VIGA': 'VIGA', 'BEAM': 'VIGA',
+  'VIGA MESTRA': 'VIGA-MESTRA', 'VIGAMESTRA': 'VIGA-MESTRA', 'VIGA-MESTRA': 'VIGA-MESTRA',
+  'DIAGONAL-VM': 'VIGA-MESTRA', 'MONTANTE-VM': 'VIGA-MESTRA', 'MISULA': 'VIGA-MESTRA',
+  'TERÇA': 'TERÇA', 'TERCA': 'TERÇA', 'PURLIN': 'TERÇA',
+  'TERÇA-TAP': 'TERÇA-TAP', 'TERCA-TAP': 'TERÇA-TAP',
+  'TRELIÇA': 'TRELIÇA', 'TRELICA': 'TRELIÇA',
+  'DIAGONAL-TL': 'TRELIÇA', 'MONTANTE-TL': 'TRELIÇA',
+  'CONTRAVENTAMENTO': 'CONTRAVENTAMENTO', 'BRACE': 'CONTRAVENTAMENTO',
+  'TIRANTE': 'TIRANTE',
+  'CHUMBADOR': 'CHUMBADOR',
+  'MÃO FRANCESA': 'MÃO-FRANCESA', 'MAO FRANCESA': 'MÃO-FRANCESA', 'MÃO-FRANCESA': 'MÃO-FRANCESA',
+  'COLUNETA': 'COLUNETA',
+  'BOCAL': 'BOCAL',
+  'CALHA': 'CALHA',
+  'DIAGONAL': 'DIAGONAL',
+  'SUPORTE': 'SUPORTE',
+  'CHAPA': 'CHAPA', 'PLATE': 'CHAPA',
+  'PLACA': 'PLACA', 'BASE': 'PLACA DE BASE', 'PLACA DE BASE': 'PLACA DE BASE',
+  'PARAFUSO': 'PARAFUSO',
+};
+// 2) Fallback por typeName grosso do IFC (Viga/Coluna/Chapa…) → tipo ERP
+const IFC_TYPENAME_TO_ERP_TIPO = {
+  'VIGA': 'VIGA', 'COLUNA': 'COLUNA', 'CHAPA': 'CHAPA', 'LAJE': 'LAJE',
+  'PAREDE': 'PAREDE', 'ELEMENTO': 'ELEMENTO', 'COBERTURA': 'COBERTURA',
+  'ESCADA': 'ESCADA', 'GUARDA-CORPO': 'GUARDA-CORPO', 'FUNDACAO': 'FUNDACAO',
+  'PARAFUSO': 'PARAFUSO', 'CONJUNTO': 'CONJUNTO', 'FIXADOR': 'FIXADOR',
+  'ACESSORIO': 'ACESSORIO',
+};
+// Deriva o tipo ERP de um elemento IFC (mesma heurística do Strategy 7 do matcher).
+function elementErpTipo(el) {
+  if (!el) return '';
+  const cands = [el.name, el.description, el.tag, el.objectType];
+  for (const c of cands) {
+    const k = (c || '').toUpperCase().trim();
+    if (k && IFC_NAME_TO_ERP_TIPO[k]) return IFC_NAME_TO_ERP_TIPO[k];
+  }
+  const tn = (el.typeName || '').toUpperCase().trim();
+  return IFC_TYPENAME_TO_ERP_TIPO[tn] || tn;
+}
+
 // Etapa 1: Estrutura principal (vigas, colunas, chapas)
 const PRIMARY_TYPES = [
   IFC_TYPES.IFCBEAM,
@@ -1740,13 +1791,17 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     sm.setVisibility(el => {
       if (el.ifcType === IFC_TYPES.IFCMECHANICALFASTENER) return showFasteners;
       // Tipo é multi-select Set. Set vazio = mostra TODOS os tipos.
-      if (typeFilter.size > 0 && !typeFilter.has(el.typeName)) return false;
+      // O painel lista tipos ERP (granular). Traduzimos o elemento IFC para o
+      // MESMO vocabulário antes de comparar — senão typeFilter ("VIGA-MESTRA")
+      // nunca casaria com el.typeName ("Viga") e clicar qualquer tipo sumiria tudo.
+      if (typeFilter.size > 0 && !typeFilter.has(elementErpTipo(el))) return false;
       if (searchText) {
         const q = searchText.toUpperCase();
         const marca = (el.marcaFromIfc || el.props?.['Assembly/Cast unit Mark'] || '').toUpperCase();
         if (
           !(el.name || '').toUpperCase().includes(q) &&
           !(el.typeName || '').toUpperCase().includes(q) &&
+          !elementErpTipo(el).includes(q) &&
           !marca.includes(q)
         ) return false;
       }
