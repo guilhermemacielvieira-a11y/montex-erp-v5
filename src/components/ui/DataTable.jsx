@@ -41,6 +41,7 @@ export default function DataTable({
   className,
   rowClassName,                   // (row, index) => string
   zebra = true,
+  footer,                         // ReactNode | (sortedData) => ReactNode — conteúdo do <tfoot> (ex.: linha de TOTAL)
 }) {
   const [sort, setSort] = useState(initialSort);
 
@@ -155,6 +156,11 @@ export default function DataTable({
             ))
           )}
         </tbody>
+        {footer && (
+          <tfoot className={cn('bg-slate-800/95 backdrop-blur-sm', stickyHeader && maxHeight && 'sticky bottom-0 z-10')}>
+            {typeof footer === 'function' ? footer(sortedData) : footer}
+          </tfoot>
+        )}
       </table>
     </div>
   );

@@ -2064,110 +2064,58 @@ export default function GestaoFinanceiraObra() {
                 </div>
               </div>
 
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-xs text-slate-400 border-b border-slate-700/50">
-                      <th className="text-left py-3 px-3">Código / Descrição</th>
-                      <th className="text-left py-3 px-2">Tipo</th>
-                      <th className="text-right py-3 px-2">Pedido (kg)</th>
-                      <th className="text-right py-3 px-2">Entregue (kg)</th>
-                      <th className="text-right py-3 px-2">Falta (kg)</th>
-                      <th className="text-right py-3 px-2">R$/kg</th>
-                      <th className="text-right py-3 px-2">Valor Pedido</th>
-                      <th className="text-right py-3 px-2">Valor Entregue</th>
-                      <th className="text-center py-3 px-2">Estoque</th>
-                      <th className="text-center py-3 px-2">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {materiais.map((mat, idx) => {
-                      const statusColor = mat.status === STATUS_MATERIAL.ENTREGUE
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : mat.status === STATUS_MATERIAL.PARCIAL
-                          ? 'bg-amber-500/20 text-amber-400'
-                          : 'bg-slate-500/20 text-slate-400';
-                      const statusLabel = mat.status === STATUS_MATERIAL.ENTREGUE
-                        ? 'Entregue'
-                        : mat.status === STATUS_MATERIAL.PARCIAL
-                          ? 'Parcial'
-                          : 'Pendente';
-                      return (
-                        <motion.tr
-                          key={mat.id}
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          transition={{ delay: idx * 0.02 }}
-                          className="border-b border-slate-700/30 hover:bg-slate-800/30"
-                        >
-                          <td className="py-3 px-3">
-                            <div className="font-medium text-white text-sm">{mat.codigo}</div>
-                            <div className="text-xs text-slate-400">{mat.descricao}</div>
-                          </td>
-                          <td className="py-3 px-2">
-                            <span className="px-2 py-0.5 text-[10px] rounded bg-cyan-500/20 text-cyan-300 uppercase">
-                              {mat.tipo.replace('_', ' ')}
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-right text-slate-300 text-sm">
-                            {(mat.pesoPedido || 0).toLocaleString('pt-BR')}
-                          </td>
-                          <td className="py-3 px-2 text-right text-emerald-400 text-sm">
-                            {(mat.pesoEntregue || 0).toLocaleString('pt-BR')}
-                          </td>
-                          <td className={`py-3 px-2 text-right text-sm font-medium ${(mat.pesoFaltaEntregar || 0) > 0 ? 'text-amber-400' : 'text-slate-500'}`}>
-                            {(mat.pesoFaltaEntregar || 0) > 0 ? `-${(mat.pesoFaltaEntregar || 0).toLocaleString('pt-BR')}` : '0'}
-                          </td>
-                          <td className="py-3 px-2 text-right text-slate-400 text-xs">
-                            {((mat.valorUnitario || 0).toFixed(4))}
-                          </td>
-                          <td className="py-3 px-2 text-right text-slate-300 text-sm">
-                            R$ {(mat.valorTotalPedido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-2 text-right text-emerald-400 text-sm">
-                            R$ {(((mat.pesoEntregue || 0) * (mat.valorUnitario || 0)) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 text-xs rounded ${(mat.disponivelEstoque || 0) > 0 ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-600/20 text-slate-500'}`}>
-                              {(mat.disponivelEstoque || 0).toLocaleString('pt-BR')} kg
-                            </span>
-                          </td>
-                          <td className="py-3 px-2 text-center">
-                            <span className={`px-2 py-1 text-xs rounded ${statusColor}`}>
-                              {statusLabel}
-                            </span>
-                          </td>
-                        </motion.tr>
-                      );
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-600 font-semibold">
-                      <td colSpan="2" className="py-3 px-3 text-white">TOTAL ({materiais.length} itens)</td>
-                      <td className="py-3 px-2 text-right text-cyan-400">
-                        {(resumoMateriais.pesoTotalPedido || 0).toLocaleString('pt-BR')} kg
-                      </td>
-                      <td className="py-3 px-2 text-right text-emerald-400">
-                        {(resumoMateriais.pesoTotalEntregue || 0).toLocaleString('pt-BR')} kg
-                      </td>
-                      <td className="py-3 px-2 text-right text-amber-400">
-                        {(resumoMateriais.pesoFaltaEntregar || 0) > 0 ? `-${(resumoMateriais.pesoFaltaEntregar || 0).toLocaleString('pt-BR')}` : '0'} kg
-                      </td>
-                      <td className="py-3 px-2 text-right text-slate-400">-</td>
-                      <td className="py-3 px-2 text-right text-cyan-400">
-                        R$ {(resumoMateriais.valorTotalPedido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3 px-2 text-right text-emerald-400">
-                        R$ {(resumoMateriais.valorTotalEntregue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="py-3 px-2 text-center text-purple-400">
-                        {(resumoMateriais.pesoEmEstoque || 0).toLocaleString('pt-BR')} kg
-                      </td>
-                      <td className="py-3 px-2"></td>
-                    </tr>
-                  </tfoot>
-                </table>
-              </div>
+              <DataTable
+                data={materiais}
+                getRowKey={(m) => m.id}
+                emptyMessage="Nenhum material/pedido encontrado"
+                columns={[
+                  { key: 'codigo', header: 'Código / Descrição', sortable: true,
+                    render: (m) => (<div><div className="font-medium text-white">{m.codigo}</div><div className="text-xs text-slate-400">{m.descricao}</div></div>) },
+                  { key: 'tipo', header: 'Tipo', sortable: true,
+                    sortAccessor: (m) => m.tipo || '',
+                    render: (m) => (<span className="px-2 py-0.5 text-[10px] rounded bg-cyan-500/20 text-cyan-300 uppercase">{(m.tipo || '').replace('_', ' ')}</span>) },
+                  { key: 'pesoPedido', header: 'Pedido (kg)', align: 'right', sortable: true,
+                    sortAccessor: (m) => m.pesoPedido || 0,
+                    render: (m) => <span className="text-slate-300">{(m.pesoPedido || 0).toLocaleString('pt-BR')}</span> },
+                  { key: 'pesoEntregue', header: 'Entregue (kg)', align: 'right', sortable: true,
+                    sortAccessor: (m) => m.pesoEntregue || 0,
+                    render: (m) => <span className="text-emerald-400">{(m.pesoEntregue || 0).toLocaleString('pt-BR')}</span> },
+                  { key: 'pesoFaltaEntregar', header: 'Falta (kg)', align: 'right', sortable: true,
+                    sortAccessor: (m) => m.pesoFaltaEntregar || 0,
+                    render: (m) => <span className={(m.pesoFaltaEntregar || 0) > 0 ? 'text-amber-400 font-medium' : 'text-slate-500'}>{(m.pesoFaltaEntregar || 0) > 0 ? `-${(m.pesoFaltaEntregar || 0).toLocaleString('pt-BR')}` : '0'}</span> },
+                  { key: 'valorUnitario', header: 'R$/kg', align: 'right', sortable: true,
+                    sortAccessor: (m) => m.valorUnitario || 0,
+                    render: (m) => <span className="text-slate-400 text-xs">{(m.valorUnitario || 0).toFixed(4)}</span> },
+                  { key: 'valorTotalPedido', header: 'Valor Pedido', align: 'right', sortable: true,
+                    sortAccessor: (m) => m.valorTotalPedido || 0,
+                    render: (m) => <span className="text-slate-300">R$ {(m.valorTotalPedido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> },
+                  { key: 'valorEntregue', header: 'Valor Entregue', align: 'right', sortable: true,
+                    sortAccessor: (m) => (m.pesoEntregue || 0) * (m.valorUnitario || 0),
+                    render: (m) => <span className="text-emerald-400">R$ {(((m.pesoEntregue || 0) * (m.valorUnitario || 0)) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> },
+                  { key: 'disponivelEstoque', header: 'Estoque', align: 'center', sortable: true,
+                    sortAccessor: (m) => m.disponivelEstoque || 0,
+                    render: (m) => <span className={`px-2 py-1 text-xs rounded ${(m.disponivelEstoque || 0) > 0 ? 'bg-purple-500/20 text-purple-400' : 'bg-slate-600/20 text-slate-500'}`}>{(m.disponivelEstoque || 0).toLocaleString('pt-BR')} kg</span> },
+                  { key: 'status', header: 'Status', align: 'center', sortable: true,
+                    render: (m) => {
+                      const c = m.status === STATUS_MATERIAL.ENTREGUE ? 'bg-emerald-500/20 text-emerald-400' : m.status === STATUS_MATERIAL.PARCIAL ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-500/20 text-slate-400';
+                      const lbl = m.status === STATUS_MATERIAL.ENTREGUE ? 'Entregue' : m.status === STATUS_MATERIAL.PARCIAL ? 'Parcial' : 'Pendente';
+                      return <span className={`px-2 py-1 text-xs rounded ${c}`}>{lbl}</span>;
+                    } },
+                ]}
+                footer={
+                  <tr className="border-t-2 border-slate-600 font-semibold">
+                    <td colSpan="2" className="py-3 px-4 text-white">TOTAL ({materiais.length} itens)</td>
+                    <td className="py-3 px-4 text-right text-cyan-400">{(resumoMateriais.pesoTotalPedido || 0).toLocaleString('pt-BR')} kg</td>
+                    <td className="py-3 px-4 text-right text-emerald-400">{(resumoMateriais.pesoTotalEntregue || 0).toLocaleString('pt-BR')} kg</td>
+                    <td className="py-3 px-4 text-right text-amber-400">{(resumoMateriais.pesoFaltaEntregar || 0) > 0 ? `-${(resumoMateriais.pesoFaltaEntregar || 0).toLocaleString('pt-BR')}` : '0'} kg</td>
+                    <td className="py-3 px-4 text-right text-slate-400">-</td>
+                    <td className="py-3 px-4 text-right text-cyan-400">R$ {(resumoMateriais.valorTotalPedido || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="py-3 px-4 text-right text-emerald-400">R$ {(resumoMateriais.valorTotalEntregue || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</td>
+                    <td className="py-3 px-4 text-center text-purple-400">{(resumoMateriais.pesoEmEstoque || 0).toLocaleString('pt-BR')} kg</td>
+                    <td className="py-3 px-4"></td>
+                  </tr>
+                }
+              />
             </div>
 
             {/* Nota Explicativa */}
@@ -2409,34 +2357,27 @@ export default function GestaoFinanceiraObra() {
                 </ComposedChart>
               </ResponsiveContainer>
 
-              {/* Tabela de Fluxo */}
-              <div className="mt-6 overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="text-xs text-slate-400 border-b border-slate-700/50">
-                      <th className="text-left py-2 px-3">Mês</th>
-                      <th className="text-right py-2 px-3">Receitas</th>
-                      <th className="text-right py-2 px-3">Despesas</th>
-                      <th className="text-right py-2 px-3">Saldo</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fluxoCaixa.map((mes, idx) => (
-                      <tr key={idx} className="border-b border-slate-700/30">
-                        <td className="py-2 px-3 text-white">{mes.mesLabel}</td>
-                        <td className="py-2 px-3 text-right text-emerald-400">
-                          R$ {formatMoney(mes.receitas)}
-                        </td>
-                        <td className="py-2 px-3 text-right text-red-400">
-                          R$ {formatMoney(mes.despesas)}
-                        </td>
-                        <td className={`py-2 px-3 text-right font-medium ${mes.saldo >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>
-                          R$ {formatMoney(mes.saldo)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              {/* Tabela de Fluxo — DataTable (ordem cronológica preservada; valores ordenáveis) */}
+              <div className="mt-6">
+                <DataTable
+                  data={fluxoCaixa}
+                  getRowKey={(m, i) => m.mesLabel || i}
+                  dense
+                  emptyMessage="Sem dados de fluxo de caixa"
+                  columns={[
+                    { key: 'mesLabel', header: 'Mês', sortable: false,
+                      render: (m) => <span className="text-white">{m.mesLabel}</span> },
+                    { key: 'receitas', header: 'Receitas', align: 'right', sortable: true,
+                      sortAccessor: (m) => m.receitas || 0,
+                      render: (m) => <span className="text-emerald-400">R$ {formatMoney(m.receitas)}</span> },
+                    { key: 'despesas', header: 'Despesas', align: 'right', sortable: true,
+                      sortAccessor: (m) => m.despesas || 0,
+                      render: (m) => <span className="text-red-400">R$ {formatMoney(m.despesas)}</span> },
+                    { key: 'saldo', header: 'Saldo', align: 'right', sortable: true,
+                      sortAccessor: (m) => m.saldo || 0,
+                      render: (m) => <span className={`font-medium ${m.saldo >= 0 ? 'text-cyan-400' : 'text-red-400'}`}>R$ {formatMoney(m.saldo)}</span> },
+                  ]}
+                />
               </div>
             </div>
           </Tabs.Content>
