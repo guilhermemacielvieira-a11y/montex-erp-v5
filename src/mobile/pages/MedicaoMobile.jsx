@@ -17,6 +17,7 @@ import { tap, success } from '../ui/haptics';
 import { confirmarBiometria } from '../ui/biometric';
 import { ensureOnline } from '../ui/online';
 import { useERP, useMedicoes } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { supabase } from '@/api/supabaseClient';
 
@@ -42,10 +43,13 @@ async function uploadFoto(file) {
 
 export default function MedicaoMobile() {
   const { obras = [] } = useERP?.() || {};
-  const { medicoes = [], addMedicao } = useMedicoes?.() || {};
+  const { medicoes = [], addMedicao, updateMedicao } = useMedicoes?.() || {};
   const { matchObra, obraSelecionada, isTodas } = useObraFiltro();
+  const { hasPermission } = useAuth() || {};
+  const podeAprovar = !!hasPermission && hasPermission('medicao.aprovar');
 
   const [formOpen, setFormOpen] = useState(false);
+  const [aprovando, setAprovando] = useState(null); // id da medição em aprovação
   const [obraId, setObraId] = useState(obraSelecionada?.id || '');
   const [peso, setPeso] = useState('');
   const [valorKg, setValorKg] = useState('');
@@ -131,6 +135,25 @@ export default function MedicaoMobile() {
     }
   };
 
+  // Aprovação de medição (gestão): status pendente → aprovada, com Face ID.
+  const aprovar = async (m) => {
+    if (!updateMedicao) return;
+    if (!ensureOnline()) return;
+    const ok = await confirmarBiometria(`Aprovar medição ${m.numero || ''}`.trim());
+    if (!ok) { toast.error('Autenticação não confirmada'); return; }
+    setAprovando(m.id);
+    try {
+      await updateMedicao(m.id, { status: 'aprovada' });
+      await success();
+      toast.success(`Medição ${m.numero || ''} aprovada`.replace('  ', ' '));
+    } catch (err) {
+      toast.error('Falha ao aprovar medição');
+      console.error('[MedicaoMobile] aprovar falhou:', err);
+    } finally {
+      setAprovando(null);
+    }
+  };
+
   return (
     <MobileLayout title="Medição" obraFilter>
       <div className="px-4 pt-3 pb-2">
@@ -147,6 +170,7 @@ export default function MedicaoMobile() {
         )}
         {lista.map(m => {
           const st = String(m.status || 'pendente').toLowerCase();
+          const pendente = st === 'pendente' || st === 'aguardando';
           return (
             <div key={m.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3.5 flex items-center gap-3">
               <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center"><Ruler className="w-5 h-5 text-amber-400" /></div>
@@ -159,7 +183,19 @@ export default function MedicaoMobile() {
                   {m.pesoMedido ? fmtKg(m.pesoMedido) + ' · ' : ''}{m.dataMedicao || m.data || ''}
                 </div>
               </div>
-              <div className="text-sm font-black text-emerald-300">{fmtMoney(m.valorTotal || m.valor)}</div>
+              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                <div className="text-sm font-black text-emerald-300">{fmtMoney(m.valorTotal || m.valor)}</div>
+                {pendente && podeAprovar && (
+                  <button
+                    onClick={() => aprovar(m)}
+                    disabled={aprovando === m.id}
+                    className="flex items-center gap-1 text-[11px] font-bold text-blue-300 bg-blue-500/15 border border-blue-500/30 rounded-lg px-2.5 py-1 active:scale-95 transition disabled:opacity-50"
+                  >
+                    {aprovando === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    Aprovar
+                  </button>
+                )}
+              </div>
             </div>
           );
         })}
