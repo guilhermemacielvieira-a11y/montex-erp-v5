@@ -11,6 +11,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
 import InstallPrompt from './ui/InstallPrompt';
+import SyncManager from './SyncManager';
 import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
@@ -77,6 +78,7 @@ export default function MobileApp() {
       <ProducaoFabricaProvider>
         <ObraMobileProvider>
           <style>{FOCUS_STYLES}</style>
+          <SyncManager />
           <MobileRoutes />
           <InstallPrompt />
           {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).

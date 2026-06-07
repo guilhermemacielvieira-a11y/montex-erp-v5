@@ -17,7 +17,8 @@ import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
 import { tap, success } from '../ui/haptics';
-import { ensureOnline } from '../ui/online';
+import { isOnline } from '../ui/online';
+import { enqueue } from '../ui/offlineQueue';
 import { useERP, useExpedicao } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
 
@@ -120,7 +121,15 @@ export default function ExpedicaoMobile() {
 
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
-    if (!ensureOnline()) return;
+    if (!isOnline()) {
+      // Offline: aplica otimisticamente + enfileira (updateExpedicao é idempotente).
+      updateExpedicao(romaneio.id, { status: 'em_transito' })?.catch(() => {});
+      enqueue('updateExpedicao', [romaneio.id, { status: 'em_transito' }], `Despacho ${romaneio.numeroRomaneio || romaneio.id}`);
+      tap('medium');
+      toast.success('Despacho salvo offline — sincroniza ao reconectar');
+      setDespachar(false); setSelId(null); setConf({});
+      return;
+    }
     setSaving(true);
     try {
       await updateExpedicao(romaneio.id, { status: 'em_transito' });

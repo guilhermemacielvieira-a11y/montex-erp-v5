@@ -26,6 +26,7 @@ import MobilePageSkeleton from './ui/Skeleton';
 import PullToRefresh from './ui/PullToRefresh';
 import NetworkBanner from './ui/NetworkBanner';
 import LastUpdated from './ui/LastUpdated';
+import PendingBadge from './ui/PendingBadge';
 import { setLastRefresh } from './ui/lastRefresh';
 
 // 5 abas inferiores. `perm` = permissão exigida (ausente = sempre visível).
@@ -163,6 +164,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
           </button>
         )}
         <h1 className="flex-1 font-bold text-base tracking-tight truncate">{title}</h1>
+        <PendingBadge />
         <LastUpdated tick={refreshTick} />
         <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label="Notificações" onClick={() => navigate('/m/notificacoes')}>
           <Bell className="w-5 h-5" />
