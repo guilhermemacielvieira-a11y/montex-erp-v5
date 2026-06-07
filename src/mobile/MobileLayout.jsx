@@ -8,7 +8,7 @@
 //  - Drawer lateral (módulos extras)
 // Tema escuro otimizado para galpão/canteiro.
 // ============================================================
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -36,6 +36,14 @@ const BOTTOM_TABS = [
   { path: '/m/expedicao', icon: Truck, label: 'Expedição' },
   { path: '/m/mais', icon: MoreHorizontal, label: 'Mais' },
 ];
+
+// Índice da aba ativa para a rota (-1 se não for aba). Usado para a direção
+// do slide de transição (avançar = entra da direita; voltar = da esquerda).
+function tabIndexOf(pathname) {
+  return BOTTOM_TABS.findIndex(t => pathname === t.path || (t.path !== '/m' && pathname.startsWith(t.path + '/')));
+}
+// Última aba visitada (módulo: sobrevive ao remount por navegação).
+let lastNavIndex = 0;
 
 // Drawer: módulos extras agrupados
 const DRAWER_GROUPS = [
@@ -102,6 +110,18 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
     setRefreshTick(t => t + 1);
   };
 
+  // Direção do slide de transição conforme a ordem das abas (avançar/voltar).
+  // Lido na montagem (lastNavIndex ainda é a aba anterior); atualizado no efeito.
+  const slideDir = useMemo(() => {
+    const cur = tabIndexOf(location.pathname);
+    if (cur < 0 || lastNavIndex < 0) return 0;
+    return cur === lastNavIndex ? 0 : (cur > lastNavIndex ? 1 : -1);
+  }, [location.pathname]);
+  useEffect(() => {
+    const cur = tabIndexOf(location.pathname);
+    if (cur >= 0) lastNavIndex = cur;
+  }, [location.pathname]);
+
   // Fechar drawer ao navegar
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
@@ -148,13 +168,15 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
               <ObraSelector />
             </div>
           )}
-          {/* Transição de rota: o CONTEÚDO faz um settle sutil ao montar (sobe + fade).
-              Não é fixed → transform é seguro; sem AnimatePresence → sem vazar camadas. */}
+          {/* Transição de rota: o CONTEÚDO desliza ao montar — horizontal e direcional
+              entre abas (avançar=da direita, voltar=da esquerda), settle vertical nas
+              demais rotas. Não é fixed → transform seguro; sem AnimatePresence → sem
+              vazar camadas. Padrão nativo de tab bar (conteúdo desliza, chrome fica). */}
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: 'easeOut' }}
+            initial={{ opacity: 0, x: slideDir * 24, y: slideDir === 0 ? 8 : 0 }}
+            animate={{ opacity: 1, x: 0, y: 0 }}
+            transition={{ duration: 0.22, ease: 'easeOut' }}
             className="pb-24"
           >
             {carregando ? <MobilePageSkeleton /> : children}
