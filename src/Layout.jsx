@@ -276,8 +276,10 @@ const navigationCategories = [
     color: 'text-slate-400',
     activeColor: 'bg-slate-500/15 border-slate-500/40',
     items: [
-      { name: 'Usuários', href: 'UsuariosPage', icon: Users, badge: 'ADMIN', badgeColor: 'bg-red-500/20 text-red-400' },
-      { name: 'Gestão de Usuários', href: 'GestaoUsuariosPage', icon: Users, badge: 'ADMIN', badgeColor: 'bg-orange-500/20 text-orange-400' },
+      // UsuariosPage (legado, tema claro) removido do menu — GestaoUsuariosPage é o
+      // módulo completo (Usuários/Senhas/Permissões/Links/Auditoria), tema dark.
+      // A rota /UsuariosPage continua existindo no pages.config (sem quebrar links).
+      { name: 'Usuários', href: 'GestaoUsuariosPage', icon: Users, badge: 'ADMIN', badgeColor: 'bg-orange-500/20 text-orange-400' },
     ]
   },
 ];
