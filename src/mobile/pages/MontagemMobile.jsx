@@ -28,7 +28,11 @@ export default function MontagemMobile() {
   const erp = useERP?.() || {};
   const { pecas = [] } = erp;
   const { matchObra } = useObraFiltro();
-  const [tab, setTab] = useState('aguardando'); // aguardando | montadas
+  // Aba persistida (sobrevive a navegação/reload) — o operador volta de onde estava.
+  const [tab, setTab] = useState(() => {
+    try { return localStorage.getItem('montex_montagem_tab') || 'aguardando'; } catch { return 'aguardando'; }
+  });
+  useEffect(() => { try { localStorage.setItem('montex_montagem_tab', tab); } catch { /* noop */ } }, [tab]);
   const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(remoto => setConcluidas(remoto || {})) || {});
   const [q, setQ] = useState('');
   const [scanOpen, setScanOpen] = useState(false);
