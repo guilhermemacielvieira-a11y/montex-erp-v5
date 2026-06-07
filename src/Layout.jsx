@@ -503,6 +503,7 @@ function LayoutContent({ children, currentPageName }) {
   // Valor EFETIVO usado por toda a UI: recolhido se o usuário pediu OU se está na faixa compacta.
   const sidebarCollapsed = userCollapsed || isCompact;
   const location = useLocation();
+  const navigate = useNavigate();
   const { displaySettings, screenInfo, preferences, animationSettings } = useDisplay();
   const { user, logout, hasPermission } = useAuth();
 
@@ -565,6 +566,25 @@ function LayoutContent({ children, currentPageName }) {
         )
       })).filter(cat => cat.items.length > 0)
     : filteredCategoriesByRole;
+
+  // Resultados achatados da busca (todas as páginas que casam) — permite navegar
+  // direto para QUALQUER página pelo sidebar (não só filtrar a categoria).
+  const searchMatches = useMemo(
+    () => searchQuery ? filteredCategories.flatMap(c => c.items) : [],
+    [searchQuery, filteredCategories]
+  );
+
+  // Enter na busca → vai para o 1º resultado; Esc limpa.
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter' && searchMatches.length > 0) {
+      e.preventDefault();
+      navigate(createPageUrl(searchMatches[0].href));
+      setSearchQuery('');
+      setMobileOpen(false);
+    } else if (e.key === 'Escape') {
+      setSearchQuery('');
+    }
+  };
 
   const currentPageTitle = useMemo(() => {
     return filteredCategoriesByRole.flatMap(c => c.items).find(i => i.href === currentPageName)?.name || 'Dashboard';
@@ -770,11 +790,19 @@ function LayoutContent({ children, currentPageName }) {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-500" />
                 <input
                   type="text"
-                  placeholder="Buscar módulo..."
+                  placeholder="Buscar e ir (Enter)..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl py-2 pl-9 pr-4 text-[13px] text-white placeholder-slate-500 focus:outline-none focus:border-orange-500/40 focus:bg-white/[0.06] transition-all"
+                  onKeyDown={handleSearchKeyDown}
+                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl py-2 pl-9 pr-12 text-[13px] text-white placeholder-slate-500 focus:outline-none focus:border-orange-500/40 focus:bg-white/[0.06] transition-all"
                 />
+                {searchQuery ? (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-semibold text-slate-500 tabular-nums">
+                    {searchMatches.length} ↵
+                  </span>
+                ) : (
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] font-bold text-slate-600 border border-white/10 rounded px-1 py-0.5">⌘K</span>
+                )}
               </div>
             </div>
           )}
