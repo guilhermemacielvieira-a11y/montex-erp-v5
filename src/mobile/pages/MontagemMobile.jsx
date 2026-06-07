@@ -1,14 +1,24 @@
 // ============================================================
-// MONTAGEM MOBILE - Aguardando ↔ Montado com toque para marcar
+// MONTAGEM MOBILE - Aguardando ↔ Montado + Scanner de peça
+// ============================================================
+// Marca peças como montadas (entity_store, independente da etapa do banco
+// — regra #6 do CLAUDE.md). Operação de campo: ESCANEAR a etiqueta/QR da
+// peça → encontra a marca na obra → sheet de confirmação → marca montada.
 // ============================================================
 import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Hammer, CheckCircle2, Clock, Box, Search } from 'lucide-react';
+import { Hammer, CheckCircle2, Box, Search, ScanLine, RotateCcw } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
+import Sheet from '../ui/Sheet';
+import Scanner from '../ui/Scanner';
+import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart, saveConcluidasSmart } from '@/utils/montagemSync';
 import { toast } from 'react-hot-toast';
+
+// Normaliza marca p/ matching robusto (maiúsculas, sem espaços) — alinhado ao 3D/ERP.
+const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
 export default function MontagemMobile() {
   const erp = useERP?.() || {};
@@ -17,16 +27,21 @@ export default function MontagemMobile() {
   const [tab, setTab] = useState('aguardando'); // aguardando | montadas
   const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(remoto => setConcluidas(remoto || {})) || {});
   const [q, setQ] = useState('');
+  const [scanOpen, setScanOpen] = useState(false);
+  const [pecaSel, setPecaSel] = useState(null); // peça aberta no sheet de confirmação
 
-  // Peças em montagem (enviado/montado) da obra selecionada no filtro global
-  const pecasObra = useMemo(() => {
-    const list = pecas.filter(p => matchObra(p) && (p.etapa === 'enviado' || p.etapa === 'montado'));
-    const QQ = q.toUpperCase();
-    return q.trim() ? list.filter(p => (p.marca || '').toUpperCase().includes(QQ)) : list;
-  }, [pecas, matchObra, q]);
+  // Todas as peças da obra (p/ mensagem útil quando a marca existe mas não está em campo)
+  const pecasDaObra = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
+  // Peças em montagem (enviado/montado) — escopo de campo
+  const pecasCampo = useMemo(() => pecasDaObra.filter(p => p.etapa === 'enviado' || p.etapa === 'montado'), [pecasDaObra]);
 
-  const aguardando = pecasObra.filter(p => !concluidas[String(p.id)]);
-  const montadas = pecasObra.filter(p => !!concluidas[String(p.id)]);
+  const listaFiltrada = useMemo(() => {
+    const QQ = norm(q);
+    return q.trim() ? pecasCampo.filter(p => norm(p.marca).includes(QQ)) : pecasCampo;
+  }, [pecasCampo, q]);
+
+  const aguardando = listaFiltrada.filter(p => !concluidas[String(p.id)]);
+  const montadas = listaFiltrada.filter(p => !!concluidas[String(p.id)]);
   const lista = tab === 'aguardando' ? aguardando : montadas;
 
   const toggle = (peca) => {
@@ -36,24 +51,47 @@ export default function MontagemMobile() {
     if (estaMontada) {
       delete nova[id];
     } else {
-      // MESMO formato de MontagemPage/MontexERP3DPage (entity_store): objeto com
-      // metadados, não booleano. Garante interoperabilidade do montado entre módulos.
+      // MESMO formato de MontagemPage/MontexERP3DPage (entity_store).
       nova[id] = { montadoEm: new Date().toISOString(), origem: 'MontagemMobile', marca: peca.marca };
     }
     setConcluidas(nova);
     try {
       saveConcluidasSmart(nova);
-      toast.success(estaMontada ? `${peca.marca} desmarcada` : `${peca.marca} montada`);
+      if (estaMontada) { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
+      else { success(); toast.success(`${peca.marca} montada`); }
     } catch (_) {
       toast.error('Falha ao sincronizar');
     }
   };
 
+  // Resultado do scanner: encontra a peça pela marca e abre confirmação
+  const onScan = (codigo) => {
+    const alvo = norm(codigo);
+    // 1) tenta no escopo de campo (enviado/montado)
+    let peca = pecasCampo.find(p => norm(p.marca) === alvo)
+            || pecasCampo.find(p => norm(p.marca).includes(alvo) && alvo.length >= 3);
+    if (peca) { tap('heavy'); setPecaSel(peca); return; }
+    // 2) existe na obra mas ainda não está em campo?
+    const fora = pecasDaObra.find(p => norm(p.marca) === alvo);
+    if (fora) {
+      toast(`${fora.marca} está em "${fora.etapa}" — ainda não enviada para montagem`, { icon: '📦' });
+      return;
+    }
+    toast.error(`Peça "${codigo}" não encontrada nesta obra`);
+  };
+
+  const confirmarSheet = () => {
+    if (!pecaSel) return;
+    toggle(pecaSel);
+    setPecaSel(null);
+  };
+
+  const pecaMontada = pecaSel ? !!concluidas[String(pecaSel.id)] : false;
+
   return (
     <MobileLayout title="Montagem" obraFilter>
-      {/* Tabs + busca (não-sticky: o ObraSelector logo acima já é sticky) */}
+      {/* Tabs + busca */}
       <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
-        {/* Tabs */}
         <div className="flex gap-2">
           <button
             onClick={() => setTab('aguardando')}
@@ -86,7 +124,7 @@ export default function MontagemMobile() {
           return (
             <motion.button
               key={p.id}
-              onClick={() => toggle(p)}
+              onClick={() => { tap('light'); setPecaSel(p); }}
               whileTap={{ scale: 0.97 }}
               className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${isOk ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-amber-500/30'}`}
             >
@@ -110,6 +148,60 @@ export default function MontagemMobile() {
           );
         })}
       </div>
+
+      {/* FAB Escanear */}
+      <button
+        onClick={() => { tap('light'); setScanOpen(true); }}
+        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
+      >
+        <ScanLine className="w-5 h-5" /> Escanear
+      </button>
+
+      {/* Scanner */}
+      <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} />
+
+      {/* Sheet de confirmação da peça */}
+      <Sheet
+        open={!!pecaSel}
+        onClose={() => setPecaSel(null)}
+        title={pecaSel ? (pecaSel.marca || pecaSel.id) : ''}
+        footer={
+          pecaSel && (
+            <button
+              onClick={confirmarSheet}
+              className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition ${pecaMontada ? 'bg-slate-700 text-slate-100' : 'bg-emerald-500 text-slate-950'}`}
+            >
+              {pecaMontada ? <RotateCcw className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+              {pecaMontada ? 'Desmarcar montagem' : 'Marcar como montada'}
+            </button>
+          )
+        }
+      >
+        {pecaSel && (
+          <div className="space-y-4">
+            <div className={`rounded-xl px-3 py-2.5 text-sm font-bold flex items-center gap-2 ${pecaMontada ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+              {pecaMontada ? <CheckCircle2 className="w-4 h-4" /> : <Hammer className="w-4 h-4" />}
+              {pecaMontada ? 'Montada' : 'Aguardando montagem'}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Info label="Tipo" value={pecaSel.tipo || '—'} />
+              <Info label="Quantidade" value={String(pecaSel.quantidade || 1)} />
+              <Info label="Peso" value={`${(Number(pecaSel.peso) || 0).toFixed(0)} kg`} />
+              <Info label="Etapa" value={pecaSel.etapa || '—'} />
+            </div>
+          </div>
+        )}
+      </Sheet>
     </MobileLayout>
+  );
+}
+
+function Info({ label, value }) {
+  return (
+    <div className="bg-slate-800/60 rounded-xl p-3">
+      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{label}</div>
+      <div className="text-sm font-bold text-slate-100 mt-0.5 truncate">{value}</div>
+    </div>
   );
 }
