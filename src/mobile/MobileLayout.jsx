@@ -255,13 +255,15 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
             className="fixed top-0 left-0 bottom-0 w-[82%] max-w-[320px] bg-slate-900 border-r border-slate-800 z-50 flex flex-col"
             style={{ paddingTop: 'env(safe-area-inset-top)' }}
           >
-              {/* Header do Drawer */}
+              {/* Header do Drawer — toca para abrir o Perfil */}
               <div className="flex items-center gap-3 p-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-lg">M</div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm truncate">{user?.full_name || 'Usuário'}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{user?.email || '—'}</div>
-                </div>
+                <Link to="/m/perfil" className="flex-1 flex items-center gap-3 min-w-0 active:opacity-80">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-lg">M</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm truncate">{user?.nome || user?.name || 'Usuário'}</div>
+                    <div className="text-[11px] text-slate-400 truncate">{user?.email || '—'}</div>
+                  </div>
+                </Link>
                 <button onClick={() => setDrawerOpen(false)} className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar menu">
                   <X className="w-5 h-5" />
                 </button>

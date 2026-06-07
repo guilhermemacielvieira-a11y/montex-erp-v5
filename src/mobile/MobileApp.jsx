@@ -23,6 +23,8 @@ import FinanceiroMobile from './pages/FinanceiroMobile';
 import ExpedicaoMobile from './pages/ExpedicaoMobile';
 import EstoqueMobile from './pages/EstoqueMobile';
 import MedicaoMobile from './pages/MedicaoMobile';
+import PerfilMobile from './pages/PerfilMobile';
+import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -130,8 +132,8 @@ function MobileRoutes() {
       <Route path="analise-producao" element={<DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap>} />
       <Route path="diario" element={<DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap>} />
       <Route path="notificacoes" element={<MobileLayout title="Notificações" back><div className="p-6 text-slate-400 text-sm text-center">Sem notificações</div></MobileLayout>} />
-      <Route path="perfil" element={<MobileLayout title="Perfil" back><div className="p-6 text-slate-400 text-sm text-center">Em breve</div></MobileLayout>} />
-      <Route path="config" element={<MobileLayout title="Configurações" back><div className="p-6 text-slate-400 text-sm text-center">Em breve</div></MobileLayout>} />
+      <Route path="perfil" element={<PerfilMobile />} />
+      <Route path="config" element={<ConfiguracoesMobile />} />
 
       <Route path="*" element={<Navigate to="/m" replace />} />
     </Routes>

@@ -107,6 +107,19 @@ mover regras para **RLS por papel** no Supabase. Ver `CLAUDE.md › Credenciais 
 
 ---
 
+## Push notifications (APNs)
+
+O cliente já está pronto: `src/mobile/ui/push.js` (registro via `@capacitor/push-notifications`
+em runtime) e o toggle em **Configurações → Notificações push**. Falta o lado nativo/servidor:
+
+1. **Apple**: no Apple Developer, habilite **Push Notifications** no App ID e gere a **APNs Auth Key (.p8)** (Keys → +). Guarde Key ID e Team ID.
+2. **Xcode**: target App → Signing & Capabilities → **+ Push Notifications** e **Background Modes → Remote notifications**.
+3. **Token**: ao ativar no app, `push.js` registra e salva o **token APNs** em `localStorage` (`montex_push_token`). Envie esse token para uma tabela no Supabase (ex.: `push_tokens(user_id, token, platform)`) para o backend direcionar.
+4. **Envio**: uma **Supabase Edge Function** (ou serviço) envia ao APNs (via a .p8) quando ocorrem eventos do fluxo:
+   - peça pronta (etapa → expedido), carga a conferir (romaneio criado), estoque crítico (nível ≤ mínimo), medição aprovada.
+   - Dispare por trigger no Postgres (NOTIFY) ou no próprio `moverPecaEtapa`/`addExpedicao`.
+5. Recebimento no app: `push.js` escuta `pushNotificationReceived` (mostra toast) — abrir deep link para a tela relevante é um próximo passo.
+
 ## Separação do ERP desktop (app nativo = só operacional)
 
 O app nativo é o **super app operacional**, separado do ERP desktop. Em
