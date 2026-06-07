@@ -289,14 +289,41 @@ const IFC_TYPENAME_TO_ERP_TIPO = {
   'PARAFUSO': 'PARAFUSO', 'CONJUNTO': 'CONJUNTO', 'FIXADOR': 'FIXADOR',
   'ACESSORIO': 'ACESSORIO',
 };
-// Deriva o tipo ERP de um elemento IFC (mesma heurística do Strategy 7 do matcher).
+// Chaves de IFC_NAME_TO_ERP_TIPO ordenadas por tamanho DESC para que
+// "VIGA-MESTRA" bata antes de "VIGA", "TERCA-TAP" antes de "TERCA", etc.
+// Calculado uma vez no module-load.
+const IFC_NAME_KEYS_DESC = Object.keys(IFC_NAME_TO_ERP_TIPO).sort((a, b) => b.length - a.length);
+
+// Deriva o tipo ERP de um elemento IFC.
+//
+// PROBLEMA HISTÓRICO: TERÇAS no Tekla são IFCBEAM (typeName='Viga'). Se el.name
+// não casava EXATO em IFC_NAME_TO_ERP_TIPO (ex: "TERCA-2 BANZO SUP"), o fallback
+// caía pro typeName='Viga' e a TERÇA era classificada como VIGA — bug que poluía
+// o filtro de VIGA com todas as terças.
+//
+// FIX: cascata em 3 etapas com prioridade decrescente:
+//   1) Match EXATO em name/desc/tag/objectType (mais confiável)
+//   2) Match por SUBSTRING ordenado por longitude desc (captura "TERCA" em "TERCA-2 ...")
+//   3) Fallback por typeName grosso — SÓ se nenhum nome continha palavra-chave granular
 function elementErpTipo(el) {
   if (!el) return '';
   const cands = [el.name, el.description, el.tag, el.objectType];
+  // 1) Match EXATO — caminho mais confiável e barato
   for (const c of cands) {
     const k = (c || '').toUpperCase().trim();
     if (k && IFC_NAME_TO_ERP_TIPO[k]) return IFC_NAME_TO_ERP_TIPO[k];
   }
+  // 2) Match por SUBSTRING (chaves ordenadas por longitude DESC)
+  //    Garante que "VIGA-MESTRA" seja captado antes de "VIGA" em nomes como
+  //    "VIGA-MESTRA-2 BANZO SUP"; idem TERCA-TAP > TERCA, DIAGONAL-VM > DIAGONAL.
+  for (const c of cands) {
+    const k = (c || '').toUpperCase().trim();
+    if (!k) continue;
+    for (const key of IFC_NAME_KEYS_DESC) {
+      if (k.includes(key)) return IFC_NAME_TO_ERP_TIPO[key];
+    }
+  }
+  // 3) Fallback grosso (typeName IFC) — só dispara quando nenhum nome trouxe pista
   const tn = (el.typeName || '').toUpperCase().trim();
   return IFC_TYPENAME_TO_ERP_TIPO[tn] || tn;
 }
