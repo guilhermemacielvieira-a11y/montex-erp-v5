@@ -55,11 +55,23 @@ function DesktopWrap({ title, children }) {
   );
 }
 
+// Estados de foco visíveis (teclado/switch/leitor de tela). Escopo .montex-mobile
+// (não afeta o desktop). Campos de formulário mostram o anel ao focar; botões/links
+// só em :focus-visible (não aparece no toque/clique).
+const FOCUS_STYLES = `
+.montex-mobile :is(input, select, textarea):focus,
+.montex-mobile :is(button, a):focus-visible {
+  outline: 2px solid rgb(251 191 36 / 0.95) !important;
+  outline-offset: 2px !important;
+  border-radius: 10px;
+}`;
+
 export default function MobileApp() {
   return (
     <ERPProvider>
       <ProducaoFabricaProvider>
         <ObraMobileProvider>
+          <style>{FOCUS_STYLES}</style>
           <MobileRoutes />
         </ObraMobileProvider>
       </ProducaoFabricaProvider>

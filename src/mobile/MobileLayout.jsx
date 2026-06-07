@@ -76,24 +76,26 @@ const DRAWER_GROUPS = [
   },
 ];
 
-export default function MobileLayout({ children, title = 'Montex Mobile', back = false, obraFilter = false }) {
+export default function MobileLayout({ children, title = 'Montex Mobile', back = false, onBack = null, obraFilter = false }) {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuth() || {};
-  const { dataSource, reloadPecas } = useERP() || {};
+  const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Carregamento inicial dos dados do ERP (Supabase). Mostra esqueleto em vez de
   // telas zeradas/vazias — importante em rede lenta de galpão/canteiro.
   const carregando = dataSource === 'loading';
-  // Puxar-para-atualizar recarrega as peças (produção/montagem/expedição mudam
-  // o tempo todo no chão de fábrica).
-  const handleRefresh = async () => { await reloadPecas?.(); };
+  // Puxar-para-atualizar recarrega os dados operacionais que mudam o tempo todo
+  // no chão de fábrica (peças/produção/montagem, estoque e romaneios), em paralelo.
+  const handleRefresh = async () => {
+    await Promise.all([reloadPecas?.(), reloadEstoque?.(), reloadExpedicoes?.()]);
+  };
 
   // Fechar drawer ao navegar
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
+    <div className="montex-mobile fixed inset-0 flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
       {/* HEADER ───────────────────────────── */}
       <header
         className="flex-shrink-0 bg-gradient-to-r from-slate-900 to-slate-950 border-b border-slate-800/80 px-4 flex items-center gap-3 shadow-md"
@@ -101,7 +103,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
       >
         {back ? (
           <button
-            onClick={() => navigate(-1)}
+            onClick={onBack || (() => navigate(-1))}
             className="w-11 h-11 -ml-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition"
             aria-label="Voltar"
           >
@@ -131,7 +133,17 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
               <ObraSelector />
             </div>
           )}
-          <div className="pb-24">{carregando ? <MobilePageSkeleton /> : children}</div>
+          {/* Transição de rota: o CONTEÚDO faz um settle sutil ao montar (sobe + fade).
+              Não é fixed → transform é seguro; sem AnimatePresence → sem vazar camadas. */}
+          <motion.div
+            key={location.pathname}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, ease: 'easeOut' }}
+            className="pb-24"
+          >
+            {carregando ? <MobilePageSkeleton /> : children}
+          </motion.div>
         </PullToRefresh>
       </main>
 

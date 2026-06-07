@@ -30,6 +30,13 @@ export function expedicaoReducer(state, action) {
         expedicoes: state.expedicoes.filter(e => e.id !== action.payload)
       };
 
+    // Recarrega todos os romaneios do Supabase (sync cross-device / pull-to-refresh)
+    case 'RELOAD_EXPEDICOES':
+      return {
+        ...state,
+        expedicoes: action.payload
+      };
+
     default:
       return state;
   }

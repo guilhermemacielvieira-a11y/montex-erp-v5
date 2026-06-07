@@ -7,7 +7,7 @@
 // que move as peças para 'enviado' = Aguardando Montagem em campo).
 // A conferência é local (localStorage por romaneio); o despacho é a escrita real.
 // ============================================================
-import React, { useMemo, useState, useCallback } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   Truck, Package, ScanLine, ChevronRight, ChevronLeft, CheckCircle2,
@@ -50,6 +50,15 @@ export default function ExpedicaoMobile() {
   const [conf, setConf] = useState({});         // {pecaId: true} do romaneio aberto
   const [despachar, setDespachar] = useState(false); // sheet de confirmação
   const [saving, setSaving] = useState(false);
+  const listScroll = useRef(0); // posição do scroll da lista, p/ restaurar ao voltar do detalhe
+
+  // Ao voltar do detalhe para a lista, restaura a posição de scroll anterior.
+  useLayoutEffect(() => {
+    if (!selId) {
+      const sc = document.querySelector('main .overflow-y-auto');
+      if (sc) sc.scrollTop = listScroll.current;
+    }
+  }, [selId]);
 
   const pecasById = useMemo(() => {
     const m = new Map();
@@ -79,7 +88,13 @@ export default function ExpedicaoMobile() {
   const total = itens.length;
   const pct = total ? Math.round((conferidas / total) * 100) : 0;
 
-  const abrirRomaneio = (r) => { tap('light'); setSelId(r.id); setConf(loadConf(r.id)); };
+  const abrirRomaneio = (r) => {
+    tap('light');
+    // Guarda o scroll atual da lista antes de abrir o detalhe.
+    listScroll.current = document.querySelector('main .overflow-y-auto')?.scrollTop || 0;
+    setSelId(r.id);
+    setConf(loadConf(r.id));
+  };
   const voltar = () => { setSelId(null); setConf({}); };
 
   const toggleConf = useCallback((itemId) => {
@@ -123,7 +138,7 @@ export default function ExpedicaoMobile() {
     const si = statusInfo(romaneio.status);
     const podeEnviar = podeDespachar(romaneio.status);
     return (
-      <MobileLayout title={`Romaneio ${romaneio.numeroRomaneio || romaneio.id}`} back>
+      <MobileLayout title={`Romaneio ${romaneio.numeroRomaneio || romaneio.id}`} back onBack={voltar}>
         {/* Cabeçalho do romaneio */}
         <div className="px-4 pt-4">
           <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">

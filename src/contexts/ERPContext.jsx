@@ -687,6 +687,28 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  // Recarrega estoque do Supabase (pull-to-refresh / sync cross-device).
+  const reloadEstoque = useCallback(async () => {
+    if (dataSource !== 'supabase') return;
+    try {
+      const data = await estoqueApi.getAll();
+      dispatch({ type: 'RELOAD_ESTOQUE', payload: transformArray(data) });
+    } catch (err) {
+      console.error('❌ Erro ao recarregar estoque:', err.message);
+    }
+  }, [dataSource]);
+
+  // Recarrega romaneios/expedições do Supabase (pull-to-refresh / sync cross-device).
+  const reloadExpedicoes = useCallback(async () => {
+    if (dataSource !== 'supabase') return;
+    try {
+      const data = await expedicoesApi.getAll();
+      dispatch({ type: 'RELOAD_EXPEDICOES', payload: transformArray(data) });
+    } catch (err) {
+      console.error('❌ Erro ao recarregar expedições:', err.message);
+    }
+  }, [dataSource]);
+
   // SINCRONIZAÇÃO CROSS-DEVICE: ao voltar o foco/visibilidade da aba, recarrega
   // os dados colaborativos (lançamentos, medições, peças) com throttle de 15s.
   // Resolve o sintoma "dados lançados por outro usuário não aparecem/persistem".
@@ -1419,6 +1441,7 @@ export function ERPProvider({ children }) {
     consumirEstoque,
     adicionarEstoque,
     reservarEstoque,
+    reloadEstoque,
     compras: state.compras,
     comprasObraAtual,
     addCompra,
@@ -1438,6 +1461,7 @@ export function ERPProvider({ children }) {
     consumirEstoque,
     adicionarEstoque,
     reservarEstoque,
+    reloadEstoque,
     state.compras,
     comprasObraAtual,
     addCompra,
@@ -1458,6 +1482,7 @@ export function ERPProvider({ children }) {
     expedicoesObraAtual,
     addExpedicao,
     updateExpedicao, deleteExpedicao,
+    reloadExpedicoes,
     medicoes: state.medicoes,
     medicoesObraAtual,
     configMedicao: state.configMedicao,
@@ -1483,6 +1508,7 @@ export function ERPProvider({ children }) {
     expedicoesObraAtual,
     addExpedicao,
     updateExpedicao, deleteExpedicao,
+    reloadExpedicoes,
     state.medicoes,
     medicoesObraAtual,
     state.configMedicao,

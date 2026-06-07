@@ -58,6 +58,13 @@ export function estoqueReducer(state, action) {
       };
     }
 
+    // Recarrega todo o estoque do Supabase (sync cross-device / pull-to-refresh)
+    case 'RELOAD_ESTOQUE':
+      return {
+        ...state,
+        estoque: action.payload
+      };
+
     default:
       return state;
   }
