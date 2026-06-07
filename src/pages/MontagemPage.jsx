@@ -22,7 +22,7 @@ import * as Select from '@radix-ui/react-select';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useObras, useProducao, useEquipes } from '../contexts/ERPContext';
-import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal } from '../utils/montagemSync';
+import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY } from '../utils/montagemSync';
 
 // ============================================
 // HELPERS
@@ -228,10 +228,35 @@ export default function MontagemPage() {
     setConcluidas(remoto);
   }));
 
+  // Sync em tempo real com MontexERP3DPage e outras abas/dispositivos
+  // - storage event: capta mudanças de OUTRAS abas (mas não da mesma)
+  // - poll 3s: capta mudanças NA MESMA aba (3D no mesmo browser) + auto-pull remoto
+  // MESMO PADRÃO usado em MontexERP3DPage para garantir consistência bidirecional.
+  React.useEffect(() => {
+    const handler = (e) => {
+      if (e.key === MONTAGEM_LS_KEY || e.key === null) {
+        setConcluidas(loadConcluidasLocal());
+      }
+    };
+    window.addEventListener('storage', handler);
+    const interval = setInterval(() => {
+      const fresh = loadConcluidasLocal();
+      setConcluidas(prev => {
+        const pks = Object.keys(prev || {});
+        const fks = Object.keys(fresh || {});
+        if (pks.length !== fks.length || pks.some(k => !fresh[k])) return fresh;
+        return prev;
+      });
+    }, 3000);
+    return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
+  }, []);
+
   const setConcluida = (pecaId, montada) => {
     setConcluidas(prev => {
       const next = { ...prev };
-      if (montada) next[pecaId] = { montadoEm: new Date().toISOString() };
+      // Mesmo formato de MontexERP3DPage/MontagemMobile: payload com metadados
+      // permite rastrear quando/onde a marcação foi feita.
+      if (montada) next[pecaId] = { montadoEm: new Date().toISOString(), origem: 'MontagemPage' };
       else delete next[pecaId];
       salvarConcluidas(next);
       return next;
