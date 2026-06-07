@@ -28,12 +28,12 @@ import NetworkBanner from './ui/NetworkBanner';
 import LastUpdated from './ui/LastUpdated';
 import { setLastRefresh } from './ui/lastRefresh';
 
-// 5 abas inferiores (sempre visíveis)
+// 5 abas inferiores. `perm` = permissão exigida (ausente = sempre visível).
 const BOTTOM_TABS = [
   { path: '/m', icon: Home, label: 'Início' },
-  { path: '/m/producao', icon: Factory, label: 'Produção' },
-  { path: '/m/montagem', icon: Hammer, label: 'Montagem' },
-  { path: '/m/expedicao', icon: Truck, label: 'Expedição' },
+  { path: '/m/producao', icon: Factory, label: 'Produção', perm: 'producao.view' },
+  { path: '/m/montagem', icon: Hammer, label: 'Montagem', perm: 'producao.view' },
+  { path: '/m/expedicao', icon: Truck, label: 'Expedição', perm: 'expedicao.view' },
   { path: '/m/mais', icon: MoreHorizontal, label: 'Mais' },
 ];
 
@@ -50,40 +50,40 @@ const DRAWER_GROUPS = [
   {
     title: 'Operação',
     items: [
-      { path: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção' },
-      { path: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte' },
-      { path: '/m/expedicao', icon: Truck, label: 'Expedição' },
-      { path: '/m/medicao', icon: Ruler, label: 'Medição' },
-      { path: '/m/3d', icon: Box, label: 'Visualizador 3D' },
-      { path: '/m/estoque', icon: Package, label: 'Estoque' },
+      { path: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção', perm: 'kanban.view' },
+      { path: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', perm: 'kanban.view' },
+      { path: '/m/expedicao', icon: Truck, label: 'Expedição', perm: 'expedicao.view' },
+      { path: '/m/medicao', icon: Ruler, label: 'Medição', perm: 'medicao.view' },
+      { path: '/m/3d', icon: Box, label: 'Visualizador 3D', perm: 'producao.view' },
+      { path: '/m/estoque', icon: Package, label: 'Estoque', perm: 'estoque.view' },
     ],
   },
   {
     title: 'Financeiro',
     items: [
-      { path: '/m/financeiro', icon: Wallet, label: 'Painel' },
-      { path: '/m/despesas', icon: Receipt, label: 'Despesas' },
-      { path: '/m/receitas', icon: TrendingUp, label: 'Receitas' },
-      { path: '/m/dre', icon: PieChart, label: 'DRE' },
-      { path: '/m/obras-gfo', icon: Building2, label: 'Gestão por Obra' },
+      { path: '/m/financeiro', icon: Wallet, label: 'Painel', perm: 'financeiro.view' },
+      { path: '/m/despesas', icon: Receipt, label: 'Despesas', perm: 'financeiro.view' },
+      { path: '/m/receitas', icon: TrendingUp, label: 'Receitas', perm: 'financeiro.view' },
+      { path: '/m/dre', icon: PieChart, label: 'DRE', perm: 'financeiro.view' },
+      { path: '/m/obras-gfo', icon: Building2, label: 'Gestão por Obra', perm: 'financeiro.view' },
     ],
   },
   {
     title: 'Gestão',
     items: [
-      { path: '/m/obras', icon: Building2, label: 'Obras' },
-      { path: '/m/clientes', icon: User, label: 'Clientes' },
-      { path: '/m/equipes', icon: Users, label: 'Equipes' },
-      { path: '/m/orcamentos', icon: Calculator, label: 'Orçamentos' },
-      { path: '/m/relatorios', icon: FileText, label: 'Relatórios' },
+      { path: '/m/obras', icon: Building2, label: 'Obras', perm: 'projetos.view' },
+      { path: '/m/clientes', icon: User, label: 'Clientes', perm: 'clientes.view' },
+      { path: '/m/equipes', icon: Users, label: 'Equipes', perm: 'equipes.view' },
+      { path: '/m/orcamentos', icon: Calculator, label: 'Orçamentos', perm: 'orcamentos.view' },
+      { path: '/m/relatorios', icon: FileText, label: 'Relatórios', perm: 'relatorios.view' },
     ],
   },
   {
     title: 'Analítico',
     items: [
-      { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard BI' },
-      { path: '/m/analise-producao', icon: Activity, label: 'Análise Produção' },
-      { path: '/m/diario', icon: ClipboardList, label: 'Diário Produção' },
+      { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard BI', perm: 'bi.view' },
+      { path: '/m/analise-producao', icon: Activity, label: 'Análise Produção', perm: 'producao.view' },
+      { path: '/m/diario', icon: ClipboardList, label: 'Diário Produção', perm: 'producao.view' },
     ],
   },
 ];
@@ -91,9 +91,22 @@ const DRAWER_GROUPS = [
 export default function MobileLayout({ children, title = 'Montex Mobile', back = false, onBack = null, obraFilter = false }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuth() || {};
+  const { user, logout, hasPermission } = useAuth() || {};
   const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Menu por ROLE: esconde tabs/itens cuja permissão o usuário não tem (operador
+  // não vê Financeiro/BI/Expedição etc.). Sem hasPermission (fallback) mostra tudo.
+  const visibleTabs = useMemo(
+    () => BOTTOM_TABS.filter(t => !t.perm || !hasPermission || hasPermission(t.perm)),
+    [hasPermission]
+  );
+  const visibleGroups = useMemo(
+    () => DRAWER_GROUPS
+      .map(g => ({ ...g, items: g.items.filter(i => !i.perm || !hasPermission || hasPermission(i.perm)) }))
+      .filter(g => g.items.length > 0),
+    [hasPermission]
+  );
   const [refreshTick, setRefreshTick] = useState(0); // força releitura do "atualizado há X"
   // Carregamento inicial dos dados do ERP (Supabase). Mostra esqueleto em vez de
   // telas zeradas/vazias — importante em rede lenta de galpão/canteiro.
@@ -189,7 +202,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         className="flex-shrink-0 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex items-stretch justify-around"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 0px)', minHeight: '64px' }}
       >
-        {BOTTOM_TABS.map(t => {
+        {visibleTabs.map(t => {
           const Icon = t.icon;
           // Precisão: '/m/montagem' ativa Montagem, mas '/m/maisItem' NÃO deve ativar 'Mais'.
           // Usa startsWith(t.path + '/') para casar só sub-rotas reais.
@@ -254,7 +267,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
 
               {/* Grupos de módulos */}
               <div className="flex-1 overflow-y-auto py-2" style={{ WebkitOverflowScrolling: 'touch' }}>
-                {DRAWER_GROUPS.map(g => (
+                {visibleGroups.map(g => (
                   <div key={g.title} className="mb-2">
                     <div className="px-4 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400">{g.title}</div>
                     {g.items.map(item => {
