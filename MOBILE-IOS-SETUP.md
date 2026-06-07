@@ -118,7 +118,14 @@ em runtime) e o toggle em **Configurações → Notificações push**. Falta o l
 4. **Envio**: uma **Supabase Edge Function** (ou serviço) envia ao APNs (via a .p8) quando ocorrem eventos do fluxo:
    - peça pronta (etapa → expedido), carga a conferir (romaneio criado), estoque crítico (nível ≤ mínimo), medição aprovada.
    - Dispare por trigger no Postgres (NOTIFY) ou no próprio `moverPecaEtapa`/`addExpedicao`.
-5. Recebimento no app: `push.js` escuta `pushNotificationReceived` (mostra toast) — abrir deep link para a tela relevante é um próximo passo.
+5. Recebimento no app: `push.js` escuta `pushNotificationReceived` (toast em primeiro plano). Ao **tocar** na push, `DeepLinkHandler` lê `notification.data.path` e navega — então envie no payload APNs um campo `data.path` com a rota, ex.: `{ "path": "/m/expedicao" }` (carga a conferir), `/m/montagem` (peça pronta), `/m/estoque` (estoque crítico).
+
+## Deep links (abrir tela por URL)
+
+`src/mobile/DeepLinkHandler.jsx` (montado no MobileApp) ouve `App.appUrlOpen` e o toque em push. Para deep links por URL:
+1. **Custom scheme** (`montex://m/...`): no Xcode, target App → Info → URL Types → adicione o scheme `montex`. Ex.: `montex://m/expedicao`.
+2. **Universal Links** (`https://montex-erp-v5.vercel.app/m/...`): configure Associated Domains + `apple-app-site-association` no host.
+O handler extrai o `pathname` (`/m/...`) e navega. No web/PWA fica inerte.
 
 ## Separação do ERP desktop (app nativo = só operacional)
 

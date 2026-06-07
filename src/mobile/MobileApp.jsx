@@ -12,6 +12,7 @@ import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
 import InstallPrompt from './ui/InstallPrompt';
 import SyncManager from './SyncManager';
+import DeepLinkHandler from './DeepLinkHandler';
 import Protected from './Protected';
 import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
@@ -26,6 +27,7 @@ import EstoqueMobile from './pages/EstoqueMobile';
 import MedicaoMobile from './pages/MedicaoMobile';
 import PerfilMobile from './pages/PerfilMobile';
 import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
+import NotificacoesMobile from './pages/NotificacoesMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -82,6 +84,7 @@ export default function MobileApp() {
         <ObraMobileProvider>
           <style>{FOCUS_STYLES}</style>
           <SyncManager />
+          <DeepLinkHandler />
           <MobileRoutes />
           <InstallPrompt />
           {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).
@@ -132,7 +135,7 @@ function MobileRoutes() {
       <Route path="dashboard" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
       <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
       <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />
-      <Route path="notificacoes" element={<MobileLayout title="Notificações" back><div className="p-6 text-slate-400 text-sm text-center">Sem notificações</div></MobileLayout>} />
+      <Route path="notificacoes" element={<NotificacoesMobile />} />
       <Route path="perfil" element={<PerfilMobile />} />
       <Route path="config" element={<ConfiguracoesMobile />} />
 
