@@ -16,6 +16,9 @@ import HomeMobile from './pages/HomeMobile';
 import ProducaoMobile from './pages/ProducaoMobile';
 import MontagemMobile from './pages/MontagemMobile';
 import FinanceiroMobile from './pages/FinanceiroMobile';
+import ExpedicaoMobile from './pages/ExpedicaoMobile';
+import EstoqueMobile from './pages/EstoqueMobile';
+import MedicaoMobile from './pages/MedicaoMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -71,14 +74,17 @@ function MobileRoutes() {
       <Route path="producao" element={<ProducaoMobile />} />
       <Route path="montagem" element={<MontagemMobile />} />
       <Route path="financeiro" element={<FinanceiroMobile />} />
+      <Route path="expedicao" element={<ExpedicaoMobile />} />
       <Route path="mais" element={<MaisMobile />} />
 
       {/* Páginas desktop em wrapper */}
       <Route path="3d" element={<DesktopWrap title="Visualizador 3D"><MontexERP3DPage /></DesktopWrap>} />
       <Route path="kanban" element={<DesktopWrap title="Kanban Produção"><KanbanProducaoIntegrado /></DesktopWrap>} />
       <Route path="kanban-corte" element={<DesktopWrap title="Kanban Corte"><KanbanCortePage /></DesktopWrap>} />
-      <Route path="expedicao" element={<DesktopWrap title="Expedição"><EnviosExpedicaoPage /></DesktopWrap>} />
-      <Route path="estoque" element={<DesktopWrap title="Estoque"><EstoquePageV2 /></DesktopWrap>} />
+      <Route path="expedicao-desktop" element={<DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap>} />
+      <Route path="estoque" element={<EstoqueMobile />} />
+      <Route path="medicao" element={<MedicaoMobile />} />
+      <Route path="estoque-desktop" element={<DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap>} />
       <Route path="despesas" element={<DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap>} />
       <Route path="receitas" element={<DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap>} />
       <Route path="obras-gfo" element={<DesktopWrap title="Gestão por Obra"><GestaoFinanceiraObra /></DesktopWrap>} />

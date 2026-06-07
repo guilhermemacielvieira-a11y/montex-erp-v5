@@ -131,17 +131,21 @@ const AuthenticatedApp = () => {
   //   force_desktop=1 → nunca redireciona ; force_mobile=1 → sempre testa mobile.
   const forceDesktop = typeof window !== 'undefined' && localStorage.getItem('force_desktop') === '1';
   const forceMobile = typeof window !== 'undefined' && localStorage.getItem('force_mobile') === '1';
+  // App iOS/Android nativo (Capacitor): é o SUPER APP OPERACIONAL, separado do
+  // ERP desktop. Sempre roda em /m e NUNCA mostra a interface desktop — nem com
+  // force_desktop. O desktop continua sendo exclusivamente a versão web.
+  const isNativeApp = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
   const isTouchDevice = typeof window !== 'undefined' && (
     window.matchMedia('(pointer: coarse)').matches ||
     'ontouchstart' in window ||
     (navigator.maxTouchPoints || 0) > 0
   );
   const isNarrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
-  const isMobileViewport = forceMobile || (isTouchDevice && isNarrow);
+  const isMobileViewport = isNativeApp || forceMobile || (isTouchDevice && isNarrow);
   // ATENÇÃO: usar '/m/' (com barra) ou exatamente '/m' — senão captura rotas
   // desktop legítimas como /medicoes, /montagem, /maquinas, /metas, etc.
   const isMobileRoute = location.pathname === '/m' || location.pathname.startsWith('/m/');
-  if (isMobileViewport && !forceDesktop && !isMobileRoute && location.pathname !== '/login' && location.pathname !== '/forgot-password' && location.pathname !== '/reset-password') {
+  if (isMobileViewport && (isNativeApp || !forceDesktop) && !isMobileRoute && location.pathname !== '/login' && location.pathname !== '/forgot-password' && location.pathname !== '/reset-password') {
     return <Navigate to="/m" replace />;
   }
 

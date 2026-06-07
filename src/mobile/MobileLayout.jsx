@@ -16,7 +16,7 @@ import {
   Bell, Search, LogOut, ChevronRight, X, User,
   BarChart3, Package, Truck, FileText, Settings,
   Box, Scissors, Users, ClipboardList, Building2,
-  Calculator, Receipt, TrendingUp, Activity, PieChart,
+  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler,
 } from 'lucide-react';
 import { useAuth } from '@/lib/AuthContext';
 import ObraSelector from './components/ObraSelector';
@@ -26,7 +26,7 @@ const BOTTOM_TABS = [
   { path: '/m', icon: Home, label: 'Início' },
   { path: '/m/producao', icon: Factory, label: 'Produção' },
   { path: '/m/montagem', icon: Hammer, label: 'Montagem' },
-  { path: '/m/financeiro', icon: Wallet, label: 'Financeiro' },
+  { path: '/m/expedicao', icon: Truck, label: 'Expedição' },
   { path: '/m/mais', icon: MoreHorizontal, label: 'Mais' },
 ];
 
@@ -38,6 +38,7 @@ const DRAWER_GROUPS = [
       { path: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção' },
       { path: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte' },
       { path: '/m/expedicao', icon: Truck, label: 'Expedição' },
+      { path: '/m/medicao', icon: Ruler, label: 'Medição' },
       { path: '/m/3d', icon: Box, label: 'Visualizador 3D' },
       { path: '/m/estoque', icon: Package, label: 'Estoque' },
     ],
