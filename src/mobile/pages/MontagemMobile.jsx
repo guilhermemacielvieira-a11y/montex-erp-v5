@@ -51,8 +51,8 @@ export default function MontagemMobile() {
 
   return (
     <MobileLayout title="Montagem" obraFilter>
-      {/* Filtros / Tabs */}
-      <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
+      {/* Tabs + busca (não-sticky: o ObraSelector logo acima já é sticky) */}
+      <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
         {/* Tabs */}
         <div className="flex gap-2">
           <button

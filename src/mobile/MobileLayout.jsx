@@ -129,7 +129,9 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
       >
         {BOTTOM_TABS.map(t => {
           const Icon = t.icon;
-          const active = location.pathname === t.path || (t.path !== '/m' && location.pathname.startsWith(t.path));
+          // Precisão: '/m/montagem' ativa Montagem, mas '/m/maisItem' NÃO deve ativar 'Mais'.
+          // Usa startsWith(t.path + '/') para casar só sub-rotas reais.
+          const active = location.pathname === t.path || (t.path !== '/m' && location.pathname.startsWith(t.path + '/'));
           return (
             <Link
               key={t.path}
@@ -144,22 +146,26 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         })}
       </nav>
 
-      {/* DRAWER LATERAL ────────────────────── */}
+      {/* DRAWER LATERAL — filhos keyed diretos (sem Fragment) para AnimatePresence
+          rastrear o exit e desmontar corretamente. Mesmo padrão do bottom sheet. */}
       <AnimatePresence>
         {drawerOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              transition={{ duration: 0.18 }}
-              className="fixed inset-0 bg-black/60 z-40"
-              onClick={() => setDrawerOpen(false)}
-            />
-            <motion.aside
-              initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
-              transition={{ type: 'tween', duration: 0.24, ease: 'easeOut' }}
-              className="fixed top-0 left-0 bottom-0 w-[82%] max-w-[320px] bg-slate-900 border-r border-slate-800 z-50 flex flex-col"
-              style={{ paddingTop: 'env(safe-area-inset-top)' }}
-            >
+          <motion.div
+            key="drawer-overlay"
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="fixed inset-0 bg-black/60 z-40"
+            onClick={() => setDrawerOpen(false)}
+          />
+        )}
+        {drawerOpen && (
+          <motion.aside
+            key="drawer-panel"
+            initial={{ x: '-100%' }} animate={{ x: 0 }} exit={{ x: '-100%' }}
+            transition={{ type: 'tween', duration: 0.24, ease: 'easeOut' }}
+            className="fixed top-0 left-0 bottom-0 w-[82%] max-w-[320px] bg-slate-900 border-r border-slate-800 z-50 flex flex-col"
+            style={{ paddingTop: 'env(safe-area-inset-top)' }}
+          >
               {/* Header do Drawer */}
               <div className="flex items-center gap-3 p-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-lg">M</div>
@@ -205,8 +211,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
                   <LogOut className="w-4 h-4" /> Sair
                 </button>
               </div>
-            </motion.aside>
-          </>
+          </motion.aside>
         )}
       </AnimatePresence>
     </div>

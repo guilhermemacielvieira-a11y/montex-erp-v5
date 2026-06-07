@@ -53,8 +53,8 @@ export default function ProducaoMobile() {
 
   return (
     <MobileLayout title="Produção" obraFilter>
-      {/* Busca */}
-      <div className="sticky top-0 z-10 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
+      {/* Busca (não-sticky: o ObraSelector logo acima já é sticky) */}
+      <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <input
