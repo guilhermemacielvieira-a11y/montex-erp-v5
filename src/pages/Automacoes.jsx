@@ -203,7 +203,7 @@ export default function AutomacoesPage() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
             {automacoes.map((automacao) => (
               <Card key={automacao.id} className={cn(
                 "border-2 transition-all",
@@ -317,7 +317,7 @@ export default function AutomacoesPage() {
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
             {fluxos.map((fluxo) => (
               <Card key={fluxo.id} className={cn(
                 "border-2",

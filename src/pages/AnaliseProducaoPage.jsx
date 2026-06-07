@@ -1283,7 +1283,7 @@ export default function AnaliseProducaoPage() {
       <AnimatePresence mode="wait">
         {activeTab === 'visao-geral' && (
           <motion.div key="visao" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="grid grid-cols-1 lg:grid-cols-2 gap-6 space-y-6">
+            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 space-y-6">
             {/* Status Distribution Pie */}
             <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
               <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
@@ -1351,7 +1351,7 @@ export default function AnaliseProducaoPage() {
             </div>
 
             {/* 3D + Progress Row */}
-            <div className="lg:col-span-2 grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
               {/* Mini 3D Chart */}
               <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
                 <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
@@ -1389,7 +1389,7 @@ export default function AnaliseProducaoPage() {
             </div>
 
             {/* Financial Value Bar Chart */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
               <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
                 <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
                   <BarChart3 size={18} className="text-green-400" /> Valor por Etapa (R$)

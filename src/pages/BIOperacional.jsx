@@ -295,7 +295,7 @@ export default function BIOperacional() {
         </div>
 
         {/* Main OEE and Status Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* OEE Gauge - 3D */}
           <motion.div
             className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6 flex flex-col items-center justify-center relative overflow-hidden"
@@ -338,7 +338,7 @@ export default function BIOperacional() {
         </div>
 
         {/* Live Cost Ticker and Anomaly Detection */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
           {/* Live Cost Ticker */}
           <motion.div
             className="bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-emerald-500/30 rounded-xl p-6 relative overflow-hidden"
@@ -417,7 +417,7 @@ export default function BIOperacional() {
           </motion.div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* Real-time Production Chart - Enhanced */}
           <div className="lg:col-span-2 bg-slate-800/50 border border-slate-700/50 rounded-xl p-4 relative overflow-hidden">
             <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/5 rounded-full blur-3xl" />
@@ -508,7 +508,7 @@ export default function BIOperacional() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
           {/* Machines Status - 3D Enhanced */}
           <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
             <h3 className="text-white font-semibold flex items-center gap-2 mb-4">
@@ -637,7 +637,7 @@ export default function BIOperacional() {
         </div>
 
         {/* Production Heatmap and Deliveries */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
           {/* Production Heatmap */}
           <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-4">
             <h3 className="text-white font-semibold flex items-center gap-2 mb-4">

@@ -2144,7 +2144,7 @@ export default function PainelFinanceiroGlobal() {
           )}
 
           {/* SCORE DE SAÚDE + COMPARATIVO */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {/* Score de saúde financeira */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader className="pb-3">
@@ -2222,7 +2222,7 @@ export default function PainelFinanceiroGlobal() {
             <KPISimple icon={Clock} color="amber" label="A Receber" value={formatCurrency(kpis.recPendentes)} sub={`A pagar: ${formatCurrency(kpis.despPendentes)}`} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
               <CardHeader><CardTitle className="text-white flex items-center gap-2"><BarChart3 className="h-5 w-5 text-purple-400" />Evolução Receitas vs Despesas</CardTitle></CardHeader>
               <CardContent>
@@ -2295,7 +2295,7 @@ export default function PainelFinanceiroGlobal() {
             <KPISimple icon={Target} color="purple" label="Meta Mensal" value={formatCurrency(metas.receitaMinimaMensal)} sub={`Atual: ${formatCurrency(metasReal.receitaMes)}`} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
               <CardHeader><CardTitle className="text-white">Evolução de Receitas</CardTitle></CardHeader>
               <CardContent>
@@ -2375,7 +2375,7 @@ export default function PainelFinanceiroGlobal() {
             <KPISimple icon={AlertTriangle} color="purple" label="Despesa-Teto" value={formatCurrency(metas.despesaTetoMensal)} sub={`Atual: ${formatCurrency(metasReal.despesaMes)}`} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-2">
               <CardHeader><CardTitle className="text-white">Evolução de Despesas</CardTitle></CardHeader>
               <CardContent>
@@ -2823,7 +2823,7 @@ export default function PainelFinanceiroGlobal() {
             </CardContent>
           </Card>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader><CardTitle className="text-white">Receitas Futuras (próx. 90 dias)</CardTitle></CardHeader>
               <CardContent>
@@ -3080,7 +3080,7 @@ export default function PainelFinanceiroGlobal() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             {/* Controles */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>

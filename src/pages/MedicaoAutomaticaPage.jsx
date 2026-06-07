@@ -644,7 +644,7 @@ export default function MedicaoAutomaticaPage() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
           <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
             <BarChart3 className="h-5 w-5 text-slate-400" />

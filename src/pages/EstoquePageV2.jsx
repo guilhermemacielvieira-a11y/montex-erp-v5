@@ -722,7 +722,7 @@ export default function EstoquePageV2() {
         <div className="mt-6">
           {/* Visão Geral */}
           <Tabs.Content value="visao-geral">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
               {/* Gráfico de Status */}
               <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-6">
                 <h3 className="text-white font-semibold mb-4">Status do Estoque</h3>
@@ -783,7 +783,7 @@ export default function EstoquePageV2() {
             </div>
             {/* Grid de Itens */}
             <div className="space-y-4">
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                 {paginationItens.data.map(item => (
                   <ItemEstoque
                     key={item.id}
@@ -1195,7 +1195,7 @@ export default function EstoquePageV2() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
                     {itensVinculados.map(item => (
                       <ItemEstoque
                         key={item.id}

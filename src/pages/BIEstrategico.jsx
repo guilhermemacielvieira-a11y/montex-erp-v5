@@ -471,7 +471,7 @@ export default function BIEstrategico() {
         </div>
 
         {/* Main Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Multi-year Performance - Premium */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -556,7 +556,7 @@ export default function BIEstrategico() {
         </div>
 
         {/* Second Row - 3D Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Market Segments - 3D Donut */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -618,7 +618,7 @@ export default function BIEstrategico() {
         </div>
 
         {/* Pipeline and Initiatives */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
           {/* Pipeline Funnel - Premium */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}

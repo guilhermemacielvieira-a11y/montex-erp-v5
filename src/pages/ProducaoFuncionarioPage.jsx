@@ -241,7 +241,7 @@ function DashboardKPIs({ kpis, pecas }) {
       </div>
 
       {/* Gráficos lado a lado */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {/* Gráfico de Barras Comparativo */}
         <Card className="bg-slate-900/60 border-slate-700/50 lg:col-span-1">
           <CardHeader className="pb-2">
@@ -468,7 +468,7 @@ function TopPerformersSection({ performers }) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <div className="space-y-2">
               {performers.slice(0, 5).map((f, i) => (
                 <motion.div
@@ -528,7 +528,7 @@ function TopPerformersSection({ performers }) {
       </Card>
 
       {/* Rankings por Setor */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
         <RankingSetorCard
           titulo="Produção / Corte"
           icon={Scissors}
@@ -547,7 +547,7 @@ function TopPerformersSection({ performers }) {
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
         <RankingSetorCard
           titulo="Pintura"
           icon={Paintbrush}
@@ -1792,7 +1792,7 @@ export default function ProducaoFuncionarioPage() {
 
           {/* Tab Funcionários */}
           <TabsContent value="funcionarios" className="mt-4">
-            <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6">
               {/* Lista de Funcionários (3 cols) */}
               <div className="lg:col-span-3 space-y-4">
                 <h2 className="text-lg font-semibold text-white flex items-center gap-2">

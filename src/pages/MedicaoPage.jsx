@@ -323,7 +323,7 @@ export default function MedicaoPage() {
           <FileText className="h-5 w-5 text-blue-400" />
           Valores de Medição - {obraAtualData?.nome || '-'}
         </h3>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
             <p className="text-slate-400 text-sm">Fabricação (R$/kg)</p>
             <p className="text-2xl font-bold text-white mt-2">R$ {VALORES_CONTRATO.valorKgFab.toFixed(2)}</p>

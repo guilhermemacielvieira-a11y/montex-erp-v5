@@ -541,7 +541,7 @@ export default function EquipesPage() {
 
         {/* ============ TAB FUNCIONÁRIOS ============ */}
         <TabsContent value="funcionarios" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
             <AnimatePresence>
               {funcFiltrados.map((f) => {
                 const iniciais = f.nome.split(' ').map(n => n[0]).join('').substring(0, 2);
@@ -605,7 +605,7 @@ export default function EquipesPage() {
 
         {/* ============ TAB EQUIPES ============ */}
         <TabsContent value="equipes" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
             {equipes.map((eq) => {
               const membros = getMembros(eq.id);
               const progPct = eq.metaMes > 0 ? Math.round((eq.producaoMes / eq.metaMes) * 100) : 0;
@@ -676,7 +676,7 @@ export default function EquipesPage() {
 
         {/* ============ TAB DESEMPENHO ============ */}
         <TabsContent value="desempenho" className="mt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardContent className="p-6">
                 <h3 className="text-white font-semibold mb-4 flex items-center gap-2">

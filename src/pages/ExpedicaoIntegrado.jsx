@@ -790,7 +790,7 @@ export default function ExpedicaoIntegrado() {
 
           {/* Tab: Métricas */}
           <Tabs.Content value="metricas" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
               {/* Gráfico de Expedições por Status */}
               <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
                             rounded-xl border border-slate-700/50 p-4">

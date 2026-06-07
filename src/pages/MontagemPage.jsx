@@ -808,7 +808,7 @@ export default function MontagemPage() {
       {/* CONTEÚDO: KANBAN OU LISTA                    */}
       {/* ============================================ */}
       {viewMode === 'kanban' ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
           {['aguardando_montagem', 'montado'].map(statusKey => {
             const s = STATUS_CONFIG[statusKey];
             const items = kanban[statusKey];
@@ -984,7 +984,7 @@ export default function MontagemPage() {
       {/* ============================================ */}
       {/* EQUIPES + ALERTA INFORMATIVO                 */}
       {/* ============================================ */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2 bg-slate-900/60 border border-slate-800 rounded-xl p-4">
           <h3 className="text-sm font-bold text-white flex items-center gap-2 mb-3">
             <Users className="h-4 w-4 text-purple-400" />

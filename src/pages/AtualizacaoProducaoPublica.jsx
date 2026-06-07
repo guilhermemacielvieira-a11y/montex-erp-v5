@@ -158,7 +158,7 @@ export default function AtualizacaoProducaoPublica() {
                   <Factory className="w-6 h-6" />
                   Fabricação ({itemsFabricacao.length})
                 </h2>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
                   {itemsFabricacao.map(item => (
                     <ItemProducaoCard key={item.id} item={item} />
                   ))}
@@ -173,7 +173,7 @@ export default function AtualizacaoProducaoPublica() {
                   <Package className="w-6 h-6" />
                   Montagem ({itemsMontagem.length})
                 </h2>
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
                   {itemsMontagem.map(item => (
                     <ItemProducaoCard key={item.id} item={item} />
                   ))}

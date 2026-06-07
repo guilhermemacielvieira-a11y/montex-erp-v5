@@ -454,7 +454,7 @@ export default function AnaliseCustosPage() {
 
         {/* Visão Geral */}
         <TabsContent value="visao-geral" className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             {/* Gráfico de Pizza - Categorias */}
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>
@@ -687,7 +687,7 @@ export default function AnaliseCustosPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <Card className="bg-slate-900/60 border-slate-700/50">
               <CardHeader>
                 <CardTitle className="text-white flex items-center gap-2">

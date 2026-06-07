@@ -189,7 +189,7 @@ export default function AtualizacaoProducaoIndependente() {
 
              {/* Itens Filtrados */}
              {itemsExibicao.length > 0 ? (
-               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
                  {itemsExibicao.map(item => (
                    <ItemProducaoCard key={item.id} item={item} />
                  ))}

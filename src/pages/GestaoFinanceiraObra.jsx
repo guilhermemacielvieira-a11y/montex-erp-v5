@@ -1193,7 +1193,7 @@ export default function GestaoFinanceiraObra() {
 
           {/* Tab: Dashboard */}
           <Tabs.Content value="dashboard" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
               {/* Despesas por Categoria */}
               <div
                 className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
@@ -1514,7 +1514,7 @@ export default function GestaoFinanceiraObra() {
             </motion.div>
 
             {/* Receitas Detalhadas */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
               {/* Lista de Receitas (Medições Pagas) */}
               <div
                 className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
@@ -1918,7 +1918,7 @@ export default function GestaoFinanceiraObra() {
               />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Gráfico Estoque por Tipo */}
               <div
                 className="rounded-xl border backdrop-blur-md overflow-hidden p-5"
@@ -2143,7 +2143,7 @@ export default function GestaoFinanceiraObra() {
 
           {/* Tab: Medições */}
           <Tabs.Content value="medicoes" className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {/* Lista de Medições */}
               <div className="lg:col-span-2 rounded-xl border backdrop-blur-md overflow-hidden p-5"
             style={{

@@ -851,7 +851,7 @@ export default function ReceitasPage() {
       </div>
 
       {/* Gráficos */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         {/* Evolução */}
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardHeader>

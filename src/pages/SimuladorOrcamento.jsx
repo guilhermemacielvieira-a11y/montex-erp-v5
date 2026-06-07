@@ -114,7 +114,7 @@ const StepDadosProjeto = ({ project, setProject }) => {
 
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         <div className="bg-slate-800 rounded-lg shadow p-6">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Building2 className="h-5 w-5 text-blue-600" />
@@ -306,7 +306,7 @@ const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
 
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         {/* Estrutura Metálica */}
         <div className="bg-slate-800 rounded-lg shadow p-6 border-l-4 border-l-blue-600">
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -514,7 +514,7 @@ const StepCustosUnitarios = ({ unitCosts, setUnitCosts, setores }) => {
             <Target className="h-5 w-5 text-green-600" />
             Complementos
           </h3>
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
             <div>
               <label className="block font-medium text-slate-300 mb-1">Calha (R$/ml)</label>
               <input
@@ -1040,7 +1040,7 @@ const StepBDIInvestimento = ({ project, calculations, setCalculations, setores, 
 
   return (
     <div className="max-w-full px-4 lg:px-8 space-y-6">
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
         {/* BDI Configuration */}
         <div className="bg-slate-800 rounded-lg shadow p-6 border-l-4 border-l-blue-600">
           <h3 className="text-lg font-semibold mb-4">Margem e Impostos</h3>
@@ -1678,7 +1678,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
             ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <div className="bg-slate-800 rounded-2xl border border-slate-800 shadow-sm p-6">
               <h3 className="text-sm font-bold text-slate-100 mb-4 flex items-center gap-2">
                 <div className="w-3 h-3 rounded-full bg-indigo-500" />
@@ -2002,7 +2002,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
           )}
 
           {/* Alertas */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
             {[
               analise.roi < 15 && { tipo: 'warn', msg: `ROI de ${fmtN(analise.roi)}% abaixo da meta de 15%. Aumente a margem ou reduza custos.` },
               cashflowData.rows.some(m => m.saldo < 0) && { tipo: 'warn', msg: `Há meses com saldo negativo (despesa supera a entrada). Verifique antecipação de pagamentos.` },

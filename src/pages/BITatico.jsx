@@ -403,7 +403,7 @@ export default function BITatico() {
         </div>
 
         {/* Charts Row 1 - 3D Enhanced */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Trend Analysis */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -473,7 +473,7 @@ export default function BITatico() {
         </div>
 
         {/* Charts Row 2 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {/* Budget Comparison - Enhanced */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -518,7 +518,7 @@ export default function BITatico() {
         </div>
 
         {/* Row 3 - Performance and Heatmap */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
           {/* Performance by Responsible - Enhanced */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}

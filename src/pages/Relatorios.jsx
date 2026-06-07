@@ -768,11 +768,11 @@ Use linguagem executiva e objetiva.`;
       {/* Gráficos Analíticos */}
       {relatorios.length > 0 && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <ProgressoFisicoFinanceiro relatorios={relatorios} projetos={projetos} />
             <ComparacaoProjetosProgresso relatorios={relatorios} projetos={projetos} />
           </div>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
             <DesempenhoCustosVsPlanejado relatorios={relatorios} projetos={projetos} />
             <EvolutionTonelagem relatorios={relatorios} projetos={projetos} />
           </div>
