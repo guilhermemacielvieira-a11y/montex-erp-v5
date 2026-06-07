@@ -122,8 +122,12 @@ const PERMISSIONS = {
 };
 
 export const AuthProvider = ({ children }) => {
-  // DEV_BYPASS: false = modo produção com login obrigatório
-  const DEV_BYPASS = false;
+  // DEV_BYPASS: bypass de login APENAS no dev server local (npm run dev no PC).
+  // import.meta.env.DEV é true só em desenvolvimento e false no build de produção,
+  // então a visualização desktop direto no browser do PC entra sem login enquanto
+  // o deploy (Vercel, público) continua exigindo autenticação. Para forçar o login
+  // localmente, rode `npm run preview` (build) ou defina VITE_FORCE_LOGIN=1.
+  const DEV_BYPASS = import.meta.env.DEV && import.meta.env.VITE_FORCE_LOGIN !== '1';
   const DEV_USER = {
     id: 'dev-admin',
     authId: 'dev-admin',

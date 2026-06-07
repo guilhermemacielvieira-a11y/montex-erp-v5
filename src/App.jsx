@@ -124,10 +124,20 @@ const AuthenticatedApp = () => {
     </div>
   );
 
-  // Auto-detect mobile: se em mobile e usuário não está em /m/* nem em rota pública,
-  // redireciona para /m. Pode ser desabilitado via localStorage 'force_desktop=1'.
-  const isMobileViewport = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+  // Auto-detect mobile: só redireciona em dispositivo REALMENTE móvel (touch +
+  // tela estreita). Navegador desktop no PC NUNCA é desviado para /m, mesmo com
+  // a janela estreita / zoom alto / DPI — antes bastava largura<=768 e o desktop
+  // caía no app mobile sem querer. Overrides via localStorage:
+  //   force_desktop=1 → nunca redireciona ; force_mobile=1 → sempre testa mobile.
   const forceDesktop = typeof window !== 'undefined' && localStorage.getItem('force_desktop') === '1';
+  const forceMobile = typeof window !== 'undefined' && localStorage.getItem('force_mobile') === '1';
+  const isTouchDevice = typeof window !== 'undefined' && (
+    window.matchMedia('(pointer: coarse)').matches ||
+    'ontouchstart' in window ||
+    (navigator.maxTouchPoints || 0) > 0
+  );
+  const isNarrow = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
+  const isMobileViewport = forceMobile || (isTouchDevice && isNarrow);
   // ATENÇÃO: usar '/m/' (com barra) ou exatamente '/m' — senão captura rotas
   // desktop legítimas como /medicoes, /montagem, /maquinas, /metas, etc.
   const isMobileRoute = location.pathname === '/m' || location.pathname.startsWith('/m/');
