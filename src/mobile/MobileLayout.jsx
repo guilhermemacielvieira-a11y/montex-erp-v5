@@ -18,11 +18,15 @@ import {
   Box, Scissors, Users, ClipboardList, Building2,
   Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler,
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/AuthContext';
 import { useERP } from '@/contexts/ERPContext';
 import ObraSelector from './components/ObraSelector';
 import MobilePageSkeleton from './ui/Skeleton';
 import PullToRefresh from './ui/PullToRefresh';
+import NetworkBanner from './ui/NetworkBanner';
+import LastUpdated from './ui/LastUpdated';
+import { setLastRefresh } from './ui/lastRefresh';
 
 // 5 abas inferiores (sempre visíveis)
 const BOTTOM_TABS = [
@@ -82,13 +86,20 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
   const { user, logout } = useAuth() || {};
   const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [refreshTick, setRefreshTick] = useState(0); // força releitura do "atualizado há X"
   // Carregamento inicial dos dados do ERP (Supabase). Mostra esqueleto em vez de
   // telas zeradas/vazias — importante em rede lenta de galpão/canteiro.
   const carregando = dataSource === 'loading';
   // Puxar-para-atualizar recarrega os dados operacionais que mudam o tempo todo
   // no chão de fábrica (peças/produção/montagem, estoque e romaneios), em paralelo.
   const handleRefresh = async () => {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      toast.error('Sem conexão — não foi possível atualizar');
+      return;
+    }
     await Promise.all([reloadPecas?.(), reloadEstoque?.(), reloadExpedicoes?.()]);
+    setLastRefresh();
+    setRefreshTick(t => t + 1);
   };
 
   // Fechar drawer ao navegar
@@ -119,11 +130,15 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
           </button>
         )}
         <h1 className="flex-1 font-bold text-base tracking-tight truncate">{title}</h1>
+        <LastUpdated tick={refreshTick} />
         <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label="Notificações" onClick={() => navigate('/m/notificacoes')}>
           <Bell className="w-5 h-5" />
           <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" />
         </button>
       </header>
+
+      {/* Aviso de rede/falha (offline ou erro de carga) */}
+      <NetworkBanner erro={dataSource === 'error'} />
 
       {/* CONTEÚDO ──────────────────────────── */}
       <main className="flex-1 overflow-hidden">

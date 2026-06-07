@@ -6,8 +6,9 @@
 // Páginas desktop são exibidas em modo mobile via wrapper "DesktopInMobile"
 // (com header voltar) quando não há versão mobile dedicada.
 // ============================================================
-import React, { lazy, Suspense } from 'react';
+import React, { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { initLastRefresh } from './ui/lastRefresh';
 import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
@@ -67,6 +68,8 @@ const FOCUS_STYLES = `
 }`;
 
 export default function MobileApp() {
+  // Marca a abertura do app como referência inicial de "atualizado há X".
+  useEffect(() => { initLastRefresh(); }, []);
   return (
     <ERPProvider>
       <ProducaoFabricaProvider>
