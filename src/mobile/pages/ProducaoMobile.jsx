@@ -18,6 +18,7 @@ import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
 import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
+import { ensureOnline } from '../ui/online';
 import { useERP } from '@/contexts/ERPContext';
 import { useProducao } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
@@ -96,6 +97,7 @@ export default function ProducaoMobile() {
     if (!pecaSel || !moverPecaEtapa) return;
     const prox = proximaEtapa(pecaSel.etapa);
     if (!prox) { toast('Peça já está na etapa final'); return; }
+    if (!ensureOnline()) return;
     setSaving(true);
     try {
       await moverPecaEtapa(pecaSel.id, prox, funcId || undefined);

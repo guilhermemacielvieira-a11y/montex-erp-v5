@@ -17,6 +17,7 @@ import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
 import { tap, success } from '../ui/haptics';
+import { ensureOnline } from '../ui/online';
 import { useERP, useExpedicao } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
 
@@ -119,6 +120,7 @@ export default function ExpedicaoMobile() {
 
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
+    if (!ensureOnline()) return;
     setSaving(true);
     try {
       await updateExpedicao(romaneio.id, { status: 'em_transito' });

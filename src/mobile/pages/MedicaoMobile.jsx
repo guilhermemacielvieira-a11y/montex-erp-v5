@@ -15,6 +15,7 @@ import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import { tap, success } from '../ui/haptics';
 import { confirmarBiometria } from '../ui/biometric';
+import { ensureOnline } from '../ui/online';
 import { useERP, useMedicoes } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
 import { supabase } from '@/api/supabaseClient';
@@ -87,6 +88,7 @@ export default function MedicaoMobile() {
   const registrar = async () => {
     if (!obraId) { toast.error('Selecione a obra'); return; }
     if (!(parseFloat(peso) > 0)) { toast.error('Informe o peso medido'); return; }
+    if (!ensureOnline()) return;
     const ok = await confirmarBiometria('Confirmar lançamento de medição');
     if (!ok) { toast.error('Autenticação não confirmada'); return; }
 

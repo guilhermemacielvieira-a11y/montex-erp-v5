@@ -8,7 +8,9 @@
 // ============================================================
 import React, { lazy, Suspense, useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
+import InstallPrompt from './ui/InstallPrompt';
 import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
@@ -76,6 +78,19 @@ export default function MobileApp() {
         <ObraMobileProvider>
           <style>{FOCUS_STYLES}</style>
           <MobileRoutes />
+          <InstallPrompt />
+          {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).
+              Escopo mobile, tema escuro, abaixo do header. */}
+          <Toaster
+            position="top-center"
+            containerStyle={{ top: 'calc(env(safe-area-inset-top) + 64px)' }}
+            toastOptions={{
+              duration: 3000,
+              style: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', fontSize: '13px', maxWidth: '92vw' },
+              success: { iconTheme: { primary: '#22c55e', secondary: '#0f172a' } },
+              error: { iconTheme: { primary: '#ef4444', secondary: '#0f172a' } },
+            }}
+          />
         </ObraMobileProvider>
       </ProducaoFabricaProvider>
     </ERPProvider>

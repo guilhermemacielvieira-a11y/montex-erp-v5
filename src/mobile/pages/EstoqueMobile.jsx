@@ -20,6 +20,7 @@ import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
 import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
+import { ensureOnline } from '../ui/online';
 import { useEstoque } from '@/contexts/ERPContext';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
@@ -78,6 +79,7 @@ export default function EstoqueMobile() {
       toast.error('Saída maior que o saldo disponível');
       return;
     }
+    if (!ensureOnline()) return;
     setSaving(true);
     try {
       if (isSaida) await consumirEstoque?.(itemSel.id, qtd);
