@@ -613,6 +613,56 @@ class SceneManager {
 }
 
 // ==============================================
+// PARSE VIA WEB WORKER (off-main-thread)
+// ==============================================
+// Roda o parse do IFC no worker, mantendo a UI fluida durante os ~40s. O buffer
+// é CLONADO para o worker (postMessage sem transfer) — a página mantém o seu
+// para salvar/upload. A geometria volta TRANSFERIDA (sem cópia). Resolve com
+// { primary, secondary, correctedTypes }. Rejeita em qualquer falha → a chamadora
+// cai para o parse na main thread (parseIFCFile importado).
+function parseViaWorker(buffer, onProgress, onStage) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      // type:'module' — único modo do Vite transpilar `import` no worker em dev.
+      // (module workers não têm importScripts; getWebIFC usa fetch+eval lá.)
+      worker = new Worker(new URL('../workers/ifcWorker.js', import.meta.url), { type: 'module' });
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error('Worker indisponível'));
+      return;
+    }
+    let primary = [];
+    let settled = false;
+    const cleanup = () => { try { worker.terminate(); } catch (_) {} };
+    worker.onmessage = (ev) => {
+      const m = ev.data || {};
+      if (m.type === 'progress') {
+        onProgress?.(m.pct, m.txt);
+      } else if (m.type === 'stage') {
+        primary = m.elements || [];
+        onStage?.('primary', primary);
+      } else if (m.type === 'done') {
+        settled = true;
+        cleanup();
+        resolve({ primary, secondary: m.elements || [], correctedTypes: m.correctedTypes });
+      } else if (m.type === 'error') {
+        settled = true;
+        cleanup();
+        reject(new Error(m.message || 'Erro no worker'));
+      }
+    };
+    worker.onerror = (e) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(e?.error || new Error(e?.message || 'Erro no worker IFC'));
+    };
+    // SEM transfer: clona o buffer p/ o worker; a página preserva o seu original.
+    worker.postMessage({ buffer });
+  });
+}
+
+// ==============================================
 // COMPONENTE PRINCIPAL
 // ==============================================
 
@@ -1571,23 +1621,42 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
       const sm = sceneManagerRef.current;
 
-      const elements = await parseIFCFile(buffer, (pct, txt) => {
+      // Callbacks compartilhados entre o caminho do worker e o fallback main-thread.
+      const onProgress = (pct, txt) => {
         setProgress(pct);
         setProgressText(txt);
-      }, (stage, stageElements) => {
-        // Callback de etapa - renderiza progressivamente
+      };
+      const onStage = (stage, stageElements) => {
+        // Renderiza a estrutura principal progressivamente assim que fica pronta.
         if (stage === 'primary' && sm) {
           setLoadingStage('primary');
-          // Carrega estrutura principal imediatamente
           sm.loadElements(stageElements);
           applyColorsToScene(sm, stageElements);
           setProgressText(`Estrutura principal renderizada (${stageElements.length} elementos). Carregando detalhes...`);
         }
-      });
+      };
+
+      // Parse OFF-MAIN-THREAD via Web Worker; em qualquer falha, fallback síncrono
+      // na main thread (mesmo parseIFCFile). O worker mantém a UI fluida nos ~40s.
+      let primary, secondary;
+      try {
+        const r = await parseViaWorker(buffer, onProgress, onStage);
+        primary = r.primary;
+        secondary = r.secondary;
+        // O worker tem sua própria instância de IFC_TYPES; propaga a correção
+        // de IDs de tipo (ex.: IFCMECHANICALFASTENER) para a do módulo da página.
+        if (r.correctedTypes) Object.assign(IFC_TYPES, r.correctedTypes);
+      } catch (werr) {
+        console.warn('[3D] Worker IFC indisponível — parse na main thread:', werr?.message || werr);
+        const all = await parseIFCFile(buffer, onProgress, onStage);
+        primary = all.filter(el => el.isPrimary);
+        secondary = all.filter(el => !el.isPrimary);
+      }
+
+      const elements = [...primary, ...secondary];
 
       // Etapa 2: Adicionar elementos secundarios (exceto parafusos por padrao)
-      const secondaryOnly = elements.filter(el => !el.isPrimary);
-      const withoutFasteners = secondaryOnly.filter(el => el.ifcType !== IFC_TYPES.IFCMECHANICALFASTENER);
+      const withoutFasteners = secondary.filter(el => el.ifcType !== IFC_TYPES.IFCMECHANICALFASTENER);
 
       if (sm && withoutFasteners.length > 0) {
         sm.addElements(withoutFasteners);

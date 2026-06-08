@@ -5,15 +5,28 @@
 // ============================================================
 
 // web-ifc carrega via IIFE same-origin (evita problemas de build no Vercel).
-// Funciona na PÁGINA (script tag) e no WORKER clássico (importScripts).
+// Funciona em 3 contextos:
+//   - PÁGINA            → injeta <script> (tem document)
+//   - WORKER clássico   → importScripts (síncrono)
+//   - WORKER de módulo  → fetch + eval indireto (sem importScripts/document)
+// O Vite, em dev, só transpila `import` em workers `type:'module'`; mas esses
+// não têm importScripts — daí o fallback fetch+eval, que reusa o MESMO asset.
 let _WebIFC = null;
 export async function getWebIFC() {
   if (_WebIFC) return _WebIFC;
   const g = (typeof self !== "undefined") ? self : (typeof window !== "undefined" ? window : globalThis);
   if (!g.WebIFC) {
-    if (typeof importScripts === "function") {
-      importScripts("/web-ifc-api-iife.js"); // contexto Worker
+    if (typeof document === "undefined") {
+      // Contexto WORKER (clássico ou módulo). Em module workers, importScripts
+      // existe mas LANÇA; então busca o IIFE e roda via eval indireto.
+      // O bundle é `"use strict"; var WebIFC = (…)()` — em eval indireto STRICT
+      // o `var` NÃO vaza para o global; por isso anexamos `;WebIFC;` para que o
+      // valor de retorno do eval seja o objeto, e o fixamos em self.WebIFC.
+      const code = await (await fetch("/web-ifc-api-iife.js")).text();
+      const mod = (0, eval)(code + "\n;WebIFC;");
+      if (mod) g.WebIFC = mod;
     } else {
+      // Contexto PÁGINA → injeta <script>.
       await new Promise((resolve, reject) => {
         const s = document.createElement("script");
         s.src = "/web-ifc-api-iife.js"; s.onload = resolve; s.onerror = reject;
