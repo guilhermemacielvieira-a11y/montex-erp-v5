@@ -1097,7 +1097,7 @@ function LayoutContent({ children, currentPageName }) {
                 )}
               </div>
             </div>
-            {currentPageName !== 'SimuladorOrcamento' && currentPageName !== 'DespesasPage' && currentPageName !== 'ReceitasPage' && (
+            {currentPageName !== 'SimuladorOrcamento' && currentPageName !== 'DespesasPage' && currentPageName !== 'ReceitasPage' && currentPageName !== 'PainelFinanceiroGlobal' && (
               <div className="ml-4">
                 <SeletorObra compact />
               </div>
