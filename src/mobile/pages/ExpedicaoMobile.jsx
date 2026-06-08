@@ -16,6 +16,8 @@ import {
 import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
+import PhotoInput from '../ui/PhotoInput';
+import { uploadFoto } from '../ui/upload';
 import { tap, success } from '../ui/haptics';
 import { isOnline } from '../ui/online';
 import { enqueue } from '../ui/offlineQueue';
@@ -52,6 +54,7 @@ export default function ExpedicaoMobile() {
   const [conf, setConf] = useState({});         // {pecaId: true} do romaneio aberto
   const [despachar, setDespachar] = useState(false); // sheet de confirmação
   const [saving, setSaving] = useState(false);
+  const [fotoCarga, setFotoCarga] = useState(null); // { file, url } evidência da carga
   const listScroll = useRef(0); // posição do scroll da lista, p/ restaurar ao voltar do detalhe
 
   // Ao voltar do detalhe para a lista, restaura a posição de scroll anterior.
@@ -132,10 +135,17 @@ export default function ExpedicaoMobile() {
     }
     setSaving(true);
     try {
-      await updateExpedicao(romaneio.id, { status: 'em_transito' });
+      // Foto da carga (best-effort): anexa a URL às observações do romaneio.
+      let observacoes = romaneio.observacoes || '';
+      if (fotoCarga?.file) {
+        const url = await uploadFoto(fotoCarga.file, 'expedicao');
+        if (url) observacoes = (observacoes ? observacoes + ' ' : '') + '📷 ' + url;
+        else toast('Foto não enviada (despacho segue)', { icon: '⚠️' });
+      }
+      await updateExpedicao(romaneio.id, { status: 'em_transito', ...(observacoes ? { observacoes } : {}) });
       await success();
       toast.success(`Romaneio ${romaneio.numeroRomaneio || romaneio.id} despachado`);
-      setDespachar(false); setSelId(null); setConf({});
+      setDespachar(false); setSelId(null); setConf({}); setFotoCarga(null);
     } catch (err) {
       toast.error('Falha ao despachar romaneio');
       console.error('[ExpedicaoMobile] updateExpedicao falhou:', err);
@@ -250,6 +260,7 @@ export default function ExpedicaoMobile() {
                 Atenção: {total - conferidas} peça(s) ainda não conferida(s).
               </div>
             )}
+            <PhotoInput foto={fotoCarga} onChange={setFotoCarga} label="Foto da carga (opcional)" />
           </div>
         </Sheet>
       </MobileLayout>
