@@ -46,14 +46,16 @@ vi.mock('@/api/supabaseClient', () => ({
   configMedicaoApi: {},
 }));
 
-// Mock do localStorage
+// Mock do localStorage — funcional em memória (persiste de verdade entre
+// chamadas no mesmo teste) mantendo os spies vi.fn para asserções.
+const __lsStore = {};
 const localStorageMock = {
-  getItem: vi.fn(),
-  setItem: vi.fn(),
-  removeItem: vi.fn(),
-  clear: vi.fn(),
+  getItem: vi.fn((k) => (k in __lsStore ? __lsStore[k] : null)),
+  setItem: vi.fn((k, v) => { __lsStore[k] = String(v); }),
+  removeItem: vi.fn((k) => { delete __lsStore[k]; }),
+  clear: vi.fn(() => { Object.keys(__lsStore).forEach((k) => delete __lsStore[k]); }),
 };
-Object.defineProperty(window, 'localStorage', { value: localStorageMock });
+Object.defineProperty(window, 'localStorage', { value: localStorageMock, configurable: true });
 
 // Mock do matchMedia
 Object.defineProperty(window, 'matchMedia', {
