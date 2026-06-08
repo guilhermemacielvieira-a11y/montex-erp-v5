@@ -16,7 +16,7 @@ import {
   Bell, Search, LogOut, ChevronRight, X, User,
   BarChart3, Package, Truck, FileText, Settings,
   Box, Scissors, Users, ClipboardList, Building2,
-  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler,
+  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler, Image,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/AuthContext';
@@ -56,6 +56,7 @@ const DRAWER_GROUPS = [
       { path: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', perm: 'kanban.view' },
       { path: '/m/expedicao', icon: Truck, label: 'Expedição', perm: 'expedicao.view' },
       { path: '/m/medicao', icon: Ruler, label: 'Medição', perm: 'medicao.view' },
+      { path: '/m/evidencias', icon: Image, label: 'Evidências', perm: 'producao.view' },
       { path: '/m/3d', icon: Box, label: 'Visualizador 3D', perm: 'producao.view' },
       { path: '/m/estoque', icon: Package, label: 'Estoque', perm: 'estoque.view' },
     ],
