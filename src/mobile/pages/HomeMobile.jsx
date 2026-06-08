@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -42,6 +43,7 @@ export default function HomeMobile() {
   // FIX: ERPContext expõe 'lancamentosDespesas' e 'medicoes' (não 'despesas'/'receitas').
   const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [] } = erp;
   const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
+  const { hasPermission } = useAuth() || {};
   // Aplica o filtro global por obra a todos os conjuntos de dados
   const despesas = useMemo(() => lancamentosDespesas.filter(matchObra), [lancamentosDespesas, matchObra]);
   const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
@@ -61,6 +63,20 @@ export default function HomeMobile() {
     const desAtrasadas = despesas.filter(isAtrasada).length;
     return { obrasAtivas, pecasMontadas, pecasProducao, desPendentes, desValor, recPendentes, desAtrasadas };
   }, [obras, pecasFiltradas, despesas, receitas, isTodas]);
+
+  // "Meu dia": tarefas priorizadas por função (gestor vê aprovações; chão de
+  // fábrica vê sua fila operacional). Some quando não há nada relevante.
+  const tarefas = useMemo(() => {
+    const podeAprovar = !!hasPermission && hasPermission('medicao.aprovar');
+    const aMontar = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'enviado').length;
+    const prontas = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'expedido').length;
+    const medPend = receitas.filter(r => ['pendente', 'aguardando'].includes(String(r.status || '').toLowerCase())).length;
+    const t = [];
+    if (podeAprovar && medPend) t.push({ id: 'aprovar', icon: Ruler, count: medPend, label: 'medições a aprovar', to: '/m/medicao', cor: 'text-blue-400' });
+    if (aMontar) t.push({ id: 'montar', icon: Hammer, count: aMontar, label: 'peças a montar', to: '/m/montagem', cor: 'text-emerald-400' });
+    if (prontas) t.push({ id: 'expedir', icon: Truck, count: prontas, label: 'prontas p/ expedir', to: '/m/expedicao', cor: 'text-blue-400' });
+    return t;
+  }, [pecasFiltradas, receitas, hasPermission]);
 
   return (
     <MobileLayout title="Início" obraFilter>
@@ -83,6 +99,25 @@ export default function HomeMobile() {
           </div>
           <Link to="/m/despesas" className="text-[11px] font-bold text-red-300 bg-red-500/20 px-3 py-1.5 rounded-lg">Ver</Link>
         </motion.div>
+      )}
+
+      {/* Meu dia — tarefas priorizadas por função */}
+      {tarefas.length > 0 && (
+        <div className="px-4 mb-4">
+          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Meu dia</div>
+          <div className="grid grid-cols-2 gap-2">
+            {tarefas.map(t => {
+              const Icon = t.icon;
+              return (
+                <Link key={t.id} to={t.to} className="bg-slate-900/80 border border-slate-800 rounded-2xl p-3 active:scale-[.98] transition">
+                  <Icon className={`w-5 h-5 ${t.cor} mb-1.5`} />
+                  <div className="text-xl font-black leading-none">{fmtBR(t.count)}</div>
+                  <div className="text-[11px] text-slate-400 mt-1 leading-tight">{t.label}</div>
+                </Link>
+              );
+            })}
+          </div>
+        </div>
       )}
 
       {/* KPIs Grid 2x2 */}
