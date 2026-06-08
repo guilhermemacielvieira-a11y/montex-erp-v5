@@ -1716,7 +1716,6 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       byType: {},
       marcasMontadasDistintas: 0,
     };
-    const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
     for (const p of erpPecas) {
       const qtd = Math.max(1, parseInt(p.quantidade) || 1);
       const peso = p.peso || 0;

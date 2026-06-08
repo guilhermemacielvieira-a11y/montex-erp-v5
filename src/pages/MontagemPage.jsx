@@ -22,7 +22,7 @@ import * as Select from '@radix-ui/react-select';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useObras, useProducao, useEquipes } from '../contexts/ERPContext';
-import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY } from '../utils/montagemSync';
+import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
 
 // ============================================
 // HELPERS
@@ -53,22 +53,9 @@ const fmtData = (d) => {
 const carregarConcluidas = loadConcluidasLocal;
 const salvarConcluidas = saveConcluidasSmart;
 
-// ============================================
-// MARCAÇÃO PARCIAL — helpers (backward compatible)
-// ============================================
-// Payload no entity_store:
-//   - SEM `montadas` (legado): considera TODAS as unidades montadas (= peca.quantidade)
-//   - COM `montadas: N`: N unidades de qtd montadas (0 < N <= qtd)
-//   - Excluído do entity_store: 0 unidades montadas
-// Permite ex.: C32A com qtd=2 → marcar 1 (parcial) ou 2 (completo).
-function getMontadasCount(payload, qtd) {
-  const total = Math.max(1, parseInt(qtd) || 1);
-  if (!payload) return 0;
-  // Payload legado sem campo `montadas` → considera tudo montado (= qtd)
-  if (payload.montadas == null) return total;
-  // Payload novo: respeita N, mas limita a 0..qtd
-  return Math.max(0, Math.min(total, parseInt(payload.montadas) || 0));
-}
+// MARCAÇÃO PARCIAL: getMontadasCount é a fonte ÚNICA do cálculo de unidades
+// montadas (0..qtd), importada de utils/montagemSync e compartilhada com
+// MontexERP3DPage e MontagemMobile (sem cópias divergentes).
 
 // Status do módulo (derivado da etapa + override de concluidas)
 // REGRA: entity_store (concluidasMontagem) é fonte ÚNICA da verdade para "Montado".
