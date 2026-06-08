@@ -7,7 +7,7 @@
 // ============================================================
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Hammer, CheckCircle2, Box, ScanLine, RotateCcw } from 'lucide-react';
+import { Hammer, CheckCircle2, Box, ScanLine, RotateCcw, Download } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import Scanner from '../ui/Scanner';
@@ -16,6 +16,7 @@ import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
 import PhotoInput from '../ui/PhotoInput';
 import { uploadFoto } from '../ui/upload';
+import { downloadCsv } from '../ui/exportCsv';
 import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
@@ -29,7 +30,7 @@ const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 export default function MontagemMobile() {
   const erp = useERP?.() || {};
   const { pecas = [] } = erp;
-  const { matchObra } = useObraFiltro();
+  const { matchObra, obraSelecionada } = useObraFiltro();
   // Aba persistida (sobrevive a navegação/reload) — o operador volta de onde estava.
   const [tab, setTab] = useState(() => {
     try { return localStorage.getItem('montex_montagem_tab') || 'aguardando'; } catch { return 'aguardando'; }
@@ -137,6 +138,22 @@ export default function MontagemMobile() {
     setPecaSel(null); setFotoMont(null);
   };
 
+  // Relatório de montagem (CSV): todas as peças montadas da obra (ignora a busca).
+  const exportarMontadas = () => {
+    const rows = pecasCampo
+      .filter(p => concluidas[String(p.id)])
+      .map(p => {
+        const c = concluidas[String(p.id)] || {};
+        const dt = c.montadoEm ? new Date(c.montadoEm).toLocaleString('pt-BR') : '';
+        return [p.marca || p.id, p.tipo || '', (Number(p.peso) || 0).toFixed(0), p.quantidade || 1, dt, c.origem || '', c.fotoUrl || ''];
+      });
+    if (!rows.length) { toast('Nenhuma peça montada para exportar'); return; }
+    const obraSlug = (obraSelecionada?.nome || 'geral').replace(/\s+/g, '_').slice(0, 30);
+    const dia = new Date().toISOString().slice(0, 10);
+    downloadCsv(`montagem_${obraSlug}_${dia}.csv`, ['Marca', 'Tipo', 'Peso (kg)', 'Qtd', 'Montada em', 'Origem', 'Foto'], rows);
+    toast.success(`${rows.length} peça(s) exportada(s)`);
+  };
+
   const pecaMontada = pecaSel ? !!concluidas[String(pecaSel.id)] : false;
   const fotoExistente = pecaSel ? concluidas[String(pecaSel.id)]?.fotoUrl : null;
 
@@ -155,6 +172,14 @@ export default function MontagemMobile() {
           >Montadas ({montadas.length})</button>
         </div>
         <SearchBar value={q} onChange={setQ} placeholder="Buscar marca..." />
+        {tab === 'montadas' && montadas.length > 0 && (
+          <button
+            onClick={exportarMontadas}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-amber-400 active:scale-[.99] transition"
+          >
+            <Download className="w-4 h-4" /> Exportar relatório (CSV)
+          </button>
+        )}
       </div>
 
       {/* Lista */}
