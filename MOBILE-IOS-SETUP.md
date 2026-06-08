@@ -98,6 +98,83 @@ Depois libere o build no TestFlight para os usuários internos testarem.
 
 ---
 
+## 7. Push Notifications (APNs + Edge Function)
+
+O código do app já está pronto: `src/mobile/ui/push.js` (permissão + registro +
+salva o token) e `src/mobile/ui/deeplinks.js` (toque na push → abre a rota certa).
+Falta só a infra do lado servidor.
+
+### 7.1 Tabela de tokens (Supabase)
+
+```sql
+create table if not exists public.device_tokens (
+  token text primary key,
+  user_email text,
+  platform text default 'ios',
+  updated_at timestamptz default now()
+);
+create index if not exists device_tokens_email_idx on public.device_tokens (user_email);
+-- App grava com a anon key; ajuste a RLS conforme sua política.
+alter table public.device_tokens enable row level security;
+create policy "device_tokens upsert" on public.device_tokens for all using (true) with check (true);
+```
+
+### 7.2 Chave APNs (.p8)
+
+1. Apple Developer ▸ **Certificates, IDs & Profiles ▸ Keys ▸ +**
+2. Marque **Apple Push Notifications service (APNs)**, baixe o `AuthKey_XXXX.p8`
+   (download único). Anote o **Key ID** e o **Team ID**.
+3. No Xcode, confirme a capability **Push Notifications** + **Background Modes ▸
+   Remote notifications** (passo 3).
+
+### 7.3 Deploy da Edge Function
+
+A função está em `supabase/functions/send-push/index.ts`.
+
+```bash
+# Secrets (P8 = conteúdo COMPLETO do .p8, com BEGIN/END)
+supabase secrets set \
+  APNS_KEY_ID=XXXXXXXXXX \
+  APNS_TEAM_ID=YYYYYYYYYY \
+  APNS_BUNDLE_ID=com.montex.erp \
+  APNS_HOST=api.push.apple.com \
+  APNS_PRIVATE_KEY="$(cat AuthKey_XXXX.p8)"
+# SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem no ambiente da função.
+
+supabase functions deploy send-push --no-verify-jwt
+```
+
+> Em build de **debug** o iOS usa o sandbox APNs → `APNS_HOST=api.sandbox.push.apple.com`.
+> Em **TestFlight/App Store** use `api.push.apple.com`.
+
+### 7.4 Enviar (exemplos)
+
+```bash
+# Para um usuário, abrindo direto em /m/despesas
+curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Despesa vencida","body":"3 despesas venceram","to":"/m/despesas","target":{"email":"guilherme@montex.com"}}'
+
+# Por papel (todos os gerentes). `to` aceita rota OU categoria:
+# {"to":{"tipo":"estoque"}} resolve para /m/estoque no app.
+curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Estoque crítico","body":"5 itens abaixo do mínimo","to":"/m/estoque","target":{"role":"gerente"}}'
+```
+
+`target`: `{ "email" }` · `{ "role" }` · `{ "tokens": [] }` · `{}` (todos os iOS).
+O `to` vai no nível superior do payload APNs → vira `notification.data.to`, que o
+`deeplinks.js` traduz para a rota. Tokens com retorno `410` são limpos automaticamente.
+
+### 7.5 Disparo automático (opcional)
+
+Para alertas proativos (despesa vencendo, estoque crítico), agende um
+**cron** no Supabase (pg_cron) que consulta as pendências e chama a
+`send-push`. A lógica de derivação já existe no app em
+`src/mobile/ui/notificacoes.js` e pode ser portada para SQL/Edge.
+
+---
+
 ## ⚠️ BLOQUEANTE de segurança antes de publicar
 
 O `src/api/supabaseClient.js` tem a **service_role key hardcoded** (chave de admin).

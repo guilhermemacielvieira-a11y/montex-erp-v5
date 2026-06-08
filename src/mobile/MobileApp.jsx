@@ -29,6 +29,9 @@ import NotificacoesMobile from './pages/NotificacoesMobile';
 import PerfilMobile from './pages/PerfilMobile';
 import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
 import { initDeepLinks } from './ui/deeplinks';
+import { registerPush } from './ui/push';
+import { getSetting } from './ui/settings';
+import { useAuth } from '@/lib/AuthContext';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -107,7 +110,13 @@ export default function MobileApp() {
 function MobileRoutes() {
   // Deep links: traduz URL/push → rota interna (push-agnóstico; no-op no web).
   const navigate = useNavigate();
+  const { user } = useAuth() || {};
   useEffect(() => initDeepLinks(navigate), [navigate]);
+  // Re-registra o device se o usuário já optou por push (token pode rotacionar).
+  // No-op no web (registerPush retorna unsupported).
+  useEffect(() => {
+    if (user?.email && getSetting('push')) registerPush(user.email);
+  }, [user?.email]);
   return (
     <Routes>
       <Route index element={<HomeMobile />} />

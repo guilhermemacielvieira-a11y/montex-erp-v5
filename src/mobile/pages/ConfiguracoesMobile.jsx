@@ -7,10 +7,12 @@
 // ============================================================
 import React, { useState } from 'react';
 import { toast } from 'react-hot-toast';
-import { Bell, Vibrate, RefreshCw, Trash2, Smartphone, Info, ChevronRight, Loader2 } from 'lucide-react';
+import { Bell, BellRing, Vibrate, RefreshCw, Trash2, Smartphone, Info, ChevronRight, Loader2 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useSettings, setSetting } from '../ui/settings';
+import { isPushSupported, registerPush, removePush } from '../ui/push';
 
 const APP_VERSION = '2.1.0';
 
@@ -45,7 +47,30 @@ function Row({ icon: Icon, label, sub, right, onClick, danger }) {
 export default function ConfiguracoesMobile() {
   const settings = useSettings();
   const { reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
+  const { user } = useAuth() || {};
   const [refreshing, setRefreshing] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const pushSupported = isPushSupported();
+
+  // Liga/desliga push: pede permissão + registra o device, ou remove o token.
+  const togglePush = async (on) => {
+    if (pushBusy) return;
+    if (on) {
+      setPushBusy(true);
+      const r = await registerPush(user?.email);
+      setPushBusy(false);
+      if (r.ok) { setSetting('push', true); toast.success('Notificações push ativadas'); }
+      else if (r.reason === 'denied') toast.error('Permissão negada nas configurações do iOS');
+      else if (r.reason === 'unsupported') toast('Disponível apenas no app instalado', { icon: '📲' });
+      else toast.error('Falha ao ativar push');
+    } else {
+      setPushBusy(true);
+      await removePush(user?.email);
+      setPushBusy(false);
+      setSetting('push', false);
+      toast.success('Notificações push desativadas');
+    }
+  };
 
   const atualizar = async () => {
     if (typeof navigator !== 'undefined' && navigator.onLine === false) { toast.error('Sem conexão'); return; }
@@ -75,6 +100,11 @@ export default function ConfiguracoesMobile() {
         <div className="bg-slate-900/70 border border-slate-800 rounded-2xl divide-y divide-slate-800">
           <Row icon={Bell} label="Notificações" sub="Mostrar contador de alertas no sino"
             right={<Toggle on={settings.notificacoes !== false} onChange={(v) => setSetting('notificacoes', v)} />} />
+          <Row icon={pushBusy ? Loader2 : BellRing} label="Notificações push"
+            sub={pushSupported ? 'Receber alertas mesmo com o app fechado' : 'Disponível apenas no app instalado (iOS/Android)'}
+            right={pushBusy
+              ? <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
+              : <Toggle on={!!settings.push && pushSupported} onChange={pushSupported ? togglePush : (() => toast('Instale o app para ativar', { icon: '📲' }))} />} />
           <Row icon={Vibrate} label="Vibração (haptics)" sub="Feedback tátil nas ações"
             right={<Toggle on={settings.haptics !== false} onChange={(v) => setSetting('haptics', v)} />} />
         </div>
