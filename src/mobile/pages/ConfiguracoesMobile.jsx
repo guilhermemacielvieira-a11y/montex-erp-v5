@@ -9,8 +9,10 @@ import { isPushAvailable, getPushStatus, enablePush } from '../ui/push';
 import { queueSize, QUEUE_EVENT } from '../ui/offlineQueue';
 import { getLastRefresh, formatRelative } from '../ui/lastRefresh';
 import { getSyncLog, SYNCLOG_EVENT } from '../ui/syncLog';
+import { useAuth } from '@/lib/AuthContext';
 
 export default function ConfiguracoesMobile() {
+  const { user } = useAuth?.() || {};
   const [pushStatus, setPushStatus] = useState(null);
   const [pendentes, setPendentes] = useState(() => queueSize());
   const [historico, setHistorico] = useState(() => getSyncLog());
@@ -27,7 +29,7 @@ export default function ConfiguracoesMobile() {
   const ativarPush = async () => {
     const r = await enablePush((notif) => {
       toast(notif?.title || 'Nova notificação', { icon: '🔔' });
-    });
+    }, { role: user?.role || null });
     if (r.ok) { toast.success('Notificações ativadas'); setPushStatus('granted'); }
     else if (r.reason === 'indisponivel') toast('Disponível só no app instalado (iOS)', { icon: 'ℹ️' });
     else if (r.reason === 'negado') { toast.error('Permissão negada — habilite nos Ajustes do iOS'); setPushStatus('denied'); }

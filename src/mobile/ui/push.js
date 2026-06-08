@@ -6,8 +6,30 @@
 // para não quebrar o bundle web. No web/PWA (sem o plugin) fica
 // "indisponível" (instalar o app nativo). O token APNs é guardado em
 // localStorage para o backend direcionar os envios (ver MOBILE-IOS-SETUP).
+// O token também é gravado na tabela push_tokens (Supabase) para a Edge
+// Function send-push localizar os dispositivos.
 // ============================================================
+import { supabase } from '@/api/supabaseClient';
+
 const TOKEN_KEY = 'montex_push_token';
+
+// Registra/atualiza o device token na tabela push_tokens (best-effort).
+// Falha silenciosa (offline / RLS) — o token continua salvo em localStorage.
+async function registrarTokenBackend(token, extra = {}) {
+  if (!token) return;
+  try {
+    await supabase.from('push_tokens').upsert(
+      {
+        token,
+        platform: 'ios',
+        enabled: true,
+        device_info: typeof navigator !== 'undefined' ? navigator.userAgent?.slice(0, 200) : null,
+        ...extra,
+      },
+      { onConflict: 'token' },
+    );
+  } catch { /* noop */ }
+}
 
 function plugin() {
   try {
@@ -35,7 +57,7 @@ export async function getPushStatus() {
   } catch { return 'indisponivel'; }
 }
 
-export async function enablePush(onReceive) {
+export async function enablePush(onReceive, contexto = {}) {
   const p = plugin();
   if (!p) return { ok: false, reason: 'indisponivel' };
   try {
@@ -46,7 +68,10 @@ export async function enablePush(onReceive) {
     if (perm?.receive !== 'granted') return { ok: false, reason: 'negado' };
 
     p.addListener('registration', (token) => {
-      try { localStorage.setItem(TOKEN_KEY, token?.value || ''); } catch { /* noop */ }
+      const val = token?.value || '';
+      try { localStorage.setItem(TOKEN_KEY, val); } catch { /* noop */ }
+      // contexto opcional: { role, obra_id } para direcionar os envios
+      registrarTokenBackend(val, contexto);
     });
     p.addListener('pushNotificationReceived', (notif) => {
       try { onReceive?.(notif); } catch { /* noop */ }

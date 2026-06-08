@@ -109,16 +109,32 @@ mover regras para **RLS por papel** no Supabase. Ver `CLAUDE.md › Credenciais 
 
 ## Push notifications (APNs)
 
-O cliente já está pronto: `src/mobile/ui/push.js` (registro via `@capacitor/push-notifications`
-em runtime) e o toggle em **Configurações → Notificações push**. Falta o lado nativo/servidor:
+O cliente **e o backend** já estão prontos:
+- Cliente: `src/mobile/ui/push.js` (registro via `@capacitor/push-notifications` em runtime) + toggle em **Configurações → Notificações push**. Ao ativar, salva o token em `localStorage` (`montex_push_token`) **e faz upsert na tabela `push_tokens`** (com `role` do usuário para direcionar).
+- Tabela: `supabase/migration_v11_push_tokens.sql` (`push_tokens` + RLS: anon faz upsert do próprio token; só o service_role lê → usado pela Edge Function).
+- Envio: Edge Function `supabase/functions/send-push/index.ts` (Deno) — autentica no APNs com **JWT ES256** (provider token via a chave `.p8`) e envia para os tokens filtrados.
 
-1. **Apple**: no Apple Developer, habilite **Push Notifications** no App ID e gere a **APNs Auth Key (.p8)** (Keys → +). Guarde Key ID e Team ID.
+Falta apenas configurar as credenciais Apple e fazer o deploy:
+
+1. **Apple**: no Apple Developer, habilite **Push Notifications** no App ID e gere a **APNs Auth Key (.p8)** (Keys → +). Guarde **Key ID** e **Team ID**.
 2. **Xcode**: target App → Signing & Capabilities → **+ Push Notifications** e **Background Modes → Remote notifications**.
-3. **Token**: ao ativar no app, `push.js` registra e salva o **token APNs** em `localStorage` (`montex_push_token`). Envie esse token para uma tabela no Supabase (ex.: `push_tokens(user_id, token, platform)`) para o backend direcionar.
-4. **Envio**: uma **Supabase Edge Function** (ou serviço) envia ao APNs (via a .p8) quando ocorrem eventos do fluxo:
-   - peça pronta (etapa → expedido), carga a conferir (romaneio criado), estoque crítico (nível ≤ mínimo), medição aprovada.
-   - Dispare por trigger no Postgres (NOTIFY) ou no próprio `moverPecaEtapa`/`addExpedicao`.
-5. Recebimento no app: `push.js` escuta `pushNotificationReceived` (toast em primeiro plano). Ao **tocar** na push, `DeepLinkHandler` lê `notification.data.path` e navega — então envie no payload APNs um campo `data.path` com a rota, ex.: `{ "path": "/m/expedicao" }` (carga a conferir), `/m/montagem` (peça pronta), `/m/estoque` (estoque crítico).
+3. **Migração**: rode `supabase/migration_v11_push_tokens.sql` no banco (cria `push_tokens`).
+4. **Deploy da function**:
+   ```bash
+   supabase functions deploy send-push --no-verify-jwt
+   supabase secrets set APNS_KEY_ID=XXXXXXXXXX APNS_TEAM_ID=YYYYYYYYYY \
+     APNS_BUNDLE_ID=com.montex.erp APNS_PRODUCTION=false
+   supabase secrets set APNS_PRIVATE_KEY="$(cat AuthKey_XXXXXXXXXX.p8)"
+   ```
+   (`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já existem no ambiente da function.)
+5. **Disparo**: chame a function quando ocorrerem eventos do fluxo (peça pronta `→ expedido`, romaneio criado, estoque crítico, medição aprovada). Via SQL trigger (`pg_net`) ou no próprio `moverPecaEtapa`/`addExpedicao`. Exemplo de payload:
+   ```json
+   { "title": "Carga a conferir", "body": "Romaneio R-102",
+     "filtro": { "role": "expedicao" }, "data": { "path": "/m/expedicao" } }
+   ```
+   Sem `filtro` → todos os dispositivos; `filtro.tokens` → lista explícita.
+6. **Recebimento**: `push.js` escuta `pushNotificationReceived` (toast em 1º plano). Ao **tocar**, `DeepLinkHandler` lê `notification.data.path` e navega — por isso envie `data.path` com a rota (`/m/expedicao`, `/m/montagem`, `/m/estoque`).
+7. **Produção**: ao publicar na App Store, defina `APNS_PRODUCTION=true` (host `api.push.apple.com`).
 
 ## Deep links (abrir tela por URL)
 
