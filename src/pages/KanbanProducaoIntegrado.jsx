@@ -1515,8 +1515,9 @@ export default function KanbanProducaoIntegrado() {
                   </div>
                 </div>
 
-                {/* Cards dos Conjuntos */}
-                <div className="p-2 space-y-2 min-h-[300px] max-h-[500px] overflow-y-auto">
+                {/* Cards dos Conjuntos — altura relativa à viewport (aproveita monitores
+                    grandes no desktop; piso de 300px em telas baixas) */}
+                <div className="p-2 space-y-2 min-h-[300px] max-h-[70vh] overflow-y-auto">
                   <AnimatePresence>
                     {conjuntosColuna.map((conjunto, idx) => (
                       <motion.div
@@ -1748,8 +1749,8 @@ export default function KanbanProducaoIntegrado() {
                   </div>
                 </div>
 
-                {/* Cards das peças enviadas */}
-                <div className="p-2 space-y-2 min-h-[300px] max-h-[500px] overflow-y-auto">
+                {/* Cards das peças enviadas — mesma altura relativa das demais colunas */}
+                <div className="p-2 space-y-2 min-h-[300px] max-h-[70vh] overflow-y-auto">
                   <AnimatePresence>
                     {pecasEnviadasColuna.map((peca, idx) => (
                       <motion.div
