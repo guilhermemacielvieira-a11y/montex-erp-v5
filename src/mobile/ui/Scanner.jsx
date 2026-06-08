@@ -3,17 +3,23 @@
 // ============================================================
 // Lê o código da etiqueta da peça no canteiro. Estratégia em cascata,
 // degradando sem quebrar (mesma filosofia do haptics.js):
-//   1) Plugin nativo Capacitor (window.Capacitor.Plugins.BarcodeScanner) — iOS/Android
-//   2) Web BarcodeDetector + getUserMedia — navegadores compatíveis
-//   3) Entrada manual (sempre disponível) — fallback universal
+//   1) Nativo CONTÍNUO (mlkit: startScan + listener barcodeScanned) —
+//      câmera nativa atrás da webview transparente; bipa em fluxo.
+//   2) Nativo single-shot (plugin.scan()) — modal nativo, 1 leitura.
+//   3) Web BarcodeDetector + getUserMedia — navegadores compatíveis.
+//   4) Entrada manual (sempre disponível) — fallback universal.
 // Chama onResult(codigo) ao detectar/confirmar.
 //
 // MODO `continuous`: o scanner PERMANECE ABERTO e dispara onResult a cada
-// peça bipada (com dedupe por cooldown), para conferência de carga em
-// fluxo contínuo. Mostra feedback do último código e o `progress`. O
-// usuário fecha manualmente (X) ao terminar.
+// peça bipada (com dedupe por cooldown). O usuário fecha manualmente.
+//
+// NATIVO (iOS): requer @capacitor-mlkit/barcode-scanning + permissão de
+// câmera no Info.plist. A câmera renderiza ATRÁS da webview, por isso
+// ativamos a classe `montex-scanner-native` (CSS em MobileApp) que torna
+// o shell transparente enquanto escaneia. Ver MOBILE-IOS-SETUP.md.
 // ============================================================
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, ScanLine, Keyboard, CameraOff, CheckCircle2 } from 'lucide-react';
 import { tap } from './haptics';
@@ -32,9 +38,10 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
+  const nativeSubRef = useRef(null); // handle do listener mlkit (continuous nativo)
   const lastFired = useRef({ code: '', t: 0 }); // dedupe no modo contínuo
   const [manual, setManual] = useState('');
-  const [camState, setCamState] = useState('idle'); // idle | starting | live | unsupported | denied
+  const [camState, setCamState] = useState('idle'); // idle | starting | live | native | unsupported | denied
   const [hint, setHint] = useState('');
   const [lastCode, setLastCode] = useState(''); // feedback visual da última leitura
   const [count, setCount] = useState(0);        // leituras disparadas nesta sessão
@@ -57,15 +64,31 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
-    // reset de sessão
     lastFired.current = { code: '', t: 0 };
     setLastCode(''); setCount(0);
 
     (async () => {
-      // 1) Plugin nativo de leitura única (assume a UI nativa).
-      //    No modo contínuo NÃO usamos o scan() single-shot — preferimos a
-      //    câmera com loop (web/WKWebView) para bipar várias sem reabrir.
       const ns = nativeScanner();
+
+      // 1) Nativo CONTÍNUO (mlkit): câmera atrás da webview + listener.
+      if (continuous && ns?.startScan && ns?.addListener) {
+        try {
+          if (ns.requestPermissions) { try { await ns.requestPermissions(); } catch { /* segue */ } }
+          document.documentElement.classList.add('montex-scanner-native');
+          nativeSubRef.current = await ns.addListener('barcodeScanned', (ev) => {
+            const code = ev?.barcode?.rawValue || ev?.barcode?.displayValue || ev?.rawValue;
+            if (code && emit(code)) tap('heavy');
+          });
+          await ns.startScan();
+          if (!cancelled) setCamState('native');
+          return; // cleanup no return do efeito
+        } catch {
+          document.documentElement.classList.remove('montex-scanner-native');
+          /* cai para web/manual */
+        }
+      }
+
+      // 2) Nativo single-shot (assume UI nativa). Não no modo contínuo.
       if (ns?.scan && !continuous) {
         try {
           const res = await ns.scan();
@@ -75,7 +98,7 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
         } catch { /* cai para web/manual */ }
       }
 
-      // 2) Web BarcodeDetector + câmera
+      // 3) Web BarcodeDetector + câmera
       const hasDetector = typeof window !== 'undefined' && 'BarcodeDetector' in window;
       const hasCam = typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia;
       if (!hasDetector || !hasCam) { setCamState('unsupported'); return; }
@@ -99,7 +122,6 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
               if (code) {
                 const fired = emit(code);
                 if (fired) await tap('heavy');
-                // Single-shot: fecha ao 1º código. Contínuo: segue no loop.
                 if (fired && !continuous) { onClose?.(); return; }
               }
             }
@@ -118,6 +140,11 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
       if (streamRef.current) streamRef.current.getTracks().forEach(t => t.stop());
       streamRef.current = null;
+      // Encerra o scan nativo contínuo (mlkit) e restaura o shell.
+      if (nativeSubRef.current) { try { nativeSubRef.current.remove?.(); } catch { /* noop */ } nativeSubRef.current = null; }
+      const ns = nativeScanner();
+      if (ns?.stopScan) { try { ns.stopScan(); } catch { /* noop */ } }
+      document.documentElement.classList.remove('montex-scanner-native');
     };
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -126,20 +153,25 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
     if (!v) return;
     emit(v);
     setManual('');
-    if (!continuous) onClose?.(); // contínuo: mantém aberto para a próxima
+    if (!continuous) onClose?.();
   };
 
-  return (
+  const isNative = camState === 'native';
+  // Portal para o body: no modo nativo escondemos o #root (shell) para a
+  // câmera do OS aparecer; o scanner precisa ficar FORA do #root.
+  const target = typeof document !== 'undefined' ? document.body : null;
+
+  const overlay = (
     <AnimatePresence>
       {open && (
         <motion.div
           key="scan-overlay"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[70] bg-slate-950 flex flex-col"
+          className={`fixed inset-0 z-[70] flex flex-col ${isNative ? 'bg-transparent' : 'bg-slate-950'}`}
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
         >
           {/* Header */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800 bg-slate-950/70 backdrop-blur-md">
             <ScanLine className="w-5 h-5 text-amber-400" />
             <div className="flex-1 min-w-0">
               <h2 className="font-bold text-base truncate">{title}</h2>
@@ -152,10 +184,10 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
             </button>
           </div>
 
-          {/* Área da câmera */}
-          <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
-            <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
-            {camState === 'live' && (
+          {/* Área da câmera (web mostra <video>; nativo mostra só a mira sobre a câmera do OS) */}
+          <div className={`flex-1 relative flex items-center justify-center overflow-hidden ${isNative ? '' : 'bg-black'}`}>
+            {!isNative && <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />}
+            {(camState === 'live' || isNative) && (
               <div className="relative z-10 w-60 h-60 border-2 border-amber-400/80 rounded-2xl">
                 <motion.div
                   className="absolute left-0 right-0 h-0.5 bg-amber-400 shadow-[0_0_12px_2px_rgba(251,191,36,0.8)]"
@@ -185,7 +217,7 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
           </div>
 
           {/* Entrada manual (sempre disponível) */}
-          <div className="px-4 pt-3 space-y-2 border-t border-slate-800">
+          <div className="px-4 pt-3 space-y-2 border-t border-slate-800 bg-slate-950/70 backdrop-blur-md">
             <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
               <Keyboard className="w-3.5 h-3.5" /> {continuous ? 'Ou digite a marca (segue aberto)' : 'Ou digite a marca da peça'}
             </div>
@@ -209,4 +241,6 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
       )}
     </AnimatePresence>
   );
+
+  return target ? createPortal(overlay, target) : overlay;
 }

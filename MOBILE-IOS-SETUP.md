@@ -86,6 +86,14 @@ Adicione no `ios/App/App/Info.plist` as descrições de uso (obrigatório p/ App
 <string>Usado para login rápido e confirmação de ações.</string>
 ```
 
+> **Bipagem contínua (Expedição):** o `ui/Scanner.jsx` usa o modo `continuous`
+> via `@capacitor-mlkit/barcode-scanning` (`startScan` + listener
+> `barcodeScanned`). A câmera do OS renderiza ATRÁS da webview, então o
+> Scanner é portado para o `<body>` e o `#root` fica oculto enquanto escaneia
+> (classe `montex-scanner-native`, CSS em `MobileApp`). No web/PWA degrada
+> para `BarcodeDetector`; sem nada, entrada manual. Requer o plugin instalado
+> e a permissão de câmera acima.
+
 ---
 
 ## 6. Publicar (TestFlight → App Store)
@@ -166,12 +174,45 @@ curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
 O `to` vai no nível superior do payload APNs → vira `notification.data.to`, que o
 `deeplinks.js` traduz para a rota. Tokens com retorno `410` são limpos automaticamente.
 
-### 7.5 Disparo automático (opcional)
+### 7.5 Disparo automático (cron)
 
-Para alertas proativos (despesa vencendo, estoque crítico), agende um
-**cron** no Supabase (pg_cron) que consulta as pendências e chama a
-`send-push`. A lógica de derivação já existe no app em
-`src/mobile/ui/notificacoes.js` e pode ser portada para SQL/Edge.
+A função `supabase/functions/notify-pending` já porta a lógica de
+`src/mobile/ui/notificacoes.js` para o servidor: varre pendências
+(despesas vencidas, estoque crítico, fila de embarque, medições) e dispara
+push aos papéis responsáveis com `to` apontando para a tela que resolve cada
+uma. (Reusa `_shared/apns.ts`, igual à `send-push`.)
+
+```bash
+supabase functions deploy notify-pending --no-verify-jwt
+```
+
+Agende com **pg_cron** + **pg_net** (SQL no Supabase). Ex.: todo dia útil às 8h:
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+select cron.schedule(
+  'montex-notify-pending',
+  '0 11 * * 1-5',                       -- 11h UTC ≈ 08h BRT, seg–sex
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/notify-pending',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer <SUPABASE_SERVICE_ROLE_KEY>'
+    ),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+-- Para remover: select cron.unschedule('montex-notify-pending');
+```
+
+> A função só envia quando há pendência. Mantenha **1 disparo/dia** para não
+> repetir o mesmo alerta. Para granularidade maior (ex.: alertar só o que
+> mudou desde o último envio), registre o último estado numa tabela de
+> controle e compare antes de enviar.
 
 ---
 

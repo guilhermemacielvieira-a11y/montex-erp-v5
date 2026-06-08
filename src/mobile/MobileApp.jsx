@@ -77,7 +77,14 @@ const FOCUS_STYLES = `
   outline: 2px solid rgb(251 191 36 / 0.95) !important;
   outline-offset: 2px !important;
   border-radius: 10px;
-}`;
+}
+/* Bipagem contínua nativa (mlkit): a câmera do OS fica ATRÁS da webview,
+   então o shell precisa ficar transparente enquanto escaneia. A classe é
+   adicionada/removida pelo Scanner (ui/Scanner.jsx). O Scanner é portado
+   para o <body>, então escondemos o #root e deixamos body/html transparentes. */
+html.montex-scanner-native,
+html.montex-scanner-native body { background: transparent !important; }
+html.montex-scanner-native #root { visibility: hidden !important; }`;
 
 export default function MobileApp() {
   // Marca a abertura do app como referência inicial de "atualizado há X".
