@@ -16,6 +16,7 @@ import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
 import MobileLayout from './MobileLayout';
+import Protected from './Protected';
 import HomeMobile from './pages/HomeMobile';
 import ProducaoMobile from './pages/ProducaoMobile';
 import MontagemMobile from './pages/MontagemMobile';
@@ -119,36 +120,38 @@ function MobileRoutes() {
   }, [user?.email]);
   return (
     <Routes>
+      {/* Rotas sensíveis envolvidas em <Protected perm>: fecha o acesso por
+          URL direta (a filtragem de menu sozinha não impede digitar /m/dre). */}
       <Route index element={<HomeMobile />} />
-      <Route path="producao" element={<ProducaoMobile />} />
-      <Route path="montagem" element={<MontagemMobile />} />
-      <Route path="financeiro" element={<FinanceiroMobile />} />
-      <Route path="expedicao" element={<ExpedicaoMobile />} />
+      <Route path="producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
+      <Route path="montagem" element={<Protected perm="producao.view"><MontagemMobile /></Protected>} />
+      <Route path="financeiro" element={<Protected perm="financeiro.view"><FinanceiroMobile /></Protected>} />
+      <Route path="expedicao" element={<Protected perm="expedicao.view"><ExpedicaoMobile /></Protected>} />
       <Route path="mais" element={<MaisMobile />} />
 
       {/* Páginas desktop em wrapper */}
-      <Route path="3d" element={<DesktopWrap title="Visualizador 3D"><MontexERP3DPage /></DesktopWrap>} />
-      <Route path="kanban" element={<DesktopWrap title="Kanban Produção"><KanbanProducaoIntegrado /></DesktopWrap>} />
-      <Route path="kanban-corte" element={<DesktopWrap title="Kanban Corte"><KanbanCortePage /></DesktopWrap>} />
-      <Route path="expedicao-desktop" element={<DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap>} />
-      <Route path="estoque" element={<EstoqueMobile />} />
-      <Route path="medicao" element={<MedicaoMobile />} />
-      <Route path="estoque-desktop" element={<DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap>} />
-      <Route path="despesas" element={<DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap>} />
-      <Route path="receitas" element={<DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap>} />
-      <Route path="obras-gfo" element={<DesktopWrap title="Gestão por Obra"><GestaoFinanceiraObra /></DesktopWrap>} />
-      <Route path="dre" element={<DesktopWrap title="DRE"><DREPage /></DesktopWrap>} />
-      <Route path="obras" element={<DesktopWrap title="Obras"><Projetos /></DesktopWrap>} />
-      <Route path="clientes" element={<DesktopWrap title="Clientes"><Clientes /></DesktopWrap>} />
-      <Route path="equipes" element={<DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap>} />
-      <Route path="orcamentos" element={<DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap>} />
-      <Route path="relatorios" element={<DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap>} />
+      <Route path="3d" element={<Protected perm="producao.view"><DesktopWrap title="Visualizador 3D"><MontexERP3DPage /></DesktopWrap></Protected>} />
+      <Route path="kanban" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
+      <Route path="kanban-corte" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Corte"><KanbanCortePage /></DesktopWrap></Protected>} />
+      <Route path="expedicao-desktop" element={<Protected perm="expedicao.view"><DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap></Protected>} />
+      <Route path="estoque" element={<Protected perm="estoque.view"><EstoqueMobile /></Protected>} />
+      <Route path="medicao" element={<Protected perm="medicao.view"><MedicaoMobile /></Protected>} />
+      <Route path="estoque-desktop" element={<Protected perm="estoque.view"><DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap></Protected>} />
+      <Route path="despesas" element={<Protected perm="financeiro.view"><DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap></Protected>} />
+      <Route path="receitas" element={<Protected perm="financeiro.view"><DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap></Protected>} />
+      <Route path="obras-gfo" element={<Protected perm="financeiro.view"><DesktopWrap title="Gestão por Obra"><GestaoFinanceiraObra /></DesktopWrap></Protected>} />
+      <Route path="dre" element={<Protected perm="financeiro.view"><DesktopWrap title="DRE"><DREPage /></DesktopWrap></Protected>} />
+      <Route path="obras" element={<Protected perm="projetos.view"><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
+      <Route path="clientes" element={<Protected perm="clientes.view"><DesktopWrap title="Clientes"><Clientes /></DesktopWrap></Protected>} />
+      <Route path="equipes" element={<Protected perm="equipes.view"><DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap></Protected>} />
+      <Route path="orcamentos" element={<Protected perm="orcamentos.view"><DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap></Protected>} />
+      <Route path="relatorios" element={<Protected perm="relatorios.view"><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
       {/* Dashboard estratégico NATIVO mobile (gráficos + KPIs). O BI desktop
           completo fica em /m/dashboard-bi (wrapper escalado). */}
-      <Route path="dashboard" element={<DashboardMobile />} />
-      <Route path="dashboard-bi" element={<DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap>} />
-      <Route path="analise-producao" element={<DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap>} />
-      <Route path="diario" element={<DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap>} />
+      <Route path="dashboard" element={<Protected perm="bi.view"><DashboardMobile /></Protected>} />
+      <Route path="dashboard-bi" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
+      <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
+      <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />
       <Route path="notificacoes" element={<NotificacoesMobile />} />
       <Route path="perfil" element={<PerfilMobile />} />
       <Route path="config" element={<ConfiguracoesMobile />} />
