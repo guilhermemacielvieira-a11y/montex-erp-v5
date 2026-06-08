@@ -81,7 +81,7 @@ export default function AgendamentosRelatorios() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Agendamento de Relatórios</h1>
+          <h1 className="text-3xl font-bold text-white">Agendamento de Relatórios</h1>
           <p className="text-slate-500 mt-1">Configure a geração automática de relatórios de produção e financeiros</p>
         </div>
         <Button
@@ -97,9 +97,9 @@ export default function AgendamentosRelatorios() {
       </div>
 
       {/* Info Alert */}
-      <Alert className="border-blue-200 bg-blue-50">
+      <Alert className="border-blue-500/30 bg-blue-500/10">
         <AlertCircle className="h-4 w-4 text-blue-600" />
-        <AlertDescription className="text-slate-700">
+        <AlertDescription className="text-slate-300">
           <strong>Nota:</strong> Para que os relatórios sejam gerados automaticamente, é necessário que as backend functions estejam habilitadas.
           Os agendamentos aqui criados armazenam as configurações para serem processadas pelo sistema.
         </AlertDescription>
@@ -112,7 +112,7 @@ export default function AgendamentosRelatorios() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">Total Agendamentos</p>
-                <p className="text-3xl font-bold text-slate-900">{agendamentos.length}</p>
+                <p className="text-3xl font-bold text-white">{agendamentos.length}</p>
               </div>
               <Calendar className="h-12 w-12 text-orange-500 opacity-20" />
             </div>
@@ -137,7 +137,7 @@ export default function AgendamentosRelatorios() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500">Próxima Geração</p>
-                <p className="text-sm font-semibold text-slate-900">
+                <p className="text-sm font-semibold text-white">
                   {agendamentos.filter(a => a.ativo && a.proxima_geracao).length > 0 
                     ? 'Configurados' 
                     : 'Nenhum'}
@@ -157,21 +157,21 @@ export default function AgendamentosRelatorios() {
       />
 
       {/* Frequências Suportadas */}
-      <Card className="border-slate-200 bg-slate-50">
+      <Card className="border-slate-700 bg-slate-900">
         <CardHeader>
           <CardTitle className="text-lg">Frequências Suportadas</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div>
-            <h4 className="font-semibold text-slate-900 mb-2">Diária</h4>
+            <h4 className="font-semibold text-white mb-2">Diária</h4>
             <p className="text-sm text-slate-600">O relatório será gerado todos os dias na hora especificada.</p>
           </div>
           <div>
-            <h4 className="font-semibold text-slate-900 mb-2">Semanal</h4>
+            <h4 className="font-semibold text-white mb-2">Semanal</h4>
             <p className="text-sm text-slate-600">O relatório será gerado em um dia específico da semana na hora especificada.</p>
           </div>
           <div>
-            <h4 className="font-semibold text-slate-900 mb-2">Mensal</h4>
+            <h4 className="font-semibold text-white mb-2">Mensal</h4>
             <p className="text-sm text-slate-600">O relatório será gerado em um dia específico do mês na hora especificada.</p>
           </div>
         </CardContent>

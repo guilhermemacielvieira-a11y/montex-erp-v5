@@ -119,7 +119,7 @@ export default function AnalisePreditivaProjetosDesempenho({ parametros, projeto
             <CardTitle className="text-sm font-medium text-slate-600">Projetos Ativos</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{analise.projetosAtivos}</div>
+            <div className="text-2xl font-bold text-white">{analise.projetosAtivos}</div>
             <p className="text-xs text-slate-600 mt-1">Em fabricação ou montagem</p>
           </CardContent>
         </Card>
@@ -157,18 +157,18 @@ export default function AnalisePreditivaProjetosDesempenho({ parametros, projeto
 
       {/* Alertas Críticos */}
       {analise.projetosCriticos.length > 0 && (
-        <Card className="border-red-200 bg-red-50">
+        <Card className="border-red-500/30 bg-red-500/10">
           <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 text-red-900">
+            <CardTitle className="flex items-center gap-2 text-red-200">
               <AlertTriangle className="h-5 w-5" />
               Projetos Críticos
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {analise.projetosCriticos.map((p, idx) => (
-              <div key={idx} className="flex justify-between items-center p-2 bg-white rounded border border-red-100">
+              <div key={idx} className="flex justify-between items-center p-2 bg-slate-800 rounded border border-red-500/20">
                 <div>
-                  <p className="font-medium text-slate-900">{p.nome}</p>
+                  <p className="font-medium text-white">{p.nome}</p>
                   <p className="text-xs text-slate-600">{p.diasRestantes} dias restantes • Progresso: {p.progresso}%</p>
                 </div>
                 <Badge className="bg-red-600">Crítico</Badge>
@@ -250,11 +250,11 @@ export default function AnalisePreditivaProjetosDesempenho({ parametros, projeto
         <CardContent>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {analise.todos.map((p, idx) => {
-              const riscoCor = p.risco === 'alto' ? 'bg-red-100 text-red-800' : p.risco === 'médio' ? 'bg-yellow-100 text-yellow-800' : 'bg-green-100 text-green-800';
+              const riscoCor = p.risco === 'alto' ? 'bg-red-500/15 text-red-300' : p.risco === 'médio' ? 'bg-yellow-500/15 text-yellow-300' : 'bg-green-500/15 text-green-300';
               return (
-                <div key={idx} className="flex justify-between items-center p-2 border rounded hover:bg-slate-50">
+                <div key={idx} className="flex justify-between items-center p-2 border rounded hover:bg-slate-900">
                   <div className="flex-1">
-                    <p className="font-medium text-slate-900">{p.nome}</p>
+                    <p className="font-medium text-white">{p.nome}</p>
                     <p className="text-xs text-slate-600">{p.diasRestantes} dias restantes</p>
                   </div>
                   <div className="flex items-center gap-3">

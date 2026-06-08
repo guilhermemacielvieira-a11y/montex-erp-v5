@@ -123,7 +123,7 @@ export default function AnalisePreditivaComportamentoCliente({ parametros, clien
             <CardTitle className="text-sm font-medium text-slate-600">Total de Clientes</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{analise.totalClientes}</div>
+            <div className="text-2xl font-bold text-white">{analise.totalClientes}</div>
             <p className="text-xs text-slate-600 mt-1">Cadastrados</p>
           </CardContent>
         </Card>
@@ -265,17 +265,17 @@ export default function AnalisePreditivaComportamentoCliente({ parametros, clien
         <CardContent>
           <div className="space-y-2 max-h-96 overflow-y-auto">
             {analise.clientesValor.map((c, idx) => (
-              <div key={idx} className="flex justify-between items-center p-2 border rounded hover:bg-slate-50">
+              <div key={idx} className="flex justify-between items-center p-2 border rounded hover:bg-slate-900">
                 <div className="flex-1">
-                  <p className="font-medium text-slate-900">{idx + 1}. {c.nome}</p>
+                  <p className="font-medium text-white">{idx + 1}. {c.nome}</p>
                   <p className="text-xs text-slate-600">
                     {c.segmento} • {c.frequencia} compras • Última: há {c.ultimaCompra} dias
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium text-slate-900">R$ {(c.valor / 1000).toFixed(0)}k</p>
+                  <p className="font-medium text-white">R$ {(c.valor / 1000).toFixed(0)}k</p>
                   {c.ultimaCompra > 90 && (
-                    <Badge className="bg-red-100 text-red-800 mt-1">Em Risco</Badge>
+                    <Badge className="bg-red-500/15 text-red-300 mt-1">Em Risco</Badge>
                   )}
                 </div>
               </div>

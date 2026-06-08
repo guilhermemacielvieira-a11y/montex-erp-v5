@@ -14,22 +14,22 @@ export default function PredictiveAnalysis({ analise }) {
   if (!analise) return null;
 
   const getConfiancaColor = (nivel) => {
-    if (nivel >= 80) return 'text-emerald-600 bg-emerald-100';
-    if (nivel >= 60) return 'text-blue-600 bg-blue-100';
-    if (nivel >= 40) return 'text-yellow-600 bg-yellow-100';
-    return 'text-red-600 bg-red-100';
+    if (nivel >= 80) return 'text-emerald-600 bg-emerald-500/15';
+    if (nivel >= 60) return 'text-blue-600 bg-blue-500/15';
+    if (nivel >= 40) return 'text-yellow-600 bg-yellow-500/15';
+    return 'text-red-600 bg-red-500/15';
   };
 
   const getRiscoColor = (nivel) => {
-    if (nivel === 'baixo') return 'text-emerald-600 bg-emerald-100 border-emerald-200';
-    if (nivel === 'medio') return 'text-yellow-600 bg-yellow-100 border-yellow-200';
-    return 'text-red-600 bg-red-100 border-red-200';
+    if (nivel === 'baixo') return 'text-emerald-600 bg-emerald-500/15 border-emerald-500/30';
+    if (nivel === 'medio') return 'text-yellow-600 bg-yellow-500/15 border-yellow-500/30';
+    return 'text-red-600 bg-red-500/15 border-red-500/30';
   };
 
   return (
     <div className="space-y-6">
       {/* Previsão de Conclusão */}
-      <Card className="border-slate-200">
+      <Card className="border-slate-700">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <Calendar className="h-5 w-5 text-blue-600" />
@@ -38,27 +38,27 @@ export default function PredictiveAnalysis({ analise }) {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+            <div className="p-4 bg-emerald-500/10 rounded-lg border border-emerald-500/30">
               <p className="text-xs text-emerald-600 font-medium mb-1">Cenário Otimista</p>
-              <p className="text-lg font-bold text-emerald-900">
+              <p className="text-lg font-bold text-emerald-200">
                 {analise.previsao_conclusao?.otimista || '-'}
               </p>
               <p className="text-xs text-emerald-600 mt-1">
                 {analise.dias_restantes?.otimista ? `${analise.dias_restantes.otimista} dias` : ''}
               </p>
             </div>
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+            <div className="p-4 bg-blue-500/10 rounded-lg border border-blue-500/30">
               <p className="text-xs text-blue-600 font-medium mb-1">Cenário Realista</p>
-              <p className="text-lg font-bold text-blue-900">
+              <p className="text-lg font-bold text-blue-200">
                 {analise.previsao_conclusao?.realista || '-'}
               </p>
               <p className="text-xs text-blue-600 mt-1">
                 {analise.dias_restantes?.realista ? `${analise.dias_restantes.realista} dias` : ''}
               </p>
             </div>
-            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+            <div className="p-4 bg-orange-500/10 rounded-lg border border-orange-500/30">
               <p className="text-xs text-orange-600 font-medium mb-1">Cenário Pessimista</p>
-              <p className="text-lg font-bold text-orange-900">
+              <p className="text-lg font-bold text-orange-200">
                 {analise.previsao_conclusao?.pessimista || '-'}
               </p>
               <p className="text-xs text-orange-600 mt-1">
@@ -67,7 +67,7 @@ export default function PredictiveAnalysis({ analise }) {
             </div>
           </div>
 
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+          <div className="flex items-center justify-between p-3 bg-slate-900 rounded-lg">
             <span className="text-sm text-slate-600">Nível de Confiança da Previsão</span>
             <Badge className={getConfiancaColor(analise.confianca_previsao || 0)}>
               {analise.confianca_previsao || 0}%
@@ -77,7 +77,7 @@ export default function PredictiveAnalysis({ analise }) {
       </Card>
 
       {/* Análise de Riscos */}
-      <Card className="border-slate-200">
+      <Card className="border-slate-700">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-orange-600" />
@@ -120,7 +120,7 @@ export default function PredictiveAnalysis({ analise }) {
       </Card>
 
       {/* Recomendações */}
-      <Card className="border-slate-200">
+      <Card className="border-slate-700">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <Target className="h-5 w-5 text-purple-600" />
@@ -133,17 +133,17 @@ export default function PredictiveAnalysis({ analise }) {
               {analise.recomendacoes.map((rec, idx) => (
                 <div
                   key={idx}
-                  className="p-4 bg-purple-50 rounded-lg border border-purple-200"
+                  className="p-4 bg-purple-500/10 rounded-lg border border-purple-500/30"
                 >
                   <div className="flex items-start gap-3">
                     <div className="w-6 h-6 rounded-full bg-purple-200 flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <span className="text-xs font-bold text-purple-700">{idx + 1}</span>
+                      <span className="text-xs font-bold text-purple-300">{idx + 1}</span>
                     </div>
                     <div className="flex-1">
-                      <h4 className="font-semibold text-sm text-purple-900 mb-1">
+                      <h4 className="font-semibold text-sm text-purple-200 mb-1">
                         {rec.titulo}
                       </h4>
-                      <p className="text-sm text-purple-700">{rec.descricao}</p>
+                      <p className="text-sm text-purple-300">{rec.descricao}</p>
                       {rec.prazo && (
                         <p className="text-xs text-purple-600 mt-2 flex items-center gap-1">
                           <Clock className="h-3 w-3" />
@@ -166,7 +166,7 @@ export default function PredictiveAnalysis({ analise }) {
 
       {/* Tendências */}
       {analise.tendencias && (
-        <Card className="border-slate-200">
+        <Card className="border-slate-700">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
               <TrendingUp className="h-5 w-5 text-blue-600" />
@@ -176,7 +176,7 @@ export default function PredictiveAnalysis({ analise }) {
           <CardContent>
             <div className="space-y-3">
               {analise.tendencias.fabricacao && (
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-slate-900 rounded-lg">
                   <span className="text-sm text-slate-600">Tendência de Fabricação</span>
                   <div className="flex items-center gap-2">
                     {analise.tendencias.fabricacao.direcao === 'crescente' ? (
@@ -191,7 +191,7 @@ export default function PredictiveAnalysis({ analise }) {
                 </div>
               )}
               {analise.tendencias.montagem && (
-                <div className="flex items-center justify-between p-3 bg-slate-50 rounded-lg">
+                <div className="flex items-center justify-between p-3 bg-slate-900 rounded-lg">
                   <span className="text-sm text-slate-600">Tendência de Montagem</span>
                   <div className="flex items-center gap-2">
                     {analise.tendencias.montagem.direcao === 'crescente' ? (

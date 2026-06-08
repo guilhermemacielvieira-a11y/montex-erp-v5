@@ -140,7 +140,7 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
       {/* Header com ação de gerar relatório IA */}
       <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-xl font-semibold text-slate-900">Análise de Tarefas</h2>
+          <h2 className="text-xl font-semibold text-white">Análise de Tarefas</h2>
           <p className="text-sm text-slate-500">Produtividade, gargalos e previsões</p>
         </div>
         <Button
@@ -163,7 +163,7 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
       </div>
 
       {/* Tarefas em Risco */}
-      <Card className="border-red-200 bg-red-50">
+      <Card className="border-red-500/30 bg-red-500/10">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <AlertTriangle className="h-5 w-5 text-red-600" />
@@ -184,7 +184,7 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
                   : 0;
 
                 return (
-                  <div key={tarefa.id} className="p-3 bg-white rounded-lg border border-red-200">
+                  <div key={tarefa.id} className="p-3 bg-slate-800 rounded-lg border border-red-500/30">
                     <div className="flex justify-between items-start gap-2">
                       <div className="flex-1">
                         <h4 className="font-medium text-sm">{tarefa.titulo}</h4>
@@ -192,10 +192,10 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
                       </div>
                       <div className="flex gap-2 flex-shrink-0">
                         {tarefa.status === 'bloqueada' && (
-                          <Badge className="bg-red-100 text-red-700">Bloqueada</Badge>
+                          <Badge className="bg-red-500/15 text-red-300">Bloqueada</Badge>
                         )}
                         {atrasada && (
-                          <Badge className="bg-red-100 text-red-700">
+                          <Badge className="bg-red-500/15 text-red-300">
                             {diasAtraso}d atrasada
                           </Badge>
                         )}
@@ -224,8 +224,8 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
                 <div key={usuario.email} className="space-y-2">
                   <div className="flex justify-between items-center">
                     <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-                        <span className="text-sm font-semibold text-blue-700">
+                      <div className="w-8 h-8 rounded-full bg-blue-500/15 flex items-center justify-center">
+                        <span className="text-sm font-semibold text-blue-300">
                           {usuario.nome.charAt(0)}
                         </span>
                       </div>
@@ -237,9 +237,9 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
                       </div>
                     </div>
                     <Badge className={
-                      usuario.taxaConclusao >= 70 ? 'bg-emerald-100 text-emerald-700' :
-                      usuario.taxaConclusao >= 40 ? 'bg-yellow-100 text-yellow-700' :
-                      'bg-red-100 text-red-700'
+                      usuario.taxaConclusao >= 70 ? 'bg-emerald-500/15 text-emerald-300' :
+                      usuario.taxaConclusao >= 40 ? 'bg-yellow-500/15 text-yellow-300' :
+                      'bg-red-500/15 text-red-300'
                     }>
                       {usuario.taxaConclusao.toFixed(0)}%
                     </Badge>
@@ -306,16 +306,16 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
         <CardContent>
           <div className="space-y-3">
             {gargalosPorProjeto.slice(0, 5).map(projeto => (
-              <div key={projeto.id} className="p-4 bg-slate-50 rounded-lg">
+              <div key={projeto.id} className="p-4 bg-slate-900 rounded-lg">
                 <div className="flex justify-between items-start mb-3">
                   <div>
                     <h4 className="font-semibold">{projeto.nome}</h4>
                     <p className="text-xs text-slate-500 mt-1">{projeto.total} tarefas</p>
                   </div>
                   <Badge className={
-                    projeto.indicadorRisco > 5 ? 'bg-red-100 text-red-700' :
-                    projeto.indicadorRisco > 2 ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-emerald-100 text-emerald-700'
+                    projeto.indicadorRisco > 5 ? 'bg-red-500/15 text-red-300' :
+                    projeto.indicadorRisco > 2 ? 'bg-yellow-500/15 text-yellow-300' :
+                    'bg-emerald-500/15 text-emerald-300'
                   }>
                     Risco: {projeto.indicadorRisco > 5 ? 'Alto' : projeto.indicadorRisco > 2 ? 'Médio' : 'Baixo'}
                   </Badge>
@@ -355,7 +355,7 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
         <CardContent>
           <div className="space-y-3">
             {previsoesProjeto.map(projeto => (
-              <div key={projeto.id} className="p-4 bg-slate-50 rounded-lg">
+              <div key={projeto.id} className="p-4 bg-slate-900 rounded-lg">
                 <div className="flex justify-between items-start mb-2">
                   <div>
                     <h4 className="font-semibold">{projeto.nome}</h4>
@@ -386,9 +386,9 @@ export default function TaskAnalytics({ tarefas, projetos, usuarios, onGenerateA
                 </div>
                 <div className="mt-2">
                   <Badge className={
-                    projeto.status === 'no_prazo' ? 'bg-emerald-100 text-emerald-700' :
-                    projeto.status === 'atencao' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-red-100 text-red-700'
+                    projeto.status === 'no_prazo' ? 'bg-emerald-500/15 text-emerald-300' :
+                    projeto.status === 'atencao' ? 'bg-yellow-500/15 text-yellow-300' :
+                    'bg-red-500/15 text-red-300'
                   }>
                     {projeto.status === 'no_prazo' ? 'No Prazo' :
                      projeto.status === 'atencao' ? 'Atenção' : 'Crítico'}

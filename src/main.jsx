@@ -6,8 +6,10 @@ import App from '@/App.jsx'
 import '@/index.css'
 import '@/i18n'
 
+// ERP desktop é dark-first: default 'dark' (antes 'system' deixava os componentes
+// ui/* — Card/Tabs/etc. — claros quando o SO estava em modo claro). Toggle continua.
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+  <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
     <NotificationProvider>
       <App />
     </NotificationProvider>

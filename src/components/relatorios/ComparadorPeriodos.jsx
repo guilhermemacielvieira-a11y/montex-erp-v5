@@ -37,11 +37,11 @@ export default function ComparadorPeriodos({ dados, metricaChave, metricaLabel }
   const ehMelhor = diferenca > 0;
 
   return (
-    <Card className="border-purple-200 bg-gradient-to-br from-purple-50 to-blue-50">
+    <Card className="border-purple-500/30 bg-gradient-to-br from-purple-50 to-blue-50">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-slate-900">Comparador de Períodos</CardTitle>
+            <CardTitle className="text-white">Comparador de Períodos</CardTitle>
             <CardDescription>Visualize tendências e comparações</CardDescription>
           </div>
           <Button
@@ -60,9 +60,9 @@ export default function ComparadorPeriodos({ dados, metricaChave, metricaLabel }
           {/* Seletores de Período */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Período 1</label>
+              <label className="text-sm font-medium text-slate-300">Período 1</label>
               <Select value={periodo1} onValueChange={setPeriodo1}>
-                <SelectTrigger className="bg-white">
+                <SelectTrigger className="bg-slate-800">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -76,9 +76,9 @@ export default function ComparadorPeriodos({ dados, metricaChave, metricaLabel }
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-slate-700">Período 2</label>
+              <label className="text-sm font-medium text-slate-300">Período 2</label>
               <Select value={periodo2} onValueChange={setPeriodo2}>
-                <SelectTrigger className="bg-white">
+                <SelectTrigger className="bg-slate-800">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -93,12 +93,12 @@ export default function ComparadorPeriodos({ dados, metricaChave, metricaLabel }
           </div>
 
           {/* Comparação Visual */}
-          <div className="bg-white rounded-lg p-4 space-y-4">
+          <div className="bg-slate-800 rounded-lg p-4 space-y-4">
             <div className="grid grid-cols-3 gap-4">
               {/* Coluna 1 */}
-              <div className="space-y-2 border-r border-slate-200 pr-4">
+              <div className="space-y-2 border-r border-slate-700 pr-4">
                 <p className="text-xs text-slate-600 font-medium">PERÍODO 1</p>
-                <p className="text-2xl font-bold text-slate-900">{valor1}</p>
+                <p className="text-2xl font-bold text-white">{valor1}</p>
                 <p className="text-xs text-slate-600">{periodos.find(p => p.id === periodo1)?.label}</p>
               </div>
 
@@ -112,18 +112,18 @@ export default function ComparadorPeriodos({ dados, metricaChave, metricaLabel }
               </div>
 
               {/* Coluna 2 */}
-              <div className="space-y-2 border-l border-slate-200 pl-4">
+              <div className="space-y-2 border-l border-slate-700 pl-4">
                 <p className="text-xs text-slate-600 font-medium">PERÍODO 2</p>
-                <p className="text-2xl font-bold text-slate-900">{valor2}</p>
+                <p className="text-2xl font-bold text-white">{valor2}</p>
                 <p className="text-xs text-slate-600">{periodos.find(p => p.id === periodo2)?.label}</p>
               </div>
             </div>
 
             {/* Resumo da Diferença */}
-            <div className="bg-slate-50 rounded p-3 space-y-2">
-              <p className="text-sm font-medium text-slate-700">Mudança</p>
+            <div className="bg-slate-900 rounded p-3 space-y-2">
+              <p className="text-sm font-medium text-slate-300">Mudança</p>
               <div className="flex items-center gap-2">
-                <Badge className={ehMelhor ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}>
+                <Badge className={ehMelhor ? 'bg-green-500/15 text-green-300' : 'bg-red-500/15 text-red-300'}>
                   {ehMelhor ? '+' : ''}{percentualMudanca}%
                 </Badge>
                 <span className="text-sm text-slate-600">
@@ -134,14 +134,14 @@ export default function ComparadorPeriodos({ dados, metricaChave, metricaLabel }
           </div>
 
           {/* Insights */}
-          <div className="bg-slate-50 rounded p-3 space-y-2">
-            <p className="text-xs font-medium text-slate-700 uppercase">Insight</p>
+          <div className="bg-slate-900 rounded p-3 space-y-2">
+            <p className="text-xs font-medium text-slate-300 uppercase">Insight</p>
             {ehMelhor ? (
-              <p className="text-sm text-slate-700">
+              <p className="text-sm text-slate-300">
                 ✓ {metricaLabel} cresceu <strong>{percentualMudanca}%</strong> em relação ao período anterior
               </p>
             ) : (
-              <p className="text-sm text-slate-700">
+              <p className="text-sm text-slate-300">
                 ⚠ {metricaLabel} diminuiu <strong>{Math.abs(percentualMudanca)}%</strong> em relação ao período anterior
               </p>
             )}
