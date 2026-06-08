@@ -136,8 +136,10 @@ function KPI({ label, value, sub, icon: Icon, color = '#f97316', delay = 0 }) {
 // SUB-COMPONENT: Card Kanban
 // ============================================
 function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelected, onToggleSelect, dragRef }) {
-  const s = STATUS_CONFIG[peca._status];
+  // Card-porção (peça parcial dividida): usa o status da PORÇÃO (montado/aguardando)
+  const s = STATUS_CONFIG[peca._displayStatus || peca._status];
   const Icon = s.icon;
+  const qtdCard = peca._qtd || Math.max(1, parseInt(peca.quantidade) || 1);
   return (
     <motion.div
       ref={dragRef}
@@ -174,9 +176,11 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelecte
           </span>
         </div>
         <span className="text-[10px] font-mono text-slate-500">
-          {(peca._montadas != null && (peca._qtd || peca.quantidade) > 1)
-            ? `${peca._montadas}/${peca._qtd || peca.quantidade} pcs`
-            : `${fmt(peca.quantidade)} pcs`}
+          {peca._portion != null
+            ? `${peca._portionQtd}/${qtdCard} ${peca._portion === 'montada' ? 'montadas' : 'aguard.'}`
+            : (peca._montadas != null && qtdCard > 1)
+              ? `${peca._montadas}/${qtdCard} pcs`
+              : `${fmt(peca.quantidade)} pcs`}
         </span>
       </div>
 
@@ -194,9 +198,13 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelecte
         <span className="truncate">{obra?.nome?.substring(0, 22) || '—'}</span>
       </div>
 
-      {/* Peso */}
+      {/* Peso (proporcional à porção quando a peça parcial está dividida) */}
       <div className="flex items-center justify-between text-[11px] text-slate-400 pt-2 border-t border-slate-800">
-        <span className="font-mono tabular-nums">{fmtPeso(peca.pesoTotal || peca.peso)}</span>
+        <span className="font-mono tabular-nums">
+          {fmtPeso(peca._portion != null
+            ? (peca.pesoTotal || peca.peso || 0) * (peca._portionQtd / qtdCard)
+            : (peca.pesoTotal || peca.peso))}
+        </span>
         <span className="text-[10px] text-slate-500">{fmtData(peca.dataEnvio || peca.updated_at)}</span>
       </div>
 
@@ -205,6 +213,19 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelecte
         {(() => {
           const qtd = peca._qtd || Math.max(1, parseInt(peca.quantidade) || 1);
           const abreModal = qtd > 1; // C32A=2, C6A=7 etc → escolher quantidade
+          // Card-porção (peça parcial dividida entre colunas): ação única = editar
+          // a quantidade montada (o modal ajusta o split nas duas colunas).
+          if (peca._portion != null) {
+            return (
+              <button
+                onClick={(e) => { e.stopPropagation(); onAbrirDetalhe?.(peca); }}
+                className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-2 rounded transition-all hover:opacity-90 bg-blue-500 text-white"
+                title={`Editar quantidade montada (${peca._montadas}/${qtd})`}
+              >
+                <Activity className="h-3 w-3" /> Editar ({peca._montadas}/{qtd})
+              </button>
+            );
+          }
           if (peca._status === 'aguardando_montagem') {
             return (
               <button
@@ -556,13 +577,26 @@ export default function MontagemPage() {
   }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
 
   // ===== Agrupamento Kanban =====
-  // Parciais aparecem JUNTO com aguardando (peça ainda em progresso de montagem)
-  // — visualmente diferenciadas pelo badge azul "Parcial" e contador N/qtd.
-  // Só vai para coluna "Montado" quando 100% das unidades estiverem montadas.
-  const kanban = useMemo(() => ({
-    aguardando_montagem: pecasFiltradas.filter(p => p._status === 'aguardando_montagem' || p._status === 'parcial'),
-    montado: pecasFiltradas.filter(p => p._status === 'montado'),
-  }), [pecasFiltradas]);
+  // Peças PARCIAIS são DIVIDIDAS por quantidade entre as colunas (conformidade com
+  // o 3D e com os KPIs): a porção montada (N un) vai para MONTADO e a porção
+  // pendente (qtd-N un) permanece em AGUARDANDO. Cada porção é um card próprio com
+  // _portion / _portionQtd / _displayStatus.
+  const kanban = useMemo(() => {
+    const aguardando = [];
+    const montado = [];
+    for (const p of pecasFiltradas) {
+      if (p._status === 'montado') { montado.push(p); continue; }
+      if (p._status === 'aguardando_montagem') { aguardando.push(p); continue; }
+      if (p._status === 'parcial') {
+        const qtd = p._qtd || Math.max(1, parseInt(p.quantidade) || 1);
+        const mont = Math.max(0, p._montadas || 0);
+        const pend = Math.max(0, qtd - mont);
+        if (mont > 0) montado.push({ ...p, _portion: 'montada', _portionQtd: mont, _displayStatus: 'montado' });
+        if (pend > 0) aguardando.push({ ...p, _portion: 'aguardando', _portionQtd: pend, _displayStatus: 'aguardando_montagem' });
+      }
+    }
+    return { aguardando_montagem: aguardando, montado };
+  }, [pecasFiltradas]);
 
   // ===== KPIs (em UNIDADES físicas; respeitam filtro de obra) =====
   const kpis = useMemo(() => {
@@ -953,9 +987,18 @@ export default function MontagemPage() {
             const s = STATUS_CONFIG[statusKey];
             const items = kanban[statusKey];
             const Icon = s.icon;
-            const totalPesoCol = items.reduce((sum, p) => sum + (p.pesoTotal || p.peso || 0), 0);
-            // Contagem por UNIDADES (não por marcas): marca com qtd>1 conta cada unidade.
-            const totalUnidadesCol = items.reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0);
+            // Contagem por UNIDADES respeitando PORÇÃO das parciais (_portionQtd).
+            // Peso proporcional à porção quando dividido.
+            const totalPesoCol = items.reduce((sum, p) => {
+              const full = p.pesoTotal || p.peso || 0;
+              if (p._portionQtd != null) {
+                const q = p._qtd || Math.max(1, parseInt(p.quantidade) || 1);
+                return sum + full * (p._portionQtd / q);
+              }
+              return sum + full;
+            }, 0);
+            const totalUnidadesCol = items.reduce((sum, p) =>
+              sum + (p._portionQtd != null ? p._portionQtd : (parseInt(p.quantidade) || 1)), 0);
             return (
               <div key={statusKey}
                 className={cn('rounded-xl border bg-slate-900/40 backdrop-blur overflow-hidden flex flex-col', s.border)}
@@ -991,7 +1034,7 @@ export default function MontagemPage() {
                       </div>
                     ) : items.map(peca => (
                       <PecaCard
-                        key={peca.id}
+                        key={peca._portion ? `${peca.id}-${peca._portion}` : peca.id}
                         peca={peca}
                         obra={obras.find(o => o.id === (peca.obraId || peca.obra_id))}
                         onAvancar={handleAvancar}
