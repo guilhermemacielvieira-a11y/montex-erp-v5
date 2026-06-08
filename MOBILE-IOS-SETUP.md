@@ -8,6 +8,26 @@ reaproveitando 100% do código React/Vite. Rode no **macOS com Xcode instalado**
 
 ---
 
+## ✅ Checklist de prontidão (status atual)
+
+**Pronto no repositório (nada a fazer):**
+- [x] `capacitor.config.json` (appId `com.montex.erp`, `webDir: dist`, plugins SplashScreen/Keyboard/PushNotifications)
+- [x] Scripts npm: `ios:sync`, `ios:open`, `ios`
+- [x] Isolação nativa: dentro do Capacitor o app **sempre** roda em `/m` e nunca mostra o desktop (`src/App.jsx`)
+- [x] Plugins acessados só via `window.Capacitor.Plugins.*` em **runtime** — **zero** import estático de `@capacitor/*` (não quebra o bundle web; verificado)
+- [x] Backend de push: tabela `push_tokens` (migration v11) + Edge Function `send-push` (APNs JWT ES256)
+- [x] Capacidades nativas no código: câmera/scanner, haptics, biometria, network, deep links
+
+**Passos manuais no macOS/Xcode (fora do sandbox):**
+- [ ] `npm install` + instalar Capacitor e plugins (§1)
+- [ ] `npm run build` + `npx cap add ios` (cria `ios/`) (§2)
+- [ ] Xcode: Team de assinatura + capabilities Push/Background Modes (§3)
+- [ ] `Info.plist`: descrições de uso de câmera e Face ID (§5)
+- [ ] Deploy `send-push` + secrets `APNS_*` com a chave `.p8` (seção Push)
+- [ ] **BLOQUEANTE:** rotacionar/remover a `service_role` do cliente antes de publicar (ver abaixo)
+
+---
+
 ## Pré-requisitos (uma vez)
 
 - macOS + **Xcode** (App Store) + Command Line Tools: `xcode-select --install`
