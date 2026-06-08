@@ -76,6 +76,13 @@ import {
 } from 'recharts';
 import { useLancamentos, useObras } from '../contexts/ERPContext';
 import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
+import {
+  loadCategoriaOverrides,
+  setCategoriaOverride,
+  removeCategoriaOverride,
+  aplicarOverridesNaLista,
+  lookupCategoriaPorFornecedor,
+} from '../utils/despesasOverrides';
 import ImportarNFModal from '../components/ImportarNFModal';
 
 // ========== CONSTANTES ==========
@@ -200,8 +207,17 @@ const autoFillFromMapping = (fornecedor, nf) => {
   return null;
 };
 
-// Categorizar despesa automaticamente pela descrição
-const categorizarDespesa = (descricao) => {
+// Categorizar despesa automaticamente.
+// PIPELINE (Fase 1):
+//   1. Mapping aprendido por fornecedor/NF (montex_nf_fornecedor_mapping)
+//      — alimentado por correções manuais via setCategoriaOverride.
+//   2. Keyword-match na descrição (regras hardcoded abaixo).
+//   3. Fallback "Outros".
+const categorizarDespesa = (descricao, fornecedor, nf) => {
+  // 1. Mapping aprendido (prioridade máxima — respeita aprendizado do usuário)
+  const aprendida = lookupCategoriaPorFornecedor(fornecedor, nf);
+  if (aprendida) return aprendida;
+  // 2. Keyword-match
   const d = (descricao || '').toUpperCase();
   if (d.includes('FOLHA') || d.includes('DIARIA') || d.includes('HORA EXTRA') || d.includes('FÉRIAS') || d.includes('FGTS') || d.includes('ACERTO')) return 'Mão de Obra';
   if (d.includes('CEMIG') || d.includes('COPASA') || d.includes('ENERGIA') || d.includes('LUZ') || d.includes('AGUA')) return 'Energia/Utilidades';
@@ -249,6 +265,9 @@ export default function DespesasPage() {
     notaFiscal: '',
     naturezaAquisicao: '',
   });
+  // Overrides de categoria (Fase 1) — força re-render quando o usuário edita.
+  // Incrementar `overridesVersion` invalida o useMemo de `despesas`.
+  const [overridesVersion, setOverridesVersion] = useState(0);
 
   // === MAPA DE OBRAS ===
   const obrasMap = useMemo(() => {
@@ -300,7 +319,7 @@ export default function DespesasPage() {
       return statusBruto || 'pendente';
     };
 
-    return filtrados.map(l => {
+    const lista = filtrados.map(l => {
       const statusBruto = l.status || 'pendente';
       const dataVenc = l.dataVencimento || l.data_vencimento || l.vencimento || '';
       return {
@@ -323,7 +342,11 @@ export default function DespesasPage() {
         obraId: l.obraId || l.obra_id || null,
       };
     });
-  }, [lancamentosSupabase, filtroObra]);
+    // Aplica overrides de categoria (edições manuais persistidas em localStorage).
+    // O override VENCE o normalizarCategoria — assim o usuário pode corrigir
+    // "CEMIG..." → Administrativo sem que a heurística reverta para Energia.
+    return aplicarOverridesNaLista(lista);
+  }, [lancamentosSupabase, filtroObra, overridesVersion]);
 
   // === AUTO-FILL: quando fornecedor ou NF muda ===
   const handleFornecedorChange = useCallback((novoFornecedor) => {
@@ -770,7 +793,7 @@ export default function DespesasPage() {
     const dados = {
       descricao: formData.descricao,
       fornecedor: formData.fornecedor || '-',
-      categoria: formData.categoria || categorizarDespesa(formData.descricao),
+      categoria: formData.categoria || categorizarDespesa(formData.descricao, formData.fornecedor, formData.notaFiscal),
       centroCusto: formData.centroCusto || 'Produção',
       valor: parseFloat(formData.valor),
       formaPagto: formData.formaPagto || '-',
@@ -787,7 +810,22 @@ export default function DespesasPage() {
     if (editando) {
       try {
         await updateLancamento(editando.id, dados);
-        toast.success('Despesa atualizada!');
+        // Fase 1: se a categoria mudou em relação à exibida originalmente,
+        // grava override em localStorage + alimenta mapping CNPJ→categoria.
+        // Override VENCE o normalizarCategoria na próxima renderização.
+        const categoriaOriginal = editando.categoria;
+        const categoriaNova = dados.categoria;
+        if (categoriaNova && categoriaOriginal && categoriaNova !== categoriaOriginal) {
+          setCategoriaOverride(editando.id, categoriaNova, {
+            categoria: categoriaOriginal,
+            fornecedor: dados.fornecedor,
+            notaFiscal: dados.notaFiscal,
+          });
+          setOverridesVersion(v => v + 1); // força re-render da lista
+          toast.success(`Categoria "${categoriaNova}" salva (correção manual aprendida)`);
+        } else {
+          toast.success('Despesa atualizada!');
+        }
       } catch (err) {
         console.error('Erro ao atualizar:', err);
         toast.error('Erro ao atualizar despesa');
@@ -1449,10 +1487,25 @@ export default function DespesasPage() {
                     </TableCell>
                     <TableCell className="text-slate-300 text-sm">{despesa.fornecedor}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: getCategoriaColor(despesa.categoria) }}>
-                        <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(despesa.categoria) }} />
-                        {despesa.categoria}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: getCategoriaColor(despesa.categoria) }}>
+                          <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(despesa.categoria) }} />
+                          {despesa.categoria}
+                        </Badge>
+                        {despesa._categoriaOverride && (
+                          <button
+                            onClick={() => {
+                              removeCategoriaOverride(despesa.id);
+                              setOverridesVersion(v => v + 1);
+                              toast.success('Edição manual removida — voltando à categorização automática');
+                            }}
+                            title={`Categoria editada manualmente em ${new Date(despesa._categoriaOverride.editadoEm).toLocaleDateString('pt-BR')}. Clique para desfazer.`}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors leading-none"
+                          >
+                            ✏️ manual
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-slate-400 text-sm">{despesa.centroCusto}</TableCell>
                     <TableCell className="text-right font-semibold text-rose-400">{formatCurrency(despesa.valor)}</TableCell>

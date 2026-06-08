@@ -1,0 +1,156 @@
+// ============================================================
+// DESPESAS — OVERRIDES DE CATEGORIA (Fase 1 do plano)
+// ============================================================
+// PROBLEMA QUE RESOLVE:
+//
+// A função `normalizarCategoria()` em useFinancialIntelligence.js aplica
+// regras de keyword na descrição na hora de renderizar. Isso significa que
+// uma despesa com descrição "CEMIG FATURA OUTUBRO" SEMPRE vira
+// "Energia/Utilidades" na UI, mesmo que o usuário tenha editado a categoria
+// para "Administrativo" e salvado no Supabase.
+//
+// Esse módulo guarda OVERRIDES locais por id de despesa. Quando o usuário
+// edita a categoria manualmente, a edição vence o `normalizarCategoria`.
+//
+// Schema do localStorage:
+//   montex_despesas_categoria_overrides = {
+//     [despesaId]: {
+//       categoria: 'Administrativo',
+//       editadoEm: '2026-06-08T17:34:12.000Z',
+//       origem: 'manual' | 'mapping',
+//       categoriaAnterior?: 'Energia/Utilidades',  // pra desfazer
+//     },
+//     ...
+//   }
+//
+// Também alimenta o `montex_nf_fornecedor_mapping` (que JÁ existe em
+// DespesasPage.jsx) quando o usuário edita — assim correções repetidas
+// para o mesmo fornecedor passam a ser sugeridas em NOVAS importações.
+// ============================================================
+
+const OVERRIDES_KEY = 'montex_despesas_categoria_overrides';
+const MAPPING_KEY = 'montex_nf_fornecedor_mapping';
+
+// ============================================================
+// OVERRIDES POR ID
+// ============================================================
+
+export function loadCategoriaOverrides() {
+  try {
+    const raw = localStorage.getItem(OVERRIDES_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCategoriaOverrides(obj) {
+  try {
+    localStorage.setItem(OVERRIDES_KEY, JSON.stringify(obj || {}));
+  } catch {
+    // quota cheia ou storage indisponível — silent fail
+  }
+}
+
+// Retorna o override de uma despesa específica ou null
+export function getCategoriaOverride(id) {
+  if (!id) return null;
+  const all = loadCategoriaOverrides();
+  return all[String(id)] || null;
+}
+
+// Grava override de categoria + alimenta o mapping CNPJ→categoria
+export function setCategoriaOverride(id, novaCategoria, despesa = {}) {
+  if (!id || !novaCategoria) return;
+  const all = loadCategoriaOverrides();
+  const prev = all[String(id)];
+  all[String(id)] = {
+    categoria: novaCategoria,
+    editadoEm: new Date().toISOString(),
+    origem: 'manual',
+    categoriaAnterior: prev?.categoriaAnterior || despesa.categoria || null,
+  };
+  saveCategoriaOverrides(all);
+
+  // Alimenta o mapping fornecedor/NF — assim correções viram aprendizado
+  // para PRÓXIMAS importações. Reusa o schema do MAPPING_KEY existente.
+  try {
+    const rawMap = localStorage.getItem(MAPPING_KEY);
+    const map = rawMap ? JSON.parse(rawMap) : {};
+    const fornecedor = (despesa.fornecedor || '').toUpperCase().trim();
+    const nf = despesa.notaFiscal;
+    if (fornecedor) {
+      if (!map[fornecedor]) map[fornecedor] = {};
+      map[fornecedor].categoria = novaCategoria;
+      map[fornecedor].aprendidoEm = new Date().toISOString();
+    }
+    if (nf) {
+      map[`NF_${nf}`] = {
+        ...(map[`NF_${nf}`] || {}),
+        categoria: novaCategoria,
+        fornecedor,
+        aprendidoEm: new Date().toISOString(),
+      };
+    }
+    localStorage.setItem(MAPPING_KEY, JSON.stringify(map));
+  } catch {
+    // mapping é best-effort
+  }
+}
+
+// Remove override de uma despesa (volta a respeitar normalizarCategoria)
+export function removeCategoriaOverride(id) {
+  if (!id) return;
+  const all = loadCategoriaOverrides();
+  if (all[String(id)]) {
+    delete all[String(id)];
+    saveCategoriaOverrides(all);
+  }
+}
+
+// Aplica override em uma lista de despesas (transforma a categoria)
+// Retorna nova lista com `categoria` ajustada + `_categoriaOverride` (objeto
+// do override) anexado para a UI exibir o badge "manual".
+export function aplicarOverridesNaLista(despesas) {
+  if (!Array.isArray(despesas) || despesas.length === 0) return despesas || [];
+  const all = loadCategoriaOverrides();
+  if (Object.keys(all).length === 0) return despesas;
+  return despesas.map(d => {
+    const ov = all[String(d.id)];
+    if (!ov) return d;
+    return {
+      ...d,
+      categoria: ov.categoria,
+      _categoriaOverride: ov, // sinal para UI: exibir badge "manual"
+    };
+  });
+}
+
+// ============================================================
+// MAPPING CNPJ/FORNECEDOR → CATEGORIA (aprendizado)
+// ============================================================
+// O DespesasPage já tem `loadMapping()` e `autoFillFromMapping()`. Aqui
+// expomos um lookup simples que pode ser usado em qualquer ponto para
+// consultar "qual categoria foi aprendida para este fornecedor?".
+
+export function lookupCategoriaPorFornecedor(fornecedor, nf) {
+  try {
+    const raw = localStorage.getItem(MAPPING_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    // Prioridade: NF específica > fornecedor genérico
+    if (nf && map[`NF_${nf}`]?.categoria) return map[`NF_${nf}`].categoria;
+    const key = (fornecedor || '').toUpperCase().trim();
+    if (key && map[key]?.categoria) return map[key].categoria;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ============================================================
+// MÉTRICAS / UTIL
+// ============================================================
+export function contarOverrides() {
+  return Object.keys(loadCategoriaOverrides()).length;
+}
