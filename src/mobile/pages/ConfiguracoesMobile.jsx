@@ -8,17 +8,20 @@ import MobileLayout from '../MobileLayout';
 import { isPushAvailable, getPushStatus, enablePush } from '../ui/push';
 import { queueSize, QUEUE_EVENT } from '../ui/offlineQueue';
 import { getLastRefresh, formatRelative } from '../ui/lastRefresh';
+import { getSyncLog, SYNCLOG_EVENT } from '../ui/syncLog';
 
 export default function ConfiguracoesMobile() {
   const [pushStatus, setPushStatus] = useState(null);
   const [pendentes, setPendentes] = useState(() => queueSize());
+  const [historico, setHistorico] = useState(() => getSyncLog());
 
   useEffect(() => {
     getPushStatus().then(setPushStatus);
-    const upd = () => setPendentes(queueSize());
+    const upd = () => { setPendentes(queueSize()); setHistorico(getSyncLog()); };
     window.addEventListener(QUEUE_EVENT, upd);
     window.addEventListener('online', upd);
-    return () => { window.removeEventListener(QUEUE_EVENT, upd); window.removeEventListener('online', upd); };
+    window.addEventListener(SYNCLOG_EVENT, upd);
+    return () => { window.removeEventListener(QUEUE_EVENT, upd); window.removeEventListener('online', upd); window.removeEventListener(SYNCLOG_EVENT, upd); };
   }, []);
 
   const ativarPush = async () => {
@@ -73,6 +76,22 @@ export default function ConfiguracoesMobile() {
             <div className="px-1 pt-1 text-[11px] text-slate-400">Dados atualizados {formatRelative(lastTs)}.</div>
           )}
         </Secao>
+
+        {/* Atividade recente (histórico de sincronização) */}
+        {historico.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Atividade recente</div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl divide-y divide-slate-800">
+              {historico.slice(0, 8).map((h, i) => (
+                <div key={i} className="flex items-center gap-3 px-3.5 py-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span className="flex-1 min-w-0 text-[13px] truncate">{h.label}</span>
+                  <span className="text-[11px] text-slate-400 whitespace-nowrap">sincronizado {formatRelative(h.ts)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Sobre */}
         <Secao titulo="Sobre">
