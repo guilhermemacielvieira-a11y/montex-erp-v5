@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
-import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY } from '../utils/montagemSync';
+import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
 
 // Ícones SVG inline (evitam dependência de lucide-react sem impactar bundle)
 const Filter = ({ className = 'w-4 h-4' }) => (
@@ -1521,13 +1521,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const pecasOrd = pecas.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
       let ai = 0;
       for (const p of pecasOrd) {
-        const montada = pecaIdsMontadas.has(String(p.id));
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        // Quantidade EFETIVAMENTE montada (parcial: 0..qtd; padrão legado = qtd)
+        const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtd);
         let consumido = 0;
         for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
           asmRedistribuidos.add(asmsOrd[ai]);
           const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
-          const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+          // Primeiras `montadasN` unidades pintam MONTADO; restante = status produção
+          const novoStatus = (q < montadasN) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
           for (const eid of elems) map.set(eid, novoStatus);
           consumido++;
         }
@@ -1594,11 +1596,16 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         const asmsOrd = asms.slice().sort((a, b) => a - b);
         let ai = 0;
         for (const { peca: p, falta } of itens) {
-          const montada = pecaIdsMontadas.has(String(p.id));
+          const qtdTotal = Math.max(1, parseInt(p.quantidade) || 1);
+          // Unidades montadas (parcial-aware). Quantas DA FALTA restam montadas
+          // depende de quanto a camada anterior já consumiu (consumoPorPeca).
+          const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtdTotal);
+          const jaConsumido = consumoPorPeca.get(String(p.id)) || 0;
+          const aindaMontar = Math.max(0, montadasN - jaConsumido);
           for (let q = 0; q < falta && ai < asmsOrd.length; q++, ai++) {
             const elems = elemsByAsm.get(asmsOrd[ai]) || [];
-            // Se peça está montada → MONTADO. Caso contrário, status produção.
-            const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+            // Primeiras `aindaMontar` unidades desta camada pintam MONTADO
+            const novoStatus = (q < aindaMontar) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
             for (const eid of elems) map.set(eid, novoStatus);
           }
         }
@@ -1711,16 +1718,31 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     };
     const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
     for (const p of erpPecas) {
-      // Override montado via MontagemPage — MESMA fonte que MontagemPage (entity_store via concluidasMontagem)
-      const status = pecaIdsMontadas.has(String(p.id)) ? 'MONTADO' : p.status;
-      const qtd = p.quantidade || 1;
+      const qtd = Math.max(1, parseInt(p.quantidade) || 1);
       const peso = p.peso || 0;
       const marcaKey = (p.marca || '').toUpperCase().trim();
+      // Quantidade EFETIVAMENTE montada (parcial-aware). 0 se não está no entity_store.
+      const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtd);
       result.totalUnidades += qtd;
       result.totalPeso += peso;
-      const b = result.byStatus[status] || result.byStatus.NAO_INICIADO;
-      b.pecas++; b.unidades += qtd; b.peso += peso;
-      if (marcaKey) b.marcasSet.add(marcaKey);
+      // KPIs distribuem unidades entre MONTADO (parte montada) e status original (resto).
+      // Peças com montagem parcial CONTAM em ambos os status — sua marca aparece nos dois sets.
+      const statusBase = p.status || 'NAO_INICIADO';
+      if (montadasN > 0) {
+        const bM = result.byStatus.MONTADO;
+        bM.unidades += montadasN;
+        bM.peso += peso * (montadasN / qtd);
+        if (marcaKey) bM.marcasSet.add(marcaKey);
+        // Conta como peça MONTADO somente se 100% montada (manteve semântica antiga do peças count)
+        if (montadasN >= qtd) bM.pecas++;
+      }
+      if (montadasN < qtd) {
+        const b = result.byStatus[statusBase] || result.byStatus.NAO_INICIADO;
+        b.pecas++;  // peça ainda tem unidades pendentes → conta no status base
+        b.unidades += (qtd - montadasN);
+        b.peso += peso * ((qtd - montadasN) / qtd);
+        if (marcaKey) b.marcasSet.add(marcaKey);
+      }
       const tipo = p.tipo || 'SEM_TIPO';
       if (!result.byType[tipo]) result.byType[tipo] = { pecas: 0, unidades: 0, peso: 0 };
       result.byType[tipo].pecas++;

@@ -53,13 +53,32 @@ const fmtData = (d) => {
 const carregarConcluidas = loadConcluidasLocal;
 const salvarConcluidas = saveConcluidasSmart;
 
+// ============================================
+// MARCAÇÃO PARCIAL — helpers (backward compatible)
+// ============================================
+// Payload no entity_store:
+//   - SEM `montadas` (legado): considera TODAS as unidades montadas (= peca.quantidade)
+//   - COM `montadas: N`: N unidades de qtd montadas (0 < N <= qtd)
+//   - Excluído do entity_store: 0 unidades montadas
+// Permite ex.: C32A com qtd=2 → marcar 1 (parcial) ou 2 (completo).
+function getMontadasCount(payload, qtd) {
+  const total = Math.max(1, parseInt(qtd) || 1);
+  if (!payload) return 0;
+  // Payload legado sem campo `montadas` → considera tudo montado (= qtd)
+  if (payload.montadas == null) return total;
+  // Payload novo: respeita N, mas limita a 0..qtd
+  return Math.max(0, Math.min(total, parseInt(payload.montadas) || 0));
+}
+
 // Status do módulo (derivado da etapa + override de concluidas)
 // REGRA: entity_store (concluidasMontagem) é fonte ÚNICA da verdade para "Montado".
-// Independentemente da etapa atual da peça, se está marcada no entity_store → 'montado'.
-// Para "Aguardando", continua exigindo etapa === 'enviado' (peças que foram para o canteiro
-// mas ainda não foram montadas). Isso garante alinhamento com MontexERP3DPage.
-const statusFromEtapa = (etapa, concluidas, pecaId) => {
-  if (concluidas && concluidas[pecaId]) return 'montado';
+// Quantidade montada (1..qtd) determina se é parcial, montado ou aguardando.
+const statusFromEtapa = (etapa, concluidas, pecaId, qtd) => {
+  const payload = concluidas && concluidas[pecaId];
+  const total = Math.max(1, parseInt(qtd) || 1);
+  const montadas = getMontadasCount(payload, total);
+  if (montadas >= total) return 'montado';                // todas as unidades
+  if (montadas > 0) return 'parcial';                      // algumas unidades (NOVO)
   if (etapa !== 'enviado') return null;
   return 'aguardando_montagem';
 };
@@ -74,6 +93,16 @@ const STATUS_CONFIG = {
     text: 'text-amber-300',
     border: 'border-amber-500/40',
     glow: 'shadow-amber-500/20',
+  },
+  parcial: {
+    label: 'Montagem Parcial',
+    short: 'Parcial',
+    icon: Activity,
+    color: '#60a5fa',
+    bg: 'bg-blue-500/20',
+    text: 'text-blue-300',
+    border: 'border-blue-500/40',
+    glow: 'shadow-blue-500/20',
   },
   montado: {
     label: 'Montado',
@@ -251,13 +280,41 @@ export default function MontagemPage() {
     return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
   }, []);
 
-  const setConcluida = (pecaId, montada) => {
+  // setConcluida aceita: (pecaId, true|false) [legado: tudo/nada]
+  //                ou: (pecaId, N, qtdTotal)  [parcial: N de qtdTotal]
+  // Se N >= qtdTotal → grava montadas=qtdTotal (completo).
+  // Se N <= 0 → remove do entity_store (aguardando).
+  // Sempre que altera valor existente, atualiza atualizadoEm + acumula histórico curto.
+  const setConcluida = (pecaId, montadasOuBool, qtdTotal) => {
     setConcluidas(prev => {
       const next = { ...prev };
-      // Mesmo formato de MontexERP3DPage/MontagemMobile: payload com metadados
-      // permite rastrear quando/onde a marcação foi feita.
-      if (montada) next[pecaId] = { montadoEm: new Date().toISOString(), origem: 'MontagemPage' };
-      else delete next[pecaId];
+      const existing = prev[pecaId] || null;
+      const now = new Date().toISOString();
+
+      // Resolver quantidade alvo
+      let target;
+      if (typeof montadasOuBool === 'boolean') {
+        target = montadasOuBool ? (qtdTotal || (existing?.montadas ?? 1)) : 0;
+      } else {
+        target = Math.max(0, parseInt(montadasOuBool) || 0);
+      }
+      const qtdMax = Math.max(1, parseInt(qtdTotal) || (existing?.montadas ?? 1));
+      target = Math.min(target, qtdMax);
+
+      if (target <= 0) {
+        delete next[pecaId];
+      } else {
+        const payload = {
+          ...(existing || {}),
+          montadas: target,
+          montadoEm: existing?.montadoEm || now,
+          atualizadoEm: now,
+          origem: 'MontagemPage',
+        };
+        // Quando totalmente montado, mantém também o campo legado (sem `montadas`)? Não.
+        // Sempre preservamos `montadas` para clareza, mesmo se igual a qtdMax.
+        next[pecaId] = payload;
+      }
       salvarConcluidas(next);
       return next;
     });
@@ -423,9 +480,11 @@ export default function MontagemPage() {
   const pecasMontagem = useMemo(() => {
     return (pecas || [])
       .map(p => {
-        const status = statusFromEtapa(p.etapa, concluidas, p.id);
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        const status = statusFromEtapa(p.etapa, concluidas, p.id, qtd);
         if (!status) return null;
-        return { ...p, _status: status };
+        const _montadas = getMontadasCount(concluidas?.[p.id], qtd);
+        return { ...p, _status: status, _qtd: qtd, _montadas };
       })
       .filter(Boolean);
   }, [pecas, concluidas]);
@@ -487,15 +546,22 @@ export default function MontagemPage() {
     const totalPeso = pecasFiltradas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const totalQtd = pecasFiltradas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
 
-    // Aguardando
+    // Aguardando (zero unidades montadas)
     const aguardando = pecasFiltradas.filter(p => p._status === 'aguardando_montagem');
     const pesoAguardando = aguardando.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const qtdAguardando = aguardando.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
 
-    // Montadas
+    // Parciais (algumas unidades montadas, mas não todas)
+    const parciais = pecasFiltradas.filter(p => p._status === 'parcial');
+    const qtdParcialMontada = parciais.reduce((s, p) => s + (p._montadas || 0), 0);
+
+    // Montadas (todas as unidades) — KPI Montado conta unidades EFETIVAMENTE montadas
+    // (somando completas + parcial-montadas), peso só conta peças 100% montadas.
     const montadas = pecasFiltradas.filter(p => p._status === 'montado');
     const pesoMontado = montadas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const qtdMontada = montadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    // qtdMontada = unidades 100% montadas + as unidades parciais contadas individualmente
+    const qtdMontadaCompletas = montadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+    const qtdMontada = qtdMontadaCompletas + qtdParcialMontada;
 
     return {
       // Peso da obra (referência 100%)
@@ -517,16 +583,27 @@ export default function MontagemPage() {
   }, [pecasFiltradas, equipesMontagem, obras, obraFiltro]);
 
   // ===== Ações (apenas localStorage — NÃO altera o banco) =====
-  // Concluir Montagem: marca peça como montada SOMENTE no módulo
+  // Concluir Montagem: marca peça como totalmente montada (qtd unidades)
   const handleAvancar = (peca) => {
-    setConcluida(peca.id, true);
-    toast.success(`✅ Montada (módulo): ${peca.codigo || peca.marca}`);
+    const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
+    setConcluida(peca.id, qtd, qtd);
+    toast.success(`✅ Montada (${qtd}/${qtd}): ${peca.codigo || peca.marca}`);
   };
 
-  // Retornar para Aguardando: desmarca no módulo
+  // Retornar para Aguardando: desmarca no módulo (zera unidades)
   const handleRetornar = (peca) => {
-    setConcluida(peca.id, false);
+    setConcluida(peca.id, 0);
     toast.success(`↩️ Retornada para Aguardando: ${peca.codigo || peca.marca}`);
+  };
+
+  // Marcar montagem parcial: N unidades de qtd total
+  const handleSetMontadas = (peca, novasUnidadesMontadas) => {
+    const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
+    const n = Math.max(0, Math.min(qtd, parseInt(novasUnidadesMontadas) || 0));
+    setConcluida(peca.id, n, qtd);
+    if (n === 0) toast.success(`↩️ ${peca.codigo || peca.marca} → Aguardando (0/${qtd})`);
+    else if (n >= qtd) toast.success(`✅ ${peca.codigo || peca.marca} → Montada (${qtd}/${qtd})`);
+    else toast.success(`◐ ${peca.codigo || peca.marca} → Parcial (${n}/${qtd})`);
   };
 
   // Lote: aplica para todas as selecionadas
@@ -1205,11 +1282,15 @@ export default function MontagemPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between border-b border-slate-800 py-1.5">
                   <span className="text-slate-500">Status</span>
-                  <span className="font-bold text-orange-300">{STATUS_CONFIG[pecaDetalhe._status]?.label}</span>
+                  <span className={`font-bold ${STATUS_CONFIG[pecaDetalhe._status]?.text || 'text-orange-300'}`}>
+                    {STATUS_CONFIG[pecaDetalhe._status]?.label}
+                  </span>
                 </div>
                 <div className="flex justify-between border-b border-slate-800 py-1.5">
-                  <span className="text-slate-500">Quantidade</span>
-                  <span className="font-bold text-white">{fmt(pecaDetalhe.quantidade)} pcs</span>
+                  <span className="text-slate-500">Montadas</span>
+                  <span className="font-bold text-white tabular-nums">
+                    {pecaDetalhe._montadas || 0} / {pecaDetalhe._qtd || pecaDetalhe.quantidade || 1} pcs
+                  </span>
                 </div>
                 <div className="flex justify-between border-b border-slate-800 py-1.5">
                   <span className="text-slate-500">Peso total</span>
@@ -1234,31 +1315,104 @@ export default function MontagemPage() {
                   </div>
                 )}
               </div>
-              <div className="flex gap-2 mt-4">
-                {pecaDetalhe._status === 'aguardando_montagem' && (
-                  <button
-                    onClick={() => { handleAvancar(pecaDetalhe); setPecaDetalhe(null); }}
-                    className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all"
-                    style={{ background: '#10b981', color: 'white' }}
-                  >
-                    ✓ Concluir Montagem
-                  </button>
-                )}
-                {pecaDetalhe._status === 'montado' && (
-                  <button
-                    onClick={() => { handleRetornar(pecaDetalhe); setPecaDetalhe(null); }}
-                    className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-slate-700 text-slate-200 hover:bg-slate-600"
-                  >
-                    ↩ Retornar para Aguardando
-                  </button>
-                )}
-                <button
-                  onClick={() => setPecaDetalhe(null)}
-                  className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-sm"
-                >
-                  Fechar
-                </button>
-              </div>
+              {/* AÇÕES DE MONTAGEM — suporta marcação parcial 1..N ou total */}
+              {(() => {
+                const qtd = pecaDetalhe._qtd || Math.max(1, parseInt(pecaDetalhe.quantidade) || 1);
+                const montadas = pecaDetalhe._montadas || 0;
+                // Slider só para qtd > 1; senão volta ao binário (montar / retornar)
+                if (qtd <= 1) {
+                  return (
+                    <div className="flex gap-2 mt-4">
+                      {pecaDetalhe._status !== 'montado' ? (
+                        <button
+                          onClick={() => { handleAvancar(pecaDetalhe); setPecaDetalhe(null); }}
+                          className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all"
+                          style={{ background: '#10b981', color: 'white' }}
+                        >
+                          ✓ Concluir Montagem
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { handleRetornar(pecaDetalhe); setPecaDetalhe(null); }}
+                          className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all bg-slate-700 text-slate-200 hover:bg-slate-600"
+                        >
+                          ↩ Retornar para Aguardando
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setPecaDetalhe(null)}
+                        className="px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-sm"
+                      >Fechar</button>
+                    </div>
+                  );
+                }
+                // qtd > 1: UI parcial com slider + presets + - / +
+                return (
+                  <div className="mt-4 space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Quantas peças montar</span>
+                        <span className="text-xs tabular-nums font-mono text-slate-300">{montadas} / {qtd}</span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSetMontadas(pecaDetalhe, montadas - 1)}
+                          disabled={montadas <= 0}
+                          className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-black text-lg leading-none"
+                          aria-label="Diminuir"
+                        >−</button>
+                        <input
+                          type="range"
+                          min={0}
+                          max={qtd}
+                          value={montadas}
+                          onChange={e => handleSetMontadas(pecaDetalhe, parseInt(e.target.value))}
+                          className="flex-1 accent-emerald-500"
+                        />
+                        <button
+                          onClick={() => handleSetMontadas(pecaDetalhe, montadas + 1)}
+                          disabled={montadas >= qtd}
+                          className="w-9 h-9 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-not-allowed text-white font-black text-lg leading-none"
+                          aria-label="Aumentar"
+                        >+</button>
+                      </div>
+                      {/* Barra visual de progresso */}
+                      <div className="mt-2 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                        <div className="h-full bg-emerald-500 transition-all" style={{ width: `${(montadas/qtd)*100}%` }} />
+                      </div>
+                    </div>
+                    {/* Presets rápidos */}
+                    <div className="flex gap-1.5 flex-wrap">
+                      <button
+                        onClick={() => handleSetMontadas(pecaDetalhe, 0)}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded bg-slate-800 hover:bg-slate-700 text-slate-300"
+                      >Zerar</button>
+                      {qtd >= 2 && (
+                        <button
+                          onClick={() => handleSetMontadas(pecaDetalhe, 1)}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30"
+                        >+1 unid</button>
+                      )}
+                      {qtd >= 3 && (
+                        <button
+                          onClick={() => handleSetMontadas(pecaDetalhe, Math.ceil(qtd/2))}
+                          className="px-2.5 py-1 text-[11px] font-bold rounded bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30"
+                        >Metade ({Math.ceil(qtd/2)})</button>
+                      )}
+                      <button
+                        onClick={() => handleSetMontadas(pecaDetalhe, qtd)}
+                        className="px-2.5 py-1 text-[11px] font-bold rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30"
+                      >Todas ({qtd})</button>
+                    </div>
+                    <div className="flex gap-2 pt-1">
+                      <button
+                        onClick={() => setPecaDetalhe(null)}
+                        className="flex-1 px-4 py-2 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 text-sm font-bold"
+                      >Fechar</button>
+                    </div>
+                  </div>
+                );
+              })()}
             </motion.div>
           </motion.div>
         )}
