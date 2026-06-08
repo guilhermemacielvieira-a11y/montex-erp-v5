@@ -1612,6 +1612,43 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
     }
 
+    // ============================================================
+    // CAMADA REDISTRIBUIÇÃO por MARCA REAL para elementos SEM assemblyId
+    // ============================================================
+    // Tekla mascarado: TERÇAs e afins têm Assembly mark "TC0(?)" e assemblyId
+    // NULO, mas marcaFromIfc vem do name ("TERÇA [TC161E]"). As camadas de
+    // redistribuição por assembly acima PULAM esses elementos (exigem assemblyId),
+    // então caíam no booleano da camada 1 → SUPER-MARCAÇÃO de peças PARCIAIS
+    // (ex.: TC161E 10/16 pintava as 16 unidades de verde). Aqui agrupamos por
+    // marcaFromIfc e pintamos só a PROPORÇÃO montada (Σ montadasN / Σ qtd) dos
+    // elementos; o restante recebe o status de PRODUÇÃO representativo (EM_OBRA etc.).
+    const elemsByMarcaSemAsm = new Map(); // marca -> [expressID]
+    for (const el of ifcElements) {
+      if (el.assemblyId != null) continue; // já tratado pelas camadas de assembly
+      const marca = (el.marcaFromIfc || '').toUpperCase().trim();
+      if (!marca || marca.length < 2 || !marcaIndexAll.has(marca)) continue;
+      if (!elemsByMarcaSemAsm.has(marca)) elemsByMarcaSemAsm.set(marca, []);
+      elemsByMarcaSemAsm.get(marca).push(el.expressID);
+    }
+    for (const [marca, eids] of elemsByMarcaSemAsm) {
+      const pecas = marcaIndexAll.get(marca);
+      if (!pecas || !pecas.length) continue;
+      let totMont = 0, totQtd = 0;
+      for (const p of pecas) {
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        totQtd += qtd;
+        totMont += getMontadasCount(concluidasMontagem?.[p.id], qtd);
+      }
+      if (totQtd <= 0) continue;
+      const statusProd = getRepresentativeStatus(pecas); // produção (nunca montado)
+      // nº de elementos a pintar MONTADO, proporcional à fração montada da marca
+      const nMont = Math.round(eids.length * (totMont / totQtd));
+      const eidsOrd = eids.slice().sort((a, b) => a - b);
+      for (let i = 0; i < eidsOrd.length; i++) {
+        map.set(eidsOrd[i], i < nMont ? 'MONTADO' : statusProd);
+      }
+    }
+
     return map;
   }, [ifcElements, erpPecas, concluidasMontagem]);
 
