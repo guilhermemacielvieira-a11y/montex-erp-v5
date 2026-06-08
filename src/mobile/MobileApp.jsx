@@ -7,7 +7,7 @@
 // (com header voltar) quando não há versão mobile dedicada.
 // ============================================================
 import React, { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
 import InstallPrompt from './ui/InstallPrompt';
@@ -26,6 +26,9 @@ import MedicaoMobile from './pages/MedicaoMobile';
 import MaisMobile from './pages/MaisMobile';
 import DashboardMobile from './pages/DashboardMobile';
 import NotificacoesMobile from './pages/NotificacoesMobile';
+import PerfilMobile from './pages/PerfilMobile';
+import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
+import { initDeepLinks } from './ui/deeplinks';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -102,6 +105,9 @@ export default function MobileApp() {
 }
 
 function MobileRoutes() {
+  // Deep links: traduz URL/push → rota interna (push-agnóstico; no-op no web).
+  const navigate = useNavigate();
+  useEffect(() => initDeepLinks(navigate), [navigate]);
   return (
     <Routes>
       <Route index element={<HomeMobile />} />
@@ -135,8 +141,8 @@ function MobileRoutes() {
       <Route path="analise-producao" element={<DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap>} />
       <Route path="diario" element={<DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap>} />
       <Route path="notificacoes" element={<NotificacoesMobile />} />
-      <Route path="perfil" element={<MobileLayout title="Perfil" back><div className="p-6 text-slate-400 text-sm text-center">Em breve</div></MobileLayout>} />
-      <Route path="config" element={<MobileLayout title="Configurações" back><div className="p-6 text-slate-400 text-sm text-center">Em breve</div></MobileLayout>} />
+      <Route path="perfil" element={<PerfilMobile />} />
+      <Route path="config" element={<ConfiguracoesMobile />} />
 
       <Route path="*" element={<Navigate to="/m" replace />} />
     </Routes>

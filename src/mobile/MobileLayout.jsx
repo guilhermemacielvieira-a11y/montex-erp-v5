@@ -29,6 +29,7 @@ import LastUpdated from './ui/LastUpdated';
 import PendingBadge from './ui/PendingBadge';
 import { setLastRefresh } from './ui/lastRefresh';
 import { buildNotificacoes } from './ui/notificacoes';
+import { useSettings } from './ui/settings';
 
 // 5 abas inferiores. `perm` = permissão exigida (ausente = sempre visível).
 const BOTTOM_TABS = [
@@ -100,9 +101,11 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
 
   // Badge do sino: nº de alertas acionáveis derivados do ERP (global, não
   // depende do filtro de obra). Fonte única em ui/notificacoes.js.
+  // Respeita a preferência "Notificações" (Configurações).
+  const settings = useSettings();
   const notifCount = useMemo(
-    () => buildNotificacoes(erp).length,
-    [erp.lancamentosDespesas, erp.estoque, erp.pecas, erp.medicoes]
+    () => (settings.notificacoes === false ? 0 : buildNotificacoes(erp).length),
+    [settings.notificacoes, erp.lancamentosDespesas, erp.estoque, erp.pecas, erp.medicoes]
   );
 
   // Menu por ROLE: esconde tabs/itens cuja permissão o usuário não tem (operador
