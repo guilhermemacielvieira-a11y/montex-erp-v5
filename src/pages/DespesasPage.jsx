@@ -84,6 +84,8 @@ import {
   lookupCategoriaPorFornecedor,
   syncOverridesParaSupabase,
 } from '../utils/despesasOverrides';
+import { categorizarSmart, categorizarDespesaSmart } from '../utils/categoriaInteligente';
+import MappingAprendidoModal from '../components/MappingAprendidoModal';
 import ImportarNFModal from '../components/ImportarNFModal';
 
 // ========== CONSTANTES ==========
@@ -209,16 +211,17 @@ const autoFillFromMapping = (fornecedor, nf) => {
 };
 
 // Categorizar despesa automaticamente.
-// PIPELINE (Fase 1):
-//   1. Mapping aprendido por fornecedor/NF (montex_nf_fornecedor_mapping)
-//      — alimentado por correções manuais via setCategoriaOverride.
-//   2. Keyword-match na descrição (regras hardcoded abaixo).
-//   3. Fallback "Outros".
-const categorizarDespesa = (descricao, fornecedor, nf) => {
-  // 1. Mapping aprendido (prioridade máxima — respeita aprendizado do usuário)
-  const aprendida = lookupCategoriaPorFornecedor(fornecedor, nf);
-  if (aprendida) return aprendida;
-  // 2. Keyword-match
+// FASE 3 — usa pipeline inteligente: mapping > CFOP > NCM > keyword > fallback.
+// Mantemos esta função wrapper para compat com chamadas internas existentes
+// (XLSX import, NovaDespesa fallback). Aceita NCM/CFOP opcionais.
+const categorizarDespesa = (descricao, fornecedor, nf, ncm, cfop) => {
+  return categorizarDespesaSmart(descricao, fornecedor, nf, ncm, cfop);
+};
+
+// Mantém o keyword-match antigo apenas para referência/migração — pode ser
+// removido depois que tudo migrar para categorizarSmart.
+// eslint-disable-next-line no-unused-vars
+const categorizarPorKeywordLegado = (descricao) => {
   const d = (descricao || '').toUpperCase();
   if (d.includes('FOLHA') || d.includes('DIARIA') || d.includes('HORA EXTRA') || d.includes('FÉRIAS') || d.includes('FGTS') || d.includes('ACERTO')) return 'Mão de Obra';
   if (d.includes('CEMIG') || d.includes('COPASA') || d.includes('ENERGIA') || d.includes('LUZ') || d.includes('AGUA')) return 'Energia/Utilidades';
@@ -269,6 +272,8 @@ export default function DespesasPage() {
   // Overrides de categoria (Fase 1) — força re-render quando o usuário edita.
   // Incrementar `overridesVersion` invalida o useMemo de `despesas`.
   const [overridesVersion, setOverridesVersion] = useState(0);
+  // Fase 3: modal de gerenciamento das regras de aprendizado (mapping CNPJ→cat)
+  const [showMappingModal, setShowMappingModal] = useState(false);
 
   // Fase 2 — backfill best-effort: sincroniza overrides locais (Fase 1) ao
   // Supabase quando a migration v12 já está ativa. Se a migration ainda não
@@ -979,6 +984,14 @@ export default function DespesasPage() {
             <FileText className="h-4 w-4 mr-2" />
             Importar NFe
           </Button>
+          <Button
+            variant="outline"
+            className="border-cyan-600/50 text-cyan-300 hover:bg-cyan-600/10"
+            onClick={() => setShowMappingModal(true)}
+            title="Ver e gerenciar regras de categorização aprendidas (fornecedor → categoria)"
+          >
+            🧠 Regras
+          </Button>
           <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600" onClick={handleNovaDespesa}>
             <Plus className="h-4 w-4 mr-2" />
             Nova Despesa
@@ -1094,7 +1107,37 @@ export default function DespesasPage() {
             {/* Linha 3: Categoria + Centro de Custo */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-slate-300">Categoria</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-slate-300">Categoria</Label>
+                  {/* 💡 Sugestão Fase 3: roda pipeline categorizarSmart com o
+                      que já estiver preenchido. Quando a sugestão difere da
+                      categoria selecionada, mostra um botão pra aplicar. */}
+                  {(() => {
+                    if (!formData.descricao && !formData.fornecedor) return null;
+                    const sug = categorizarSmart({
+                      descricao: formData.descricao,
+                      fornecedor: formData.fornecedor,
+                      nf: formData.notaFiscal,
+                      ncm: formData.ncm,
+                      cfop: formData.cfop,
+                    });
+                    if (!sug.categoria || sug.categoria === formData.categoria) return null;
+                    const labelOrigem = {
+                      mapping: 'aprendido', cfop: 'CFOP', ncm: 'NCM',
+                      keyword: 'texto', fallback: '',
+                    }[sug.origem] || '';
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, categoria: sug.categoria })}
+                        title={`Pipeline: ${sug.origem} (${sug.confianca})`}
+                        className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"
+                      >
+                        💡 {sug.categoria}{labelOrigem ? ` · ${labelOrigem}` : ''}
+                      </button>
+                    );
+                  })()}
+                </div>
                 <Select value={formData.categoria} onValueChange={(v) => setFormData({...formData, categoria: v})}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
                     <SelectValue placeholder="Selecione" />
@@ -1642,6 +1685,12 @@ export default function DespesasPage() {
         onOpenChange={setShowImportNF}
         onImportar={handleImportarNF}
         obraId={(filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null}
+      />
+
+      {/* Modal Regras Aprendidas (Fase 3 — gerenciamento do mapping CNPJ→categoria) */}
+      <MappingAprendidoModal
+        open={showMappingModal}
+        onOpenChange={setShowMappingModal}
       />
     </div>
   );

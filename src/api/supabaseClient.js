@@ -11,9 +11,20 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
   || 'sb_publishable_8X7bPhCGF16mgZE8Z7fuVw_6pI74veM';
 // Service Role Key: bypassa RLS em tabelas restritivas (orcamentos, compras, etc.)
-// NOTA: Em produção com auth, mover para backend. Aqui o app não usa autenticação.
-const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
-  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
+// SEGURANÇA: NUNCA hardcode service_role no código — qualquer um com acesso ao
+// bundle de produção poderia inspecionar a chave e ter CRUD total no Supabase.
+// A chave DEVE vir exclusivamente de VITE_SUPABASE_SERVICE_KEY (Vercel env vars
+// + .env.local em dev). Se ausente, supabaseAdmin = null e funcionalidades que
+// dependem dele (createNewUser, leitura de tabelas com RLS restritivo) falham
+// com erro explícito em vez de funcionar silenciosamente com chave exposta.
+const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY || '';
+if (!SUPABASE_SERVICE_KEY && typeof window !== 'undefined') {
+  console.warn(
+    '[supabaseClient] VITE_SUPABASE_SERVICE_KEY ausente — supabaseAdmin desabilitado.\n' +
+    'Operações privilegiadas (criação de usuário, leitura de tabelas com RLS restritivo)\n' +
+    'NÃO funcionarão. Configure a env var no .env.local (dev) ou Vercel (prod).'
+  );
+}
 
 // Validação de configuração
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -358,8 +369,16 @@ export async function updateUserProfile(id, updates) {
 }
 
 export async function createNewUser({ email, password, nome, role, cargo }) {
-  // Usa supabaseAdmin (service_role) pois auth.admin.createUser requer Bearer token com service_role
-  const adminClient = supabaseAdmin || supabase;
+  // auth.admin.createUser EXIGE Bearer token com service_role. Sem supabaseAdmin
+  // (VITE_SUPABASE_SERVICE_KEY ausente) a operação não pode prosseguir — falha
+  // explícita em vez de tentar com anon e dar 401 obscuro depois.
+  if (!supabaseAdmin) {
+    throw new Error(
+      'Criação de usuário indisponível: VITE_SUPABASE_SERVICE_KEY não está configurada. ' +
+      'Configure a variável de ambiente no servidor (Vercel) ou no .env.local (dev).'
+    );
+  }
+  const adminClient = supabaseAdmin;
   const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
     email,
     password,
