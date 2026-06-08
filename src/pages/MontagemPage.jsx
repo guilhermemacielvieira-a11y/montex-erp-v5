@@ -148,7 +148,7 @@ function KPI({ label, value, sub, icon: Icon, color = '#f97316', delay = 0 }) {
 // ============================================
 // SUB-COMPONENT: Card Kanban
 // ============================================
-function PecaCard({ peca, obra, onAvancar, onRetornar, isSelected, onToggleSelect, dragRef }) {
+function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelected, onToggleSelect, dragRef }) {
   const s = STATUS_CONFIG[peca._status];
   const Icon = s.icon;
   return (
@@ -186,7 +186,11 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, isSelected, onToggleSelec
             {s.short}
           </span>
         </div>
-        <span className="text-[10px] font-mono text-slate-500">{fmt(peca.quantidade)} pcs</span>
+        <span className="text-[10px] font-mono text-slate-500">
+          {(peca._montadas != null && (peca._qtd || peca.quantidade) > 1)
+            ? `${peca._montadas}/${peca._qtd || peca.quantidade} pcs`
+            : `${fmt(peca.quantidade)} pcs`}
+        </span>
       </div>
 
       {/* Código e nome */}
@@ -209,26 +213,64 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, isSelected, onToggleSelec
         <span className="text-[10px] text-slate-500">{fmtData(peca.dataEnvio || peca.updated_at)}</span>
       </div>
 
-      {/* Actions */}
+      {/* Actions — qtd>1 abre modal para escolher quantidade; qtd=1 binário direto */}
       <div className="flex gap-1 mt-2">
-        {peca._status === 'aguardando_montagem' && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onAvancar?.(peca); }}
-            className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-2 rounded transition-all hover:opacity-90"
-            style={{ background: '#10b981', color: 'white' }}
-          >
-            <CheckCircle2 className="h-3 w-3" /> Concluir Montagem
-          </button>
-        )}
-        {peca._status === 'montado' && (
-          <button
-            onClick={(e) => { e.stopPropagation(); onRetornar?.(peca); }}
-            className="flex-1 flex items-center justify-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 py-1.5 px-2 rounded transition-all border border-slate-700"
-            title="Retornar para Aguardando Montagem"
-          >
-            <ChevronDown className="h-3 w-3 rotate-90" /> Retornar p/ Aguardando
-          </button>
-        )}
+        {(() => {
+          const qtd = peca._qtd || Math.max(1, parseInt(peca.quantidade) || 1);
+          const abreModal = qtd > 1; // C32A=2, C6A=7 etc → escolher quantidade
+          if (peca._status === 'aguardando_montagem') {
+            return (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (abreModal) onAbrirDetalhe?.(peca);
+                  else onAvancar?.(peca);
+                }}
+                className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-2 rounded transition-all hover:opacity-90"
+                style={{ background: '#10b981', color: 'white' }}
+                title={abreModal ? `Escolher quantas das ${qtd} montar` : 'Concluir Montagem'}
+              >
+                <CheckCircle2 className="h-3 w-3" />
+                {abreModal ? `Montar… (0/${qtd})` : 'Concluir Montagem'}
+              </button>
+            );
+          }
+          if (peca._status === 'parcial') {
+            // Estado intermediário — botão edita; segundo botão zera direto
+            return (
+              <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onAbrirDetalhe?.(peca); }}
+                  className="flex-1 flex items-center justify-center gap-1 text-[10px] font-bold py-1.5 px-2 rounded transition-all hover:opacity-90 bg-blue-500 text-white"
+                  title={`Editar quantidade montada (${peca._montadas}/${qtd})`}
+                >
+                  <Activity className="h-3 w-3" /> Editar ({peca._montadas}/{qtd})
+                </button>
+              </>
+            );
+          }
+          if (peca._status === 'montado') {
+            return (
+              <>
+                {qtd > 1 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onAbrirDetalhe?.(peca); }}
+                    className="px-2 py-1.5 text-[10px] rounded border border-slate-700 text-slate-300 hover:bg-slate-800"
+                    title="Editar quantidade montada"
+                  >Editar</button>
+                )}
+                <button
+                  onClick={(e) => { e.stopPropagation(); onRetornar?.(peca); }}
+                  className="flex-1 flex items-center justify-center gap-1 text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-800 py-1.5 px-2 rounded transition-all border border-slate-700"
+                  title="Retornar para Aguardando Montagem"
+                >
+                  <ChevronDown className="h-3 w-3 rotate-90" /> Retornar p/ Aguardando
+                </button>
+              </>
+            );
+          }
+          return null;
+        })()}
       </div>
     </motion.div>
   );
@@ -933,6 +975,7 @@ export default function MontagemPage() {
                         obra={obras.find(o => o.id === (peca.obraId || peca.obra_id))}
                         onAvancar={handleAvancar}
                         onRetornar={handleRetornar}
+                        onAbrirDetalhe={setPecaDetalhe}
                         isSelected={pecasSelecionadas.has(peca.id)}
                         onToggleSelect={toggleSelecao}
                       />
@@ -1013,18 +1056,37 @@ export default function MontagemPage() {
                           <span className="font-mono">{obra?.codigo || '—'}</span>
                         </div>
                       </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-slate-300">{fmt(peca.quantidade)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-slate-300">
+                        {(peca._montadas != null && (peca._qtd || peca.quantidade) > 1)
+                          ? <span className={peca._status === 'parcial' ? 'text-blue-300 font-bold' : peca._status === 'montado' ? 'text-emerald-300 font-bold' : ''}>{peca._montadas}/{peca._qtd || peca.quantidade}</span>
+                          : fmt(peca.quantidade)}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums text-slate-300 font-mono text-xs">{fmtPeso(peca.pesoTotal || peca.peso)}</td>
                       <td className="px-3 py-2 text-center text-[10px] text-slate-500 font-mono">{fmtData(peca.updated_at)}</td>
                       <td className="px-3 py-2">
                         <div className="flex items-center justify-center gap-1">
+                          {/* Aguardando: qtd>1 abre modal de quantidade; qtd=1 marca direto */}
                           {peca._status === 'aguardando_montagem' && (
                             <button
-                              onClick={() => handleAvancar(peca)}
+                              onClick={() => {
+                                const qtd = peca._qtd || Math.max(1, parseInt(peca.quantidade) || 1);
+                                if (qtd > 1) setPecaDetalhe(peca);
+                                else handleAvancar(peca);
+                              }}
                               className="p-1.5 rounded bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-all"
-                              title="Concluir montagem"
+                              title={(peca._qtd || peca.quantidade) > 1 ? 'Escolher quantidade montada' : 'Concluir montagem'}
                             >
                               <CheckCircle2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {/* Parcial: botão edita */}
+                          {peca._status === 'parcial' && (
+                            <button
+                              onClick={() => setPecaDetalhe(peca)}
+                              className="p-1.5 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 transition-all"
+                              title={`Editar quantidade montada (${peca._montadas}/${peca._qtd})`}
+                            >
+                              <Activity className="h-3.5 w-3.5" />
                             </button>
                           )}
                           {peca._status === 'montado' && (
