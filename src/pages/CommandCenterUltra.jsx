@@ -449,9 +449,10 @@ export default function CommandCenterUltra() {
       <Section title="Production Flow" sub="funil de produção em tempo real" icon={Factory} accent={OM.orange} className="mb-4"
         action={<span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmt(totalPcs)} pcs · {fmtPeso((pecas || []).reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0))}</span>}>
         <div className="flex items-stretch gap-1">
-          {pipeline.map((s, i) => (
-            <FlowStage key={s.key} {...s} value={s.qtd} percent={s.percent} isLast={i === pipeline.length - 1} />
-          ))}
+          {pipeline.map((s, i) => {
+            const { key, ...rest } = s; // key fora do spread (senão React avisa "key prop spread")
+            return <FlowStage key={key} {...rest} value={s.qtd} percent={s.percent} isLast={i === pipeline.length - 1} />;
+          })}
           <div className="flex flex-col items-center justify-center px-3 ml-2 rounded-lg"
             style={{ background: `linear-gradient(135deg, ${OM.emerald}20, ${OM.emerald}10)`, border: `1px solid ${OM.emerald}40` }}>
             <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.emerald }}>Finalizado</p>
@@ -546,7 +547,7 @@ export default function CommandCenterUltra() {
                   <g>
                     <rect x={x} y={y} width={width} height={height}
                       fill={OM.blue}
-                      fillOpacity={Math.min(0.9, 0.3 + (size / (receitaPorObra[0]?.size || 1)) * 0.6)}
+                      fillOpacity={Math.min(0.9, 0.3 + ((Number(size) || 0) / (receitaPorObra[0]?.size || 1)) * 0.6)}
                       stroke={OM.bgDeep} strokeWidth={2} />
                     {width > 50 && height > 30 && (
                       <>
