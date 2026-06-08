@@ -591,14 +591,27 @@ export default function MontagemPage() {
     const totalPeso = pecasFiltradas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
     const totalQtd = pecasFiltradas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
 
-    // Aguardando (zero unidades montadas)
-    const aguardando = pecasFiltradas.filter(p => p._status === 'aguardando_montagem');
-    const pesoAguardando = aguardando.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    const qtdAguardando = aguardando.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-
     // Parciais (algumas unidades montadas, mas não todas)
     const parciais = pecasFiltradas.filter(p => p._status === 'parcial');
     const qtdParcialMontada = parciais.reduce((s, p) => s + (p._montadas || 0), 0);
+    // Unidades AINDA aguardando das peças PARCIAIS (qtd - montadas).
+    // CONFORMIDADE com MontexERP3DPage: lá essas pendentes vão para o status base
+    // (EM_OBRA). Aqui também precisam entrar em "Aguardando" — senão montada +
+    // aguardando ≠ total e os módulos divergem na contagem de unidades pendentes.
+    const qtdParcialPendente = parciais.reduce((s, p) => {
+      const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+      return s + Math.max(0, qtd - (p._montadas || 0));
+    }, 0);
+    const pesoParcialPendente = parciais.reduce((s, p) => {
+      const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+      const pesoUn = (p.pesoTotal || p.peso || 0) / qtd;
+      return s + pesoUn * Math.max(0, qtd - (p._montadas || 0));
+    }, 0);
+
+    // Aguardando = peças 100% aguardando + porção pendente das parciais
+    const aguardando = pecasFiltradas.filter(p => p._status === 'aguardando_montagem');
+    const pesoAguardando = aguardando.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0) + pesoParcialPendente;
+    const qtdAguardando = aguardando.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0) + qtdParcialPendente;
 
     // Montadas (todas as unidades) — KPI Montado conta unidades EFETIVAMENTE montadas
     // (completas + porção montada de parciais). Peso e unidades proporcionais ao N/qtd.
