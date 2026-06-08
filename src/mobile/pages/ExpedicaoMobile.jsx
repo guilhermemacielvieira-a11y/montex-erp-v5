@@ -17,6 +17,7 @@ import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
 import { tap, success } from '../ui/haptics';
+import { confirmarBiometria } from '../ui/biometric';
 import { isOnline } from '../ui/online';
 import { enqueue } from '../ui/offlineQueue';
 import { useERP, useExpedicao } from '@/contexts/ERPContext';
@@ -121,6 +122,9 @@ export default function ExpedicaoMobile() {
 
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
+    // Aprovação por Face ID antes de liberar o caminhão (degrada no web).
+    const ok = await confirmarBiometria(`Confirmar despacho ${romaneio.numeroRomaneio || romaneio.id}`);
+    if (!ok) { toast.error('Autenticação não confirmada'); return; }
     if (!isOnline()) {
       // Offline: aplica otimisticamente + enfileira (updateExpedicao é idempotente).
       updateExpedicao(romaneio.id, { status: 'em_transito' })?.catch(() => {});
