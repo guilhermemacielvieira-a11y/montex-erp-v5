@@ -28,6 +28,7 @@ import NetworkBanner from './ui/NetworkBanner';
 import LastUpdated from './ui/LastUpdated';
 import PendingBadge from './ui/PendingBadge';
 import { setLastRefresh } from './ui/lastRefresh';
+import { buildNotificacoes } from './ui/notificacoes';
 
 // 5 abas inferiores. `perm` = permissão exigida (ausente = sempre visível).
 const BOTTOM_TABS = [
@@ -93,8 +94,16 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, hasPermission } = useAuth() || {};
-  const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
+  const erp = useERP() || {};
+  const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = erp;
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  // Badge do sino: nº de alertas acionáveis derivados do ERP (global, não
+  // depende do filtro de obra). Fonte única em ui/notificacoes.js.
+  const notifCount = useMemo(
+    () => buildNotificacoes(erp).length,
+    [erp.lancamentosDespesas, erp.estoque, erp.pecas, erp.medicoes]
+  );
 
   // Menu por ROLE: esconde tabs/itens cuja permissão o usuário não tem (operador
   // não vê Financeiro/BI/Expedição etc.). Sem hasPermission (fallback) mostra tudo.
@@ -166,9 +175,13 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         <h1 className="flex-1 font-bold text-base tracking-tight truncate">{title}</h1>
         <PendingBadge />
         <LastUpdated tick={refreshTick} />
-        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label="Notificações" onClick={() => navigate('/m/notificacoes')}>
+        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label={`Notificações${notifCount ? ` (${notifCount})` : ''}`} onClick={() => navigate('/m/notificacoes')}>
           <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" />
+          {notifCount > 0 && (
+            <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-amber-500 text-slate-950 text-[9px] font-black leading-none">
+              {notifCount > 9 ? '9+' : notifCount}
+            </span>
+          )}
         </button>
       </header>
 

@@ -25,6 +25,7 @@ import EstoqueMobile from './pages/EstoqueMobile';
 import MedicaoMobile from './pages/MedicaoMobile';
 import MaisMobile from './pages/MaisMobile';
 import DashboardMobile from './pages/DashboardMobile';
+import NotificacoesMobile from './pages/NotificacoesMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -133,7 +134,7 @@ function MobileRoutes() {
       <Route path="dashboard-bi" element={<DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap>} />
       <Route path="analise-producao" element={<DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap>} />
       <Route path="diario" element={<DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap>} />
-      <Route path="notificacoes" element={<MobileLayout title="Notificações" back><div className="p-6 text-slate-400 text-sm text-center">Sem notificações</div></MobileLayout>} />
+      <Route path="notificacoes" element={<NotificacoesMobile />} />
       <Route path="perfil" element={<MobileLayout title="Perfil" back><div className="p-6 text-slate-400 text-sm text-center">Em breve</div></MobileLayout>} />
       <Route path="config" element={<MobileLayout title="Configurações" back><div className="p-6 text-slate-400 text-sm text-center">Em breve</div></MobileLayout>} />
 
