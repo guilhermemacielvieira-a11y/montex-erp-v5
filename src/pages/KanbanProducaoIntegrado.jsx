@@ -2636,7 +2636,7 @@ export default function KanbanProducaoIntegrado() {
                   </div>
 
                   {/* Resumo */}
-                  <div className="grid grid-cols-4 gap-4 mb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-center">
                       <p className="text-slate-400 text-xs mb-1">Total Conjuntos</p>
                       <p className="text-2xl font-bold text-white">{itensImportados.length}</p>
