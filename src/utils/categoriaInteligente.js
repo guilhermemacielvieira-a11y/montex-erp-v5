@@ -60,20 +60,17 @@ const CFOP_PARA_CATEGORIA = {
   '1653': 'Transporte', '2653': 'Transporte',
   '1655': 'Transporte', '2655': 'Transporte',
   '1656': 'Transporte', '2656': 'Transporte',
-  // Material de uso/consumo → Administrativo (uso interno)
-  '1556': 'Transporte', // sobrescrita (precedência sobre 1556 combustível)
+  // Material de uso/consumo interno → Administrativo
   '1407': 'Administrativo', '2407': 'Administrativo',
-  '1556': 'Transporte', // mantém combustível
   '1557': 'Administrativo', '2557': 'Administrativo',
-  // Aquisição de serviço de comunicação
-  '1352': 'Administrativo', '2352': 'Administrativo',
+  // Serviço de transporte tomado (1351-1352) → Transporte
+  '1351': 'Transporte', '2351': 'Transporte',
+  '1352': 'Transporte', '2352': 'Administrativo',
+  // Serviços tomados genéricos (1353-1356) → Administrativo
   '1353': 'Administrativo', '2353': 'Administrativo',
   '1354': 'Administrativo', '2354': 'Administrativo',
   '1355': 'Administrativo', '2355': 'Administrativo',
   '1356': 'Administrativo', '2356': 'Administrativo',
-  // Aquisição de serviço de transporte → Transporte
-  '1351': 'Transporte', '2351': 'Transporte',
-  '1352': 'Transporte', // sobrescreve
   '1932': 'Transporte', '2932': 'Transporte',
   '1933': 'Administrativo', '2933': 'Administrativo', // serviço tomado genérico
   // Energia elétrica

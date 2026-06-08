@@ -289,7 +289,12 @@ export function useFinancialIntelligence(filtros = {}) {
         ...l,
         valor: parseFloat(l.valor) || 0,
         data: l.dataEmissao || l.data_emissao || l.data || l.createdAt,
-        categoriaNorm: normalizarCategoria(l.categoria, l.descricao),
+        // Fase 2/3: se a categoria foi corrigida à mão (categoria_manual), ela
+        // VENCE — não reclassificar por keyword aqui (senão "CEMIG" corrigido p/
+        // Administrativo voltaria a Energia/Utilidades nos dashboards de BI).
+        categoriaNorm: (l.categoria_manual === true || l.categoriaManual === true)
+          ? l.categoria
+          : normalizarCategoria(l.categoria, l.descricao),
         mes: formatMesAno(l.dataEmissao || l.data_emissao || l.data || l.createdAt),
         semana: getSemanaAno(l.dataEmissao || l.data_emissao || l.data || l.createdAt)
       }))
