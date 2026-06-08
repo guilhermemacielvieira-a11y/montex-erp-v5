@@ -28,6 +28,7 @@ import NetworkBanner from './ui/NetworkBanner';
 import LastUpdated from './ui/LastUpdated';
 import PendingBadge from './ui/PendingBadge';
 import { setLastRefresh } from './ui/lastRefresh';
+import { useAlertas } from './useAlertas';
 
 // 5 abas inferiores. `perm` = permissão exigida (ausente = sempre visível).
 const BOTTOM_TABS = [
@@ -112,6 +113,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
   // Carregamento inicial dos dados do ERP (Supabase). Mostra esqueleto em vez de
   // telas zeradas/vazias — importante em rede lenta de galpão/canteiro.
   const carregando = dataSource === 'loading';
+  const nAlertas = useAlertas().length; // contagem real p/ o badge do sino
   // Puxar-para-atualizar recarrega os dados operacionais que mudam o tempo todo
   // no chão de fábrica (peças/produção/montagem, estoque e romaneios), em paralelo.
   const handleRefresh = async () => {
@@ -166,9 +168,11 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         <h1 className="flex-1 font-bold text-base tracking-tight truncate">{title}</h1>
         <PendingBadge />
         <LastUpdated tick={refreshTick} />
-        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label="Notificações" onClick={() => navigate('/m/notificacoes')}>
+        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label={nAlertas ? `Notificações, ${nAlertas} alerta(s)` : 'Notificações'} onClick={() => navigate('/m/notificacoes')}>
           <Bell className="w-5 h-5" />
-          <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500" />
+          {nAlertas > 0 && (
+            <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black flex items-center justify-center">{nAlertas > 9 ? '9+' : nAlertas}</span>
+          )}
         </button>
       </header>
 
