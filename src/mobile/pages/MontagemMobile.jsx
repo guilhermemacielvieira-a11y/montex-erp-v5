@@ -75,14 +75,18 @@ export default function MontagemMobile() {
     }
   };
 
-  // Resultado do scanner: encontra a peça pela marca e abre confirmação
+  // Resultado do scanner CONTÍNUO: encontra a peça pela marca e MARCA montada
+  // direto (sem sheet) — fluxo de bipar peça após peça no canteiro.
   const onScan = (codigo) => {
     const alvo = norm(codigo);
-    // 1) tenta no escopo de campo (enviado/montado)
-    let peca = pecasCampo.find(p => norm(p.marca) === alvo)
+    const peca = pecasCampo.find(p => norm(p.marca) === alvo)
             || pecasCampo.find(p => norm(p.marca).includes(alvo) && alvo.length >= 3);
-    if (peca) { tap('heavy'); setPecaSel(peca); return; }
-    // 2) existe na obra mas ainda não está em campo?
+    if (peca) {
+      if (concluidas[String(peca.id)]) { toast(`${peca.marca} já montada`, { icon: '✓' }); return; }
+      toggle(peca); // marca montada (entity_store) + toast "X montada"
+      return;
+    }
+    // existe na obra mas ainda não está em campo?
     const fora = pecasDaObra.find(p => norm(p.marca) === alvo);
     if (fora) {
       toast(`${fora.marca} está em "${fora.etapa}" — ainda não enviada para montagem`, { icon: '📦' });
@@ -168,7 +172,7 @@ export default function MontagemMobile() {
       </button>
 
       {/* Scanner */}
-      <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} />
+      <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças montadas" continuous />
 
       {/* Sheet de confirmação da peça */}
       <Sheet
