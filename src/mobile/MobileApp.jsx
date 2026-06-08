@@ -24,6 +24,7 @@ import ExpedicaoMobile from './pages/ExpedicaoMobile';
 import EstoqueMobile from './pages/EstoqueMobile';
 import MedicaoMobile from './pages/MedicaoMobile';
 import MaisMobile from './pages/MaisMobile';
+import DashboardMobile from './pages/DashboardMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -126,7 +127,10 @@ function MobileRoutes() {
       <Route path="equipes" element={<DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap>} />
       <Route path="orcamentos" element={<DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap>} />
       <Route path="relatorios" element={<DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap>} />
-      <Route path="dashboard" element={<DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap>} />
+      {/* Dashboard estratégico NATIVO mobile (gráficos + KPIs). O BI desktop
+          completo fica em /m/dashboard-bi (wrapper escalado). */}
+      <Route path="dashboard" element={<DashboardMobile />} />
+      <Route path="dashboard-bi" element={<DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap>} />
       <Route path="analise-producao" element={<DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap>} />
       <Route path="diario" element={<DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap>} />
       <Route path="notificacoes" element={<MobileLayout title="Notificações" back><div className="p-6 text-slate-400 text-sm text-center">Sem notificações</div></MobileLayout>} />

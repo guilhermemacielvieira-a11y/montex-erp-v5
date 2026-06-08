@@ -82,7 +82,7 @@ const DRAWER_GROUPS = [
   {
     title: 'Analítico',
     items: [
-      { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard BI', perm: 'bi.view' },
+      { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard', perm: 'bi.view' },
       { path: '/m/analise-producao', icon: Activity, label: 'Análise Produção', perm: 'producao.view' },
       { path: '/m/diario', icon: ClipboardList, label: 'Diário Produção', perm: 'producao.view' },
     ],
