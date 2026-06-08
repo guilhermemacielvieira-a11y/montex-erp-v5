@@ -3,7 +3,7 @@
 // Vinculação automática categoria/centro por NF+fornecedor
 // Exportação Excel conforme modelo Natureza de Aquisição
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import {
   DollarSign,
@@ -82,6 +82,7 @@ import {
   removeCategoriaOverride,
   aplicarOverridesNaLista,
   lookupCategoriaPorFornecedor,
+  syncOverridesParaSupabase,
 } from '../utils/despesasOverrides';
 import ImportarNFModal from '../components/ImportarNFModal';
 
@@ -269,6 +270,26 @@ export default function DespesasPage() {
   // Incrementar `overridesVersion` invalida o useMemo de `despesas`.
   const [overridesVersion, setOverridesVersion] = useState(0);
 
+  // Fase 2 — backfill best-effort: sincroniza overrides locais (Fase 1) ao
+  // Supabase quando a migration v12 já está ativa. Se a migration ainda não
+  // rodou (colunas inexistentes), o updateLancamento envia categoria_manual
+  // mas o transforms.js filtra a coluna → não há erro, só fica pendente até
+  // o próximo mount. `backfillFeitoRef` evita rodar em todo re-render.
+  const backfillFeitoRef = useRef(false);
+  useEffect(() => {
+    if (backfillFeitoRef.current) return;
+    if (!lancamentosSupabase || lancamentosSupabase.length === 0) return;
+    backfillFeitoRef.current = true;
+    syncOverridesParaSupabase(lancamentosSupabase, updateLancamento)
+      .then(r => {
+        if (r.sincronizados > 0) {
+          setOverridesVersion(v => v + 1);
+          console.log(`[Despesas] Backfill: ${r.sincronizados} categoria(s) sincronizada(s) ao Supabase. ${r.restantes} pendente(s).`);
+        }
+      })
+      .catch(e => console.warn('[Despesas] Backfill falhou:', e.message));
+  }, [lancamentosSupabase, updateLancamento]);
+
   // === MAPA DE OBRAS ===
   const obrasMap = useMemo(() => {
     const map = {};
@@ -322,6 +343,15 @@ export default function DespesasPage() {
     const lista = filtrados.map(l => {
       const statusBruto = l.status || 'pendente';
       const dataVenc = l.dataVencimento || l.data_vencimento || l.vencimento || '';
+      // Fase 2: se o Supabase já marca categoria_manual=true, NÃO normaliza —
+      // a categoria salva é exatamente o que o usuário escolheu. Caso contrário,
+      // aplica normalizarCategoria como antes (legado). O override local da
+      // Fase 1 ainda é aplicado depois e VENCE o resultado (cobre o gap
+      // enquanto a migration v12 não roda no Supabase).
+      const categoriaManualSupabase = l.categoria_manual === true || l.categoriaManual === true;
+      const categoriaResolvida = categoriaManualSupabase
+        ? (l.categoria || 'Outros')
+        : normalizarCategoria(l.categoria, l.descricao);
       return {
         id: l.id,
         dataEmissao: l.dataEmissao || l.data || l.createdAt || '',
@@ -329,7 +359,9 @@ export default function DespesasPage() {
         data: l.dataEmissao || l.data || l.createdAt || '',
         descricao: l.descricao || l.nome || '-',
         fornecedor: l.fornecedor || '-',
-        categoria: normalizarCategoria(l.categoria, l.descricao),
+        categoria: categoriaResolvida,
+        categoria_manual: categoriaManualSupabase,
+        categoria_origem: l.categoria_origem || l.categoriaOrigem || 'auto',
         centroCusto: l.centroCusto || l.centro_custo || 'Produção',
         valor: l.valor || 0,
         status: statusBruto,
@@ -343,8 +375,8 @@ export default function DespesasPage() {
       };
     });
     // Aplica overrides de categoria (edições manuais persistidas em localStorage).
-    // O override VENCE o normalizarCategoria — assim o usuário pode corrigir
-    // "CEMIG..." → Administrativo sem que a heurística reverta para Energia.
+    // Cobre o gap enquanto a migration v12 (categoria_manual) não foi aplicada,
+    // e cobre offline. Override local SOMA com categoria_manual=true do banco.
     return aplicarOverridesNaLista(lista);
   }, [lancamentosSupabase, filtroObra, overridesVersion]);
 
@@ -809,19 +841,38 @@ export default function DespesasPage() {
 
     if (editando) {
       try {
-        await updateLancamento(editando.id, dados);
-        // Fase 1: se a categoria mudou em relação à exibida originalmente,
-        // grava override em localStorage + alimenta mapping CNPJ→categoria.
-        // Override VENCE o normalizarCategoria na próxima renderização.
         const categoriaOriginal = editando.categoria;
         const categoriaNova = dados.categoria;
-        if (categoriaNova && categoriaOriginal && categoriaNova !== categoriaOriginal) {
+        const categoriaMudou = categoriaNova && categoriaOriginal && categoriaNova !== categoriaOriginal;
+        // Fase 2: tenta enviar categoria_manual+categoria_origem ao Supabase.
+        // Se a migration v12 ainda não rodou, retry sem essas colunas para que
+        // a edição de categoria continue salvando — o override local (Fase 1)
+        // garante a persistência visual até a migration ser aplicada.
+        const dadosUpdate = categoriaMudou
+          ? { ...dados, categoriaManual: true, categoriaOrigem: 'manual' }
+          : dados;
+        try {
+          await updateLancamento(editando.id, dadosUpdate);
+        } catch (errCol) {
+          const msg = (errCol?.message || '').toLowerCase();
+          const semColuna = msg.includes('categoria_manual') || msg.includes('categoria_origem') ||
+                            (msg.includes('column') && msg.includes('does not exist'));
+          if (categoriaMudou && semColuna) {
+            console.warn('[Despesas] Migration v12 ausente — salvando sem categoria_manual. Override local cobre.');
+            await updateLancamento(editando.id, dados);
+          } else {
+            throw errCol;
+          }
+        }
+        if (categoriaMudou) {
+          // Fase 1 paralela: também grava override local + alimenta mapping
+          // CNPJ→categoria. Garante UI correta mesmo sem a migration v12 ativa.
           setCategoriaOverride(editando.id, categoriaNova, {
             categoria: categoriaOriginal,
             fornecedor: dados.fornecedor,
             notaFiscal: dados.notaFiscal,
           });
-          setOverridesVersion(v => v + 1); // força re-render da lista
+          setOverridesVersion(v => v + 1);
           toast.success(`Categoria "${categoriaNova}" salva (correção manual aprendida)`);
         } else {
           toast.success('Despesa atualizada!');

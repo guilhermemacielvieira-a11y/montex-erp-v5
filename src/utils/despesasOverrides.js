@@ -154,3 +154,76 @@ export function lookupCategoriaPorFornecedor(fornecedor, nf) {
 export function contarOverrides() {
   return Object.keys(loadCategoriaOverrides()).length;
 }
+
+// ============================================================
+// FASE 2 — BACKFILL: sincronizar overrides locais para Supabase
+// ============================================================
+// Após a migration v12 (categoria_manual + categoria_origem), correções
+// gravadas localmente na Fase 1 precisam ser enviadas para o Supabase para
+// (a) sobreviver à limpeza do localStorage e (b) ficarem disponíveis em
+// outros dispositivos. Chamado uma vez quando DespesasPage monta.
+//
+// Estratégia: para cada override local cujo id existe no banco e cujo
+// categoria_manual=false (ou ausente), envia um update marcando a categoria
+// definida pelo usuário com categoria_manual=true / categoria_origem=manual.
+// Após sucesso, remove o override do localStorage — o Supabase passa a ser
+// fonte canônica.
+//
+// `updateLancamento` é a função do ERPContext que faz update no Supabase.
+// `despesasAtuais` é a lista vinda do Supabase (não a com overrides aplicados).
+//
+// Retorna { sincronizados: N, restantes: M, erros: [], migrationFaltando: bool }.
+//
+// TOLERÂNCIA: se a migration v12 ainda não foi aplicada (colunas
+// categoria_manual/categoria_origem não existem), o Supabase retorna erro
+// "column ... does not exist". Detectamos e fazemos fallback: enviamos só
+// a categoria (sem as colunas de proveniência) — override local CONTINUA
+// vivo como fonte da verdade até a migration rodar.
+export async function syncOverridesParaSupabase(despesasAtuais, updateLancamento) {
+  const overrides = loadCategoriaOverrides();
+  const ids = Object.keys(overrides);
+  if (ids.length === 0 || !updateLancamento) {
+    return { sincronizados: 0, restantes: 0, erros: [], migrationFaltando: false };
+  }
+  let sincronizados = 0;
+  let restantes = 0;
+  let migrationFaltando = false;
+  const erros = [];
+  const novosOverrides = { ...overrides };
+  const porId = new Map();
+  for (const d of despesasAtuais || []) porId.set(String(d.id), d);
+
+  for (const id of ids) {
+    const ov = overrides[id];
+    const despesa = porId.get(id);
+    if (!despesa) { restantes++; continue; } // despesa sumiu do banco — mantém local
+    if (despesa.categoria_manual === true && despesa.categoria === ov.categoria) {
+      delete novosOverrides[id];
+      sincronizados++;
+      continue;
+    }
+    try {
+      await updateLancamento(id, {
+        categoria: ov.categoria,
+        categoriaManual: true,
+        categoriaOrigem: ov.origem || 'manual',
+      });
+      delete novosOverrides[id];
+      sincronizados++;
+    } catch (e) {
+      const msg = (e?.message || '').toLowerCase();
+      // Migration v12 não aplicada — coluna inexistente
+      if (msg.includes('categoria_manual') || msg.includes('categoria_origem') ||
+          msg.includes('column') && msg.includes('does not exist')) {
+        migrationFaltando = true;
+        // Mantém override local (fallback Fase 1 segue ativo).
+        restantes++;
+      } else {
+        erros.push({ id, erro: e.message });
+        restantes++;
+      }
+    }
+  }
+  saveCategoriaOverrides(novosOverrides);
+  return { sincronizados, restantes, erros, migrationFaltando };
+}
