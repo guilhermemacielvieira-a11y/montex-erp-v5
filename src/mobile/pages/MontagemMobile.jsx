@@ -60,14 +60,29 @@ export default function MontagemMobile() {
   const lista = tab === 'aguardando' ? aguardando : montadas;
 
   // Define o estado montado de uma peça (com fotoUrl opcional de evidência).
+  // Marcação parcial: o mobile NÃO tem UI de parcial — toggle ON = "todas montadas".
+  // Mas se a peça já estava parcial (ex.: marcada via MontagemPage com montadas=2/3),
+  // PRESERVAMOS esse campo para não regredir silenciosamente. Operador no campo que
+  // queira completar a peça parcial vai usar o desktop (MontagemPage) ou o scanner
+  // continua válido — toggle aqui só ATUALIZA metadados (montadoEm/origem) sem
+  // sobrescrever o montadas existente.
   const setMontada = (peca, montada, fotoUrl) => {
     const id = String(peca.id);
     const nova = { ...concluidas };
     if (!montada) {
       delete nova[id];
     } else {
+      const prev = nova[id] || {};
       // MESMO formato de MontagemPage/MontexERP3DPage (entity_store) + fotoUrl.
-      nova[id] = { montadoEm: new Date().toISOString(), origem: 'MontagemMobile', marca: peca.marca, ...(fotoUrl ? { fotoUrl } : {}) };
+      // Preserva `montadas` (parcial vindo de outro módulo); sem ele = legado/full.
+      nova[id] = {
+        ...prev,
+        montadoEm: new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
+        origem: 'MontagemMobile',
+        marca: peca.marca,
+        ...(fotoUrl ? { fotoUrl } : {}),
+      };
     }
     setConcluidas(nova);
     try {

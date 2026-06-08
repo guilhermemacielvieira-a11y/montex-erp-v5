@@ -1982,6 +1982,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   }, [statusMap, pecaMap]);
 
   // Toggle Marcar/Desmarcar peça como Montada (sincroniza com MontagemPage)
+  // Marcação parcial: o 3D não tem UI de parcial — toggle ON marca "todas".
+  // Mas se a peça já estava parcial (ex.: montadas=2/3 vindo do MontagemPage),
+  // PRESERVAMOS o campo `montadas` para não regredir silenciosamente. Operador
+  // que queira completar usa o desktop (MontagemPage modal qtd) ou desmarcar
+  // a peça inteira pelo painel 3D.
   const toggleMontagem = useCallback((peca) => {
     if (!peca) return;
     const pecaId = String(peca.id);
@@ -1990,8 +1995,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (wasMontada) {
       delete next[pecaId];
     } else {
+      const prev = next[pecaId] || {};
       next[pecaId] = {
+        ...prev,
         montadoEm: new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
         origem: 'MontexERP3DPage',
         marca: peca.marca,
       };

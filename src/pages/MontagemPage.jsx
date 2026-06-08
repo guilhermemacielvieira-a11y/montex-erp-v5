@@ -568,9 +568,12 @@ export default function MontagemPage() {
     return arr;
   }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
 
-  // ===== Agrupamento Kanban (apenas 2 colunas) =====
+  // ===== Agrupamento Kanban =====
+  // Parciais aparecem JUNTO com aguardando (peça ainda em progresso de montagem)
+  // — visualmente diferenciadas pelo badge azul "Parcial" e contador N/qtd.
+  // Só vai para coluna "Montado" quando 100% das unidades estiverem montadas.
   const kanban = useMemo(() => ({
-    aguardando_montagem: pecasFiltradas.filter(p => p._status === 'aguardando_montagem'),
+    aguardando_montagem: pecasFiltradas.filter(p => p._status === 'aguardando_montagem' || p._status === 'parcial'),
     montado: pecasFiltradas.filter(p => p._status === 'montado'),
   }), [pecasFiltradas]);
 
@@ -598,10 +601,17 @@ export default function MontagemPage() {
     const qtdParcialMontada = parciais.reduce((s, p) => s + (p._montadas || 0), 0);
 
     // Montadas (todas as unidades) — KPI Montado conta unidades EFETIVAMENTE montadas
-    // (somando completas + parcial-montadas), peso só conta peças 100% montadas.
+    // (completas + porção montada de parciais). Peso e unidades proporcionais ao N/qtd.
     const montadas = pecasFiltradas.filter(p => p._status === 'montado');
-    const pesoMontado = montadas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
-    // qtdMontada = unidades 100% montadas + as unidades parciais contadas individualmente
+    const pesoMontadoCompletas = montadas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0);
+    // Porção do peso de cada parcial proporcional às unidades montadas (peso/qtd × montadas)
+    const pesoMontadoParcial = parciais.reduce((s, p) => {
+      const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+      const pesoUn = (p.pesoTotal || p.peso || 0) / qtd;
+      return s + (pesoUn * (p._montadas || 0));
+    }, 0);
+    const pesoMontado = pesoMontadoCompletas + pesoMontadoParcial;
+    // qtdMontada = unidades 100% montadas + parcial-montadas
     const qtdMontadaCompletas = montadas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
     const qtdMontada = qtdMontadaCompletas + qtdParcialMontada;
 
@@ -648,7 +658,8 @@ export default function MontagemPage() {
     else toast.success(`◐ ${peca.codigo || peca.marca} → Parcial (${n}/${qtd})`);
   };
 
-  // Lote: aplica para todas as selecionadas
+  // Lote: aplica para todas as selecionadas — parcial-aware
+  // "concluir" → marca 100% (aguardando + parcial); "retornar" → zera (montado + parcial)
   const handleAcaoLote = (acao) => {
     const ids = Array.from(pecasSelecionadas);
     if (ids.length === 0) {
@@ -656,14 +667,24 @@ export default function MontagemPage() {
       return;
     }
     let ok = 0;
+    const now = new Date().toISOString();
     setConcluidas(prev => {
       const next = { ...prev };
       for (const id of ids) {
         const p = pecasMontagem.find(x => x.id === id);
         if (!p) continue;
-        if (acao === 'concluir' && p._status === 'aguardando_montagem') {
-          next[id] = { montadoEm: new Date().toISOString() }; ok++;
-        } else if (acao === 'retornar' && p._status === 'montado') {
+        const qtd = p._qtd || Math.max(1, parseInt(p.quantidade) || 1);
+        if (acao === 'concluir' && (p._status === 'aguardando_montagem' || p._status === 'parcial')) {
+          // Marca todas as unidades como montadas
+          next[id] = {
+            ...(prev[id] || {}),
+            montadas: qtd,
+            montadoEm: prev[id]?.montadoEm || now,
+            atualizadoEm: now,
+            origem: 'MontagemPage (lote)',
+          };
+          ok++;
+        } else if (acao === 'retornar' && (p._status === 'montado' || p._status === 'parcial')) {
           delete next[id]; ok++;
         }
       }
