@@ -7,7 +7,7 @@
 // que move as peças para 'enviado' = Aguardando Montagem em campo).
 // A conferência é local (localStorage por romaneio); o despacho é a escrita real.
 // ============================================================
-import React, { useMemo, useState, useCallback, useRef, useLayoutEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   Truck, Package, ScanLine, ChevronRight, ChevronLeft, CheckCircle2,
@@ -51,6 +51,10 @@ export default function ExpedicaoMobile() {
   const [selId, setSelId] = useState(null);     // romaneio aberto
   const [scanOpen, setScanOpen] = useState(false);
   const [conf, setConf] = useState({});         // {pecaId: true} do romaneio aberto
+  // Espelho em ref: a bipagem CONTÍNUA captura o handler na abertura do
+  // scanner; ler conf por ref evita closure stale (re-bipar não desmarca).
+  const confRef = useRef(conf);
+  useEffect(() => { confRef.current = conf; }, [conf]);
   const [despachar, setDespachar] = useState(false); // sheet de confirmação
   const [saving, setSaving] = useState(false);
   const listScroll = useRef(0); // posição do scroll da lista, p/ restaurar ao voltar do detalhe
@@ -109,16 +113,23 @@ export default function ExpedicaoMobile() {
     });
   }, [selId]);
 
-  const onScan = (codigo) => {
+  // Marca uma peça por código bipado (add-only — nunca desmarca). Lê o conf
+  // atual via ref para funcionar dentro do loop contínuo do scanner.
+  const marcarPorCodigo = useCallback((codigo) => {
     const alvo = norm(codigo);
     const item = itens.find(i => norm(i.marca) === alvo)
               || (alvo.length >= 3 ? itens.find(i => norm(i.marca).includes(alvo)) : null);
     if (!item) { toast.error(`"${codigo}" não está neste romaneio`); return; }
-    if (conf[item.id]) { toast(`${item.marca} já conferida`, { icon: '✓' }); return; }
-    toggleConf(item.id);
+    const cur = confRef.current;
+    if (cur[item.id]) { toast(`${item.marca} já conferida`, { icon: '✓' }); return; }
+    const nova = { ...cur, [item.id]: true };
+    confRef.current = nova;
+    setConf(nova);
+    if (selId) saveConf(selId, nova);
     success();
-    toast.success(`${item.marca} conferida (${conferidas + 1}/${total})`);
-  };
+    const done = itens.filter(i => nova[i.id]).length;
+    toast.success(`${item.marca} conferida (${done}/${itens.length})`);
+  }, [itens, selId]);
 
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
@@ -210,7 +221,7 @@ export default function ExpedicaoMobile() {
             className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
           >
-            <ScanLine className="w-5 h-5" /> Bipar peça
+            <ScanLine className="w-5 h-5" /> Bipagem contínua
           </button>
         )}
 
@@ -226,7 +237,14 @@ export default function ExpedicaoMobile() {
           </div>
         )}
 
-        <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peça do romaneio" />
+        <Scanner
+          open={scanOpen}
+          onClose={() => setScanOpen(false)}
+          onResult={marcarPorCodigo}
+          title="Conferência de carga"
+          continuous
+          progress={`${conferidas}/${total} conferidas`}
+        />
 
         <Sheet
           open={despachar}

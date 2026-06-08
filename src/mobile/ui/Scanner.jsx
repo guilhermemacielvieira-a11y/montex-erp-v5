@@ -7,10 +7,15 @@
 //   2) Web BarcodeDetector + getUserMedia — navegadores compatíveis
 //   3) Entrada manual (sempre disponível) — fallback universal
 // Chama onResult(codigo) ao detectar/confirmar.
+//
+// MODO `continuous`: o scanner PERMANECE ABERTO e dispara onResult a cada
+// peça bipada (com dedupe por cooldown), para conferência de carga em
+// fluxo contínuo. Mostra feedback do último código e o `progress`. O
+// usuário fecha manualmente (X) ao terminar.
 // ============================================================
 import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, ScanLine, Keyboard, CameraOff } from 'lucide-react';
+import { X, ScanLine, Keyboard, CameraOff, CheckCircle2 } from 'lucide-react';
 import { tap } from './haptics';
 
 function nativeScanner() {
@@ -21,26 +26,51 @@ function nativeScanner() {
   return null;
 }
 
-export default function Scanner({ open, onClose, onResult, title = 'Escanear peça' }) {
+const DEDUPE_MS = 1200; // ignora o MESMO código relido dentro desta janela
+
+export default function Scanner({ open, onClose, onResult, title = 'Escanear peça', continuous = false, progress = '' }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
+  const lastFired = useRef({ code: '', t: 0 }); // dedupe no modo contínuo
   const [manual, setManual] = useState('');
   const [camState, setCamState] = useState('idle'); // idle | starting | live | unsupported | denied
   const [hint, setHint] = useState('');
+  const [lastCode, setLastCode] = useState(''); // feedback visual da última leitura
+  const [count, setCount] = useState(0);        // leituras disparadas nesta sessão
+
+  // Emite um código (com dedupe no contínuo). Retorna true se disparou.
+  const emit = (code) => {
+    const c = String(code || '').trim();
+    if (!c) return false;
+    if (continuous) {
+      const now = Date.now();
+      if (c === lastFired.current.code && now - lastFired.current.t < DEDUPE_MS) return false;
+      lastFired.current = { code: c, t: now };
+      setLastCode(c);
+      setCount(n => n + 1);
+    }
+    onResult?.(c);
+    return true;
+  };
 
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    // reset de sessão
+    lastFired.current = { code: '', t: 0 };
+    setLastCode(''); setCount(0);
 
     (async () => {
-      // 1) Plugin nativo (assume controle da UI nativa)
+      // 1) Plugin nativo de leitura única (assume a UI nativa).
+      //    No modo contínuo NÃO usamos o scan() single-shot — preferimos a
+      //    câmera com loop (web/WKWebView) para bipar várias sem reabrir.
       const ns = nativeScanner();
-      if (ns?.scan) {
+      if (ns?.scan && !continuous) {
         try {
           const res = await ns.scan();
           const code = res?.barcodes?.[0]?.rawValue || res?.ScanResult || res?.content;
-          if (code && !cancelled) { onResult?.(String(code)); onClose?.(); }
+          if (code && !cancelled) { emit(code); onClose?.(); }
           return;
         } catch { /* cai para web/manual */ }
       }
@@ -66,7 +96,12 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
             const codes = await detector.detect(videoRef.current);
             if (codes && codes.length) {
               const code = codes[0].rawValue;
-              if (code) { await tap('heavy'); onResult?.(String(code)); onClose?.(); return; }
+              if (code) {
+                const fired = emit(code);
+                if (fired) await tap('heavy');
+                // Single-shot: fecha ao 1º código. Contínuo: segue no loop.
+                if (fired && !continuous) { onClose?.(); return; }
+              }
             }
           } catch { /* frame sem código */ }
           rafRef.current = requestAnimationFrame(loop);
@@ -89,9 +124,9 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
   const confirmarManual = () => {
     const v = manual.trim();
     if (!v) return;
-    onResult?.(v);
+    emit(v);
     setManual('');
-    onClose?.();
+    if (!continuous) onClose?.(); // contínuo: mantém aberto para a próxima
   };
 
   return (
@@ -106,9 +141,14 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
           {/* Header */}
           <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
             <ScanLine className="w-5 h-5 text-amber-400" />
-            <h2 className="flex-1 font-bold text-base">{title}</h2>
-            <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar scanner">
-              <X className="w-5 h-5" />
+            <div className="flex-1 min-w-0">
+              <h2 className="font-bold text-base truncate">{title}</h2>
+              {continuous && (progress || count > 0) && (
+                <div className="text-[11px] text-amber-400 font-semibold">{progress || `${count} leitura(s)`}</div>
+              )}
+            </div>
+            <button onClick={onClose} className="min-w-11 h-11 px-3 -mr-2 flex items-center justify-center gap-1.5 rounded-lg hover:bg-slate-800 active:bg-slate-700 font-bold text-sm" aria-label="Fechar scanner">
+              {continuous ? 'Concluir' : <X className="w-5 h-5" />}
             </button>
           </div>
 
@@ -132,12 +172,22 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
                 </div>
               </div>
             )}
+            {/* Feedback da última leitura (modo contínuo) */}
+            {continuous && lastCode && (
+              <motion.div
+                key={lastCode + count}
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-500 text-slate-950 font-bold text-sm shadow-lg"
+              >
+                <CheckCircle2 className="w-4 h-4" /> {lastCode}
+              </motion.div>
+            )}
           </div>
 
           {/* Entrada manual (sempre disponível) */}
           <div className="px-4 pt-3 space-y-2 border-t border-slate-800">
             <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
-              <Keyboard className="w-3.5 h-3.5" /> Ou digite a marca da peça
+              <Keyboard className="w-3.5 h-3.5" /> {continuous ? 'Ou digite a marca (segue aberto)' : 'Ou digite a marca da peça'}
             </div>
             <div className="flex gap-2">
               <input
@@ -152,7 +202,7 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
                 onClick={confirmarManual}
                 disabled={!manual.trim()}
                 className="px-5 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm active:scale-95 transition disabled:opacity-50"
-              >Buscar</button>
+              >{continuous ? 'Bipar' : 'Buscar'}</button>
             </div>
           </div>
         </motion.div>
