@@ -357,9 +357,10 @@ const ALL_TYPES = [...PRIMARY_TYPES, ...SECONDARY_TYPES];
 // ==============================================
 
 // Extrai geometria de um conjunto de tipos IFC
-function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgress, pctStart, pctEnd) {
+async function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgress, pctStart, pctEnd) {
   const elements = [];
   let processed = 0;
+  let yieldCtr = 0;
   const totalTypes = types.length;
 
   for (const ifcType of types) {
@@ -426,6 +427,15 @@ function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgre
           isPrimary: PRIMARY_TYPES.includes(ifcType),
         });
       }
+
+      // Cede a thread periodicamente → a UI não congela durante o parse pesado
+      // (web-ifc é síncrono; o yield deixa o navegador repintar progresso/spinner).
+      if (++yieldCtr >= 600) {
+        yieldCtr = 0;
+        const pctIn = pctStart + Math.round(((processed + (i + 1) / count) / totalTypes) * (pctEnd - pctStart));
+        onProgress?.(pctIn, `${typeName}: ${i + 1}/${count}`);
+        await new Promise(r => setTimeout(r, 0));
+      }
     }
     processed++;
     const pct = pctStart + Math.round((processed / totalTypes) * (pctEnd - pctStart));
@@ -468,7 +478,7 @@ function decodeIfcString(s) {
 
 // Extrai PropertySets do IFC e retorna Map: expressID -> { propName: value }
 // IFC do Tekla expõe Pset_BeamCommon e similares com Assembly mark, Position code, etc.
-function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctEnd) {
+async function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctEnd) {
   const elementProps = new Map();
   const IFCRELDEFINESBYPROPERTIES = WebIFC.IFCRELDEFINESBYPROPERTIES || 4186316022;
   let relIds;
@@ -511,10 +521,11 @@ function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctE
       if (!elementProps.has(eid)) elementProps.set(eid, {});
       Object.assign(elementProps.get(eid), props);
     }
-    // Progresso
-    if (i % 2000 === 0) {
+    // Progresso + cede a thread (UI não congela durante a leitura de PropertySets)
+    if (i % 1000 === 0) {
       const pct = pctStart + Math.round((i / total) * (pctEnd - pctStart));
       onProgress?.(pct, `Lendo propriedades IFC: ${i}/${total}`);
+      await new Promise(r => setTimeout(r, 0));
     }
   }
   return elementProps;
@@ -543,7 +554,7 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
   onProgress?.(15, 'Modelo aberto. Etapa 1: Estrutura principal...');
 
   // ETAPA 1: Estrutura principal (vigas, colunas, chapas)
-  const primaryElements = extractElementsForTypes(
+  const primaryElements = await extractElementsForTypes(
     ifcAPI, modelID, PRIMARY_TYPES, 0, onProgress, 15, 55
   );
   onProgress?.(55, `Etapa 1 concluida: ${primaryElements.length} elementos estruturais`);
@@ -553,14 +564,14 @@ async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
 
   // ETAPA 2: Detalhes e conexoes (parafusos, assemblies)
   onProgress?.(57, 'Etapa 2: Conexoes e detalhes...');
-  const secondaryElements = extractElementsForTypes(
+  const secondaryElements = await extractElementsForTypes(
     ifcAPI, modelID, SECONDARY_TYPES, primaryElements.length, onProgress, 57, 80
   );
   onProgress?.(80, `Etapa 2 concluida: ${secondaryElements.length} conexoes/detalhes`);
 
   // ETAPA 3: Extrair PropertySets (Tekla expõe Assembly mark, Position code, Profile, etc.)
   onProgress?.(82, 'Etapa 3: Lendo PropertySets...');
-  const elementProps = extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, 82, 92);
+  const elementProps = await extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, 82, 92);
   let enriched = 0;
   for (const el of [...primaryElements, ...secondaryElements]) {
     const props = elementProps.get(el.expressID);
