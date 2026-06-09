@@ -12,8 +12,10 @@
 //   • reset_password{ authId, password }         → redefine senha (auth admin)
 //
 // Deploy:
-//   supabase functions deploy admin-users
-//   (mantém verify_jwt ON — exige ao menos a anon key válida)
+//   supabase functions deploy admin-users --no-verify-jwt
+//   O app usa a publishable key (sb_publishable_*), que NÃO é JWT — com verify_jwt
+//   ON o gateway a rejeitaria (401). A verificação de auth/role real entra na
+//   Fase 1, DENTRO da função (ver TODO no handler), não no gateway.
 //
 // Secrets: SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem no ambiente
 //          da função automaticamente — não precisa setar.
