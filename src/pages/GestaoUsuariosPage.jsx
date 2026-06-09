@@ -15,7 +15,7 @@ import {
   ExternalLink, RotateCcw, Info, MoreVertical, Hash
 } from 'lucide-react';
 import { useAuth, ROLES, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
-import { supabase, supabaseAdmin, getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive } from '@/api/supabaseClient';
+import { supabase, getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive, resetUserPassword } from '@/api/supabaseClient';
 
 // ============================================================
 // HELPERS
@@ -61,7 +61,7 @@ function isExpired(expiresAt) {
 // ============================================================
 
 async function saveEntityStore(entityType, data, id = null) {
-  const client = supabaseAdmin || supabase;
+  const client = supabase;
   const record = {
     entity_type: entityType,
     data,
@@ -88,7 +88,7 @@ async function saveEntityStore(entityType, data, id = null) {
 }
 
 async function loadEntityStore(entityType) {
-  const client = supabaseAdmin || supabase;
+  const client = supabase;
   const { data, error } = await client
     .from('entity_store')
     .select('*')
@@ -99,7 +99,7 @@ async function loadEntityStore(entityType) {
 }
 
 async function deleteEntityStore(id) {
-  const client = supabaseAdmin || supabase;
+  const client = supabase;
   const { error } = await client.from('entity_store').delete().eq('id', id);
   if (error) throw error;
 }
@@ -575,51 +575,13 @@ function TabSenhas({ users, toast, currentUser }) {
     if (newPw !== confirmPw) { toast('As senhas não conferem', 'error'); return; }
     setLoading(true);
     try {
-      // Use supabaseAdmin para operações de auth (service_role obrigatório)
-      if (!supabaseAdmin) {
-        throw new Error('Service role key não configurada — configure VITE_SUPABASE_SERVICE_KEY no .env');
-      }
+      // Operação privilegiada (auth admin) → Edge Function `admin-users`.
+      // A service_role vive só no servidor; o cliente não a carrega mais.
       const authId = selectedUser.auth_id || selectedUser.id;
       if (!authId) {
         throw new Error('Usuário sem auth_id vinculado — não é possível redefinir senha');
       }
-
-      // ✅ Método correto do SDK admin é updateUserById (não updateUser)
-      // Fallback REST mantido: se SDK falhar silenciosamente, chama REST API diretamente
-      let updated = null;
-      let sdkError = null;
-      try {
-        const result = await supabaseAdmin.auth.admin.updateUserById(authId, { password: newPw });
-        updated = result.data;
-        sdkError = result.error;
-      } catch (e) {
-        sdkError = e;
-      }
-
-      if (sdkError || !updated?.user?.id) {
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
-        // SEGURANÇA: a service_role key NUNCA pode ser hardcoded no cliente — ela
-        // bypassa toda a RLS e ficaria exposta no bundle de produção. Use apenas a
-        // env var. Se ausente, aborta com erro explícito (sem fallback inseguro).
-        const SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
-        if (!SERVICE_KEY) {
-          throw new Error('Service role key não configurada — defina VITE_SUPABASE_SERVICE_KEY no .env.local (dev) ou nas env vars da Vercel (prod).');
-        }
-        const restRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${authId}`, {
-          method: 'PUT',
-          headers: {
-            'apikey': SERVICE_KEY,
-            'Authorization': `Bearer ${SERVICE_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ password: newPw }),
-        });
-        const restJson = await restRes.json().catch(() => ({}));
-        if (!restRes.ok || !restJson.id) {
-          throw new Error(`Falha REST: ${restRes.status} — ${restJson.msg || restJson.error || sdkError?.message || 'sem detalhes'}`);
-        }
-        updated = { user: restJson };
-      }
+      await resetUserPassword(authId, newPw);
 
       await logAudit('reset_password', `Senha redefinida para: ${selectedUser.email}`, currentUser);
       toast(`Senha de ${selectedUser.nome || selectedUser.email} redefinida com sucesso!`, 'success');
