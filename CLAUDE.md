@@ -178,3 +178,19 @@ Olhe o último commit, o estado das tasks pendentes, e tome iniciativa em algo �
 - Validar consistência cross-módulo
 
 Não pergunte ao usuário — ele quer ver progresso.
+
+---
+
+## 🌐 Ambiente de desenvolvimento recomendado (atualizado 2026-06)
+
+**Desenvolver online:** GitHub Codespaces (`.devcontainer/` já configurado) + Claude Code.
+Passo a passo em `docs/INICIAR-CLAUDE-CODE.md`. Banco é o mesmo Supabase na nuvem
+para dev e produção; chaves via Codespaces secrets (`docs/DEV-ONLINE-CODESPACES.md`).
+
+**Avisos:**
+- Nunca manter `.git` em pasta sincronizada por iCloud/Drive — corrompe o repositório
+  (já aconteceu; o clone antigo do Mac foi descartado). Clone limpo: `~/montex-fase0-recover`.
+- A service_role key foi removida do código (Fase 0). Em produção, definir
+  `VITE_SUPABASE_SERVICE_KEY` nas env vars da Vercel; ideal migrar admin p/ Edge Function.
+- `migration_v12_rls_por_papel.sql` só deve ser aplicada APÓS auth real (senão quebra o app).
+- Build não roda em sandbox arm64 (rollup native ausente) — usar Codespace/CI.
