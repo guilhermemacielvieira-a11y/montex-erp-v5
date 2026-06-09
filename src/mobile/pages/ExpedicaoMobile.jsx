@@ -111,15 +111,22 @@ export default function ExpedicaoMobile() {
     });
   }, [selId]);
 
+  // Marca uma peça pelo código bipado. ADD-ONLY: nunca desmarca — no loop
+  // contínuo do scanner, re-bipar a mesma peça apenas reconfirma (não pode
+  // togglar para fora). O Scanner já injeta sempre o handler mais recente
+  // (onResultRef), então `conf` aqui é fresco e o cálculo do progresso é fiel.
   const onScan = (codigo) => {
     const alvo = norm(codigo);
     const item = itens.find(i => norm(i.marca) === alvo)
               || (alvo.length >= 3 ? itens.find(i => norm(i.marca).includes(alvo)) : null);
     if (!item) { toast.error(`"${codigo}" não está neste romaneio`); return; }
     if (conf[item.id]) { toast(`${item.marca} já conferida`, { icon: '✓' }); return; }
-    toggleConf(item.id);
+    const nova = { ...conf, [item.id]: true };
+    setConf(nova);
+    if (selId) saveConf(selId, nova);
     success();
-    toast.success(`${item.marca} conferida (${conferidas + 1}/${total})`);
+    const done = itens.filter(i => nova[i.id]).length;
+    toast.success(`${item.marca} conferida (${done}/${total})`);
   };
 
   const confirmarDespacho = async () => {
@@ -232,7 +239,14 @@ export default function ExpedicaoMobile() {
           </div>
         )}
 
-        <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças do romaneio" continuous />
+        <Scanner
+          open={scanOpen}
+          onClose={() => setScanOpen(false)}
+          onResult={onScan}
+          title="Bipar peças do romaneio"
+          continuous
+          progress={`${conferidas}/${total} conferidas`}
+        />
 
         <Sheet
           open={despachar}

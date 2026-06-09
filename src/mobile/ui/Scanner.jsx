@@ -25,7 +25,7 @@ function nativeScanner() {
   return null;
 }
 
-export default function Scanner({ open, onClose, onResult, title = 'Escanear peça', continuous = false }) {
+export default function Scanner({ open, onClose, onResult, title = 'Escanear peça', continuous = false, progress = '' }) {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const rafRef = useRef(null);
@@ -66,14 +66,17 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
     setLidos(0); setUltimo(''); lastScanRef.current = { code: '', ts: 0 };
 
     (async () => {
-      // 1) Plugin nativo (assume controle da UI nativa) — modo one-shot.
+      // 1) Plugin nativo de leitura única (assume a UI nativa). No modo
+      //    CONTÍNUO não usamos o scan() single-shot — ele retorna 1 código e
+      //    fecha; preferimos a câmera com loop (web/WKWebView) para bipar
+      //    várias peças sem reabrir a cada leitura.
       const ns = nativeScanner();
-      if (ns?.scan) {
+      if (ns?.scan && !continuous) {
         try {
           const res = await ns.scan();
           const code = res?.barcodes?.[0]?.rawValue || res?.ScanResult || res?.content;
-          if (code && !cancelled) { processar(code, true); if (!continuous) return; }
-          if (!continuous) return;
+          if (code && !cancelled) processar(code, true); // processar() fecha no one-shot
+          return; // single-shot: encerra após a tentativa nativa
         } catch { /* cai para web/manual */ }
       }
 
@@ -142,9 +145,9 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe�
           <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
             <ScanLine className="w-5 h-5 text-amber-400" />
             <h2 className="flex-1 font-bold text-base truncate">{title}</h2>
-            {continuous && lidos > 0 && (
-              <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded-full px-2 py-0.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> {lidos}
+            {continuous && (progress || lidos > 0) && (
+              <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded-full px-2 py-0.5 whitespace-nowrap">
+                <CheckCircle2 className="w-3.5 h-3.5" /> {progress || lidos}
               </span>
             )}
             <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar scanner">
