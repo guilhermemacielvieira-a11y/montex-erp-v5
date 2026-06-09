@@ -58,7 +58,7 @@ import jsPDF from 'jspdf';
 import {
   LS_KEYS as GLOBAL_LS_KEYS,
   loadBundleLocal, saveBundleLocal,
-  loadBundleRemote, saveBundleRemote, bundleVazio,
+  loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote,
 } from '../utils/painelFinanceiroSync';
 import {
   formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
@@ -275,6 +275,16 @@ export default function PainelFinanceiroGlobal() {
     const t = setTimeout(() => saveBundleRemote(bundle), 800);
     return () => clearTimeout(t);
   }, [movsLocais, overridesLocais, hiddenLocais, metas, alertasLidos]);
+
+  // Sync REALTIME entre usuários: quando outro usuário grava na tabela do
+  // painel, recarrega o bundle do banco e aplica (visibilidade imediata).
+  useEffect(() => {
+    const unsub = subscribeRemote(async () => {
+      const remote = await loadBundleRemote();
+      if (remote) { saveBundleLocal(remote); aplicarBundle(remote); }
+    });
+    return () => { if (typeof unsub === 'function') unsub(); };
+  }, [aplicarBundle]);
 
   // Sync cross-tab: recarrega quando outra aba grava nas chaves do painel
   useEffect(() => {
