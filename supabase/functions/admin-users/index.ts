@@ -12,20 +12,23 @@
 //   • reset_password{ authId, password }         → redefine senha (auth admin)
 //
 // Deploy:
-//   supabase functions deploy admin-users --no-verify-jwt
-//   O app usa a publishable key (sb_publishable_*), que NÃO é JWT — com verify_jwt
-//   ON o gateway a rejeitaria (401). A verificação de auth/role real entra na
-//   Fase 1, DENTRO da função (ver TODO no handler), não no gateway.
+//   supabase functions deploy admin-users      (MANTER verify_jwt ON — default)
+//   NÃO usar --no-verify-jwt: o app faz login (Supabase Auth) e o
+//   functions.invoke envia o JWT da SESSÃO do usuário logado, que o gateway
+//   aceita. Desabilitar o verify abriria a função para a internet (ela ainda
+//   não tem gating interno de role). Verificado em prod (2026-06-09): sessão
+//   admin → list_profiles → 200 (8 perfis). A publishable key crua (sem
+//   sessão) é corretamente rejeitada com 401. Gating por role 'admin' = Fase 1.
 //
 // Secrets: SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem no ambiente
 //          da função automaticamente — não precisa setar.
 //
-// ⚠️ SEGURANÇA / Fase 1 (auth real): enquanto o app não tiver login, esta
-//    função é chamável por qualquer um que tenha a anon key, limitada a
-//    estas ações de gestão de usuários (NÃO a CRUD total do banco — isso é
-//    uma redução enorme de superfície vs. a service_role vazada). Ao
-//    habilitar Supabase Auth, ADICIONAR aqui a verificação do JWT do
-//    chamador e exigir role 'admin' (ver TODO no handler).
+// ⚠️ SEGURANÇA / Fase 1: com verify_jwt ON, o gateway exige um JWT de sessão
+//    VÁLIDO — só usuários LOGADOS chamam (a service_role nunca sai do servidor;
+//    redução enorme de superfície vs. a chave vazada do S1). O que falta é o
+//    gating por ROLE: hoje qualquer usuário autenticado poderia chamar estas
+//    ações de gestão. Fase 1: validar o JWT do chamador e exigir role 'admin'
+//    (ver TODO no handler).
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
