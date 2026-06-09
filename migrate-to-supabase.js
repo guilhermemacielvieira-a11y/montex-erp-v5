@@ -4,8 +4,14 @@
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 
-const SUPABASE_URL = 'https://trxbohjcwsogthabairh.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNzU1MTAsImV4cCI6MjA4NTY1MTUxMH0.QzEK1K0vQRpTBOWqNib-Mo1EEbTP6j21J1jWb07urxg';
+// SEGURANÇA: chaves vêm de variáveis de ambiente, nunca hardcoded.
+//   export SUPABASE_URL="..."  export SUPABASE_KEY="..."
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_KEY;
+if (!SUPABASE_KEY) {
+  console.error('ERRO: defina a variável de ambiente SUPABASE_KEY antes de rodar este script.');
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 

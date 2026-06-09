@@ -21,8 +21,14 @@ import urllib.error
 from collections import defaultdict
 from datetime import datetime, timezone
 
-SUPABASE_URL = "https://trxbohjcwsogthabairh.supabase.co"
-SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs"
+import os
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://trxbohjcwsogthabairh.supabase.co")
+# SEGURANÇA: nunca hardcode a service_role key. Defina via variável de ambiente:
+#   export SUPABASE_SERVICE_KEY="..."   (ou SUPABASE_URL para outro projeto)
+SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY")
+if not SERVICE_KEY:
+    sys.exit("ERRO: defina a variável de ambiente SUPABASE_SERVICE_KEY antes de rodar este script.")
 H = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
 
 
