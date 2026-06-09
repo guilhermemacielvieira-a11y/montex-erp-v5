@@ -73,9 +73,11 @@ function useHistoricoProducao() {
         since.setDate(since.getDate() - 30);
         const { data: rows } = await supabase
           .from('producao_historico')
-          .select('id,peca_id,funcionario_nome,etapa_de,etapa_para,quantidade,data_movimentacao,obra_id')
-          .gte('data_movimentacao', since.toISOString())
-          .order('data_movimentacao', { ascending: true })
+          // producao_historico (v7) tem data_inicio (não data_movimentacao) e
+          // NÃO tem quantidade/obra_id. Selecionar colunas reais — antes dava 400.
+          .select('id,peca_id,funcionario_nome,etapa_de,etapa_para,data_inicio')
+          .gte('data_inicio', since.toISOString())
+          .order('data_inicio', { ascending: true })
           .limit(5000);
         setData(rows || []);
       } catch (e) { /* ignore */ }
@@ -226,9 +228,9 @@ export default function VisaoGeralPage() {
       const d = new Date(); d.setDate(d.getDate() - (29 - i)); d.setHours(0,0,0,0);
       const fim = new Date(d); fim.setDate(fim.getDate() + 1);
       const qtd = (historico || []).filter(h => {
-        const md = new Date(h.data_movimentacao);
+        const md = new Date(h.data_inicio);
         return md >= d && md < fim;
-      }).reduce((s, h) => s + (parseInt(h.quantidade) || 1), 0);
+      }).reduce((s) => s + 1, 0); // 1 movimento por registro de producao_historico
       return qtd;
     });
     return arr;
@@ -243,11 +245,11 @@ export default function VisaoGeralPage() {
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const inicio = new Date(hoje); inicio.setDate(inicio.getDate() - 6);
     (historico || []).forEach(h => {
-      const d = new Date(h.data_movimentacao);
+      const d = new Date(h.data_inicio);
       if (d < inicio) return;
       const diaIdx = d.getDay();
       const horaIdx = d.getHours();
-      matriz[diaIdx][horaIdx] += parseInt(h.quantidade) || 1;
+      matriz[diaIdx][horaIdx] += 1;
       if (matriz[diaIdx][horaIdx] > maxVal) maxVal = matriz[diaIdx][horaIdx];
     });
     return { matriz, labelsDias, max: maxVal || 1 };
@@ -345,7 +347,7 @@ export default function VisaoGeralPage() {
     (historico || []).forEach(h => {
       const n = h.funcionario_nome || 'Sem nome';
       if (!map[n]) map[n] = { nome: n, qtd: 0, etapas: new Set() };
-      map[n].qtd += parseInt(h.quantidade) || 1;
+      map[n].qtd += 1;
       map[n].etapas.add(h.etapa_para || h.etapa_de);
     });
     return Object.values(map)
@@ -715,7 +717,7 @@ export default function VisaoGeralPage() {
             {activityFeed.length === 0 ? (
               <p className="text-xs text-slate-500 italic text-center py-4">Aguardando dados...</p>
             ) : activityFeed.map((h, i) => {
-              const tempo = new Date(h.data_movimentacao);
+              const tempo = new Date(h.data_inicio);
               const diff = (new Date() - tempo) / 60000;
               const tempoTxt = diff < 60 ? `${Math.round(diff)}m` : diff < 1440 ? `${Math.round(diff/60)}h` : `${Math.round(diff/1440)}d`;
               const corEtapa = COR_ETAPAS[h.etapa_para] || '#94a3b8';
@@ -725,7 +727,6 @@ export default function VisaoGeralPage() {
                   <span className="text-slate-500 font-mono w-7 flex-shrink-0">{tempoTxt}</span>
                   <span className="text-cyan-300 truncate flex-1">{(h.funcionario_nome || '—').split(' ')[0]}</span>
                   <span className="text-slate-400 uppercase font-mono text-[9px]">{h.etapa_para}</span>
-                  <span className="text-white font-bold ml-1 tabular-nums">×{h.quantidade}</span>
                 </div>
               );
             })}
