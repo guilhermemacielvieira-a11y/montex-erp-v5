@@ -18,7 +18,7 @@ import {
   Download, FileSpreadsheet, X as XIcon,
   Database, Play, LayoutGrid, Table2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  AlertTriangle, CheckCircle2, FileText, Scissors, Users, UserCheck
+  AlertTriangle, CheckCircle2, FileText, Scissors, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

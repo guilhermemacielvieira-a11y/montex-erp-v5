@@ -77,11 +77,9 @@ import {
 import { useLancamentos, useObras } from '../contexts/ERPContext';
 import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
 import {
-  loadCategoriaOverrides,
   setCategoriaOverride,
   removeCategoriaOverride,
   aplicarOverridesNaLista,
-  lookupCategoriaPorFornecedor,
   syncOverridesParaSupabase,
 } from '../utils/despesasOverrides';
 import { categorizarSmart, categorizarDespesaSmart } from '../utils/categoriaInteligente';

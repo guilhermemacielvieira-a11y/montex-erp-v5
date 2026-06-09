@@ -7,17 +7,13 @@ import {
   DollarSign,
   Plus,
   Search,
-  Download,
   Edit,
   CheckCircle2,
   Clock,
   AlertTriangle,
   TrendingUp,
-  Eye,
   Calendar,
   Trash2,
-  RefreshCw,
-  X,
   Building2,
   MoreHorizontal,
 } from 'lucide-react';
@@ -31,7 +27,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
   DialogFooter,
 } from '@/components/ui/dialog';
 import {

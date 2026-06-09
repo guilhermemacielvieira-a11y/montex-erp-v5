@@ -29,7 +29,7 @@ import { Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 
 // ERPContext - dados reais
-import { useObras, useProducao, useMedicoes, useLancamentos } from '../contexts/ERPContext';
+import { useObras, useProducao, useMedicoes } from '../contexts/ERPContext';
 
 // Financial Intelligence Hook
 import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';

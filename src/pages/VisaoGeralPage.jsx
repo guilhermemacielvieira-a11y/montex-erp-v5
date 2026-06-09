@@ -14,17 +14,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Activity, AlertTriangle, BarChart3, Building2, Cpu, DollarSign,
-  Factory, Layers, Package, Paintbrush, Send, Shield, Target, Truck,
-  Users, Wrench, Zap, RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp,
-  TrendingDown, Clock, Award, Eye, CheckCircle2, Radio, Power, Flame,
-  Gauge,
+  Activity, AlertTriangle, Cpu, Shield, Truck, Wrench, RefreshCw, TrendingUp,
+  TrendingDown, CheckCircle2, Radio, Power,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar, Line, ComposedChart,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
-  ReferenceLine,
 } from 'recharts';
 import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';

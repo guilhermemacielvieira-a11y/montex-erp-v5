@@ -17,17 +17,17 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
-  DollarSign, TrendingUp, TrendingDown, Plus, Wallet, Receipt,
+  DollarSign, TrendingUp, Plus, Wallet, Receipt,
   ArrowUpRight, ArrowDownRight, MoreHorizontal, BarChart3, Search, Edit,
   FileText, CheckCircle2, Clock, Trash2, Calendar, Building2,
-  AlertTriangle, Shield, Lock, RotateCcw, Bell, Target, Flag,
-  Activity, Layers, Settings, Eye, AlertCircle, ChevronUp, ChevronDown,
+  AlertTriangle, Shield, Lock, RotateCcw, Bell, Target,
+  Activity, Settings, Eye, AlertCircle, ChevronUp, ChevronDown,
   Factory, HardHat, Zap, FileCheck, TrendingUp as TrendUp,
   Download, FileSpreadsheet, Heart, Sparkles, FlaskConical, Sliders,
   Gauge, Minus, Percent,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  AreaChart, Area, BarChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
   Legend, ComposedChart, ReferenceLine,
 } from 'recharts';
@@ -62,7 +62,7 @@ import {
 } from '../utils/painelFinanceiroSync';
 import {
   formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
-  ehCheque, STATUS_QUITADO, ehPago,
+  ehCheque, ehPago,
   calcChequeOp, calcOpFin, calcScoreSaude, calcAlertaVencimento,
 } from '../utils/financeiroCalc';
 

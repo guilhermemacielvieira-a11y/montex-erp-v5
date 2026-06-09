@@ -2,11 +2,10 @@
 // Consolida: Despesas Gerais (lancamentos sem obra) + Receitas (medições de obras)
 // Financeiro Fábrica - Visão unificada da saúde financeira da empresa
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   DollarSign,
   TrendingUp,
-  TrendingDown,
   Plus,
   Wallet,
   Receipt,
@@ -16,8 +15,6 @@ import {
   BarChart3,
   Search,
   Edit,
-  FileText,
-  CheckCircle2,
   Clock,
   Trash2,
   Calendar,
@@ -25,8 +22,6 @@ import {
   AlertTriangle,
 } from 'lucide-react';
 import {
-  AreaChart,
-  Area,
   BarChart,
   Bar,
   XAxis,

@@ -171,7 +171,7 @@ export const useCommandCenterUltrawide = (obraId) => {
         totalItens: estoque.totalItens - (snapshotOntem.estoque?.totalItens || 0),
         valorTotal: estoque.valorTotal - (snapshotOntem.estoque?.valorTotal || 0),
       },
-      financeiro Variacao: {
+      financeiroVariacao: {
         totalDespesas: financeiro.totalDespesas - (snapshotOntem.financeiro?.totalDespesas || 0),
         despesasPagas: financeiro.despesasPagas - (snapshotOntem.financeiro?.despesasPagas || 0),
       },
