@@ -598,8 +598,13 @@ function TabSenhas({ users, toast, currentUser }) {
 
       if (sdkError || !updated?.user?.id) {
         const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
-        const SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
-          || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
+        // SEGURANÇA: a service_role key NUNCA pode ser hardcoded no cliente — ela
+        // bypassa toda a RLS e ficaria exposta no bundle de produção. Use apenas a
+        // env var. Se ausente, aborta com erro explícito (sem fallback inseguro).
+        const SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY;
+        if (!SERVICE_KEY) {
+          throw new Error('Service role key não configurada — defina VITE_SUPABASE_SERVICE_KEY no .env.local (dev) ou nas env vars da Vercel (prod).');
+        }
         const restRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${authId}`, {
           method: 'PUT',
           headers: {
