@@ -6,15 +6,14 @@
  * Persistência: user_profiles (Supabase) + entity_store (links + audit)
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Key, Shield, Link2, FileText, Plus, Edit3, Trash2,
   Eye, EyeOff, RefreshCw, Copy, Check, AlertTriangle, Search,
-  Calendar, Clock, Activity, Lock, Unlock, X, CheckCircle,
-  XCircle, ChevronDown, Settings, UserCheck, UserX, Zap,
-  ExternalLink, RotateCcw, Info, MoreVertical, Hash
+  Calendar, Clock, Activity, Lock, X, CheckCircle,
+  XCircle, UserCheck, UserX, Zap, Info, Hash
 } from 'lucide-react';
-import { useAuth, ROLES, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
+import { useAuth, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
 import { supabase, getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive, resetUserPassword } from '@/api/supabaseClient';
 
 // ============================================================

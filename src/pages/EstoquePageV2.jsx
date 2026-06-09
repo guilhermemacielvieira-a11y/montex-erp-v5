@@ -28,7 +28,6 @@ import {
 import { useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
 // Importar hook de paginação inteligente
-import { useSmartPagination } from '@/hooks/useSmartPagination';
 // Importar controles de paginação
 import PaginationControls from '@/components/ui/PaginationControls';
 

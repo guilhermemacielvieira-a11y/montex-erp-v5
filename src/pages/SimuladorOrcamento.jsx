@@ -15,10 +15,8 @@ import {
   Settings,
   BarChart3,
   PieChart as PieChartIcon,
-  Download,
   Save,
   X,
-  ChevronDown,
   Info,
   AlertCircle,
   CheckCircle2,
@@ -28,47 +26,23 @@ import {
   Target,
   Zap,
   Shield,
-  Percent,
   Clock,
   Layers,
   FileText,
-  ArrowUpRight,
-  ArrowDownRight,
   FileDown,
   File,
   Eye,
   CheckSquare,
   Activity,
-  TrendingDown,
-  Scale,
-  Gauge,
-  Factory,
 } from 'lucide-react';
 import {
-  CATEGORIAS_SERVICO,
   TIPOS_ESTRUTURA,
-  PRECOS_ESTRUTURA,
-  PRECOS_COBERTURA,
-  PRECOS_FECHAMENTO,
-  PRECOS_COMPLEMENTOS,
-  PRECOS_MAO_OBRA,
-  PRECOS_TRANSPORTE,
-  PARAMETROS_MERCADO,
-  CUSTOS_PRODUCAO,
-  HISTORICO_OBRAS,
-  calcularPrecoPorFaixa,
-  calcularBDI,
-  aplicarFatorRegional,
-  calcularPrazoEstimado,
 } from '../data/precosDatabase';
 import { useOrcamentos } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 import { openPropostaHTML, generatePropostaPDF, generatePropostaDOCX } from '../utils/propostaPDFGenerator';
-import { useNavigate } from 'react-router-dom';
-import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-} from 'recharts';
+
+
 
 // Color palette for charts
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1'];

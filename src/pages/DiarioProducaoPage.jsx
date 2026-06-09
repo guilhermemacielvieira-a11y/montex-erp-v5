@@ -16,7 +16,6 @@ import {
   AlertCircle,
   CheckCircle2,
   Users,
-  Package,
   ArrowRight,
   RefreshCw,
   Search
@@ -48,7 +47,6 @@ import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import {
   ETAPAS_LABELS,
   ETAPAS_CORES,
-  VALORES_ETAPA,
   formatKg,
   formatReais,
   calcularValorPorEtapa,

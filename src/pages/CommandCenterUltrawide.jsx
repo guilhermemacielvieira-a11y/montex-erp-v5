@@ -7,21 +7,19 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
+  ResponsiveContainer, Area, Line,
   ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, RadarChart, Radar,
-  PolarGrid, PolarAngleAxis, PolarRadiusAxis, RadialBarChart, RadialBar,
-  PieChart, Pie, Cell, Legend, ReferenceLine,
+  PolarGrid, PolarAngleAxis, PolarRadiusAxis,
+  PieChart, Pie, Cell,
 } from 'recharts';
 import {
   Activity, AlertTriangle, ArrowUp, ArrowDown, Bell, Building2, CheckCircle2,
-  Clock, Cpu, DollarSign, Factory, Flame, Gauge, Layers, Package, Radio,
-  RefreshCw, Shield, Signal, Target, TrendingUp, TrendingDown, Truck,
-  Wallet, Weight, Wifi, Zap, BarChart3, Box, ChevronRight, Radar as RadarIcon,
-  Eye, Hash, Sparkles, Crosshair, Satellite, Briefcase,
+  Clock, DollarSign, Factory, Flame, Gauge, Layers, Radio, Signal, Target, TrendingUp, TrendingDown, Truck,
+  Wallet, Weight, Wifi, Zap, BarChart3, Box, Radar as RadarIcon, Hash, Satellite, Briefcase,
 } from 'lucide-react';
-import { useObras, useProducao, useLancamentos, useMedicoes, useEstoque } from '../contexts/ERPContext';
+import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 
 // ============================================

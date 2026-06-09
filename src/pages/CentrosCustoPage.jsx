@@ -6,7 +6,6 @@ import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
   Building2,
-  Plus,
   DollarSign,
   TrendingUp,
   TrendingDown,
@@ -19,7 +18,6 @@ import {
   Users,
   Factory,
   HardHat,
-  Percent,
   UserCheck
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,8 +53,7 @@ import {
   ResponsiveContainer,
   Legend,
   AreaChart,
-  Area,
-  ReferenceLine
+  Area
 } from 'recharts';
 import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
 

@@ -23,7 +23,6 @@ import { FileUp, Check, AlertCircle, Loader2, ChevronRight } from 'lucide-react'
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import {
-  validarLancamento,
   detectarDuplicatas,
   validarData,
   validarValorNumerico

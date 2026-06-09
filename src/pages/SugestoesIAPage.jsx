@@ -11,7 +11,6 @@ import {
   Clock,
   DollarSign,
   Wrench,
-  Users,
   Package,
   Zap,
   Target,

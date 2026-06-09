@@ -7,21 +7,17 @@ import toast from 'react-hot-toast';
 import {
   Target,
   DollarSign,
-  Calendar,
   Plus,
   BarChart3,
   PieChart,
   Award,
   Flag,
   Zap,
-  ArrowUp,
-  ArrowDown,
   TrendingUp,
   TrendingDown,
   Factory,
   HardHat,
   Users,
-  Percent,
   Building2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -59,7 +55,6 @@ import {
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import {
-  AreaChart,
   Area,
   BarChart,
   Bar,

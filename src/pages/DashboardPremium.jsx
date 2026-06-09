@@ -6,24 +6,17 @@
 // indicadores preditivos. Foco em tomada de decisão C-Level.
 // ============================================
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  TrendingUp, TrendingDown, DollarSign, Target, Award, Zap,
-  Activity, AlertCircle, Sparkles, BarChart3, Building2, Package,
-  Truck, Users, Briefcase, ArrowUpRight, ArrowDownRight, Clock,
-  PieChart as PieIcon, Layers, Shield, Lightbulb, Gauge, Flame,
-  Calendar, ChevronRight, CheckCircle2, XCircle, AlertTriangle,
+  TrendingUp, TrendingDown, DollarSign, Target, Award, AlertCircle, Sparkles, BarChart3, Building2, Briefcase, ArrowUpRight, ArrowDownRight,
+  PieChart as PieIcon, Layers, Shield, Lightbulb, Flame, CheckCircle2, AlertTriangle,
 } from 'lucide-react';
-import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, RadialBarChart, RadialBar, ReferenceLine,
-  Treemap,
+import { Area, Bar, Line, ComposedChart,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, ReferenceLine,
 } from 'recharts';
 import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
-import { supabase } from '../api/supabaseClient';
 
 // ============================================
 // HELPERS

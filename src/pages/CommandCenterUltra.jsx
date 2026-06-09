@@ -7,18 +7,14 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
-  ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell,
-  RadialBarChart, RadialBar, Legend, Treemap,
+  ResponsiveContainer, Area, Line,
+  ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Treemap,
 } from 'recharts';
-import {
-  Activity, AlertTriangle, ArrowUp, ArrowDown, Award, Bell, Briefcase,
-  Building2, Calendar, CheckCircle2, Clock, Cpu, DollarSign, Factory,
-  Flame, Gauge, Hash, Layers, Package, Settings, Shield, Target, TrendingUp,
-  TrendingDown, Truck, User, Users, Wallet, Weight, Zap, ChevronRight,
-  BarChart3, ArrowRight, Filter, Eye, Box, Map, Percent, Cog,
+import { AlertTriangle, ArrowUp, ArrowDown, Briefcase, Calendar, CheckCircle2, DollarSign, Factory,
+  Flame, Layers, TrendingUp, Truck, Users, Wallet, Zap,
+  BarChart3, ArrowRight, Box, Map, Cog,
 } from 'lucide-react';
 import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';

@@ -7,11 +7,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel } from '@/utils/exportUtils';
 import {
-  User, Users, TrendingUp, TrendingDown, Award, Package, Target,
-  Download, AlertTriangle, CheckCircle2, ArrowRight, Weight,
+  User, Users, TrendingUp, TrendingDown, Award, Package, Target, AlertTriangle, ArrowRight, Weight,
   Scissors, Flame, Droplets, Paintbrush, ChevronDown, ChevronUp,
   RefreshCw, Loader2, BarChart3, PieChart, Activity, Zap,
-  Calendar, Clock, FileSpreadsheet, Filter, Maximize2,
+  Calendar, FileSpreadsheet,
   Eye, Star, Medal, Trophy,
   Save, Check, Search, AlertCircle, Truck, Building2, ClipboardList
 } from 'lucide-react';
@@ -26,7 +25,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, LineChart, Line, AreaChart, Area,
+  ResponsiveContainer, AreaChart, Area,
   RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
   PieChart as RPieChart, Pie, Cell, ComposedChart,
   RadialBarChart, RadialBar
