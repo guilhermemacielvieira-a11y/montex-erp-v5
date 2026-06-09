@@ -1,0 +1,24 @@
+{
+  "name": "MONTEX ERP V5",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:20",
+  "forwardPorts": [5174],
+  "portsAttributes": {
+    "5174": { "label": "Vite Dev (MONTEX)", "onAutoForward": "openBrowser" }
+  },
+  "postCreateCommand": "npm install",
+  "postAttachCommand": "echo 'MONTEX ERP pronto. Rode: npm run dev'",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode",
+        "bradlc.vscode-tailwindcss"
+      ]
+    }
+  },
+  "remoteEnv": {
+    "VITE_SUPABASE_URL": "${localEnv:VITE_SUPABASE_URL}",
+    "VITE_SUPABASE_ANON_KEY": "${localEnv:VITE_SUPABASE_ANON_KEY}",
+    "VITE_SUPABASE_SERVICE_KEY": "${localEnv:VITE_SUPABASE_SERVICE_KEY}"
+  }
+}
