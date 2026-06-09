@@ -100,7 +100,7 @@ Deno.serve(async (req: Request) => {
     if (tokens.length === 0) {
       const sb = createClient(
         Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+        (Deno.env.get("MONTEX_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"))!,
       );
       let q = sb.from("push_tokens").select("token").eq("enabled", true).eq("platform", "ios");
       if (filtro.role) q = q.eq("role", filtro.role);
