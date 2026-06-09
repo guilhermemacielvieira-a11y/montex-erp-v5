@@ -45,7 +45,7 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json(405, { error: "use POST" });
 
-  const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const SERVICE_KEY = (Deno.env.get("MONTEX_SECRET_KEY") ?? Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
   const URL = Deno.env.get("SUPABASE_URL");
   if (!SERVICE_KEY || !URL) {
     return json(500, { error: "Ambiente da função sem SUPABASE_URL/SERVICE_ROLE_KEY" });
