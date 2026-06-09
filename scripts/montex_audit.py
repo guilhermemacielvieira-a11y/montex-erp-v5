@@ -21,9 +21,20 @@ import urllib.error
 from collections import defaultdict
 from datetime import datetime, timezone
 
-SUPABASE_URL = "https://trxbohjcwsogthabairh.supabase.co"
-SERVICE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs"
-H = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
+import os
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "https://trxbohjcwsogthabairh.supabase.co")
+# SEGURANCA: nunca hardcode a chave no codigo (vai parar no git/historico).
+# Use a NOVA secret key (sb_secret_...) ou a service_role legada via env var:
+#   export SUPABASE_SECRET_KEY="sb_secret_..."   (preferido)
+SERVICE_KEY = (
+    os.environ.get("SUPABASE_SECRET_KEY")
+    or os.environ.get("SUPABASE_SERVICE_KEY")
+    or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+)
+if not SERVICE_KEY:
+    sys.exit("ERRO: defina SUPABASE_SECRET_KEY (ou SUPABASE_SERVICE_KEY) no ambiente antes de rodar este script.")
+H = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}"}
 
 
 def fetch(path, params=None):
