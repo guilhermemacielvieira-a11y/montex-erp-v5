@@ -58,7 +58,7 @@ import jsPDF from 'jspdf';
 import {
   LS_KEYS as GLOBAL_LS_KEYS,
   loadBundleLocal, saveBundleLocal,
-  loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote,
+  loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote, mergeBundles,
 } from '../utils/painelFinanceiroSync';
 import {
   formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
@@ -255,9 +255,15 @@ export default function PainelFinanceiroGlobal() {
         if (!bundleVazio(local)) saveBundleRemote(local);
       } else {
         const { _savedAt, ...remoteClean } = remote;
-        if (JSON.stringify(remoteClean) !== JSON.stringify(local)) {
-          saveBundleLocal(remoteClean);
-          aplicarBundle(remoteClean);
+        const merged = mergeBundles(local, remoteClean);
+        if (JSON.stringify(merged) !== JSON.stringify(local)) {
+          saveBundleLocal(merged);
+          aplicarBundle(merged);
+        }
+        // Sobe a UNIAO p/ a nuvem: garante que lancamentos locais deste PC
+        // ainda nao sincronizados sejam persistidos (sem apagar os de outros).
+        if (JSON.stringify(merged) !== JSON.stringify(remoteClean)) {
+          saveBundleRemote(merged);
         }
       }
       hidratadoRef.current = true;
@@ -281,7 +287,7 @@ export default function PainelFinanceiroGlobal() {
   useEffect(() => {
     const unsub = subscribeRemote(async () => {
       const remote = await loadBundleRemote();
-      if (remote) { saveBundleLocal(remote); aplicarBundle(remote); }
+      if (remote) { const merged = mergeBundles(loadBundleLocal(), remote); saveBundleLocal(merged); aplicarBundle(merged); }
     });
     return () => { if (typeof unsub === 'function') unsub(); };
   }, [aplicarBundle]);
