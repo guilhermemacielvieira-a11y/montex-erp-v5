@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build",
+  "buildCommand": "rm -rf dist node_modules/.cache node_modules/.vite && npm run build",
   "outputDirectory": "dist",
   "installCommand": "npm install",
   "framework": "vite",
