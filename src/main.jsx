@@ -1,8 +1,8 @@
-// MONTEX ERP V5 - entrypoint (build sync 2026-06-10)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { ThemeProvider } from 'next-themes'
 import { NotificationProvider } from '@/contexts/NotificationContext'
+if (typeof window !== "undefined") window.__MONTEX_VERSION = "2.1.1";
 import App from '@/App.jsx'
 import '@/index.css'
 import '@/i18n'
