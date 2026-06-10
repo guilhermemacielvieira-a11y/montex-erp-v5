@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'v3-2026-06-10';
+const CACHE_VERSION = 'v4-2026-06-10';
 const CACHE_NAME = `montex-erp-v5-${CACHE_VERSION}`;
 const STATIC_ASSETS = [
   '/',
