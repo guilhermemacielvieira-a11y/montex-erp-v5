@@ -70,6 +70,22 @@ export function bundleVazio(b) {
   return semMovs && semOv && semHidden && semMetas && semLidos;
 }
 
+// Une dois bundles (local + remoto) SEM perder dados: movs/hidden/alertasLidos
+// por UNIAO (dedupe por id); overrides/metas por merge (remoto vence no conflito).
+export function mergeBundles(a, b) {
+  a = a || {}; b = b || {};
+  const byId = new Map();
+  (a.movs || []).forEach((m) => { if (m && m.id != null) byId.set(m.id, m); });
+  (b.movs || []).forEach((m) => { if (m && m.id != null) byId.set(m.id, m); });
+  return {
+    movs: Array.from(byId.values()),
+    overrides: { ...(a.overrides || {}), ...(b.overrides || {}) },
+    hidden: Array.from(new Set([...(a.hidden || []), ...(b.hidden || [])])),
+    metas: { ...(a.metas || {}), ...(b.metas || {}) },
+    alertasLidos: Array.from(new Set([...(a.alertasLidos || []), ...(b.alertasLidos || [])])),
+  };
+}
+
 // Identifica o usuário atual (para alertas lidos por usuário).
 async function currentUserKey() {
   try {
@@ -172,10 +188,10 @@ export async function saveBundleRemote(bundle) {
 
     // Remove itens deletados. (Realtime mantém os clientes sincronizados, então
     // a janela para apagar uma linha recém-criada por outro usuário é mínima.)
-    await pruneByTipo('mov', keepMov);
-    await pruneByTipo('override', keepOv);
-    await pruneByTipo('hidden', keepHid);
-    await pruneAlerts(userKey, keepAlert); // alertas: só os do próprio usuário
+    // NAO podar mov/override/hidden: outro PC pode ter linhas que este cliente
+    // ainda nao viu — podar aqui apagaria dados de outros (causa de divergencia).
+    // Exclusoes deixam de propagar automaticamente (trade-off a favor de nao perder dados).
+    await pruneAlerts(userKey, keepAlert); // alertas lidos: so os do proprio usuario (seguro)
 
     return true;
   } catch (e) {
