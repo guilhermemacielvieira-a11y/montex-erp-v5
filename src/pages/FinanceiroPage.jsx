@@ -71,6 +71,7 @@ import {
 
 // ERPContext
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
+import { deleteReceitaManual } from '../utils/receitasSync';
 
 // ========== HELPERS ==========
 const formatCurrency = (value) => {
@@ -126,6 +127,7 @@ export default function FinanceiroPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [receitasTick, setReceitasTick] = useState(0);
   const [formData, setFormData] = useState({
     tipo: 'despesa', descricao: '', valor: '', categoria: '',
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente',
@@ -260,7 +262,7 @@ export default function FinanceiroPage() {
     } catch (e) {
       return [];
     }
-  }, []);
+  }, [receitasTick]);
 
   // ===== OPÇÕES DE OBRAS PARA O SELETOR =====
   const opcoesObra = useMemo(() => {
@@ -484,8 +486,14 @@ export default function FinanceiroPage() {
   };
 
   const handleApagar = async (id) => {
+    const mov = todasMovimentacoes.find(m => m.id === id);
     try {
-      await deleteLancamento(id);
+      if (mov && mov.tipo === 'receita' && mov.origem === 'Receita Manual') {
+        await deleteReceitaManual(id);     // receita manual: localStorage + nuvem + tombstone
+        setReceitasTick(t => t + 1);
+      } else {
+        await deleteLancamento(id);        // despesa: tabela lancamentos_despesas
+      }
     } catch (err) {
       console.error('Erro ao apagar:', err);
     }

@@ -18,7 +18,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { syncReceitas } from '../utils/receitasSync';
+import { syncReceitas, deleteReceitaManual } from '../utils/receitasSync';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -503,10 +503,15 @@ export default function ReceitasPage() {
   };
 
   // Apagar receita
-  const handleApagarReceita = (id) => {
+  const handleApagarReceita = async (id) => {
+    const alvo = receitas.find(r => r.id === id);
     const novaLista = receitas.filter(r => r.id !== id);
     setReceitas(novaLista);
-    salvarReceitas(novaLista);
+    if (alvo && alvo.origemObra) {
+      salvarReceitas(novaLista); // medicao: remove override local (comportamento antigo)
+    } else {
+      await deleteReceitaManual(id); // receita manual: apaga local + nuvem + tombstone
+    }
     setDeleteConfirmId(null);
     toast.success('Receita removida!');
   };
