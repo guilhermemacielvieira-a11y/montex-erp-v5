@@ -734,7 +734,7 @@ export const useCommandCenterUltrawide = (obraId) => {
   // Fetch Equipes data
   const fetchEquipes = useCallback(async () => {
     try {
-      const { data, error } = await supabase.from('funcionarios').select('id, nome, funcao, equipe, ativo, created_at');
+      const { data, error } = await supabase.from('funcionarios').select('id, nome, cargo, equipe_nome, ativo, created_at');
 
       if (error) {
         console.warn('Error fetching equipes:', error);
@@ -759,12 +759,12 @@ export const useCommandCenterUltrawide = (obraId) => {
           ativos += 1;
         }
 
-        if (item.funcao) {
-          porFuncao[item.funcao] = (porFuncao[item.funcao] || 0) + 1;
+        if (item.cargo) {
+          porFuncao[item.cargo] = (porFuncao[item.cargo] || 0) + 1;
         }
 
-        if (item.equipe) {
-          porEquipe[item.equipe] = (porEquipe[item.equipe] || 0) + 1;
+        if (item.equipe_nome) {
+          porEquipe[item.equipe_nome] = (porEquipe[item.equipe_nome] || 0) + 1;
         }
       });
 
