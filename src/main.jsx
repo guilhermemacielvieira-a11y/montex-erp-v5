@@ -1,3 +1,4 @@
+// MONTEX ERP V5 - entrypoint (build sync 2026-06-10)
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { ThemeProvider } from 'next-themes'
