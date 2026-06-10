@@ -60,6 +60,7 @@ import {
   loadBundleLocal, saveBundleLocal,
   loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote, mergeBundles,
 } from '../utils/painelFinanceiroSync';
+import { syncReceitas } from '../utils/receitasSync';
 import {
   formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
   ehCheque, ehPago,
@@ -309,6 +310,8 @@ export default function PainelFinanceiroGlobal() {
   // incrementa quando outra aba grava (evento storage) ou quando outro módulo
   // grava na mesma aba (poll 3s, padrão de sync do app).
   const [externalTick, setExternalTick] = useState(0);
+  // Auto-sync das receitas manuais com a nuvem (converge entre PCs).
+  useEffect(() => { syncReceitas().then((ch) => { if (ch) setExternalTick((t) => t + 1); }); }, []);
   useEffect(() => {
     const snapshot = () =>
       (localStorage.getItem(RECEITAS_STORAGE_KEY) || '') + '|' +
