@@ -18,6 +18,7 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { syncReceitas } from '../utils/receitasSync';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -151,6 +152,8 @@ export default function ReceitasPage() {
   const [editando, setEditando] = useState(null); // receita sendo editada
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [receitas, setReceitas] = useState([]);
+  const [syncTick, setSyncTick] = useState(0);
+  useEffect(() => { syncReceitas().then((ch) => { if (ch) setSyncTick((t) => t + 1); }); }, []);
   const [formData, setFormData] = useState({
     descricao: '',
     cliente: '',
@@ -202,6 +205,7 @@ export default function ReceitasPage() {
         };
       });
       localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
+      syncReceitas(); // auto-sync p/ a nuvem (persiste/converge entre PCs)
     } catch (e) {
       console.warn('Erro ao salvar receitas:', e);
     }
@@ -265,7 +269,7 @@ export default function ReceitasPage() {
     }
 
     setReceitas(todasReceitas);
-  }, [todasMedicoes, obrasMap]);
+  }, [todasMedicoes, obrasMap, syncTick]);
 
   // Helper: filtrar por período (definido antes dos useMemo)
   const filtrarPorPeriodo = useCallback((lista) => {

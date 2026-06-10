@@ -188,9 +188,12 @@ export async function saveBundleRemote(bundle) {
 
     // Remove itens deletados. (Realtime mantém os clientes sincronizados, então
     // a janela para apagar uma linha recém-criada por outro usuário é mínima.)
-    // NAO podar mov/override/hidden: outro PC pode ter linhas que este cliente
-    // ainda nao viu — podar aqui apagaria dados de outros (causa de divergencia).
-    // Exclusoes deixam de propagar automaticamente (trade-off a favor de nao perder dados).
+    // Poda APOS merge-on-load: a hidratacao funde local+remoto (uniao), entao o
+    // bundle salvo ja contem os dados de outros PCs; podar remove apenas o que o
+    // usuario REALMENTE excluiu (exclusao precisa persistir ao recarregar).
+    await pruneByTipo('mov', keepMov);
+    await pruneByTipo('override', keepOv);
+    await pruneByTipo('hidden', keepHid);
     await pruneAlerts(userKey, keepAlert); // alertas lidos: so os do proprio usuario (seguro)
 
     return true;

@@ -6,10 +6,12 @@ import { createClient } from '@supabase/supabase-js';
 // CONFIGURAÇÃO VIA VARIÁVEIS DE AMBIENTE
 // Nunca hardcode chaves no código-fonte!
 // ============================================
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-  || 'https://trxbohjcwsogthabairh.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-  || 'sb_publishable_8X7bPhCGF16mgZE8Z7fuVw_6pI74veM';
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL
+  || 'https://trxbohjcwsogthabairh.supabase.co').trim();
+// .trim() defensivo: uma quebra de linha/espaco no valor da env var quebrava o
+// Realtime (apikey terminava em %0A no WebSocket). Trim elimina esse bug.
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY
+  || 'sb_publishable_8X7bPhCGF16mgZE8Z7fuVw_6pI74veM').trim();
 // Service Role Key: NÃO existe mais no cliente (achado S1). Toda var VITE_* é
 // inlinada no bundle pelo Vite, então a service_role vazaria → CRUD total no
 // banco. As operações privilegiadas migraram para a Edge Function `admin-users`
