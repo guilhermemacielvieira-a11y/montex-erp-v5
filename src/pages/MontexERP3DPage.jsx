@@ -750,7 +750,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
         const { data: expData } = await supabase
           .from('expedicoes')
-          .select('id, numero_romaneio, status, peso_total, pecas, pecas_ids, data_expedicao, destino')
+          .select('id, numero_romaneio, status, peso_total, pecas, data_expedicao, destino')
           .eq('obra_id', obraAtual);
 
         setExpedicoes(expData || []);
