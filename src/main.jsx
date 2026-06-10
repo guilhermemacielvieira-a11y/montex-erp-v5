@@ -1,5 +1,4 @@
 import React from 'react'
-window.__MX_BUILD="MARK95de261";
 import ReactDOM from 'react-dom/client'
 import { ThemeProvider } from 'next-themes'
 import { NotificationProvider } from '@/contexts/NotificationContext'
