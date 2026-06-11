@@ -973,6 +973,20 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  const updateCompra = useCallback(async (id, data) => {
+    dispatch({ type: ACTIONS.UPDATE_COMPRA, payload: { id, data } });
+    if (dataSource === 'supabase') {
+      try {
+        await comprasApi.update(id, reverseTransformRecord(data));
+        console.log(`✅ Compra ${id} atualizada no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao atualizar compra no Supabase:', err.message);
+        toast.error(`Erro ao atualizar compra: ${err.message}`);
+        throw err;
+      }
+    }
+  }, [dataSource]);
+
   const receberCompra = useCallback(async (compraId, itensRecebidos) => {
     dispatch({ type: ACTIONS.RECEBER_COMPRA, payload: { compraId, itensRecebidos } });
     dispatch({
@@ -991,6 +1005,34 @@ export function ERPProvider({ children }) {
         console.error('❌ Erro ao receber compra no Supabase:', err.message);
         throw err;
       }
+
+      // INTEGRAÇÃO COMPRAS → ESTOQUE: registrar movimentações de ENTRADA
+      // por item recebido (antes a notificação dizia "Estoque atualizado"
+      // mas nenhum registro era criado). Best-effort: falha aqui não
+      // desfaz o recebimento.
+      try {
+        const compra = state.compras.find(c => c.id === compraId);
+        const itens = Array.isArray(itensRecebidos) && itensRecebidos.length > 0
+          ? itensRecebidos
+          : (Array.isArray(compra?.itens) ? compra.itens : []);
+        for (const item of itens) {
+          await movEstoqueApi.create({
+            tipo: 'entrada',
+            quantidade: item.quantidade || 0,
+            peso: item.peso || item.quantidade || 0,
+            motivo: `Recebimento compra ${compraId} — ${item.descricao || item.material || ''}`.trim(),
+            nota_fiscal: compra?.notaFiscal || compra?.documentoOrigem || null,
+            obra_id: compra?.obraId || null,
+            setor: 'suprimentos',
+            data: new Date().toISOString()
+          });
+        }
+        if (itens.length > 0) {
+          console.log(`✅ ${itens.length} movimentações de entrada registradas (compra ${compraId})`);
+        }
+      } catch (err) {
+        console.error('⚠️ Recebimento ok, mas falhou ao registrar movimentação de estoque:', err.message);
+      }
     }
 
     // Add persistent notification
@@ -1004,26 +1046,7 @@ export function ERPProvider({ children }) {
         icon: 'Package'
       });
     }
-  }, [dataSource]);
-
-  // Aprovação de compra (gestão): pendente → aprovada/recusada (1 toque no
-  // mobile /m/aprovacoes, perm compras.aprovar). Persiste APENAS {status} —
-  // não inventar coluna nova (lição da auditoria de schema). Reducer:
-  // UPDATE_COMPRA (já existente em comprasReducer).
-  const aprovarCompra = useCallback(async (compraId, aprovado = true) => {
-    const status = aprovado ? 'aprovada' : 'recusada';
-    dispatch({ type: ACTIONS.UPDATE_COMPRA, payload: { id: compraId, data: { status } } });
-    if (dataSource === 'supabase') {
-      try {
-        await comprasApi.update(compraId, { status });
-        console.log(`✅ Compra ${compraId} → ${status} no Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao aprovar/recusar compra no Supabase:', err.message);
-        toast.error(`Erro ao salvar compra: ${err.message}`);
-        throw err;
-      }
-    }
-  }, [dataSource]);
+  }, [dataSource, state.compras]);
 
   // ===== AÇÕES - MEDIÇÕES =====
   // Helper: sanitizar dados de medição para colunas válidas do Supabase
@@ -1541,8 +1564,8 @@ export function ERPProvider({ children }) {
     compras: state.compras,
     comprasObraAtual,
     addCompra,
+    updateCompra,
     receberCompra,
-    aprovarCompra,
     materiaisEstoque: state.materiaisEstoque,
     importarMateriais,
     registrarEntregaMaterial,
@@ -1562,8 +1585,8 @@ export function ERPProvider({ children }) {
     state.compras,
     comprasObraAtual,
     addCompra,
+    updateCompra,
     receberCompra,
-    aprovarCompra,
     state.materiaisEstoque,
     importarMateriais,
     registrarEntregaMaterial,
@@ -1676,6 +1699,7 @@ export function ERPProvider({ children }) {
 
     // Ações - Compras
     addCompra,
+    updateCompra,
     receberCompra,
 
     // Ações - Medições
@@ -1743,6 +1767,7 @@ export function ERPProvider({ children }) {
     addExpedicao,
     updateExpedicao, deleteExpedicao,
     addCompra,
+    updateCompra,
     receberCompra,
     addMedicao,
     updateMedicao,
@@ -2056,8 +2081,8 @@ export function useCompras() {
     compras: context.compras,
     comprasObraAtual: context.comprasObraAtual,
     addCompra: context.addCompra,
-    receberCompra: context.receberCompra,
-    aprovarCompra: context.aprovarCompra
+    updateCompra: context.updateCompra,
+    receberCompra: context.receberCompra
   };
 }
 
