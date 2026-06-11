@@ -893,11 +893,14 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     }
     // Lookup tolerante: tenta exata, depois normalizada
     const buscaMarca = (idx, m) => idx.get(m) ?? (m ? idx.get(normMarca(m)) : undefined);
+    // Chave CANÔNICA: SEMPRE prefere a normalizada (existe p/ toda marca indexada).
+    // Se preferisse a exata, IFC com grafias mistas ('TS 59A' + 'TS-59A') geraria
+    // 2 chaves para a MESMA marca e a redistribuição rodaria 2x (verde duplicado).
     const chaveMarca = (idx, m) => {
       if (!m) return null;
-      if (idx.has(m)) return m;
       const n = normMarca(m);
-      return idx.has(n) ? n : null;
+      if (idx.has(n)) return n;
+      return idx.has(m) ? m : null;
     };
 
     // Pre-index ERP peças por perfil (upper)
@@ -1284,7 +1287,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
         if (consumido > 0) {
           pecasAtendidas.add(String(p.id));
-          consumoPorPeca.set(String(p.id), consumido);
+          // += defensivo (não sobrescrever) caso a mesma peça apareça em mais de um grupo
+          consumoPorPeca.set(String(p.id), (consumoPorPeca.get(String(p.id)) || 0) + consumido);
           addRepr(p.id, consumido, Math.min(montadasN, consumido));
         }
       }
