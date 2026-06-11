@@ -129,23 +129,15 @@ Depois libere o build no TestFlight para os usuários internos testarem.
 ## 7. Push Notifications (APNs + Edge Function)
 
 O código do app já está pronto: `src/mobile/ui/push.js` (permissão + registro +
-salva o token) e `src/mobile/ui/deeplinks.js` (toque na push → abre a rota certa).
-Falta só a infra do lado servidor.
+salva o token) e `src/mobile/DeepLinkHandler.jsx` (toque na push → abre a rota
+em `notification.data.path`). Falta só a infra do lado servidor.
 
 ### 7.1 Tabela de tokens (Supabase)
 
-```sql
-create table if not exists public.device_tokens (
-  token text primary key,
-  user_email text,
-  platform text default 'ios',
-  updated_at timestamptz default now()
-);
-create index if not exists device_tokens_email_idx on public.device_tokens (user_email);
--- App grava com a anon key; ajuste a RLS conforme sua política.
-alter table public.device_tokens enable row level security;
-create policy "device_tokens upsert" on public.device_tokens for all using (true) with check (true);
-```
+Rode `supabase/migration_v11_push_tokens.sql` no banco. Cria a tabela
+`push_tokens` (token, role, obra_id, platform, enabled) com RLS: o app faz
+upsert do próprio token com a anon key e só o service_role lê (usado pelas
+Edge Functions para direcionar por papel/obra).
 
 ### 7.2 Chave APNs (.p8)
 
@@ -165,42 +157,41 @@ supabase secrets set \
   APNS_KEY_ID=XXXXXXXXXX \
   APNS_TEAM_ID=YYYYYYYYYY \
   APNS_BUNDLE_ID=com.montex.erp \
-  APNS_HOST=api.push.apple.com \
+  APNS_PRODUCTION=true \
   APNS_PRIVATE_KEY="$(cat AuthKey_XXXX.p8)"
 # SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem no ambiente da função.
 
 supabase functions deploy send-push --no-verify-jwt
 ```
 
-> Em build de **debug** o iOS usa o sandbox APNs → `APNS_HOST=api.sandbox.push.apple.com`.
-> Em **TestFlight/App Store** use `api.push.apple.com`.
+> Em build de **debug** o iOS usa o sandbox APNs → omita `APNS_PRODUCTION` (ou
+> `false`). Em **TestFlight/App Store** use `APNS_PRODUCTION=true`.
 
 ### 7.4 Enviar (exemplos)
 
 ```bash
-# Para um usuário, abrindo direto em /m/despesas
+# Por papel (todos os gerentes), abrindo direto em /m/estoque ao tocar
 curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
   -H "Content-Type: application/json" \
-  -d '{"title":"Despesa vencida","body":"3 despesas venceram","to":"/m/despesas","target":{"email":"guilherme@montex.com"}}'
+  -d '{"title":"Estoque crítico","body":"5 itens abaixo do mínimo","data":{"path":"/m/estoque"},"filtro":{"role":"gerente"}}'
 
-# Por papel (todos os gerentes). `to` aceita rota OU categoria:
-# {"to":{"tipo":"estoque"}} resolve para /m/estoque no app.
+# Para tokens explícitos
 curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
   -H "Content-Type: application/json" \
-  -d '{"title":"Estoque crítico","body":"5 itens abaixo do mínimo","to":"/m/estoque","target":{"role":"gerente"}}'
+  -d '{"title":"Despesa vencida","body":"3 despesas venceram","data":{"path":"/m/despesas"},"filtro":{"tokens":["<device-token>"]}}'
 ```
 
-`target`: `{ "email" }` · `{ "role" }` · `{ "tokens": [] }` · `{}` (todos os iOS).
-O `to` vai no nível superior do payload APNs → vira `notification.data.to`, que o
-`deeplinks.js` traduz para a rota. Tokens com retorno `410` são limpos automaticamente.
+`filtro`: `{ "role" }` · `{ "obra_id" }` · `{ "tokens": [] }` · `{}` (todos os iOS
+habilitados). O conteúdo de `data` vai no nível superior do payload APNs → vira
+`notification.data` no app; `data.path` é a rota que o `DeepLinkHandler` abre.
 
 ### 7.5 Disparo automático (cron)
 
-A função `supabase/functions/notify-pending` já porta a lógica de
-`src/mobile/ui/notificacoes.js` para o servidor: varre pendências
-(despesas vencidas, estoque crítico, fila de embarque, medições) e dispara
-push aos papéis responsáveis com `to` apontando para a tela que resolve cada
-uma. (Reusa `_shared/apns.ts`, igual à `send-push`.)
+A função `supabase/functions/notify-pending` porta a lógica de alertas do app
+(`useAlertas`) para o servidor: varre pendências (despesas vencidas, estoque
+crítico, fila de embarque, medições) e dispara push aos papéis responsáveis com
+`data.path` apontando para a tela que resolve cada uma. Resolve os tokens em
+`push_tokens` por papel e delega o envio à `send-push`.
 
 ```bash
 supabase functions deploy notify-pending --no-verify-jwt
