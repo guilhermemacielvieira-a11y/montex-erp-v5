@@ -72,7 +72,7 @@ export function useAlertas() {
         title: `${aConferir.length} romaneio(s) a conferir`, sub: 'Conferência de carga', to: '/m/expedicao' });
     }
 
-    const aMontar = pecasObra.filter(p => (p.etapa || '').toLowerCase() === 'enviado');
+    const aMontar = pecasObra.filter(p => ['enviado', 'entregue'].includes((p.etapa || '').toLowerCase()));
     if (aMontar.length) {
       list.push({ id: 'mont', icon: Hammer, color: 'emerald', count: aMontar.length,
         title: `${aMontar.length} peça(s) aguardando montagem`, sub: 'Em obra', to: '/m/montagem' });
