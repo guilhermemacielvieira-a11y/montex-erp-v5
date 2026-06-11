@@ -16,6 +16,22 @@ export const MONTAGEM_LS_KEY = 'montex_montagem_concluidas_v1';
 const ENTITY_STORE_KEY = 'montagem_concluidas_global';
 
 // ============================================
+// MARCAÇÃO PARCIAL — helper compartilhado entre módulos
+// ============================================
+// Schema do payload no entity_store:
+//   - SEM `montadas` (legado): considera TODAS as unidades montadas (= qtd)
+//   - COM `montadas: N`: N unidades de qtd montadas (0 < N <= qtd)
+//   - Excluído do entity_store: 0 unidades montadas
+// Usado por MontagemPage (origem), MontexERP3DPage (consumidor) e MontagemMobile.
+export function getMontadasCount(payload, qtd) {
+  const total = Math.max(1, parseInt(qtd) || 1);
+  if (!payload) return 0;
+  // Payload legado sem `montadas` → considera tudo montado
+  if (payload.montadas == null) return total;
+  return Math.max(0, Math.min(total, parseInt(payload.montadas) || 0));
+}
+
+// ============================================
 // LOCAL (cache imediato)
 // ============================================
 export function loadConcluidasLocal() {

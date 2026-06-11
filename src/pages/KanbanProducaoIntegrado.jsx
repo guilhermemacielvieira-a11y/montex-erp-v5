@@ -18,7 +18,7 @@ import {
   Download, FileSpreadsheet, X as XIcon,
   Database, Play, LayoutGrid, Table2,
   ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  AlertTriangle, CheckCircle2, FileText, Scissors, Users, UserCheck
+  AlertTriangle, CheckCircle2, FileText, Scissors, UserCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1515,8 +1515,9 @@ export default function KanbanProducaoIntegrado() {
                   </div>
                 </div>
 
-                {/* Cards dos Conjuntos */}
-                <div className="p-2 space-y-2 min-h-[300px] max-h-[500px] overflow-y-auto">
+                {/* Cards dos Conjuntos — altura relativa à viewport (aproveita monitores
+                    grandes no desktop; piso de 300px em telas baixas) */}
+                <div className="p-2 space-y-2 min-h-[300px] max-h-[70vh] overflow-y-auto">
                   <AnimatePresence>
                     {conjuntosColuna.map((conjunto, idx) => (
                       <motion.div
@@ -1748,8 +1749,8 @@ export default function KanbanProducaoIntegrado() {
                   </div>
                 </div>
 
-                {/* Cards das peças enviadas */}
-                <div className="p-2 space-y-2 min-h-[300px] max-h-[500px] overflow-y-auto">
+                {/* Cards das peças enviadas — mesma altura relativa das demais colunas */}
+                <div className="p-2 space-y-2 min-h-[300px] max-h-[70vh] overflow-y-auto">
                   <AnimatePresence>
                     {pecasEnviadasColuna.map((peca, idx) => (
                       <motion.div
@@ -2635,7 +2636,7 @@ export default function KanbanProducaoIntegrado() {
                   </div>
 
                   {/* Resumo */}
-                  <div className="grid grid-cols-4 gap-4 mb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                     <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-center">
                       <p className="text-slate-400 text-xs mb-1">Total Conjuntos</p>
                       <p className="text-2xl font-bold text-white">{itensImportados.length}</p>

@@ -8,6 +8,26 @@ reaproveitando 100% do código React/Vite. Rode no **macOS com Xcode instalado**
 
 ---
 
+## ✅ Checklist de prontidão (status atual)
+
+**Pronto no repositório (nada a fazer):**
+- [x] `capacitor.config.json` (appId `com.montex.erp`, `webDir: dist`, plugins SplashScreen/Keyboard/PushNotifications)
+- [x] Scripts npm: `ios:sync`, `ios:open`, `ios`
+- [x] Isolação nativa: dentro do Capacitor o app **sempre** roda em `/m` e nunca mostra o desktop (`src/App.jsx`)
+- [x] Plugins acessados só via `window.Capacitor.Plugins.*` em **runtime** — **zero** import estático de `@capacitor/*` (não quebra o bundle web; verificado)
+- [x] Backend de push: tabela `push_tokens` (migration v11) + Edge Function `send-push` (APNs JWT ES256)
+- [x] Capacidades nativas no código: câmera/scanner, haptics, biometria, network, deep links
+
+**Passos manuais no macOS/Xcode (fora do sandbox):**
+- [ ] `npm install` + instalar Capacitor e plugins (§1)
+- [ ] `npm run build` + `npx cap add ios` (cria `ios/`) (§2)
+- [ ] Xcode: Team de assinatura + capabilities Push/Background Modes (§3)
+- [ ] `Info.plist`: descrições de uso de câmera e Face ID (§5)
+- [ ] Deploy `send-push` + secrets `APNS_*` com a chave `.p8` (seção Push)
+- [ ] **BLOQUEANTE:** rotacionar/remover a `service_role` do cliente antes de publicar (ver abaixo)
+
+---
+
 ## Pré-requisitos (uma vez)
 
 - macOS + **Xcode** (App Store) + Command Line Tools: `xcode-select --install`
@@ -224,6 +244,42 @@ Um app distribuído na App Store **expõe** essa chave (qualquer um extrai do bi
 mover regras para **RLS por papel** no Supabase. Ver `CLAUDE.md › Credenciais & segurança`.
 
 ---
+
+## Push notifications (APNs)
+
+O cliente **e o backend** já estão prontos:
+- Cliente: `src/mobile/ui/push.js` (registro via `@capacitor/push-notifications` em runtime) + toggle em **Configurações → Notificações push**. Ao ativar, salva o token em `localStorage` (`montex_push_token`) **e faz upsert na tabela `push_tokens`** (com `role` do usuário para direcionar).
+- Tabela: `supabase/migration_v11_push_tokens.sql` (`push_tokens` + RLS: anon faz upsert do próprio token; só o service_role lê → usado pela Edge Function).
+- Envio: Edge Function `supabase/functions/send-push/index.ts` (Deno) — autentica no APNs com **JWT ES256** (provider token via a chave `.p8`) e envia para os tokens filtrados.
+
+Falta apenas configurar as credenciais Apple e fazer o deploy:
+
+1. **Apple**: no Apple Developer, habilite **Push Notifications** no App ID e gere a **APNs Auth Key (.p8)** (Keys → +). Guarde **Key ID** e **Team ID**.
+2. **Xcode**: target App → Signing & Capabilities → **+ Push Notifications** e **Background Modes → Remote notifications**.
+3. **Migração**: rode `supabase/migration_v11_push_tokens.sql` no banco (cria `push_tokens`).
+4. **Deploy da function**:
+   ```bash
+   supabase functions deploy send-push --no-verify-jwt
+   supabase secrets set APNS_KEY_ID=XXXXXXXXXX APNS_TEAM_ID=YYYYYYYYYY \
+     APNS_BUNDLE_ID=com.montex.erp APNS_PRODUCTION=false
+   supabase secrets set APNS_PRIVATE_KEY="$(cat AuthKey_XXXXXXXXXX.p8)"
+   ```
+   (`SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` já existem no ambiente da function.)
+5. **Disparo**: chame a function quando ocorrerem eventos do fluxo (peça pronta `→ expedido`, romaneio criado, estoque crítico, medição aprovada). Via SQL trigger (`pg_net`) ou no próprio `moverPecaEtapa`/`addExpedicao`. Exemplo de payload:
+   ```json
+   { "title": "Carga a conferir", "body": "Romaneio R-102",
+     "filtro": { "role": "expedicao" }, "data": { "path": "/m/expedicao" } }
+   ```
+   Sem `filtro` → todos os dispositivos; `filtro.tokens` → lista explícita.
+6. **Recebimento**: `push.js` escuta `pushNotificationReceived` (toast em 1º plano). Ao **tocar**, `DeepLinkHandler` lê `notification.data.path` e navega — por isso envie `data.path` com a rota (`/m/expedicao`, `/m/montagem`, `/m/estoque`).
+7. **Produção**: ao publicar na App Store, defina `APNS_PRODUCTION=true` (host `api.push.apple.com`).
+
+## Deep links (abrir tela por URL)
+
+`src/mobile/DeepLinkHandler.jsx` (montado no MobileApp) ouve `App.appUrlOpen` e o toque em push. Para deep links por URL:
+1. **Custom scheme** (`montex://m/...`): no Xcode, target App → Info → URL Types → adicione o scheme `montex`. Ex.: `montex://m/expedicao`.
+2. **Universal Links** (`https://montex-erp-v5.vercel.app/m/...`): configure Associated Domains + `apple-app-site-association` no host.
+O handler extrai o `pathname` (`/m/...`) e navega. No web/PWA fica inerte.
 
 ## Separação do ERP desktop (app nativo = só operacional)
 

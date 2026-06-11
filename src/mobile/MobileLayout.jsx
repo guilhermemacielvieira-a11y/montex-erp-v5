@@ -16,7 +16,7 @@ import {
   Bell, Search, LogOut, ChevronRight, X, User,
   BarChart3, Package, Truck, FileText, Settings,
   Box, Scissors, Users, ClipboardList, Building2,
-  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler,
+  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler, Image,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/AuthContext';
@@ -28,8 +28,7 @@ import NetworkBanner from './ui/NetworkBanner';
 import LastUpdated from './ui/LastUpdated';
 import PendingBadge from './ui/PendingBadge';
 import { setLastRefresh } from './ui/lastRefresh';
-import { buildNotificacoes } from './ui/notificacoes';
-import { useSettings } from './ui/settings';
+import { useAlertas } from './useAlertas';
 
 // 5 abas inferiores. `perm` = permissão exigida (ausente = sempre visível).
 const BOTTOM_TABS = [
@@ -57,6 +56,7 @@ const DRAWER_GROUPS = [
       { path: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', perm: 'kanban.view' },
       { path: '/m/expedicao', icon: Truck, label: 'Expedição', perm: 'expedicao.view' },
       { path: '/m/medicao', icon: Ruler, label: 'Medição', perm: 'medicao.view' },
+      { path: '/m/evidencias', icon: Image, label: 'Evidências', perm: 'producao.view' },
       { path: '/m/3d', icon: Box, label: 'Visualizador 3D', perm: 'producao.view' },
       { path: '/m/estoque', icon: Package, label: 'Estoque', perm: 'estoque.view' },
     ],
@@ -84,7 +84,7 @@ const DRAWER_GROUPS = [
   {
     title: 'Analítico',
     items: [
-      { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard', perm: 'bi.view' },
+      { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard BI', perm: 'bi.view' },
       { path: '/m/analise-producao', icon: Activity, label: 'Análise Produção', perm: 'producao.view' },
       { path: '/m/diario', icon: ClipboardList, label: 'Diário Produção', perm: 'producao.view' },
     ],
@@ -95,18 +95,8 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, hasPermission } = useAuth() || {};
-  const erp = useERP() || {};
-  const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = erp;
+  const { dataSource, reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  // Badge do sino: nº de alertas acionáveis derivados do ERP (global, não
-  // depende do filtro de obra). Fonte única em ui/notificacoes.js.
-  // Respeita a preferência "Notificações" (Configurações).
-  const settings = useSettings();
-  const notifCount = useMemo(
-    () => (settings.notificacoes === false ? 0 : buildNotificacoes(erp).length),
-    [settings.notificacoes, erp.lancamentosDespesas, erp.estoque, erp.pecas, erp.medicoes]
-  );
 
   // Menu por ROLE: esconde tabs/itens cuja permissão o usuário não tem (operador
   // não vê Financeiro/BI/Expedição etc.). Sem hasPermission (fallback) mostra tudo.
@@ -124,6 +114,7 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
   // Carregamento inicial dos dados do ERP (Supabase). Mostra esqueleto em vez de
   // telas zeradas/vazias — importante em rede lenta de galpão/canteiro.
   const carregando = dataSource === 'loading';
+  const nAlertas = useAlertas().length; // contagem real p/ o badge do sino
   // Puxar-para-atualizar recarrega os dados operacionais que mudam o tempo todo
   // no chão de fábrica (peças/produção/montagem, estoque e romaneios), em paralelo.
   const handleRefresh = async () => {
@@ -178,12 +169,10 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
         <h1 className="flex-1 font-bold text-base tracking-tight truncate">{title}</h1>
         <PendingBadge />
         <LastUpdated tick={refreshTick} />
-        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label={`Notificações${notifCount ? ` (${notifCount})` : ''}`} onClick={() => navigate('/m/notificacoes')}>
+        <button className="w-11 h-11 -mr-1 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700 transition relative" aria-label={nAlertas ? `Notificações, ${nAlertas} alerta(s)` : 'Notificações'} onClick={() => navigate('/m/notificacoes')}>
           <Bell className="w-5 h-5" />
-          {notifCount > 0 && (
-            <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center rounded-full bg-amber-500 text-slate-950 text-[9px] font-black leading-none">
-              {notifCount > 9 ? '9+' : notifCount}
-            </span>
+          {nAlertas > 0 && (
+            <span className="absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black flex items-center justify-center">{nAlertas > 9 ? '9+' : nAlertas}</span>
           )}
         </button>
       </header>
@@ -271,13 +260,15 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
             className="fixed top-0 left-0 bottom-0 w-[82%] max-w-[320px] bg-slate-900 border-r border-slate-800 z-50 flex flex-col"
             style={{ paddingTop: 'env(safe-area-inset-top)' }}
           >
-              {/* Header do Drawer */}
+              {/* Header do Drawer — toca para abrir o Perfil */}
               <div className="flex items-center gap-3 p-4 border-b border-slate-800 bg-gradient-to-r from-slate-900 to-slate-950">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-lg">M</div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-bold text-sm truncate">{user?.full_name || 'Usuário'}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{user?.email || '—'}</div>
-                </div>
+                <Link to="/m/perfil" className="flex-1 flex items-center gap-3 min-w-0 active:opacity-80">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-lg">M</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-bold text-sm truncate">{user?.nome || user?.name || 'Usuário'}</div>
+                    <div className="text-[11px] text-slate-400 truncate">{user?.email || '—'}</div>
+                  </div>
+                </Link>
                 <button onClick={() => setDrawerOpen(false)} className="w-11 h-11 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar menu">
                   <X className="w-5 h-5" />
                 </button>

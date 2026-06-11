@@ -7,16 +7,17 @@
 // (com header voltar) quando não há versão mobile dedicada.
 // ============================================================
 import React, { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
 import InstallPrompt from './ui/InstallPrompt';
 import SyncManager from './SyncManager';
+import DeepLinkHandler from './DeepLinkHandler';
+import Protected from './Protected';
 import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
 import MobileLayout from './MobileLayout';
-import Protected from './Protected';
 import HomeMobile from './pages/HomeMobile';
 import ProducaoMobile from './pages/ProducaoMobile';
 import MontagemMobile from './pages/MontagemMobile';
@@ -24,15 +25,11 @@ import FinanceiroMobile from './pages/FinanceiroMobile';
 import ExpedicaoMobile from './pages/ExpedicaoMobile';
 import EstoqueMobile from './pages/EstoqueMobile';
 import MedicaoMobile from './pages/MedicaoMobile';
-import MaisMobile from './pages/MaisMobile';
-import DashboardMobile from './pages/DashboardMobile';
-import NotificacoesMobile from './pages/NotificacoesMobile';
 import PerfilMobile from './pages/PerfilMobile';
 import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
-import { initDeepLinks } from './ui/deeplinks';
-import { registerPush } from './ui/push';
-import { getSetting } from './ui/settings';
-import { useAuth } from '@/lib/AuthContext';
+import NotificacoesMobile from './pages/NotificacoesMobile';
+import GaleriaMobile from './pages/GaleriaMobile';
+import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -77,14 +74,7 @@ const FOCUS_STYLES = `
   outline: 2px solid rgb(251 191 36 / 0.95) !important;
   outline-offset: 2px !important;
   border-radius: 10px;
-}
-/* Bipagem contínua nativa (mlkit): a câmera do OS fica ATRÁS da webview,
-   então o shell precisa ficar transparente enquanto escaneia. A classe é
-   adicionada/removida pelo Scanner (ui/Scanner.jsx). O Scanner é portado
-   para o <body>, então escondemos o #root e deixamos body/html transparentes. */
-html.montex-scanner-native,
-html.montex-scanner-native body { background: transparent !important; }
-html.montex-scanner-native #root { visibility: hidden !important; }`;
+}`;
 
 export default function MobileApp() {
   // Marca a abertura do app como referência inicial de "atualizado há X".
@@ -95,6 +85,7 @@ export default function MobileApp() {
         <ObraMobileProvider>
           <style>{FOCUS_STYLES}</style>
           <SyncManager />
+          <DeepLinkHandler />
           <MobileRoutes />
           <InstallPrompt />
           {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).
@@ -116,19 +107,8 @@ export default function MobileApp() {
 }
 
 function MobileRoutes() {
-  // Deep links: traduz URL/push → rota interna (push-agnóstico; no-op no web).
-  const navigate = useNavigate();
-  const { user } = useAuth() || {};
-  useEffect(() => initDeepLinks(navigate), [navigate]);
-  // Re-registra o device se o usuário já optou por push (token pode rotacionar).
-  // No-op no web (registerPush retorna unsupported).
-  useEffect(() => {
-    if (user?.email && getSetting('push')) registerPush(user.email);
-  }, [user?.email]);
   return (
     <Routes>
-      {/* Rotas sensíveis envolvidas em <Protected perm>: fecha o acesso por
-          URL direta (a filtragem de menu sozinha não impede digitar /m/dre). */}
       <Route index element={<HomeMobile />} />
       <Route path="producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
       <Route path="montagem" element={<Protected perm="producao.view"><MontagemMobile /></Protected>} />
@@ -143,6 +123,7 @@ function MobileRoutes() {
       <Route path="expedicao-desktop" element={<Protected perm="expedicao.view"><DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap></Protected>} />
       <Route path="estoque" element={<Protected perm="estoque.view"><EstoqueMobile /></Protected>} />
       <Route path="medicao" element={<Protected perm="medicao.view"><MedicaoMobile /></Protected>} />
+      <Route path="evidencias" element={<Protected perm="producao.view"><GaleriaMobile /></Protected>} />
       <Route path="estoque-desktop" element={<Protected perm="estoque.view"><DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap></Protected>} />
       <Route path="despesas" element={<Protected perm="financeiro.view"><DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap></Protected>} />
       <Route path="receitas" element={<Protected perm="financeiro.view"><DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap></Protected>} />
@@ -153,10 +134,7 @@ function MobileRoutes() {
       <Route path="equipes" element={<Protected perm="equipes.view"><DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap></Protected>} />
       <Route path="orcamentos" element={<Protected perm="orcamentos.view"><DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap></Protected>} />
       <Route path="relatorios" element={<Protected perm="relatorios.view"><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
-      {/* Dashboard estratégico NATIVO mobile (gráficos + KPIs). O BI desktop
-          completo fica em /m/dashboard-bi (wrapper escalado). */}
-      <Route path="dashboard" element={<Protected perm="bi.view"><DashboardMobile /></Protected>} />
-      <Route path="dashboard-bi" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
+      <Route path="dashboard" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
       <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
       <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />
       <Route path="notificacoes" element={<NotificacoesMobile />} />

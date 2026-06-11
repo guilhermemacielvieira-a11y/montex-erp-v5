@@ -9,7 +9,7 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import {
-  Ruler, Plus, Camera, Loader2, CheckCircle2, Building2, X, ShieldCheck, Fingerprint,
+  Ruler, Plus, Camera, Loader2, CheckCircle2, Building2, X,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
@@ -44,13 +44,12 @@ async function uploadFoto(file) {
 export default function MedicaoMobile() {
   const { obras = [] } = useERP?.() || {};
   const { medicoes = [], addMedicao, updateMedicao } = useMedicoes?.() || {};
-  const { hasPermission } = useAuth() || {};
   const { matchObra, obraSelecionada, isTodas } = useObraFiltro();
-  const podeAprovar = !hasPermission || hasPermission('medicao.aprovar');
+  const { hasPermission } = useAuth() || {};
+  const podeAprovar = !!hasPermission && hasPermission('medicao.aprovar');
 
-  const [detalheSel, setDetalheSel] = useState(null); // medição aberta p/ aprovação
-  const [aprovando, setAprovando] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
+  const [aprovando, setAprovando] = useState(null); // id da medição em aprovação
   const [obraId, setObraId] = useState(obraSelecionada?.id || '');
   const [peso, setPeso] = useState('');
   const [valorKg, setValorKg] = useState('');
@@ -136,27 +135,24 @@ export default function MedicaoMobile() {
     }
   };
 
-  // Aprovação de medição (gerente): pendente → aprovada, com Face ID.
-  const aprovarMedicao = async () => {
-    if (!detalheSel || !updateMedicao) return;
+  // Aprovação de medição (gestão): status pendente → aprovada, com Face ID.
+  const aprovar = async (m) => {
+    if (!updateMedicao) return;
     if (!ensureOnline()) return;
-    const ok = await confirmarBiometria(`Aprovar medição ${detalheSel.numero || ''}`.trim());
+    const ok = await confirmarBiometria(`Aprovar medição ${m.numero || ''}`.trim());
     if (!ok) { toast.error('Autenticação não confirmada'); return; }
-    setAprovando(true);
+    setAprovando(m.id);
     try {
-      await updateMedicao(detalheSel.id, { status: 'aprovada' });
+      await updateMedicao(m.id, { status: 'aprovada' });
       await success();
-      toast.success(`Medição ${detalheSel.numero || ''} aprovada`);
-      setDetalheSel(null);
+      toast.success(`Medição ${m.numero || ''} aprovada`.replace('  ', ' '));
     } catch (err) {
       toast.error('Falha ao aprovar medição');
-      console.error('[MedicaoMobile] updateMedicao(aprovar) falhou:', err);
+      console.error('[MedicaoMobile] aprovar falhou:', err);
     } finally {
-      setAprovando(false);
+      setAprovando(null);
     }
   };
-
-  const stDetalhe = detalheSel ? String(detalheSel.status || 'pendente').toLowerCase() : '';
 
   return (
     <MobileLayout title="Medição" obraFilter>
@@ -174,26 +170,33 @@ export default function MedicaoMobile() {
         )}
         {lista.map(m => {
           const st = String(m.status || 'pendente').toLowerCase();
-          const pendente = st === 'pendente';
+          const pendente = st === 'pendente' || st === 'aguardando';
           return (
-            <button
-              key={m.id}
-              onClick={() => { tap('light'); setDetalheSel(m); }}
-              className="w-full text-left rounded-2xl border border-slate-800 bg-slate-900 p-3.5 flex items-center gap-3 active:scale-[.99] transition"
-            >
+            <div key={m.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3.5 flex items-center gap-3">
               <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center"><Ruler className="w-5 h-5 text-amber-400" /></div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm truncate">{m.numero || m.descricao || m.id}</span>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${STATUS[st] || STATUS.pendente}`}>{st}</span>
-                  {pendente && podeAprovar && <span className="text-[9px] font-bold text-amber-400">• aprovar</span>}
                 </div>
                 <div className="text-[11px] text-slate-400 truncate mt-0.5">
                   {m.pesoMedido ? fmtKg(m.pesoMedido) + ' · ' : ''}{m.dataMedicao || m.data || ''}
                 </div>
               </div>
-              <div className="text-sm font-black text-emerald-300">{fmtMoney(m.valorTotal || m.valor)}</div>
-            </button>
+              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                <div className="text-sm font-black text-emerald-300">{fmtMoney(m.valorTotal || m.valor)}</div>
+                {pendente && podeAprovar && (
+                  <button
+                    onClick={() => aprovar(m)}
+                    disabled={aprovando === m.id}
+                    className="flex items-center gap-1 text-[11px] font-bold text-blue-300 bg-blue-500/15 border border-blue-500/30 rounded-lg px-2.5 py-1 active:scale-95 transition disabled:opacity-50"
+                  >
+                    {aprovando === m.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    Aprovar
+                  </button>
+                )}
+              </div>
+            </div>
           );
         })}
       </div>
@@ -292,67 +295,7 @@ export default function MedicaoMobile() {
           </div>
         </div>
       </Sheet>
-
-      {/* Detalhe + Aprovação (Face ID) */}
-      <Sheet
-        open={!!detalheSel}
-        onClose={() => !aprovando && setDetalheSel(null)}
-        title={detalheSel ? (detalheSel.numero || 'Medição') : ''}
-        footer={
-          detalheSel && (
-            stDetalhe === 'pendente' ? (
-              podeAprovar ? (
-                <button
-                  onClick={aprovarMedicao}
-                  disabled={aprovando}
-                  className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-blue-500 text-slate-950 font-black text-sm active:scale-[.99] transition disabled:opacity-60"
-                >
-                  {aprovando ? <Loader2 className="w-5 h-5 animate-spin" /> : <Fingerprint className="w-5 h-5" />}
-                  {aprovando ? 'Aprovando…' : 'Aprovar medição (Face ID)'}
-                </button>
-              ) : (
-                <div className="w-full text-center py-3 text-[12px] text-slate-400">Você não tem permissão para aprovar medições</div>
-              )
-            ) : (
-              <div className="w-full flex items-center justify-center gap-2 py-3 text-sm text-emerald-400 font-semibold">
-                <ShieldCheck className="w-5 h-5" /> Medição {stDetalhe}
-              </div>
-            )
-          )
-        }
-      >
-        {detalheSel && (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <Info label="Obra" value={detalheSel.obra || '—'} />
-              <Info label="Status" value={stDetalhe} />
-              <Info label="Peso medido" value={detalheSel.pesoMedido ? fmtKg(detalheSel.pesoMedido) : '—'} />
-              <Info label="Valor total" value={fmtMoney(detalheSel.valorTotal || detalheSel.valor)} />
-              <Info label="Data" value={detalheSel.dataMedicao || detalheSel.data || '—'} />
-              <Info label="Responsável" value={detalheSel.responsavel || '—'} />
-            </div>
-            {detalheSel.observacoes && (
-              <div className="bg-slate-800/60 rounded-xl p-3">
-                <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Observações</div>
-                <div className="text-sm text-slate-100 mt-0.5">{detalheSel.observacoes}</div>
-              </div>
-            )}
-            {detalheSel.detalhamento?.fotoUrl && (
-              <img src={detalheSel.detalhamento.fotoUrl} alt="evidência" className="w-full h-40 object-cover rounded-xl border border-slate-700" />
-            )}
-          </div>
-        )}
-      </Sheet>
     </MobileLayout>
-  );
-}
-
-function Info({ label, value }) {
-  return (
-    <div className="bg-slate-800/60 rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
-      <div className="text-sm font-bold text-slate-100 mt-0.5 truncate">{value}</div>
-    </div>
   );
 }
 

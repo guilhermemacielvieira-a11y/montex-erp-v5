@@ -11,7 +11,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import {
-  subscribeCorteChanges,
   loadFromSupabase
 } from '../data/corteStatusStore';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';

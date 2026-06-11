@@ -43,7 +43,7 @@ export default function RelatoriosIA() {
       {/* Header */}
       <div className="flex justify-between items-start">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Relatórios de IA</h1>
+          <h1 className="text-3xl font-bold text-white">Relatórios de IA</h1>
           <p className="text-slate-600 mt-2">Análises preditivas e insights baseados em dados históricos</p>
         </div>
         <div className="flex gap-2">
@@ -70,16 +70,16 @@ export default function RelatoriosIA() {
 
       {/* Tabs de Análises */}
       <Tabs value={abaSelecionada} onValueChange={setAbaSelecionada} className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="vendas" className="gap-2">
+        <TabsList className="grid w-full grid-cols-3 bg-slate-800/60 border border-slate-700 p-1 rounded-xl">
+          <TabsTrigger value="vendas" className="gap-2 text-slate-400 data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
             <TrendingUp className="h-4 w-4" />
             Vendas
           </TabsTrigger>
-          <TabsTrigger value="projetos" className="gap-2">
+          <TabsTrigger value="projetos" className="gap-2 text-slate-400 data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
             <BarChart3 className="h-4 w-4" />
             Projetos
           </TabsTrigger>
-          <TabsTrigger value="clientes" className="gap-2">
+          <TabsTrigger value="clientes" className="gap-2 text-slate-400 data-[state=active]:bg-cyan-500/20 data-[state=active]:text-cyan-400">
             <Users className="h-4 w-4" />
             Clientes
           </TabsTrigger>

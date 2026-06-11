@@ -17,7 +17,6 @@ import DataTable from '@/components/ui/DataTable';
 import {
   DollarSign,
   TrendingUp,
-  FileText,
   Package,
   Truck,
   Plus,
@@ -66,18 +65,15 @@ import {
   Pie,
   Cell,
   Line,
-  ComposedChart,
-  Legend
+  ComposedChart
 } from 'recharts';
 
 import {
   TIPO_LANCAMENTO,
   STATUS_LANCAMENTO,
-  STATUS_PEDIDO_FUTURO,
   CATEGORIA_DESPESA,
   STATUS_MEDICAO,
   ETAPA_MEDICAO,
-  TIPO_RECEITA,
   STATUS_MATERIAL,
   OBRA_MODELO,
   LANCAMENTOS_DESPESAS,
@@ -92,8 +88,6 @@ import {
   calcularResumoPedidosFuturos,
   calcularAnaliseProjecao,
   calcularFluxoCaixaComFuturos,
-  calcularSaldoContratoComReceitas,
-  calcularDREObra,
   calcularResumoMateriais,
   calcularEstoquePorTipo
 } from '../data/obraFinanceiraDatabase';

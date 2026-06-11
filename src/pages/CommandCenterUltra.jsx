@@ -7,18 +7,14 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
-  ResponsiveContainer, AreaChart, Area, BarChart, Bar, LineChart, Line,
-  ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, PieChart, Pie, Cell,
-  RadialBarChart, RadialBar, Legend, Treemap,
+  ResponsiveContainer, Area, Line,
+  ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Treemap,
 } from 'recharts';
-import {
-  Activity, AlertTriangle, ArrowUp, ArrowDown, Award, Bell, Briefcase,
-  Building2, Calendar, CheckCircle2, Clock, Cpu, DollarSign, Factory,
-  Flame, Gauge, Hash, Layers, Package, Settings, Shield, Target, TrendingUp,
-  TrendingDown, Truck, User, Users, Wallet, Weight, Zap, ChevronRight,
-  BarChart3, ArrowRight, Filter, Eye, Box, Map, Percent, Cog,
+import { AlertTriangle, ArrowUp, ArrowDown, Briefcase, Calendar, CheckCircle2, DollarSign, Factory,
+  Flame, Layers, TrendingUp, Truck, Users, Wallet, Zap,
+  BarChart3, ArrowRight, Box, Map, Cog,
 } from 'lucide-react';
 import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
@@ -449,9 +445,10 @@ export default function CommandCenterUltra() {
       <Section title="Production Flow" sub="funil de produção em tempo real" icon={Factory} accent={OM.orange} className="mb-4"
         action={<span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmt(totalPcs)} pcs · {fmtPeso((pecas || []).reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0))}</span>}>
         <div className="flex items-stretch gap-1">
-          {pipeline.map((s, i) => (
-            <FlowStage key={s.key} {...s} value={s.qtd} percent={s.percent} isLast={i === pipeline.length - 1} />
-          ))}
+          {pipeline.map((s, i) => {
+            const { key, ...rest } = s; // key fora do spread (senão React avisa "key prop spread")
+            return <FlowStage key={key} {...rest} value={s.qtd} percent={s.percent} isLast={i === pipeline.length - 1} />;
+          })}
           <div className="flex flex-col items-center justify-center px-3 ml-2 rounded-lg"
             style={{ background: `linear-gradient(135deg, ${OM.emerald}20, ${OM.emerald}10)`, border: `1px solid ${OM.emerald}40` }}>
             <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.emerald }}>Finalizado</p>
@@ -546,7 +543,7 @@ export default function CommandCenterUltra() {
                   <g>
                     <rect x={x} y={y} width={width} height={height}
                       fill={OM.blue}
-                      fillOpacity={Math.min(0.9, 0.3 + (size / (receitaPorObra[0]?.size || 1)) * 0.6)}
+                      fillOpacity={Math.min(0.9, 0.3 + ((Number(size) || 0) / (receitaPorObra[0]?.size || 1)) * 0.6)}
                       stroke={OM.bgDeep} strokeWidth={2} />
                     {width > 50 && height > 30 && (
                       <>

@@ -38,19 +38,19 @@ export default function FiltrosDinamicosIA({ filtrosDisponiveis, filtrosAtuais, 
       </div>
 
       {mostrandoFiltros && (
-        <Card className="border-blue-200 bg-blue-50">
+        <Card className="border-blue-500/30 bg-blue-500/10">
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {Object.entries(filtrosDisponiveis).map(([chave, { label, opcoes, tipo }]) => (
                 <div key={chave} className="space-y-2">
-                  <label className="text-sm font-medium text-slate-700">{label}</label>
+                  <label className="text-sm font-medium text-slate-300">{label}</label>
                   
                   {tipo === 'select' ? (
                     <Select
                       value={filtrosAtuais[chave] || ''}
                       onValueChange={(valor) => handleFiltroChange(chave, valor)}
                     >
-                      <SelectTrigger className="bg-white">
+                      <SelectTrigger className="bg-slate-800">
                         <SelectValue placeholder="Selecionar..." />
                       </SelectTrigger>
                       <SelectContent>
@@ -79,7 +79,7 @@ export default function FiltrosDinamicosIA({ filtrosDisponiveis, filtrosAtuais, 
                             }}
                             className="rounded"
                           />
-                          <span className="text-sm text-slate-700">{opcao.label}</span>
+                          <span className="text-sm text-slate-300">{opcao.label}</span>
                         </label>
                       ))}
                     </div>
@@ -88,7 +88,7 @@ export default function FiltrosDinamicosIA({ filtrosDisponiveis, filtrosAtuais, 
                       type={tipo}
                       value={filtrosAtuais[chave] || ''}
                       onChange={(e) => handleFiltroChange(chave, e.target.value)}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm"
+                      className="w-full px-3 py-2 border border-slate-700 rounded-md text-sm"
                       placeholder="Digite um valor..."
                     />
                   )}
@@ -97,11 +97,11 @@ export default function FiltrosDinamicosIA({ filtrosDisponiveis, filtrosAtuais, 
             </div>
 
             {filtrosAtivos > 0 && (
-              <div className="mt-4 pt-4 border-t border-blue-200">
+              <div className="mt-4 pt-4 border-t border-blue-500/30">
                 <Button
                   variant="ghost"
                   onClick={() => onFiltrosChange({})}
-                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-100"
+                  className="text-blue-600 hover:text-blue-300 hover:bg-blue-500/15"
                 >
                   Limpar todos os filtros
                 </Button>
@@ -127,7 +127,7 @@ export default function FiltrosDinamicosIA({ filtrosDisponiveis, filtrosAtuais, 
               <Badge
                 key={chave}
                 variant="secondary"
-                className="flex items-center gap-2 px-3 py-1.5 bg-blue-100 text-blue-800 border-blue-300"
+                className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/15 text-blue-300 border-blue-300"
               >
                 <span className="text-xs font-medium">{label}</span>
                 <button

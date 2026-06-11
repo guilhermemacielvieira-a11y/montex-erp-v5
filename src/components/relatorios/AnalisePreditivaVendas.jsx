@@ -107,7 +107,7 @@ export default function AnalisePreditivaVendas({ parametros, orcamentos }) {
             <CardTitle className="text-sm font-medium text-slate-600">Taxa de Aprovação</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">{analise.taxaAprovacao}%</div>
+            <div className="text-2xl font-bold text-white">{analise.taxaAprovacao}%</div>
             <p className="text-xs text-green-600 mt-1">↑ 5% vs período anterior</p>
           </CardContent>
         </Card>
@@ -117,7 +117,7 @@ export default function AnalisePreditivaVendas({ parametros, orcamentos }) {
             <CardTitle className="text-sm font-medium text-slate-600">Receitas Realizadas</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">R$ {(analise.totalReceitas / 1000).toFixed(1)}k</div>
+            <div className="text-2xl font-bold text-white">R$ {(analise.totalReceitas / 1000).toFixed(1)}k</div>
             <p className="text-xs text-slate-600 mt-1">Últimos {parametros.periodo} dias</p>
           </CardContent>
         </Card>
@@ -137,7 +137,7 @@ export default function AnalisePreditivaVendas({ parametros, orcamentos }) {
             <CardTitle className="text-sm font-medium text-slate-600">Total Orçado</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-slate-900">R$ {(analise.totalOrcado / 1000).toFixed(1)}k</div>
+            <div className="text-2xl font-bold text-white">R$ {(analise.totalOrcado / 1000).toFixed(1)}k</div>
             <p className="text-xs text-slate-600 mt-1">Em negociação</p>
           </CardContent>
         </Card>

@@ -194,6 +194,9 @@ const LANCAMENTOS_FIELD_MAP = {
   prePedidoRef: 'pre_pedido_ref',
   createdAt: 'created_at',
   updatedAt: 'updated_at',
+  // Fase 2 — proveniência da categoria (migration v12)
+  categoriaManual: 'categoria_manual',
+  categoriaOrigem: 'categoria_origem',
 };
 
 // Colunas vÃ¡lidas na tabela lancamentos_despesas
@@ -201,7 +204,9 @@ const LANCAMENTOS_VALID_COLUMNS = new Set([
   'id', 'obra_id', 'tipo', 'categoria', 'descricao', 'fornecedor',
   'nota_fiscal', 'valor', 'data_emissao', 'data_vencimento',
   'data_pagamento', 'status', 'pre_pedido_ref', 'peso_kg',
-  'observacao', 'setor', 'forma_pagto', 'created_at', 'updated_at'
+  'observacao', 'setor', 'forma_pagto', 'created_at', 'updated_at',
+  // Fase 2 — proveniência da categoria (migration v12)
+  'categoria_manual', 'categoria_origem'
 ]);
 
 export function lancamentoToSupabase(record) {

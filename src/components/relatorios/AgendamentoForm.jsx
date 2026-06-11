@@ -228,7 +228,7 @@ export default function AgendamentoForm({ agendamento, onSave, onCancel, projeto
 
           {/* Opções PDF */}
           {formData.formatos.includes('pdf') && (
-            <div className="space-y-2 p-3 bg-slate-50 rounded-lg">
+            <div className="space-y-2 p-3 bg-slate-900 rounded-lg">
               <div className="flex items-center gap-2">
                 <Checkbox
                   id="graficos"
@@ -275,14 +275,14 @@ export default function AgendamentoForm({ agendamento, onSave, onCancel, projeto
             {formData.destinatarios.length > 0 && (
               <div className="space-y-2">
                 {formData.destinatarios.map((email) => (
-                  <div key={email} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg">
+                  <div key={email} className="flex items-center justify-between p-2 bg-slate-900 rounded-lg">
                     <span className="text-sm">{email}</span>
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
                       onClick={() => handleRemoveEmail(email)}
-                      className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                      className="text-red-500 hover:text-red-300 hover:bg-red-500/10"
                     >
                       <X className="h-4 w-4" />
                     </Button>

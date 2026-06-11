@@ -7,7 +7,7 @@
 // que move as peças para 'enviado' = Aguardando Montagem em campo).
 // A conferência é local (localStorage por romaneio); o despacho é a escrita real.
 // ============================================================
-import React, { useMemo, useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useMemo, useState, useCallback, useRef, useLayoutEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   Truck, Package, ScanLine, ChevronRight, ChevronLeft, CheckCircle2,
@@ -16,8 +16,9 @@ import {
 import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
+import PhotoInput from '../ui/PhotoInput';
+import { uploadFoto } from '../ui/upload';
 import { tap, success } from '../ui/haptics';
-import { confirmarBiometria } from '../ui/biometric';
 import { isOnline } from '../ui/online';
 import { enqueue } from '../ui/offlineQueue';
 import { useERP, useExpedicao } from '@/contexts/ERPContext';
@@ -51,12 +52,9 @@ export default function ExpedicaoMobile() {
   const [selId, setSelId] = useState(null);     // romaneio aberto
   const [scanOpen, setScanOpen] = useState(false);
   const [conf, setConf] = useState({});         // {pecaId: true} do romaneio aberto
-  // Espelho em ref: a bipagem CONTÍNUA captura o handler na abertura do
-  // scanner; ler conf por ref evita closure stale (re-bipar não desmarca).
-  const confRef = useRef(conf);
-  useEffect(() => { confRef.current = conf; }, [conf]);
   const [despachar, setDespachar] = useState(false); // sheet de confirmação
   const [saving, setSaving] = useState(false);
+  const [fotoCarga, setFotoCarga] = useState(null); // { file, url } evidência da carga
   const listScroll = useRef(0); // posição do scroll da lista, p/ restaurar ao voltar do detalhe
 
   // Ao voltar do detalhe para a lista, restaura a posição de scroll anterior.
@@ -113,29 +111,19 @@ export default function ExpedicaoMobile() {
     });
   }, [selId]);
 
-  // Marca uma peça por código bipado (add-only — nunca desmarca). Lê o conf
-  // atual via ref para funcionar dentro do loop contínuo do scanner.
-  const marcarPorCodigo = useCallback((codigo) => {
+  const onScan = (codigo) => {
     const alvo = norm(codigo);
     const item = itens.find(i => norm(i.marca) === alvo)
               || (alvo.length >= 3 ? itens.find(i => norm(i.marca).includes(alvo)) : null);
     if (!item) { toast.error(`"${codigo}" não está neste romaneio`); return; }
-    const cur = confRef.current;
-    if (cur[item.id]) { toast(`${item.marca} já conferida`, { icon: '✓' }); return; }
-    const nova = { ...cur, [item.id]: true };
-    confRef.current = nova;
-    setConf(nova);
-    if (selId) saveConf(selId, nova);
+    if (conf[item.id]) { toast(`${item.marca} já conferida`, { icon: '✓' }); return; }
+    toggleConf(item.id);
     success();
-    const done = itens.filter(i => nova[i.id]).length;
-    toast.success(`${item.marca} conferida (${done}/${itens.length})`);
-  }, [itens, selId]);
+    toast.success(`${item.marca} conferida (${conferidas + 1}/${total})`);
+  };
 
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
-    // Aprovação por Face ID antes de liberar o caminhão (degrada no web).
-    const ok = await confirmarBiometria(`Confirmar despacho ${romaneio.numeroRomaneio || romaneio.id}`);
-    if (!ok) { toast.error('Autenticação não confirmada'); return; }
     if (!isOnline()) {
       // Offline: aplica otimisticamente + enfileira (updateExpedicao é idempotente).
       updateExpedicao(romaneio.id, { status: 'em_transito' })?.catch(() => {});
@@ -147,10 +135,17 @@ export default function ExpedicaoMobile() {
     }
     setSaving(true);
     try {
-      await updateExpedicao(romaneio.id, { status: 'em_transito' });
+      // Foto da carga (best-effort): anexa a URL às observações do romaneio.
+      let observacoes = romaneio.observacoes || '';
+      if (fotoCarga?.file) {
+        const url = await uploadFoto(fotoCarga.file, 'expedicao');
+        if (url) observacoes = (observacoes ? observacoes + ' ' : '') + '📷 ' + url;
+        else toast('Foto não enviada (despacho segue)', { icon: '⚠️' });
+      }
+      await updateExpedicao(romaneio.id, { status: 'em_transito', ...(observacoes ? { observacoes } : {}) });
       await success();
       toast.success(`Romaneio ${romaneio.numeroRomaneio || romaneio.id} despachado`);
-      setDespachar(false); setSelId(null); setConf({});
+      setDespachar(false); setSelId(null); setConf({}); setFotoCarga(null);
     } catch (err) {
       toast.error('Falha ao despachar romaneio');
       console.error('[ExpedicaoMobile] updateExpedicao falhou:', err);
@@ -221,7 +216,7 @@ export default function ExpedicaoMobile() {
             className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
           >
-            <ScanLine className="w-5 h-5" /> Bipagem contínua
+            <ScanLine className="w-5 h-5" /> Bipar peça
           </button>
         )}
 
@@ -237,14 +232,7 @@ export default function ExpedicaoMobile() {
           </div>
         )}
 
-        <Scanner
-          open={scanOpen}
-          onClose={() => setScanOpen(false)}
-          onResult={marcarPorCodigo}
-          title="Conferência de carga"
-          continuous
-          progress={`${conferidas}/${total} conferidas`}
-        />
+        <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças do romaneio" continuous />
 
         <Sheet
           open={despachar}
@@ -272,6 +260,7 @@ export default function ExpedicaoMobile() {
                 Atenção: {total - conferidas} peça(s) ainda não conferida(s).
               </div>
             )}
+            <PhotoInput foto={fotoCarga} onChange={setFotoCarga} label="Foto da carga (opcional)" />
           </div>
         </Sheet>
       </MobileLayout>

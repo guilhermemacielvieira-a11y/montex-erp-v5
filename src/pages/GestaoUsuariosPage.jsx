@@ -6,16 +6,15 @@
  * Persistência: user_profiles (Supabase) + entity_store (links + audit)
  */
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Users, Key, Shield, Link2, FileText, Plus, Edit3, Trash2,
   Eye, EyeOff, RefreshCw, Copy, Check, AlertTriangle, Search,
-  Calendar, Clock, Activity, Lock, Unlock, X, CheckCircle,
-  XCircle, ChevronDown, Settings, UserCheck, UserX, Zap,
-  ExternalLink, RotateCcw, Info, MoreVertical, Hash
+  Calendar, Clock, Activity, Lock, X, CheckCircle,
+  XCircle, UserCheck, UserX, Zap, Info, Hash
 } from 'lucide-react';
-import { useAuth, ROLES, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
-import { supabase, supabaseAdmin, getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive } from '@/api/supabaseClient';
+import { useAuth, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
+import { supabase, getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive, resetUserPassword } from '@/api/supabaseClient';
 
 // ============================================================
 // HELPERS
@@ -61,7 +60,7 @@ function isExpired(expiresAt) {
 // ============================================================
 
 async function saveEntityStore(entityType, data, id = null) {
-  const client = supabaseAdmin || supabase;
+  const client = supabase;
   const record = {
     entity_type: entityType,
     data,
@@ -88,7 +87,7 @@ async function saveEntityStore(entityType, data, id = null) {
 }
 
 async function loadEntityStore(entityType) {
-  const client = supabaseAdmin || supabase;
+  const client = supabase;
   const { data, error } = await client
     .from('entity_store')
     .select('*')
@@ -99,7 +98,7 @@ async function loadEntityStore(entityType) {
 }
 
 async function deleteEntityStore(id) {
-  const client = supabaseAdmin || supabase;
+  const client = supabase;
   const { error } = await client.from('entity_store').delete().eq('id', id);
   if (error) throw error;
 }
@@ -575,46 +574,13 @@ function TabSenhas({ users, toast, currentUser }) {
     if (newPw !== confirmPw) { toast('As senhas não conferem', 'error'); return; }
     setLoading(true);
     try {
-      // Use supabaseAdmin para operações de auth (service_role obrigatório)
-      if (!supabaseAdmin) {
-        throw new Error('Service role key não configurada — configure VITE_SUPABASE_SERVICE_KEY no .env');
-      }
+      // Operação privilegiada (auth admin) → Edge Function `admin-users`.
+      // A service_role vive só no servidor; o cliente não a carrega mais.
       const authId = selectedUser.auth_id || selectedUser.id;
       if (!authId) {
         throw new Error('Usuário sem auth_id vinculado — não é possível redefinir senha');
       }
-
-      // ✅ Método correto do SDK admin é updateUserById (não updateUser)
-      // Fallback REST mantido: se SDK falhar silenciosamente, chama REST API diretamente
-      let updated = null;
-      let sdkError = null;
-      try {
-        const result = await supabaseAdmin.auth.admin.updateUserById(authId, { password: newPw });
-        updated = result.data;
-        sdkError = result.error;
-      } catch (e) {
-        sdkError = e;
-      }
-
-      if (sdkError || !updated?.user?.id) {
-        const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
-        const SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
-          || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
-        const restRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users/${authId}`, {
-          method: 'PUT',
-          headers: {
-            'apikey': SERVICE_KEY,
-            'Authorization': `Bearer ${SERVICE_KEY}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ password: newPw }),
-        });
-        const restJson = await restRes.json().catch(() => ({}));
-        if (!restRes.ok || !restJson.id) {
-          throw new Error(`Falha REST: ${restRes.status} — ${restJson.msg || restJson.error || sdkError?.message || 'sem detalhes'}`);
-        }
-        updated = { user: restJson };
-      }
+      await resetUserPassword(authId, newPw);
 
       await logAudit('reset_password', `Senha redefinida para: ${selectedUser.email}`, currentUser);
       toast(`Senha de ${selectedUser.nome || selectedUser.email} redefinida com sucesso!`, 'success');

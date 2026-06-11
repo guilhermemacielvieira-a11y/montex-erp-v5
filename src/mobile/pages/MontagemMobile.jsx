@@ -7,13 +7,16 @@
 // ============================================================
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Hammer, CheckCircle2, Box, ScanLine, RotateCcw } from 'lucide-react';
+import { Hammer, CheckCircle2, Box, ScanLine, RotateCcw, Download } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import Scanner from '../ui/Scanner';
 import SearchBar from '../ui/SearchBar';
 import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
+import PhotoInput from '../ui/PhotoInput';
+import { uploadFoto } from '../ui/upload';
+import { downloadCsv } from '../ui/exportCsv';
 import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
@@ -27,7 +30,7 @@ const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 export default function MontagemMobile() {
   const erp = useERP?.() || {};
   const { pecas = [] } = erp;
-  const { matchObra } = useObraFiltro();
+  const { matchObra, obraSelecionada } = useObraFiltro();
   // Aba persistida (sobrevive a navegação/reload) — o operador volta de onde estava.
   const [tab, setTab] = useState(() => {
     try { return localStorage.getItem('montex_montagem_tab') || 'aguardando'; } catch { return 'aguardando'; }
@@ -37,6 +40,8 @@ export default function MontagemMobile() {
   const [q, setQ] = useState('');
   const [scanOpen, setScanOpen] = useState(false);
   const [pecaSel, setPecaSel] = useState(null); // peça aberta no sheet de confirmação
+  const [fotoMont, setFotoMont] = useState(null); // { file, url } evidência da montagem
+  const [salvandoMont, setSalvandoMont] = useState(false);
   const [limite, setLimite] = useState(40);
   const qd = useDebounced(q, 250); // busca com debounce
   useEffect(() => { setLimite(40); }, [tab, qd]);
@@ -55,34 +60,55 @@ export default function MontagemMobile() {
   const montadas = listaFiltrada.filter(p => !!concluidas[String(p.id)]);
   const lista = tab === 'aguardando' ? aguardando : montadas;
 
-  const toggle = (peca) => {
+  // Define o estado montado de uma peça (com fotoUrl opcional de evidência).
+  // Marcação parcial: o mobile NÃO tem UI de parcial — toggle ON = "todas montadas".
+  // Mas se a peça já estava parcial (ex.: marcada via MontagemPage com montadas=2/3),
+  // PRESERVAMOS esse campo para não regredir silenciosamente. Operador no campo que
+  // queira completar a peça parcial vai usar o desktop (MontagemPage) ou o scanner
+  // continua válido — toggle aqui só ATUALIZA metadados (montadoEm/origem) sem
+  // sobrescrever o montadas existente.
+  const setMontada = (peca, montada, fotoUrl) => {
     const id = String(peca.id);
     const nova = { ...concluidas };
-    const estaMontada = !!nova[id];
-    if (estaMontada) {
+    if (!montada) {
       delete nova[id];
     } else {
-      // MESMO formato de MontagemPage/MontexERP3DPage (entity_store).
-      nova[id] = { montadoEm: new Date().toISOString(), origem: 'MontagemMobile', marca: peca.marca };
+      const prev = nova[id] || {};
+      // MESMO formato de MontagemPage/MontexERP3DPage (entity_store) + fotoUrl.
+      // Preserva `montadas` (parcial vindo de outro módulo); sem ele = legado/full.
+      nova[id] = {
+        ...prev,
+        montadoEm: new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
+        origem: 'MontagemMobile',
+        marca: peca.marca,
+        ...(fotoUrl ? { fotoUrl } : {}),
+      };
     }
     setConcluidas(nova);
     try {
       saveConcluidasSmart(nova);
-      if (estaMontada) { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
-      else { success(); toast.success(`${peca.marca} montada`); }
+      if (montada) { success(); toast.success(`${peca.marca} montada`); }
+      else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
     } catch (_) {
       toast.error('Falha ao sincronizar');
     }
   };
+  // Quick-toggle (scanner/uso interno) — sem foto.
+  const toggle = (peca) => setMontada(peca, !concluidas[String(peca.id)]);
 
-  // Resultado do scanner: encontra a peça pela marca e abre confirmação
+  // Resultado do scanner CONTÍNUO: encontra a peça pela marca e MARCA montada
+  // direto (sem sheet) — fluxo de bipar peça após peça no canteiro.
   const onScan = (codigo) => {
     const alvo = norm(codigo);
-    // 1) tenta no escopo de campo (enviado/montado)
-    let peca = pecasCampo.find(p => norm(p.marca) === alvo)
+    const peca = pecasCampo.find(p => norm(p.marca) === alvo)
             || pecasCampo.find(p => norm(p.marca).includes(alvo) && alvo.length >= 3);
-    if (peca) { tap('heavy'); setPecaSel(peca); return; }
-    // 2) existe na obra mas ainda não está em campo?
+    if (peca) {
+      if (concluidas[String(peca.id)]) { toast(`${peca.marca} já montada`, { icon: '✓' }); return; }
+      toggle(peca); // marca montada (entity_store) + toast "X montada"
+      return;
+    }
+    // existe na obra mas ainda não está em campo?
     const fora = pecasDaObra.find(p => norm(p.marca) === alvo);
     if (fora) {
       toast(`${fora.marca} está em "${fora.etapa}" — ainda não enviada para montagem`, { icon: '📦' });
@@ -91,13 +117,45 @@ export default function MontagemMobile() {
     toast.error(`Peça "${codigo}" não encontrada nesta obra`);
   };
 
-  const confirmarSheet = () => {
+  const confirmarSheet = async () => {
     if (!pecaSel) return;
-    toggle(pecaSel);
-    setPecaSel(null);
+    const id = String(pecaSel.id);
+    if (concluidas[id]) {
+      // já montada → desmarca
+      setMontada(pecaSel, false);
+      setPecaSel(null); setFotoMont(null);
+      return;
+    }
+    // marcando montada: sobe a foto de evidência (best-effort) e grava
+    setSalvandoMont(true);
+    let url = null;
+    if (fotoMont?.file) {
+      url = await uploadFoto(fotoMont.file, 'montagem');
+      if (!url) toast('Foto não enviada (peça marcada mesmo assim)', { icon: '⚠️' });
+    }
+    setMontada(pecaSel, true, url);
+    setSalvandoMont(false);
+    setPecaSel(null); setFotoMont(null);
+  };
+
+  // Relatório de montagem (CSV): todas as peças montadas da obra (ignora a busca).
+  const exportarMontadas = () => {
+    const rows = pecasCampo
+      .filter(p => concluidas[String(p.id)])
+      .map(p => {
+        const c = concluidas[String(p.id)] || {};
+        const dt = c.montadoEm ? new Date(c.montadoEm).toLocaleString('pt-BR') : '';
+        return [p.marca || p.id, p.tipo || '', (Number(p.peso) || 0).toFixed(0), p.quantidade || 1, dt, c.origem || '', c.fotoUrl || ''];
+      });
+    if (!rows.length) { toast('Nenhuma peça montada para exportar'); return; }
+    const obraSlug = (obraSelecionada?.nome || 'geral').replace(/\s+/g, '_').slice(0, 30);
+    const dia = new Date().toISOString().slice(0, 10);
+    downloadCsv(`montagem_${obraSlug}_${dia}.csv`, ['Marca', 'Tipo', 'Peso (kg)', 'Qtd', 'Montada em', 'Origem', 'Foto'], rows);
+    toast.success(`${rows.length} peça(s) exportada(s)`);
   };
 
   const pecaMontada = pecaSel ? !!concluidas[String(pecaSel.id)] : false;
+  const fotoExistente = pecaSel ? concluidas[String(pecaSel.id)]?.fotoUrl : null;
 
   return (
     <MobileLayout title="Montagem" obraFilter>
@@ -114,6 +172,14 @@ export default function MontagemMobile() {
           >Montadas ({montadas.length})</button>
         </div>
         <SearchBar value={q} onChange={setQ} placeholder="Buscar marca..." />
+        {tab === 'montadas' && montadas.length > 0 && (
+          <button
+            onClick={exportarMontadas}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-amber-400 active:scale-[.99] transition"
+          >
+            <Download className="w-4 h-4" /> Exportar relatório (CSV)
+          </button>
+        )}
       </div>
 
       {/* Lista */}
@@ -132,7 +198,7 @@ export default function MontagemMobile() {
           return (
             <motion.button
               key={p.id}
-              onClick={() => { tap('light'); setPecaSel(p); }}
+              onClick={() => { tap('light'); setPecaSel(p); setFotoMont(null); }}
               whileTap={{ scale: 0.97 }}
               className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${isOk ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-amber-500/30'}`}
             >
@@ -168,7 +234,7 @@ export default function MontagemMobile() {
       </button>
 
       {/* Scanner */}
-      <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} />
+      <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças montadas" continuous />
 
       {/* Sheet de confirmação da peça */}
       <Sheet
@@ -179,10 +245,11 @@ export default function MontagemMobile() {
           pecaSel && (
             <button
               onClick={confirmarSheet}
-              className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition ${pecaMontada ? 'bg-slate-700 text-slate-100' : 'bg-emerald-500 text-slate-950'}`}
+              disabled={salvandoMont}
+              className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-60 ${pecaMontada ? 'bg-slate-700 text-slate-100' : 'bg-emerald-500 text-slate-950'}`}
             >
-              {pecaMontada ? <RotateCcw className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
-              {pecaMontada ? 'Desmarcar montagem' : 'Marcar como montada'}
+              {!salvandoMont && (pecaMontada ? <RotateCcw className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />)}
+              {salvandoMont ? 'Salvando…' : (pecaMontada ? 'Desmarcar montagem' : 'Marcar como montada')}
             </button>
           )
         }
@@ -199,6 +266,15 @@ export default function MontagemMobile() {
               <Info label="Peso" value={`${(Number(pecaSel.peso) || 0).toFixed(0)} kg`} />
               <Info label="Etapa" value={pecaSel.etapa || '—'} />
             </div>
+            {/* Foto: evidência existente (se montada) ou anexar nova (ao marcar) */}
+            {fotoExistente ? (
+              <div>
+                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Evidência</div>
+                <img src={fotoExistente} alt="evidência da montagem" className="w-full h-40 object-cover rounded-xl border border-slate-700" />
+              </div>
+            ) : (!pecaMontada && (
+              <PhotoInput foto={fotoMont} onChange={setFotoMont} label="Foto da peça montada (opcional)" />
+            ))}
           </div>
         )}
       </Sheet>

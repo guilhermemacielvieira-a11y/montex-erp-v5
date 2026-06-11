@@ -13,7 +13,7 @@ import {
 import {
   PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar, ComposedChart, AreaChart, Area
+  RadialBarChart, RadialBar, ComposedChart
 } from 'recharts';
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';

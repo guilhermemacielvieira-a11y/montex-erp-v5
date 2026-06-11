@@ -1,88 +1,84 @@
 // ============================================================
-// PUSH NOTIFICATIONS (MOBILE) — registro de device + token
+// DESIGN SYSTEM MOBILE — Push Notifications (APNs via Capacitor)
 // ============================================================
-// Acessa @capacitor/push-notifications via runtime (window.Capacitor.
-// Plugins.PushNotifications) — SEM import estático — para degradar no
-// web/PWA (mesmo padrão de haptics.js / deeplinks.js).
-//
-// Responsabilidades AQUI: permissão + register() + persistir o token
-// APNs/FCM em `device_tokens` (Supabase). O ROTEAMENTO ao tocar a push
-// é tratado em deeplinks.js (listener global pushNotificationAction
-// Performed) — não duplicamos esse listener aqui.
-//
-// Edge Function que envia: supabase/functions/send-push (data:{ to }).
-// Setup completo: MOBILE-IOS-SETUP.md
+// Acessa o plugin @capacitor/push-notifications em RUNTIME
+// (window.Capacitor.Plugins.PushNotifications) — sem import estático,
+// para não quebrar o bundle web. No web/PWA (sem o plugin) fica
+// "indisponível" (instalar o app nativo). O token APNs é guardado em
+// localStorage para o backend direcionar os envios (ver MOBILE-IOS-SETUP).
+// O token também é gravado na tabela push_tokens (Supabase) para a Edge
+// Function send-push localizar os dispositivos.
 // ============================================================
 import { supabase } from '@/api/supabaseClient';
 
-function cap() {
-  try { return typeof window !== 'undefined' ? window.Capacitor : null; } catch { return null; }
-}
-function pushPlugin() {
-  const c = cap();
-  return c?.isNativePlatform?.() && c?.Plugins?.PushNotifications ? c.Plugins.PushNotifications : null;
-}
-function platform() {
-  try { return cap()?.getPlatform?.() || 'web'; } catch { return 'web'; }
-}
+const TOKEN_KEY = 'montex_push_token';
 
-// Disponível só em build nativo (iOS/Android com o plugin)
-export function isPushSupported() { return !!pushPlugin(); }
-
-let listenersReady = false;
-let currentEmail = null;
-
-// Persiste/atualiza o token do dispositivo para o usuário atual.
-async function saveToken(token) {
+// Registra/atualiza o device token na tabela push_tokens (best-effort).
+// Falha silenciosa (offline / RLS) — o token continua salvo em localStorage.
+async function registrarTokenBackend(token, extra = {}) {
   if (!token) return;
   try {
-    await supabase.from('device_tokens').upsert(
-      { token, user_email: currentEmail || null, platform: platform(), updated_at: new Date().toISOString() },
-      { onConflict: 'token' }
+    await supabase.from('push_tokens').upsert(
+      {
+        token,
+        platform: 'ios',
+        enabled: true,
+        device_info: typeof navigator !== 'undefined' ? navigator.userAgent?.slice(0, 200) : null,
+        ...extra,
+      },
+      { onConflict: 'token' },
     );
-  } catch (e) {
-    console.warn('[push] falha ao salvar token:', e?.message || e);
-  }
+  } catch { /* noop */ }
 }
 
-function ensureListeners() {
-  const Push = pushPlugin();
-  if (!Push || listenersReady) return;
-  listenersReady = true;
-  // Token emitido após register() — pode chegar de forma assíncrona.
-  Push.addListener('registration', (t) => saveToken(t?.value));
-  Push.addListener('registrationError', (e) => console.warn('[push] registrationError:', e));
-  // OBS: pushNotificationActionPerformed (toque → rota) fica em deeplinks.js.
-}
-
-// Solicita permissão e registra o device. Retorna { ok, reason }.
-export async function registerPush(userEmail) {
-  const Push = pushPlugin();
-  if (!Push) return { ok: false, reason: 'unsupported' };
-  currentEmail = userEmail || currentEmail;
+function plugin() {
   try {
-    let perm = await Push.checkPermissions();
-    if (perm.receive === 'prompt' || perm.receive === 'prompt-with-rationale') {
-      perm = await Push.requestPermissions();
+    const cap = typeof window !== 'undefined' ? window.Capacitor : null;
+    if (cap?.isNativePlatform?.() && cap?.Plugins?.PushNotifications) return cap.Plugins.PushNotifications;
+  } catch { /* noop */ }
+  return null;
+}
+
+export function isPushAvailable() {
+  return !!plugin();
+}
+
+export function getPushToken() {
+  try { return localStorage.getItem(TOKEN_KEY) || null; } catch { return null; }
+}
+
+// 'granted' | 'denied' | 'prompt' | 'indisponivel'
+export async function getPushStatus() {
+  const p = plugin();
+  if (!p) return 'indisponivel';
+  try {
+    const perm = await p.checkPermissions();
+    return perm?.receive || 'prompt';
+  } catch { return 'indisponivel'; }
+}
+
+export async function enablePush(onReceive, contexto = {}) {
+  const p = plugin();
+  if (!p) return { ok: false, reason: 'indisponivel' };
+  try {
+    let perm = await p.checkPermissions();
+    if (perm?.receive === 'prompt' || perm?.receive === 'prompt-with-rationale') {
+      perm = await p.requestPermissions();
     }
-    if (perm.receive !== 'granted') return { ok: false, reason: 'denied' };
-    ensureListeners();
-    await Push.register();
-    return { ok: true };
-  } catch (e) {
-    console.warn('[push] registerPush falhou:', e?.message || e);
-    return { ok: false, reason: 'error' };
-  }
-}
+    if (perm?.receive !== 'granted') return { ok: false, reason: 'negado' };
 
-// Desativa: remove o(s) token(s) deste device/usuário do servidor para
-// parar de receber. (Não há "unregister" padrão no plugin.)
-export async function removePush(userEmail) {
-  const email = userEmail || currentEmail;
-  try {
-    if (email) await supabase.from('device_tokens').delete().eq('user_email', email).eq('platform', platform());
-  } catch (e) {
-    console.warn('[push] removePush falhou:', e?.message || e);
+    p.addListener('registration', (token) => {
+      const val = token?.value || '';
+      try { localStorage.setItem(TOKEN_KEY, val); } catch { /* noop */ }
+      // contexto opcional: { role, obra_id } para direcionar os envios
+      registrarTokenBackend(val, contexto);
+    });
+    p.addListener('pushNotificationReceived', (notif) => {
+      try { onReceive?.(notif); } catch { /* noop */ }
+    });
+    await p.register();
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'erro' };
   }
-  return { ok: true };
 }

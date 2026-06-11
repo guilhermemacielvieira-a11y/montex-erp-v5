@@ -20,7 +20,7 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
   };
 
   return (
-    <Card className="border-blue-200 bg-blue-50">
+    <Card className="border-blue-500/30 bg-blue-500/10">
       <CardHeader className="flex flex-row items-start justify-between pb-3">
         <div>
           <CardTitle>Customizar Parâmetros</CardTitle>
@@ -30,7 +30,7 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
           variant="ghost"
           size="icon"
           onClick={onFechar}
-          className="text-blue-900 hover:bg-blue-100"
+          className="text-blue-200 hover:bg-blue-500/15"
         >
           <X className="h-4 w-4" />
         </Button>
@@ -40,7 +40,7 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
         {/* Período */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <Label htmlFor="periodo" className="text-slate-700 font-medium">
+            <Label htmlFor="periodo" className="text-slate-300 font-medium">
               Período de Análise
             </Label>
             <span className="text-sm font-semibold text-blue-600">{locais.periodo} dias</span>
@@ -62,7 +62,7 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
         {/* Nível de Confiança */}
         <div className="space-y-3">
           <div className="flex justify-between items-center">
-            <Label htmlFor="confianca" className="text-slate-700 font-medium">
+            <Label htmlFor="confianca" className="text-slate-300 font-medium">
               Nível de Confiança
             </Label>
             <span className="text-sm font-semibold text-blue-600">{Math.round(locais.nivelConfianca * 100)}%</span>
@@ -83,11 +83,11 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
 
         {/* Granularidade */}
         <div className="space-y-3">
-          <Label htmlFor="granularidade" className="text-slate-700 font-medium">
+          <Label htmlFor="granularidade" className="text-slate-300 font-medium">
             Granularidade dos Dados
           </Label>
           <Select value={locais.granularidade} onValueChange={(val) => setLocais({ ...locais, granularidade: val })}>
-            <SelectTrigger id="granularidade" className="bg-white">
+            <SelectTrigger id="granularidade" className="bg-slate-800">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -102,14 +102,14 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
 
         {/* Incluir Previsões */}
         <div className="space-y-3">
-          <Label className="text-slate-700 font-medium">Incluir Previsões IA</Label>
+          <Label className="text-slate-300 font-medium">Incluir Previsões IA</Label>
           <div className="flex gap-4">
             <button
               onClick={() => setLocais({ ...locais, incluirPrevisoes: true })}
               className={`flex-1 py-2 px-4 rounded border transition-all ${
                 locais.incluirPrevisoes
                   ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-400'
               }`}
             >
               Sim
@@ -119,7 +119,7 @@ export default function CustomizadorParametrosRelatorios({ parametros, onSalvar,
               className={`flex-1 py-2 px-4 rounded border transition-all ${
                 !locais.incluirPrevisoes
                   ? 'bg-blue-600 text-white border-blue-600'
-                  : 'bg-white text-slate-700 border-slate-300 hover:border-slate-400'
+                  : 'bg-slate-800 text-slate-300 border-slate-700 hover:border-slate-400'
               }`}
             >
               Não

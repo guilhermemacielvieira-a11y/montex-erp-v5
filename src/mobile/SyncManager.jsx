@@ -10,6 +10,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { toast } from 'react-hot-toast';
 import { useERP } from '@/contexts/ERPContext';
 import { getQueue, dequeue, QUEUE_EVENT } from './ui/offlineQueue';
+import { logSync } from './ui/syncLog';
 
 export default function SyncManager() {
   const erp = useERP() || {};
@@ -35,6 +36,7 @@ export default function SyncManager() {
       try {
         await fn(...op.args);
         dequeue(op.id);
+        logSync(op.label); // registra no histórico de sincronização
         done++;
       } catch {
         break; // voltou a falhar (offline/erro) → mantém o restante p/ depois

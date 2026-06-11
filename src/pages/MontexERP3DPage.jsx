@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
-import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY } from '../utils/montagemSync';
+import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
+import { parseIFCFile, IFC_TYPES } from '../utils/ifcParser';
 
 // Ícones SVG inline (evitam dependência de lucide-react sem impactar bundle)
 const Filter = ({ className = 'w-4 h-4' }) => (
@@ -21,22 +22,6 @@ const X = ({ className = 'w-4 h-4' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
 );
 
-// Load web-ifc dynamically from same-origin public folder to avoid Vercel build issues
-let _WebIFC = null;
-async function getWebIFC() {
-  if (_WebIFC) return _WebIFC;
-  if (!window.WebIFC) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = '/web-ifc-api-iife.js';
-      script.onload = resolve;
-      script.onerror = reject;
-      document.head.appendChild(script);
-    });
-  }
-  _WebIFC = window.WebIFC;
-  return _WebIFC;
-}
 
 // ==============================================
 // INDEXEDDB - Persistencia do arquivo IFC
@@ -214,41 +199,7 @@ const STATUS_CONFIG = {
 const loadConcluidasFromLS = loadConcluidasLocal;
 
 // IFC type IDs - CORRIGIDOS conforme web-ifc v0.0.76 runtime
-const IFC_TYPES = {
-  // Estrutura Principal (Etapa 1)
-  IFCBEAM: 753842376,
-  IFCCOLUMN: 843113511,        // CORRIGIDO (era 3495092785)
-  IFCPLATE: 3171933400,
-  IFCSLAB: 1529196076,
-  IFCWALL: 2391406946,
-  IFCMEMBER: 1073191201,       // CORRIGIDO (era 1411681673)
-  IFCROOF: 2016517767,
-  IFCSTAIRFLIGHT: 4252922144,
-  IFCRAILING: 2262370178,
-  IFCFOOTING: 900683007,
-  // Detalhes e Conexoes (Etapa 2)
-  IFCMECHANICALFASTENER: 377706215,
-  IFCELEMENTASSEMBLY: 4123344466,
-  IFCFASTENER: 647756555,
-  IFCDISCRETEACCESSORY: 1335981549,
-};
 
-const IFC_TYPE_NAMES = {
-  [IFC_TYPES.IFCBEAM]: 'Viga',
-  [IFC_TYPES.IFCCOLUMN]: 'Coluna',
-  [IFC_TYPES.IFCPLATE]: 'Chapa',
-  [IFC_TYPES.IFCSLAB]: 'Laje',
-  [IFC_TYPES.IFCWALL]: 'Parede',
-  [IFC_TYPES.IFCMEMBER]: 'Elemento',
-  [IFC_TYPES.IFCROOF]: 'Cobertura',
-  [IFC_TYPES.IFCSTAIRFLIGHT]: 'Escada',
-  [IFC_TYPES.IFCRAILING]: 'Guarda-corpo',
-  [IFC_TYPES.IFCFOOTING]: 'Fundacao',
-  [IFC_TYPES.IFCMECHANICALFASTENER]: 'Parafuso',
-  [IFC_TYPES.IFCELEMENTASSEMBLY]: 'Conjunto',
-  [IFC_TYPES.IFCFASTENER]: 'Fixador',
-  [IFC_TYPES.IFCDISCRETEACCESSORY]: 'Acessorio',
-};
 
 // ==============================================
 // Tradução IFC → tipo ERP (compartilhada entre o matcher e o filtro de Tipo).
@@ -329,314 +280,25 @@ function elementErpTipo(el) {
 }
 
 // Etapa 1: Estrutura principal (vigas, colunas, chapas)
-const PRIMARY_TYPES = [
-  IFC_TYPES.IFCBEAM,
-  IFC_TYPES.IFCCOLUMN,
-  IFC_TYPES.IFCPLATE,
-  IFC_TYPES.IFCSLAB,
-  IFC_TYPES.IFCWALL,
-  IFC_TYPES.IFCMEMBER,
-  IFC_TYPES.IFCROOF,
-  IFC_TYPES.IFCSTAIRFLIGHT,
-  IFC_TYPES.IFCRAILING,
-  IFC_TYPES.IFCFOOTING,
-];
 
 // Etapa 2: Conexoes e detalhes (parafusos, assemblies)
-const SECONDARY_TYPES = [
-  IFC_TYPES.IFCMECHANICALFASTENER,
-  IFC_TYPES.IFCELEMENTASSEMBLY,
-  IFC_TYPES.IFCFASTENER,
-  IFC_TYPES.IFCDISCRETEACCESSORY,
-];
 
-const ALL_TYPES = [...PRIMARY_TYPES, ...SECONDARY_TYPES];
 
 // ==============================================
 // IFC PARSER - Extrai geometria via web-ifc
 // ==============================================
 
 // Extrai geometria de um conjunto de tipos IFC
-function extractElementsForTypes(ifcAPI, modelID, types, existingCount, onProgress, pctStart, pctEnd) {
-  const elements = [];
-  let processed = 0;
-  const totalTypes = types.length;
-
-  for (const ifcType of types) {
-    const typeName = IFC_TYPE_NAMES[ifcType] || 'Outro';
-    const ids = ifcAPI.GetLineIDsWithType(modelID, ifcType);
-    const count = ids.size();
-
-    for (let i = 0; i < count; i++) {
-      const expressID = ids.get(i);
-      let props = {};
-      try {
-        props = ifcAPI.GetLine(modelID, expressID);
-      } catch (e) { /* some elements may fail */ }
-
-      const rawName = decodeIfcString(props.Name?.value || `Element-${expressID}`);
-      const globalId = props.GlobalId?.value || '';
-      const description = decodeIfcString(props.Description?.value || '');
-      const objectType = decodeIfcString(props.ObjectType?.value || '');
-      const tag = decodeIfcString(props.Tag?.value || '');
-
-      // Extrair marca real do Name (novo IFC Tekla 100%): "VIGA-MESTRA [VM50A]" -> "VM50A"
-      // Tambem aceita "COLUNA [C1A] A/1" -> "C1A"
-      let extractedMark = '';
-      const m = rawName.match(/\[([^\]]+)\]/);
-      if (m) extractedMark = m[1].trim();
-
-      // Tag tambem pode conter marca real (Tekla 19.0 grava no campo 8 do IFCELEMENTASSEMBLY)
-      // Ex: '...,'VM50A',$,.NOTDEFINED.'
-      const tagMark = tag.match(/^[A-Z]{1,3}\d{1,4}[A-Z]?$/i) ? tag : '';
-
-      const name = rawName;
-      // marca final priorizando Tag, depois Name[brackets]
-      const marcaFromIfc = tagMark || extractedMark || '';
-
-      // Get geometry
-      let geometry = null;
-      try {
-        const flatMesh = ifcAPI.GetFlatMesh(modelID, expressID);
-        if (flatMesh.geometries.size() > 0) {
-          const placedGeom = flatMesh.geometries.get(0);
-          const geomData = ifcAPI.GetGeometry(modelID, placedGeom.geometryExpressID);
-          const verts = ifcAPI.GetVertexArray(geomData.GetVertexData(), geomData.GetVertexDataSize());
-          const indices = ifcAPI.GetIndexArray(geomData.GetIndexData(), geomData.GetIndexDataSize());
-          const transform = placedGeom.flatTransformation;
-
-          geometry = { verts, indices, transform };
-          geomData.delete();
-        }
-        flatMesh.delete();
-      } catch (e) { /* geometry extraction can fail for some elements */ }
-
-      if (geometry) {
-        elements.push({
-          expressID,
-          ifcType,
-          typeName,
-          name,
-          globalId,
-          description,
-          objectType,
-          tag,
-          marcaFromIfc,           // marca extraida do Tag/Name (Tekla 100%)
-          geometry,
-          isPrimary: PRIMARY_TYPES.includes(ifcType),
-        });
-      }
-    }
-    processed++;
-    const pct = pctStart + Math.round((processed / totalTypes) * (pctEnd - pctStart));
-    const total = existingCount + elements.length;
-    onProgress?.(pct, `${typeName}: ${count} encontrados (${total} total)`);
-  }
-
-  return elements;
-}
 
 // Props uteis para extrair dos PropertySets (Tekla)
-const USEFUL_PSET_PROPS = new Set([
-  'Assembly mark', 'Part mark',
-  'Assembly/Cast unit Mark', 'Assembly/Cast unit name', 'Assembly/Cast unit position code',
-  'Profile', 'Class', 'Grade',
-  'Top elevation', 'Bottom elevation',
-  'Assembly/Cast unit top elevation', 'Assembly/Cast unit bottom elevation',
-]);
 
 // IFC usa escape \S\letra para acentos (encoding ISO-8859-1 short form)
 // Ex: TRELI\S\GA -> TRELIÇA, M\S\CO-FRANCESA -> MÃO-FRANCESA
-const IFC_ESCAPE_MAP = {
-  'A': 'Á', 'C': 'Ã', 'E': 'É', 'I': 'Í', 'O': 'Ó', 'U': 'Ú',
-  'a': 'á', 'c': 'ã', 'e': 'é', 'i': 'í', 'o': 'ó', 'u': 'ú',
-  'GA': 'Ç', 'ga': 'ç',
-  'CO': 'Ã', 'co': 'ã',
-};
-function decodeIfcString(s) {
-  if (!s || typeof s !== 'string') return s;
-  return s.replace(/\\S\\([A-Za-z]{1,2})/g, (m, letra) => {
-    // \S\GA -> Ç (mapeia G+A para Ç), \S\C -> Ã (apenas C)
-    if (IFC_ESCAPE_MAP[letra]) return IFC_ESCAPE_MAP[letra];
-    // fallback: tenta mapear primeira letra como acentuada
-    const single = letra[0];
-    if (single === 'C' || single === 'c') return single === 'C' ? 'Ã' : 'ã';
-    if (single === 'G' || single === 'g') return single === 'G' ? 'Ç' : 'ç';
-    return m; // mantém original se nao reconhecer
-  });
-}
 
 // Extrai PropertySets do IFC e retorna Map: expressID -> { propName: value }
 // IFC do Tekla expõe Pset_BeamCommon e similares com Assembly mark, Position code, etc.
-function extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, pctStart, pctEnd) {
-  const elementProps = new Map();
-  const IFCRELDEFINESBYPROPERTIES = WebIFC.IFCRELDEFINESBYPROPERTIES || 4186316022;
-  let relIds;
-  try {
-    relIds = ifcAPI.GetLineIDsWithType(modelID, IFCRELDEFINESBYPROPERTIES);
-  } catch (e) {
-    console.warn('Não foi possivel ler IFCRELDEFINESBYPROPERTIES:', e?.message);
-    return elementProps;
-  }
-  const total = relIds.size();
-  for (let i = 0; i < total; i++) {
-    const relId = relIds.get(i);
-    let rel;
-    try { rel = ifcAPI.GetLine(modelID, relId, true); } catch (e) { continue; }
-    if (!rel) continue;
-    // rel foi lido com flatten=true => RelatingPropertyDefinition JÁ vem expandido
-    // (não é um ref {value}). O bug anterior re-buscava via GetLine(psetId) e falhava,
-    // zerando TODOS os PropertySets (position code, Profile, etc.). Usar direto.
-    const pset = rel.RelatingPropertyDefinition;
-    if (!pset || !Array.isArray(pset.HasProperties) || pset.HasProperties.length === 0) continue;
-    const props = {};
-    for (const propRaw of pset.HasProperties) {
-      try {
-        // flatten => propRaw já é o objeto completo; fallback defensivo se vier como ref
-        const prop = (propRaw && propRaw.Name === undefined && propRaw.value !== undefined)
-          ? ifcAPI.GetLine(modelID, propRaw.value) : propRaw;
-        const name = prop?.Name?.value;
-        if (!name || !USEFUL_PSET_PROPS.has(name)) continue;
-        const val = prop?.NominalValue?.value ?? prop?.NominalValue;
-        if (val !== undefined && val !== null) props[name] = decodeIfcString(String(val).trim());
-      } catch (_) { /* prop inválida */ }
-    }
-    if (Object.keys(props).length === 0) continue;
-    const objects = rel.RelatedObjects || [];
-    for (const objRef of objects) {
-      // flatten => objRef é objeto com expressID; senão ref {value}
-      const eid = (objRef && objRef.expressID !== undefined) ? objRef.expressID
-                : (objRef && objRef.value !== undefined) ? objRef.value : objRef;
-      if (eid === undefined || eid === null) continue;
-      if (!elementProps.has(eid)) elementProps.set(eid, {});
-      Object.assign(elementProps.get(eid), props);
-    }
-    // Progresso
-    if (i % 2000 === 0) {
-      const pct = pctStart + Math.round((i / total) * (pctEnd - pctStart));
-      onProgress?.(pct, `Lendo propriedades IFC: ${i}/${total}`);
-    }
-  }
-  return elementProps;
-}
 
 // Parser principal com carregamento em 2 etapas
-async function parseIFCFile(fileBuffer, onProgress, onStageComplete) {
-  const WebIFC = await getWebIFC();
-  const ifcAPI = new WebIFC.IfcAPI();
-  ifcAPI.SetWasmPath('/');
-  await ifcAPI.Init();
-
-  // Validar IDs contra a biblioteca em runtime (seguranca contra hardcoded errados)
-  const typeNames = Object.keys(IFC_TYPES);
-  for (const name of typeNames) {
-    if (WebIFC[name] !== undefined && WebIFC[name] !== IFC_TYPES[name]) {
-      console.warn(`IFC_TYPES.${name} corrigido: ${IFC_TYPES[name]} -> ${WebIFC[name]}`);
-      IFC_TYPES[name] = WebIFC[name];
-    }
-  }
-
-  onProgress?.(5, 'WASM inicializado. Abrindo modelo...');
-
-  const data = new Uint8Array(fileBuffer);
-  const modelID = ifcAPI.OpenModel(data);
-  onProgress?.(15, 'Modelo aberto. Etapa 1: Estrutura principal...');
-
-  // ETAPA 1: Estrutura principal (vigas, colunas, chapas)
-  const primaryElements = extractElementsForTypes(
-    ifcAPI, modelID, PRIMARY_TYPES, 0, onProgress, 15, 55
-  );
-  onProgress?.(55, `Etapa 1 concluida: ${primaryElements.length} elementos estruturais`);
-
-  // Notifica que a estrutura principal esta pronta para renderizar
-  onStageComplete?.('primary', primaryElements);
-
-  // ETAPA 2: Detalhes e conexoes (parafusos, assemblies)
-  onProgress?.(57, 'Etapa 2: Conexoes e detalhes...');
-  const secondaryElements = extractElementsForTypes(
-    ifcAPI, modelID, SECONDARY_TYPES, primaryElements.length, onProgress, 57, 80
-  );
-  onProgress?.(80, `Etapa 2 concluida: ${secondaryElements.length} conexoes/detalhes`);
-
-  // ETAPA 3: Extrair PropertySets (Tekla expõe Assembly mark, Position code, Profile, etc.)
-  onProgress?.(82, 'Etapa 3: Lendo PropertySets...');
-  const elementProps = extractPropertySets(ifcAPI, WebIFC, modelID, onProgress, 82, 92);
-  let enriched = 0;
-  for (const el of [...primaryElements, ...secondaryElements]) {
-    const props = elementProps.get(el.expressID);
-    if (props) {
-      el.props = props;
-      enriched++;
-    }
-  }
-  console.log(`[IFC] ${enriched}/${primaryElements.length + secondaryElements.length} elementos enriquecidos com PropertySets`);
-
-  // ETAPA 4: Propagar props do Assembly pai para os filhos (IFCRELAGGREGATES)
-  // Tekla agrega elementos em IFCELEMENTASSEMBLY. Assembly tem position_code,
-  // mas seus filhos (DIAGONAL-VM, MONTANTE-VM, CHAPA, etc.) podem nao ter.
-  // Vamos propagar position_code + Assembly/Cast unit name do pai para os filhos.
-  onProgress?.(93, 'Etapa 4: Propagando dados de Assembly para filhos...');
-  try {
-    const IFCRELAGGREGATES = WebIFC.IFCRELAGGREGATES || 160246688;
-    const relIds = ifcAPI.GetLineIDsWithType(modelID, IFCRELAGGREGATES);
-    const total = relIds.size();
-    const allEls = new Map();
-    for (const el of [...primaryElements, ...secondaryElements]) allEls.set(el.expressID, el);
-    let propagated = 0;
-    for (let i = 0; i < total; i++) {
-      try {
-        const rel = ifcAPI.GetLine(modelID, relIds.get(i), true); // flatten => refs viram objetos
-        if (!rel) continue;
-        const parentRef = rel.RelatingObject;
-        if (!parentRef) continue;
-        // FIX: com flatten, a ref é objeto expandido — usar .expressID (não .value).
-        const parentId = parentRef.expressID ?? parentRef.value ?? parentRef;
-        const parentProps = elementProps.get(parentId);
-        // MARCA REAL do Assembly: vem no Name "TIPO [MARCA] GRID" (ex: "COLUNA [C1A] A/1")
-        // ou no pset 'Assembly/Cast unit Mark'. Ignora placeholders mascarados "(?)".
-        const parentName = parentRef?.Name?.value || '';
-        const markMatch = parentName.match(/\[([^\]]+)\]/);
-        let realMark = (markMatch ? markMatch[1].trim() : '')
-          || (parentProps && parentProps['Assembly/Cast unit Mark']) || '';
-        if (realMark.includes('(?)')) realMark = '';
-        const objects = rel.RelatedObjects || [];
-        for (const objRef of objects) {
-          const childId = objRef?.expressID ?? objRef?.value ?? objRef;
-          const child = allEls.get(childId);
-          if (!child) continue;
-          // Referência ao assembly pai (agrupamento por peça física).
-          child.assemblyId = parentId;
-          // Propagar props do pai (sem sobrescrever as próprias).
-          if (parentProps) child.props = { ...parentProps, ...(child.props || {}) };
-          // CRÍTICO: injetar a MARCA REAL do conjunto nos filhos, para a Strategy 0a
-          // casar marca→ERP. As peças têm 'Assembly mark' mascarado (TS0(?)); aqui
-          // sobrescrevemos com a marca real do IFCELEMENTASSEMBLY (C1A, C6A, TS100A…).
-          if (realMark) {
-            child.props = child.props || {};
-            child.props['Assembly/Cast unit Mark'] = realMark;
-            // CRÍTICO: também em marcaFromIfc — a peça tem Name "TESOURA" (sem marca)
-            // e Tag sem marca; o real está no Assembly pai. Sem isto, a camada de
-            // REDISTRIBUIÇÃO quantity-aware (que lê el.marcaFromIfc) fica inerte e
-            // a super-marcação de marcas com SPLIT (ex: TS59A) volta a acontecer.
-            child.marcaFromIfc = realMark;
-          }
-          propagated++;
-        }
-      } catch (_) { /* relacao invalida */ }
-    }
-    console.log(`[IFC] ${propagated} elementos receberam props propagadas de Assembly pai`);
-  } catch (e) {
-    console.warn('Erro ao propagar Assembly props:', e?.message);
-  }
-
-  const allElements = [...primaryElements, ...secondaryElements];
-  onProgress?.(98, `Finalizando... ${allElements.length} elementos, ${enriched} com props`);
-  ifcAPI.CloseModel(modelID);
-  ifcAPI.delete?.();
-  onProgress?.(100, `Concluido! ${allElements.length} elementos carregados`);
-
-  return allElements;
-}
 
 // ==============================================
 // THREE.JS SCENE MANAGER
@@ -951,6 +613,56 @@ class SceneManager {
 }
 
 // ==============================================
+// PARSE VIA WEB WORKER (off-main-thread)
+// ==============================================
+// Roda o parse do IFC no worker, mantendo a UI fluida durante os ~40s. O buffer
+// é CLONADO para o worker (postMessage sem transfer) — a página mantém o seu
+// para salvar/upload. A geometria volta TRANSFERIDA (sem cópia). Resolve com
+// { primary, secondary, correctedTypes }. Rejeita em qualquer falha → a chamadora
+// cai para o parse na main thread (parseIFCFile importado).
+function parseViaWorker(buffer, onProgress, onStage) {
+  return new Promise((resolve, reject) => {
+    let worker;
+    try {
+      // type:'module' — único modo do Vite transpilar `import` no worker em dev.
+      // (module workers não têm importScripts; getWebIFC usa fetch+eval lá.)
+      worker = new Worker(new URL('../workers/ifcWorker.js', import.meta.url), { type: 'module' });
+    } catch (e) {
+      reject(e instanceof Error ? e : new Error('Worker indisponível'));
+      return;
+    }
+    let primary = [];
+    let settled = false;
+    const cleanup = () => { try { worker.terminate(); } catch (_) {} };
+    worker.onmessage = (ev) => {
+      const m = ev.data || {};
+      if (m.type === 'progress') {
+        onProgress?.(m.pct, m.txt);
+      } else if (m.type === 'stage') {
+        primary = m.elements || [];
+        onStage?.('primary', primary);
+      } else if (m.type === 'done') {
+        settled = true;
+        cleanup();
+        resolve({ primary, secondary: m.elements || [], correctedTypes: m.correctedTypes });
+      } else if (m.type === 'error') {
+        settled = true;
+        cleanup();
+        reject(new Error(m.message || 'Erro no worker'));
+      }
+    };
+    worker.onerror = (e) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(e?.error || new Error(e?.message || 'Erro no worker IFC'));
+    };
+    // SEM transfer: clona o buffer p/ o worker; a página preserva o seu original.
+    worker.postMessage({ buffer });
+  });
+}
+
+// ==============================================
 // COMPONENTE PRINCIPAL
 // ==============================================
 
@@ -1038,7 +750,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
         const { data: expData } = await supabase
           .from('expedicoes')
-          .select('id, numero_romaneio, status, peso_total, pecas, pecas_ids, data_expedicao, destino')
+          .select('id, numero_romaneio, status, peso_total, pecas, data_expedicao, destino')
           .eq('obra_id', obraAtual);
 
         setExpedicoes(expData || []);
@@ -1521,13 +1233,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const pecasOrd = pecas.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
       let ai = 0;
       for (const p of pecasOrd) {
-        const montada = pecaIdsMontadas.has(String(p.id));
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        // Quantidade EFETIVAMENTE montada (parcial: 0..qtd; padrão legado = qtd)
+        const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtd);
         let consumido = 0;
         for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
           asmRedistribuidos.add(asmsOrd[ai]);
           const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
-          const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+          // Primeiras `montadasN` unidades pintam MONTADO; restante = status produção
+          const novoStatus = (q < montadasN) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
           for (const eid of elems) map.set(eid, novoStatus);
           consumido++;
         }
@@ -1594,14 +1308,56 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         const asmsOrd = asms.slice().sort((a, b) => a - b);
         let ai = 0;
         for (const { peca: p, falta } of itens) {
-          const montada = pecaIdsMontadas.has(String(p.id));
+          const qtdTotal = Math.max(1, parseInt(p.quantidade) || 1);
+          // Unidades montadas (parcial-aware). Quantas DA FALTA restam montadas
+          // depende de quanto a camada anterior já consumiu (consumoPorPeca).
+          const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtdTotal);
+          const jaConsumido = consumoPorPeca.get(String(p.id)) || 0;
+          const aindaMontar = Math.max(0, montadasN - jaConsumido);
           for (let q = 0; q < falta && ai < asmsOrd.length; q++, ai++) {
             const elems = elemsByAsm.get(asmsOrd[ai]) || [];
-            // Se peça está montada → MONTADO. Caso contrário, status produção.
-            const novoStatus = montada ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+            // Primeiras `aindaMontar` unidades desta camada pintam MONTADO
+            const novoStatus = (q < aindaMontar) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
             for (const eid of elems) map.set(eid, novoStatus);
           }
         }
+      }
+    }
+
+    // ============================================================
+    // CAMADA REDISTRIBUIÇÃO por MARCA REAL para elementos SEM assemblyId
+    // ============================================================
+    // Tekla mascarado: TERÇAs e afins têm Assembly mark "TC0(?)" e assemblyId
+    // NULO, mas marcaFromIfc vem do name ("TERÇA [TC161E]"). As camadas de
+    // redistribuição por assembly acima PULAM esses elementos (exigem assemblyId),
+    // então caíam no booleano da camada 1 → SUPER-MARCAÇÃO de peças PARCIAIS
+    // (ex.: TC161E 10/16 pintava as 16 unidades de verde). Aqui agrupamos por
+    // marcaFromIfc e pintamos só a PROPORÇÃO montada (Σ montadasN / Σ qtd) dos
+    // elementos; o restante recebe o status de PRODUÇÃO representativo (EM_OBRA etc.).
+    const elemsByMarcaSemAsm = new Map(); // marca -> [expressID]
+    for (const el of ifcElements) {
+      if (el.assemblyId != null) continue; // já tratado pelas camadas de assembly
+      const marca = (el.marcaFromIfc || '').toUpperCase().trim();
+      if (!marca || marca.length < 2 || !marcaIndexAll.has(marca)) continue;
+      if (!elemsByMarcaSemAsm.has(marca)) elemsByMarcaSemAsm.set(marca, []);
+      elemsByMarcaSemAsm.get(marca).push(el.expressID);
+    }
+    for (const [marca, eids] of elemsByMarcaSemAsm) {
+      const pecas = marcaIndexAll.get(marca);
+      if (!pecas || !pecas.length) continue;
+      let totMont = 0, totQtd = 0;
+      for (const p of pecas) {
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        totQtd += qtd;
+        totMont += getMontadasCount(concluidasMontagem?.[p.id], qtd);
+      }
+      if (totQtd <= 0) continue;
+      const statusProd = getRepresentativeStatus(pecas); // produção (nunca montado)
+      // nº de elementos a pintar MONTADO, proporcional à fração montada da marca
+      const nMont = Math.round(eids.length * (totMont / totQtd));
+      const eidsOrd = eids.slice().sort((a, b) => a - b);
+      for (let i = 0; i < eidsOrd.length; i++) {
+        map.set(eidsOrd[i], i < nMont ? 'MONTADO' : statusProd);
       }
     }
 
@@ -1709,18 +1465,32 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       byType: {},
       marcasMontadasDistintas: 0,
     };
-    const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
     for (const p of erpPecas) {
-      // Override montado via MontagemPage — MESMA fonte que MontagemPage (entity_store via concluidasMontagem)
-      const status = pecaIdsMontadas.has(String(p.id)) ? 'MONTADO' : p.status;
-      const qtd = p.quantidade || 1;
+      const qtd = Math.max(1, parseInt(p.quantidade) || 1);
       const peso = p.peso || 0;
       const marcaKey = (p.marca || '').toUpperCase().trim();
+      // Quantidade EFETIVAMENTE montada (parcial-aware). 0 se não está no entity_store.
+      const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtd);
       result.totalUnidades += qtd;
       result.totalPeso += peso;
-      const b = result.byStatus[status] || result.byStatus.NAO_INICIADO;
-      b.pecas++; b.unidades += qtd; b.peso += peso;
-      if (marcaKey) b.marcasSet.add(marcaKey);
+      // KPIs distribuem unidades entre MONTADO (parte montada) e status original (resto).
+      // Peças com montagem parcial CONTAM em ambos os status — sua marca aparece nos dois sets.
+      const statusBase = p.status || 'NAO_INICIADO';
+      if (montadasN > 0) {
+        const bM = result.byStatus.MONTADO;
+        bM.unidades += montadasN;
+        bM.peso += peso * (montadasN / qtd);
+        if (marcaKey) bM.marcasSet.add(marcaKey);
+        // Conta como peça MONTADO somente se 100% montada (manteve semântica antiga do peças count)
+        if (montadasN >= qtd) bM.pecas++;
+      }
+      if (montadasN < qtd) {
+        const b = result.byStatus[statusBase] || result.byStatus.NAO_INICIADO;
+        b.pecas++;  // peça ainda tem unidades pendentes → conta no status base
+        b.unidades += (qtd - montadasN);
+        b.peso += peso * ((qtd - montadasN) / qtd);
+        if (marcaKey) b.marcasSet.add(marcaKey);
+      }
       const tipo = p.tipo || 'SEM_TIPO';
       if (!result.byType[tipo]) result.byType[tipo] = { pecas: 0, unidades: 0, peso: 0 };
       result.byType[tipo].pecas++;
@@ -1851,23 +1621,42 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
       const sm = sceneManagerRef.current;
 
-      const elements = await parseIFCFile(buffer, (pct, txt) => {
+      // Callbacks compartilhados entre o caminho do worker e o fallback main-thread.
+      const onProgress = (pct, txt) => {
         setProgress(pct);
         setProgressText(txt);
-      }, (stage, stageElements) => {
-        // Callback de etapa - renderiza progressivamente
+      };
+      const onStage = (stage, stageElements) => {
+        // Renderiza a estrutura principal progressivamente assim que fica pronta.
         if (stage === 'primary' && sm) {
           setLoadingStage('primary');
-          // Carrega estrutura principal imediatamente
           sm.loadElements(stageElements);
           applyColorsToScene(sm, stageElements);
           setProgressText(`Estrutura principal renderizada (${stageElements.length} elementos). Carregando detalhes...`);
         }
-      });
+      };
+
+      // Parse OFF-MAIN-THREAD via Web Worker; em qualquer falha, fallback síncrono
+      // na main thread (mesmo parseIFCFile). O worker mantém a UI fluida nos ~40s.
+      let primary, secondary;
+      try {
+        const r = await parseViaWorker(buffer, onProgress, onStage);
+        primary = r.primary;
+        secondary = r.secondary;
+        // O worker tem sua própria instância de IFC_TYPES; propaga a correção
+        // de IDs de tipo (ex.: IFCMECHANICALFASTENER) para a do módulo da página.
+        if (r.correctedTypes) Object.assign(IFC_TYPES, r.correctedTypes);
+      } catch (werr) {
+        console.warn('[3D] Worker IFC indisponível — parse na main thread:', werr?.message || werr);
+        const all = await parseIFCFile(buffer, onProgress, onStage);
+        primary = all.filter(el => el.isPrimary);
+        secondary = all.filter(el => !el.isPrimary);
+      }
+
+      const elements = [...primary, ...secondary];
 
       // Etapa 2: Adicionar elementos secundarios (exceto parafusos por padrao)
-      const secondaryOnly = elements.filter(el => !el.isPrimary);
-      const withoutFasteners = secondaryOnly.filter(el => el.ifcType !== IFC_TYPES.IFCMECHANICALFASTENER);
+      const withoutFasteners = secondary.filter(el => el.ifcType !== IFC_TYPES.IFCMECHANICALFASTENER);
 
       if (sm && withoutFasteners.length > 0) {
         sm.addElements(withoutFasteners);
@@ -1960,6 +1749,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   }, [statusMap, pecaMap]);
 
   // Toggle Marcar/Desmarcar peça como Montada (sincroniza com MontagemPage)
+  // Marcação parcial: o 3D não tem UI de parcial — toggle ON marca "todas".
+  // Mas se a peça já estava parcial (ex.: montadas=2/3 vindo do MontagemPage),
+  // PRESERVAMOS o campo `montadas` para não regredir silenciosamente. Operador
+  // que queira completar usa o desktop (MontagemPage modal qtd) ou desmarcar
+  // a peça inteira pelo painel 3D.
   const toggleMontagem = useCallback((peca) => {
     if (!peca) return;
     const pecaId = String(peca.id);
@@ -1968,8 +1762,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (wasMontada) {
       delete next[pecaId];
     } else {
+      const prev = next[pecaId] || {};
       next[pecaId] = {
+        ...prev,
         montadoEm: new Date().toISOString(),
+        atualizadoEm: new Date().toISOString(),
         origem: 'MontexERP3DPage',
         marca: peca.marca,
       };

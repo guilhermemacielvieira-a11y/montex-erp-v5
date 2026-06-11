@@ -4,8 +4,13 @@
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 
-const SUPABASE_URL = 'https://trxbohjcwsogthabairh.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAwNzU1MTAsImV4cCI6MjA4NTY1MTUxMH0.QzEK1K0vQRpTBOWqNib-Mo1EEbTP6j21J1jWb07urxg';
+// Credenciais via ambiente (não hardcodar chaves).
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || 'https://trxbohjcwsogthabairh.supabase.co';
+const SUPABASE_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+if (!SUPABASE_KEY) {
+  console.error('❌ Defina SUPABASE_ANON_KEY no ambiente. Ex.: SUPABASE_ANON_KEY=... node migrate-to-supabase.js');
+  process.exit(1);
+}
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 

@@ -15,19 +15,19 @@
 //   - montex_global_metas      — configuração de metas
 //   - montex_global_alert_read — IDs de alertas marcados como lidos
 
-import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import {
-  DollarSign, TrendingUp, TrendingDown, Plus, Wallet, Receipt,
+  DollarSign, TrendingUp, Plus, Wallet, Receipt,
   ArrowUpRight, ArrowDownRight, MoreHorizontal, BarChart3, Search, Edit,
   FileText, CheckCircle2, Clock, Trash2, Calendar, Building2,
-  AlertTriangle, Shield, Lock, RotateCcw, Bell, Target, Flag,
-  Activity, Layers, Settings, Eye, AlertCircle, ChevronUp, ChevronDown,
+  AlertTriangle, Shield, Lock, RotateCcw, Bell, Target,
+  Activity, Settings, Eye, AlertCircle, ChevronUp, ChevronDown,
   Factory, HardHat, Zap, FileCheck, TrendingUp as TrendUp,
   Download, FileSpreadsheet, Heart, Sparkles, FlaskConical, Sliders,
   Gauge, Minus, Percent,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  AreaChart, Area, BarChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
   Legend, ComposedChart, ReferenceLine,
 } from 'recharts';
@@ -55,15 +55,24 @@ import toast from 'react-hot-toast';
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 import { exportToExcel } from '../utils/exportUtils';
 import jsPDF from 'jspdf';
+import {
+  LS_KEYS as GLOBAL_LS_KEYS,
+  loadBundleLocal, saveBundleLocal,
+  loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote, mergeBundles,
+} from '../utils/painelFinanceiroSync';
+import { syncReceitas } from '../utils/receitasSync';
+import {
+  formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
+  ehCheque, ehPago,
+  calcChequeOp, calcOpFin, calcScoreSaude, calcAlertaVencimento,
+} from '../utils/financeiroCalc';
 
 // ============================================================
 // CHAVES ISOLADAS
 // ============================================================
-const GLOBAL_MOVS_KEY       = 'montex_global_movs';
-const GLOBAL_OVERRIDES_KEY  = 'montex_global_overrides';
-const GLOBAL_HIDDEN_KEY     = 'montex_global_hidden';
-const GLOBAL_METAS_KEY      = 'montex_global_metas';
-const GLOBAL_ALERT_READ_KEY = 'montex_global_alert_read';
+// As 5 chaves locais do painel (montex_global_*) agora são gerenciadas pelo
+// utilitário painelFinanceiroSync (localStorage + Supabase entity_store).
+// Ver GLOBAL_LS_KEYS importado acima.
 
 // Chaves do sistema principal (somente LEITURA aqui)
 const RECEITAS_STORAGE_KEY   = 'montex_receitas_gerais';
@@ -100,50 +109,9 @@ const DEFAULT_METAS = {
 // ============================================================
 // HELPERS
 // ============================================================
-const formatCurrency = (value) => new Intl.NumberFormat('pt-BR', {
-  style: 'currency', currency: 'BRL', minimumFractionDigits: 0
-}).format(value || 0);
-
-// 🔧 FIX TIMEZONE: new Date('YYYY-MM-DD') é interpretado como UTC midnight
-// → vira 21:00 do dia anterior no fuso BRT (UTC-3). Aqui parseamos manualmente
-// como data LOCAL (ano, mês, dia) para evitar o deslocamento.
-const parseLocalDate = (dataStr) => {
-  if (!dataStr) return null;
-  if (dataStr instanceof Date) return dataStr;
-  const s = String(dataStr);
-  // Formato YYYY-MM-DD ou YYYY-MM-DDTHH:mm:ss → extrai e cria como local
-  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (m) {
-    return new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3]));
-  }
-  return new Date(s);
-};
-
-const formatDate = (date) => {
-  if (!date || date === '-') return '-';
-  try {
-    const d = parseLocalDate(date);
-    if (!d || isNaN(d.getTime())) return '-';
-    return d.toLocaleDateString('pt-BR');
-  } catch { return '-'; }
-};
-
-const diasAteVencimento = (dataStr) => {
-  if (!dataStr || dataStr === '-') return null;
-  try {
-    const venc = parseLocalDate(dataStr);
-    if (!venc || isNaN(venc.getTime())) return null;
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    venc.setHours(0,0,0,0);
-    return Math.round((venc - hoje) / (1000 * 60 * 60 * 24));
-  } catch { return null; }
-};
-
-// Detecta se uma movimentação é/refere-se a cheque
-const ehCheque = (mov) => {
-  const txt = `${mov.formaPagto || ''} ${mov.descricao || ''} ${mov.categoria || ''} ${mov.fornecedor || ''}`.toLowerCase();
-  return /\bcheque\b|\bch[ \-]?\d+\b|\bch\.\s?\d+/i.test(txt) || (mov.formaPagto || '').toLowerCase().includes('cheque');
-};
+// FIX Fase 4: formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
+// ehCheque, STATUS_QUITADO e ehPago foram extraídos para ../utils/financeiroCalc
+// (puros e testados em financeiroCalc.test.js) — importados acima.
 
 const ETAPA_LABELS = { fabricacao: 'Fabricação', montagem: 'Montagem' };
 
@@ -185,7 +153,6 @@ const lerLS = (key, defaultVal) => {
   try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : defaultVal; }
   catch { return defaultVal; }
 };
-const salvarLS = (key, val) => { try { localStorage.setItem(key, JSON.stringify(val)); } catch {} };
 
 // ============================================================
 // SUB-COMPONENTES
@@ -254,34 +221,127 @@ export default function PainelFinanceiroGlobal() {
   const { medicoes: todasMedicoes } = useMedicoes();
   const { obras } = useObras();
 
-  // ===== ESTADO LOCAL ISOLADO =====
-  const [movsLocais, setMovsLocais] = useState(() => lerLS(GLOBAL_MOVS_KEY, []));
-  const [overridesLocais, setOverridesLocais] = useState(() => lerLS(GLOBAL_OVERRIDES_KEY, {}));
-  const [hiddenLocais, setHiddenLocais] = useState(() => lerLS(GLOBAL_HIDDEN_KEY, []));
-  const [metas, setMetas] = useState(() => ({ ...DEFAULT_METAS, ...lerLS(GLOBAL_METAS_KEY, {}) }));
-  const [alertasLidos, setAlertasLidos] = useState(() => lerLS(GLOBAL_ALERT_READ_KEY, []));
+  // ===== ESTADO LOCAL ISOLADO (cache localStorage + sync Supabase entity_store) =====
+  // ✅ FIX C1: antes vivia SÓ em localStorage → perda total ao trocar de máquina
+  // / limpar cache. Agora persiste também no Supabase (mesmo padrão montagemSync),
+  // com migração automática do que já existir localmente.
+  const initBundleRef = useRef(null);
+  if (initBundleRef.current === null) initBundleRef.current = loadBundleLocal();
+  const initBundle = initBundleRef.current;
 
-  useEffect(() => salvarLS(GLOBAL_MOVS_KEY, movsLocais), [movsLocais]);
-  useEffect(() => salvarLS(GLOBAL_OVERRIDES_KEY, overridesLocais), [overridesLocais]);
-  useEffect(() => salvarLS(GLOBAL_HIDDEN_KEY, hiddenLocais), [hiddenLocais]);
-  useEffect(() => salvarLS(GLOBAL_METAS_KEY, metas), [metas]);
-  useEffect(() => salvarLS(GLOBAL_ALERT_READ_KEY, alertasLidos), [alertasLidos]);
+  const [movsLocais, setMovsLocais] = useState(initBundle.movs);
+  const [overridesLocais, setOverridesLocais] = useState(initBundle.overrides);
+  const [hiddenLocais, setHiddenLocais] = useState(initBundle.hidden);
+  const [metas, setMetas] = useState({ ...DEFAULT_METAS, ...initBundle.metas });
+  const [alertasLidos, setAlertasLidos] = useState(initBundle.alertasLidos);
+
+  // Aplica um bundle (vindo do remoto ou de outra aba) aos 5 estados
+  const aplicarBundle = useCallback((b) => {
+    setMovsLocais(b.movs || []);
+    setOverridesLocais(b.overrides || {});
+    setHiddenLocais(b.hidden || []);
+    setMetas({ ...DEFAULT_METAS, ...(b.metas || {}) });
+    setAlertasLidos(b.alertasLidos || []);
+  }, []);
+
+  // Hidratação remota na montagem + migração inicial local→remoto
+  const hidratadoRef = useRef(false);
+  useEffect(() => {
+    let cancelado = false;
+    loadBundleRemote().then(remote => {
+      if (cancelado) return;
+      const local = loadBundleLocal();
+      if (bundleVazio(remote)) {
+        // Remoto nunca gravado: sobe o que já houver localmente (não perde nada)
+        if (!bundleVazio(local)) saveBundleRemote(local);
+      } else {
+        const { _savedAt, ...remoteClean } = remote;
+        const merged = mergeBundles(local, remoteClean);
+        if (JSON.stringify(merged) !== JSON.stringify(local)) {
+          saveBundleLocal(merged);
+          aplicarBundle(merged);
+        }
+        // Sobe a UNIAO p/ a nuvem: garante que lancamentos locais deste PC
+        // ainda nao sincronizados sejam persistidos (sem apagar os de outros).
+        if (JSON.stringify(merged) !== JSON.stringify(remoteClean)) {
+          saveBundleRemote(merged);
+        }
+      }
+      hidratadoRef.current = true;
+    }).catch(() => { hidratadoRef.current = true; });
+    return () => { cancelado = true; };
+  }, [aplicarBundle]);
+
+  // Persiste o bundle: localStorage imediato + Supabase com debounce.
+  // Só grava no remoto APÓS a hidratação, para não sobrescrever o servidor
+  // com os defaults locais durante o boot.
+  useEffect(() => {
+    const bundle = { movs: movsLocais, overrides: overridesLocais, hidden: hiddenLocais, metas, alertasLidos };
+    saveBundleLocal(bundle);
+    if (!hidratadoRef.current) return;
+    const t = setTimeout(() => saveBundleRemote(bundle), 800);
+    return () => clearTimeout(t);
+  }, [movsLocais, overridesLocais, hiddenLocais, metas, alertasLidos]);
+
+  // Sync REALTIME entre usuários: quando outro usuário grava na tabela do
+  // painel, recarrega o bundle do banco e aplica (visibilidade imediata).
+  useEffect(() => {
+    const unsub = subscribeRemote(async () => {
+      const remote = await loadBundleRemote();
+      if (remote) { const merged = mergeBundles(loadBundleLocal(), remote); saveBundleLocal(merged); aplicarBundle(merged); }
+    });
+    return () => { if (typeof unsub === 'function') unsub(); };
+  }, [aplicarBundle]);
+
+  // Sync cross-tab: recarrega quando outra aba grava nas chaves do painel
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key && !Object.values(GLOBAL_LS_KEYS).includes(e.key)) return;
+      aplicarBundle(loadBundleLocal());
+    };
+    window.addEventListener('storage', handler);
+    return () => window.removeEventListener('storage', handler);
+  }, [aplicarBundle]);
+
+  // ✅ FIX A1: reatividade dos espelhos externos (receitas manuais + overrides
+  // de medições) que vivem em localStorage do sistema principal. Antes
+  // receitasManuaisExt dependia de [movsLocais] (errado) e receitasMedicoesExt
+  // lia RECEITAS_OVERRIDES_KEY sem nenhuma dep → dado velho. Este tick
+  // incrementa quando outra aba grava (evento storage) ou quando outro módulo
+  // grava na mesma aba (poll 3s, padrão de sync do app).
+  const [externalTick, setExternalTick] = useState(0);
+  // Auto-sync das receitas manuais com a nuvem (converge entre PCs).
+  useEffect(() => { syncReceitas().then((ch) => { if (ch) setExternalTick((t) => t + 1); }); }, []);
+  useEffect(() => {
+    const snapshot = () =>
+      (localStorage.getItem(RECEITAS_STORAGE_KEY) || '') + '|' +
+      (localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '');
+    const onStorage = (e) => {
+      if (!e.key || e.key === RECEITAS_STORAGE_KEY || e.key === RECEITAS_OVERRIDES_KEY) {
+        setExternalTick(t => t + 1);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    let last = snapshot();
+    const iv = setInterval(() => {
+      const cur = snapshot();
+      if (cur !== last) { last = cur; setExternalTick(t => t + 1); }
+    }, 3000);
+    return () => { window.removeEventListener('storage', onStorage); clearInterval(iv); };
+  }, []);
 
   // ===== UI STATE =====
   const [activeTab, setActiveTab] = useState('visao');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroObra, setFiltroObra] = useState('geral');
+  // Filtro por obra REMOVIDO: o painel é sempre "receitas (todas) + despesas
+  // (todas, exceto as de obra/GFO)". Não há mais seleção por obra.
   const [filtroMes, setFiltroMes] = useState('todos');         // YYYY-MM ou 'todos'
   const [filtroStatusTab, setFiltroStatusTab] = useState('todos'); // todos | pendente | atrasado | pago
   const [ordenarPor, setOrdenarPor] = useState('vencimento');  // vencimento | data | valor
   const [searchTerm, setSearchTerm] = useState('');
-  const [selecionadosIds, setSelecionadosIds] = useState([]);  // IDs selecionados na tabela
-
-  // Reset seleção quando filtros mudam (evita IDs órfãos no totalizador)
-  useEffect(() => {
-    setSelecionadosIds([]);
-  }, [filtroTipo, filtroMes, filtroStatusTab, filtroObra, filtroPeriodo, searchTerm]);
+  // FIX M5: a seleção é interna a cada MovsTable (cada aba é independente);
+  // não há mais estado compartilhado entre as tabelas Visão/Receitas/Despesas.
   const [dialogOpen, setDialogOpen] = useState(false);
   const [metasDialogOpen, setMetasDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
@@ -297,12 +357,13 @@ export default function PainelFinanceiroGlobal() {
   // ===== ESTADO INLINE: cheques no modal Nova Movimentação =====
   // Detecta quando user escolhe forma=Cheque OU cat=Cheque Trocado e expande
   const [chequeMode, setChequeMode] = useState(false);
+  // FIX M3: começa vazio (sem valores de demonstração 50000/130000)
   const [chequesList, setChequesList] = useState([
-    { valor: '50000', vencimento: '' },
-    { valor: '50000', vencimento: '' },
-    { valor: '50000', vencimento: '' },
+    { valor: '', vencimento: '' },
+    { valor: '', vencimento: '' },
+    { valor: '', vencimento: '' },
   ]);
-  const [valorLiquidoCheque, setValorLiquidoCheque] = useState('130000');
+  const [valorLiquidoCheque, setValorLiquidoCheque] = useState('');
 
   // ===== ESTADO MODAL OPERAÇÃO FINANCEIRA (cheques trocados / empréstimos / juros) =====
   const [opFinDialogOpen, setOpFinDialogOpen] = useState(false);
@@ -350,6 +411,7 @@ export default function PainelFinanceiroGlobal() {
       .filter(l => !l.obraId && !l.obra_id)
       .map(l => ({
         id: l.id,
+        ovKey: `d:${l.id}`, // FIX M2: chave de override/hidden com prefixo de fonte
         origem: 'externo',
         tipo: 'despesa',
         data: l.dataEmissao || l.data || l.createdAt || '',
@@ -374,7 +436,7 @@ export default function PainelFinanceiroGlobal() {
       const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
       const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
       const base = {
-        id: m.id, origem: 'externo', tipo: 'receita',
+        id: m.id, ovKey: `m:${m.id}`, origem: 'externo', tipo: 'receita',
         data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
         descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
         fornecedor: obraNome,
@@ -400,14 +462,14 @@ export default function PainelFinanceiroGlobal() {
       }
       return base;
     });
-  }, [todasMedicoes, obrasMap]);
+  }, [todasMedicoes, obrasMap, externalTick]);
 
   // ===== ESPELHO DE RECEITAS MANUAIS =====
   const receitasManuaisExt = useMemo(() => {
     try {
       const salvas = JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]');
       return salvas.map(r => ({
-        id: r.id, origem: 'externo', tipo: 'receita',
+        id: r.id, ovKey: `r:${r.id}`, origem: 'externo', tipo: 'receita',
         data: r.data || r.vencimento || '',
         descricao: r.descricao || '-',
         fornecedor: r.cliente || '-',
@@ -419,7 +481,7 @@ export default function PainelFinanceiroGlobal() {
         origemLabel: 'Receita Manual', origemObra: false,
       }));
     } catch { return []; }
-  }, [movsLocais]);
+  }, [externalTick]);
 
   // ===== MOVS LOCAIS NORMALIZADAS =====
   const movsLocaisNorm = useMemo(() => {
@@ -434,30 +496,23 @@ export default function PainelFinanceiroGlobal() {
   const todasMovs = useMemo(() => {
     const externas = [...despesasExternas, ...receitasMedicoesExt, ...receitasManuaisExt];
     const externasComOv = externas
-      .filter(m => !hiddenLocais.includes(m.id))
+      // FIX M2: usa ovKey (prefixo de fonte) com fallback ao id legado (dados
+      // já gravados antes deste fix continuam funcionando)
+      .filter(m => !hiddenLocais.includes(m.ovKey) && !hiddenLocais.includes(m.id))
       .map(m => {
-        const ov = overridesLocais[m.id];
+        const ov = overridesLocais[m.ovKey] || overridesLocais[m.id];
         if (!ov) return m;
-        return { ...m, ...ov, id: m.id, origem: 'externo', origemModificado: true };
+        return { ...m, ...ov, id: m.id, ovKey: m.ovKey, origem: 'externo', origemModificado: true };
       });
     const todas = [...externasComOv, ...movsLocaisNorm];
 
-    let filtradas = todas;
-    if (filtroObra === 'fabrica') filtradas = todas.filter(m => !m.origemObra);
-    else if (filtroObra !== 'geral') filtradas = todas.filter(m => m.obraId === filtroObra);
-
-    return filtradas.sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
-  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais, filtroObra]);
-
-  // ===== OPÇÕES DE OBRA =====
-  const opcoesObra = useMemo(() => {
-    const ops = [
-      { value: 'geral', label: 'Visão Geral (Todas)' },
-      { value: 'fabrica', label: 'Financeiro Fábrica (Despesas)' },
-    ];
-    (obras || []).forEach(o => ops.push({ value: o.id, label: o.nome || o.name || o.id }));
-    return ops;
-  }, [obras]);
+    // Sem filtro por obra: o painel sempre consolida TUDO. As despesas de obra
+    // (GFO) já são excluídas na origem (despesasExternas filtra !obraId).
+    // FIX M1: ordena por data com parseLocalDate (evita shift de timezone). DESC.
+    return todas.sort((a, b) =>
+      (parseLocalDate(b.data)?.getTime() || 0) - (parseLocalDate(a.data)?.getTime() || 0)
+    );
+  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais]);
 
   // ===== FILTRO PERÍODO =====
   const filtrarPorPeriodo = useCallback((lista) => {
@@ -481,9 +536,9 @@ export default function PainelFinanceiroGlobal() {
     const despesas = movsPeriodo.filter(m => m.tipo === 'despesa');
     const totR = receitas.reduce((s, m) => s + (m.valor || 0), 0);
     const totD = despesas.reduce((s, m) => s + (m.valor || 0), 0);
-    const recRecebidas = receitas.filter(m => ['recebido','pago','paga'].includes(m.status)).reduce((s,m)=>s+(m.valor||0),0);
+    const recRecebidas = receitas.filter(ehPago).reduce((s,m)=>s+(m.valor||0),0);
     const recPendentes = totR - recRecebidas;
-    const despPagas = despesas.filter(m => m.status === 'pago').reduce((s,m)=>s+(m.valor||0),0);
+    const despPagas = despesas.filter(ehPago).reduce((s,m)=>s+(m.valor||0),0);
     const despPendentes = totD - despPagas;
     const lucro = totR - totD;
     const margem = totR > 0 ? (lucro / totR * 100) : 0;
@@ -505,8 +560,8 @@ export default function PainelFinanceiroGlobal() {
       diasVenc: diasAteVencimento(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data),
       _ehCheque: ehCheque(m),
     }));
-    const futurasReceitas = todasComDias.filter(m => m.tipo === 'receita' && m.diasVenc !== null && m.diasVenc >= 0 && m.diasVenc <= 90 && !['recebido','pago','paga'].includes(m.status));
-    const futurasDespesas = todasComDias.filter(m => m.tipo === 'despesa' && m.diasVenc !== null && m.diasVenc >= 0 && m.diasVenc <= 90 && m.status !== 'pago');
+    const futurasReceitas = todasComDias.filter(m => m.tipo === 'receita' && m.diasVenc !== null && m.diasVenc >= 0 && m.diasVenc <= 90 && !ehPago(m));
+    const futurasDespesas = todasComDias.filter(m => m.tipo === 'despesa' && m.diasVenc !== null && m.diasVenc >= 0 && m.diasVenc <= 90 && !ehPago(m));
 
     const receber30 = futurasReceitas.filter(m => m.diasVenc <= 30).reduce((s,m)=>s+(m.valor||0),0);
     const receber60 = futurasReceitas.filter(m => m.diasVenc <= 60).reduce((s,m)=>s+(m.valor||0),0);
@@ -565,32 +620,23 @@ export default function PainelFinanceiroGlobal() {
       if (dias === null) return;
 
       // Já pago/recebido → ignora
-      if (m.tipo === 'despesa' && m.status === 'pago') return;
-      if (m.tipo === 'receita' && ['recebido','pago','paga'].includes(m.status)) return;
+      if (ehPago(m)) return;
 
       const _ehCheque = ehCheque(m);
       const valorAlto = (m.valor || 0) >= metas.thresholdValorAlto;
       const ehOpFinanceira = !!m.operacaoFinanceiraId;
 
-      // Score = (urgência × valor) - quanto menor dias, maior score
-      // Cheques, valores altos e operações financeiras ganham boost
-      let urgenciaScore = 0;
-      if (dias < 0) urgenciaScore = 1000 + Math.abs(dias) * 10; // já vencido
-      else if (dias <= metas.alertaCriticoDias) urgenciaScore = 800 - dias * 50;
-      else if (dias <= metas.alertaAtencaoDias) urgenciaScore = 400 - dias * 20;
+      // Score/urgência/nível extraídos para calcAlertaVencimento (testado).
+      // Cheques, valores altos e operações financeiras ganham boost.
+      const aval = calcAlertaVencimento({
+        dias, valor: m.valor, ehCheque: _ehCheque, valorAlto, ehOpFinanceira,
+        alertaCriticoDias: metas.alertaCriticoDias, alertaAtencaoDias: metas.alertaAtencaoDias,
+      });
+      if (!aval) return; // fora da janela
+      const { score, nivel } = aval;
 
-      if (urgenciaScore === 0) return; // fora da janela
-
-      const score = urgenciaScore
-        + Math.log10(Math.max(1, m.valor)) * 100
-        + (_ehCheque ? 200 : 0)
-        + (valorAlto ? 150 : 0)
-        + (ehOpFinanceira ? 250 : 0); // operações financeiras têm prioridade máxima
-
-      let nivel;
-      if (dias < 0) nivel = 'vencido';
-      else if (dias <= metas.alertaCriticoDias) nivel = 'critico';
-      else nivel = 'atencao';
+      // Guard (Fase 4): descrição pode vir indefinida de dados externos malformados
+      const desc = m.descricao || '(sem descrição)';
 
       lista.push({
         id: `venc-${m.id}`,
@@ -604,10 +650,10 @@ export default function PainelFinanceiroGlobal() {
         ehOpFinanceira,
         opLabel: m.operacaoLabel,
         titulo: ehOpFinanceira
-          ? `💸 ${m.operacaoLabel || 'Op Financeira'} — ${m.descricao.split('—')[1]?.trim() || m.descricao}`
+          ? `💸 ${m.operacaoLabel || 'Op Financeira'} — ${desc.split('—')[1]?.trim() || desc}`
           : m.tipo === 'despesa'
-            ? `${_ehCheque ? '🏦 CHEQUE — ' : ''}A pagar: ${m.descricao}`
-            : `A receber: ${m.descricao}`,
+            ? `${_ehCheque ? '🏦 CHEQUE — ' : ''}A pagar: ${desc}`
+            : `A receber: ${desc}`,
         descricao: `${m.fornecedor || '-'} • ${formatCurrency(m.valor)} • Venc: ${formatDate(venc)}`,
         movId: m.id,
       });
@@ -635,7 +681,7 @@ export default function PainelFinanceiroGlobal() {
     const receitaMes = todasMovs.filter(m => {
       if (m.tipo !== 'receita') return false;
       const d = parseLocalDate(m.data || m.vencimento);
-      return d >= inicioMes && d <= fimMes && ['recebido','pago','paga'].includes(m.status);
+      return d >= inicioMes && d <= fimMes && ehPago(m);
     }).reduce((s,m)=>s+(m.valor||0),0);
     if (receitaMes < metas.receitaMinimaMensal * 0.8) {
       lista.push({
@@ -715,7 +761,7 @@ export default function PainelFinanceiroGlobal() {
       const d = parseLocalDate(m.data || m.vencimento);
       return d >= inicioMes && d <= fimMes;
     });
-    const receitaMes = movsMes.filter(m => m.tipo === 'receita' && ['recebido','pago','paga'].includes(m.status))
+    const receitaMes = movsMes.filter(m => m.tipo === 'receita' && ehPago(m))
       .reduce((s,m)=>s+(m.valor||0),0);
     const despesaMes = movsMes.filter(m => m.tipo === 'despesa').reduce((s,m)=>s+(m.valor||0),0);
     const margemReal = receitaMes > 0 ? ((receitaMes - despesaMes) / receitaMes * 100) : 0;
@@ -762,7 +808,7 @@ export default function PainelFinanceiroGlobal() {
     // Medições aprovadas ou pendentes com data futura = forecast
     const aprovadasNaoPagas = todasMovs.filter(m =>
       m.tipo === 'receita' &&
-      !['recebido','pago','paga'].includes(m.status) &&
+      !ehPago(m) &&
       m.valor > 0
     );
     const totalForecast = aprovadasNaoPagas.reduce((s,m)=>s+(m.valor||0),0);
@@ -771,52 +817,37 @@ export default function PainelFinanceiroGlobal() {
     const meses = [];
     for (let i = 0; i < 6; i++) {
       const mes = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1);
-      const label = mes.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
-      const naoVigentes = aprovadasNaoPagas.filter(m => {
-        const venc = parseLocalDate(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
-        return venc.getFullYear() === mes.getFullYear() && venc.getMonth() === mes.getMonth();
+      meses.push({
+        mes: mes.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+        forecast: 0, meta: metas.receitaMinimaMensal,
       });
-      const valor = naoVigentes.reduce((s,m)=>s+(m.valor||0),0);
-      meses.push({ mes: label, forecast: valor, meta: metas.receitaMinimaMensal });
     }
-    return { totalForecast, meses, qtd: aprovadasNaoPagas.length, items: aprovadasNaoPagas };
+    // FIX A2: antes o total somava TUDO mas as barras só pegavam itens cujo
+    // vencimento caía exatamente em um dos 6 meses → vencidas e >6m sumiam das
+    // barras e o total NÃO batia. Agora todo item cai em um bucket:
+    //   vencido/atrasado → bucket atual (0); além de 6 meses → último (5).
+    // Assim Σ(barras) === totalForecast.
+    let qtdVencidas = 0, qtdAlemDe6m = 0;
+    aprovadasNaoPagas.forEach(m => {
+      const venc = parseLocalDate(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+      let idx;
+      if (!venc || isNaN(venc.getTime())) idx = 0;
+      else idx = (venc.getFullYear() - hoje.getFullYear()) * 12 + (venc.getMonth() - hoje.getMonth());
+      if (idx < 0) { idx = 0; qtdVencidas++; }
+      else if (idx > 5) { idx = 5; qtdAlemDe6m++; }
+      meses[idx].forecast += (m.valor || 0);
+    });
+    // Rótulos honestos para buckets que agregam fora da janela
+    if (qtdVencidas > 0) meses[0].mes = `${meses[0].mes} +venc`;
+    if (qtdAlemDe6m > 0) meses[5].mes = `${meses[5].mes} +`;
+    return { totalForecast, meses, qtd: aprovadasNaoPagas.length, items: aprovadasNaoPagas, qtdVencidas, qtdAlemDe6m };
   }, [todasMovs, metas]);
 
   // ===== SCORE DE SAÚDE FINANCEIRA (0-100) =====
+  // Componentes/pesos do score documentados em ../utils/financeiroCalc (calcScoreSaude)
   const scoreSaude = useMemo(() => {
-    // Componentes (pesos):
-    //  - Margem operacional (25%): score 100 se margem >= 25%; 0 se <= 0%
-    //  - Liquidez 30d (25%): saldo30 / pagar30; score 100 se >= 1.5x; 0 se < 0.5x
-    //  - Receita vs Meta (20%): receitaMes / metaMin; score 100 se >= 1; 0 se <= 0.5
-    //  - Despesa vs Teto (15%): inverso; score 100 se despesa <= teto*0.9; 0 se > teto*1.2
-    //  - Alertas críticos (15%): 100 se 0 alertas; -20 cada alerta crítico
-    const norm = (v, min, max) => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
-    const scoreMargem = norm(metasReal.margemReal, 0, 25);
-    const liquidez = futuro.pagar30 > 0 ? futuro.receber30 / futuro.pagar30 : (futuro.receber30 > 0 ? 2 : 1);
-    const scoreLiquidez = norm(liquidez, 0.5, 1.5);
-    const scoreReceita = norm(metasReal.receitaMes / Math.max(1, metas.receitaMinimaMensal), 0.5, 1.0);
-    const scoreDespesa = 100 - norm(metasReal.despesaMes / Math.max(1, metas.despesaTetoMensal), 0.9, 1.2);
     const alertasCriticos = alertas.filter(a => a.nivel === 'critico' || a.nivel === 'vencido').length;
-    const scoreAlertas = Math.max(0, 100 - alertasCriticos * 20);
-
-    const total = (scoreMargem * 0.25) + (scoreLiquidez * 0.25) + (scoreReceita * 0.20) + (scoreDespesa * 0.15) + (scoreAlertas * 0.15);
-    const score = Math.round(total);
-    let nivel, cor;
-    if (score >= 80) { nivel = 'Excelente'; cor = '#10b981'; }
-    else if (score >= 60) { nivel = 'Saudável'; cor = '#3b82f6'; }
-    else if (score >= 40) { nivel = 'Atenção'; cor = '#f59e0b'; }
-    else if (score >= 20) { nivel = 'Crítico'; cor = '#ef4444'; }
-    else { nivel = 'Severo'; cor = '#7f1d1d'; }
-    return {
-      score, nivel, cor,
-      componentes: [
-        { nome: 'Margem Operacional', score: Math.round(scoreMargem), peso: 25, atual: `${metasReal.margemReal.toFixed(1)}%`, meta: `${metas.margemMinima}%` },
-        { nome: 'Liquidez 30 dias', score: Math.round(scoreLiquidez), peso: 25, atual: `${liquidez.toFixed(2)}x`, meta: '≥ 1.5x' },
-        { nome: 'Receita vs Meta', score: Math.round(scoreReceita), peso: 20, atual: formatCurrency(metasReal.receitaMes), meta: formatCurrency(metas.receitaMinimaMensal) },
-        { nome: 'Despesa vs Teto', score: Math.round(scoreDespesa), peso: 15, atual: formatCurrency(metasReal.despesaMes), meta: `≤ ${formatCurrency(metas.despesaTetoMensal)}` },
-        { nome: 'Alertas Críticos', score: Math.round(scoreAlertas), peso: 15, atual: `${alertasCriticos} alerta(s)`, meta: '0' },
-      ],
-    };
+    return calcScoreSaude({ metasReal, futuro, metas, alertasCriticos });
   }, [metasReal, futuro, metas, alertas]);
 
   // ===== MESES DISPONÍVEIS (extraídos das movimentações para o seletor) =====
@@ -883,8 +914,12 @@ export default function PainelFinanceiroGlobal() {
       );
     }
 
-    // Aplicar filtro de período global (7d/30d/90d)
-    lista = filtrarPorPeriodo(lista);
+    // FIX M4: quando há um MÊS específico selecionado, ele tem precedência —
+    // o período relativo (7d/30d/90d) é ignorado para não se anularem (mês fora
+    // da janela = tabela vazia sem explicação). Sem mês, aplica o período.
+    if (filtroMes === 'todos') {
+      lista = filtrarPorPeriodo(lista);
+    }
 
     // Ordenação
     return [...lista].sort((a, b) => {
@@ -1001,11 +1036,11 @@ export default function PainelFinanceiroGlobal() {
       setDialogOpen(false);
       setEditando(null);
       setChequesList([
-        { valor: '50000', vencimento: '' },
-        { valor: '50000', vencimento: '' },
-        { valor: '50000', vencimento: '' },
+        { valor: '', vencimento: '' },
+        { valor: '', vencimento: '' },
+        { valor: '', vencimento: '' },
       ]);
-      setValorLiquidoCheque('130000');
+      setValorLiquidoCheque('');
       return;
     }
 
@@ -1027,7 +1062,8 @@ export default function PainelFinanceiroGlobal() {
         } : m));
         toast.success('Lançamento local atualizado');
       } else {
-        setOverridesLocais(prev => ({ ...prev, [editando.id]: {
+        // FIX M2: grava o override sob a chave de fonte (ovKey)
+        setOverridesLocais(prev => ({ ...prev, [editando.ovKey || editando.id]: {
           tipo: formData.tipo, descricao: formData.descricao,
           fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
           valor: valorNum, formaPagto: formData.formaPagto || '-',
@@ -1104,7 +1140,8 @@ export default function PainelFinanceiroGlobal() {
       setMovsLocais(prev => prev.filter(m => m.id !== id));
       toast.success('Lançamento local removido');
     } else {
-      setHiddenLocais(prev => [...prev, id]);
+      // FIX M2: oculta sob a chave de fonte (ovKey) com fallback ao id legado
+      setHiddenLocais(prev => [...prev, mov.ovKey || mov.id]);
       toast.success('Item ocultado localmente');
     }
     setDeleteConfirmId(null);
@@ -1130,9 +1167,18 @@ export default function PainelFinanceiroGlobal() {
     setResetDialogOpen(false);
   };
 
-  const handleRestaurarItem = (id) => {
-    setOverridesLocais(prev => { const { [id]: _, ...rest } = prev; return rest; });
-    setHiddenLocais(prev => prev.filter(h => h !== id));
+  // FIX M2: recebe o mov (ou id legado) e limpa override/hidden tanto pela
+  // chave de fonte (ovKey) quanto pelo id legado — restaura dados antigos e novos.
+  const handleRestaurarItem = (movOrId) => {
+    const keys = (movOrId && typeof movOrId === 'object')
+      ? [movOrId.ovKey, movOrId.id].filter(Boolean)
+      : [movOrId];
+    setOverridesLocais(prev => {
+      const next = { ...prev };
+      keys.forEach(k => { delete next[k]; });
+      return next;
+    });
+    setHiddenLocais(prev => prev.filter(h => !keys.includes(h)));
     toast.success('Item externo restaurado');
   };
 
@@ -1187,7 +1233,10 @@ export default function PainelFinanceiroGlobal() {
   }, [cenario, metasReal, metas, futuro.saldo30]);
 
   // ===== EXPORT EXCEL =====
-  const handleExportExcel = () => {
+  // FIX A3: 'filtrado' (padrão) exporta exatamente o que está na tabela (todos
+  // os filtros ativos: tipo/mês/status/busca/período/obra via movsTabela);
+  // 'tudo' exporta o conjunto completo (todasMovs).
+  const handleExportExcel = (escopo = 'filtrado') => {
     const cols = [
       { header: 'Tipo', key: 'tipo' },
       { header: 'Origem', key: 'origemLabel' },
@@ -1200,15 +1249,18 @@ export default function PainelFinanceiroGlobal() {
       { header: 'Vencimento', key: 'vencimento' },
       { header: 'Status', key: 'status' },
     ];
-    const rows = todasMovs.map(m => ({
+    const fonte = escopo === 'tudo' ? todasMovs : movsTabela;
+    const rows = fonte.map(m => ({
       ...m,
       data: formatDate(m.data),
       vencimento: m.vencimento && m.vencimento !== '-' ? formatDate(m.vencimento) : '-',
       valor: m.valor || 0,
     }));
     const ts = new Date().toISOString().split('T')[0];
-    exportToExcel(rows, cols, `painel-global-${ts}`);
-    toast.success('Excel gerado');
+    exportToExcel(rows, cols, `painel-global-${escopo}-${ts}`);
+    toast.success(escopo === 'tudo'
+      ? `Excel gerado — todas as ${rows.length} movimentações`
+      : `Excel gerado — ${rows.length} movimentações filtradas`);
   };
 
   // ===== EXPORT PDF EXECUTIVO =====
@@ -1332,22 +1384,10 @@ export default function PainelFinanceiroGlobal() {
   }, [formData.categoria]);
 
   // Cálculo automático da operação de cheque (face, líquido, juros, taxa)
-  const chequeOpCalc = useMemo(() => {
-    const valorTotalFace = chequesList.reduce((s, c) => s + (parseFloat(c.valor) || 0), 0);
-    const liquido = parseFloat(valorLiquidoCheque) || 0;
-    const juros = valorTotalFace - liquido;
-    const taxaPct = valorTotalFace > 0 ? (juros / valorTotalFace * 100) : 0;
-    // Prazo médio (assumindo cheques ordenados por data)
-    const chequesComData = chequesList.filter(c => c.vencimento).map(c => ({ ...c, dataObj: parseLocalDate(c.vencimento) }));
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    const prazoMedioDias = chequesComData.length > 0
-      ? chequesComData.reduce((s, c) => s + Math.max(0, (c.dataObj - hoje) / 86400000), 0) / chequesComData.length
-      : 30;
-    const prazoMedioMeses = Math.max(0.1, prazoMedioDias / 30);
-    const taxaAnualizada = prazoMedioMeses > 0 ? (taxaPct * 12 / prazoMedioMeses) : 0;
-    const isCaro = taxaAnualizada > metas.taxaAnualizadaMaxima;
-    return { valorTotalFace, liquido, juros, taxaPct, prazoMedioDias, prazoMedioMeses, taxaAnualizada, isCaro };
-  }, [chequesList, valorLiquidoCheque, metas.taxaAnualizadaMaxima]);
+  const chequeOpCalc = useMemo(
+    () => calcChequeOp({ chequesList, valorLiquido: valorLiquidoCheque, taxaAnualizadaMaxima: metas.taxaAnualizadaMaxima }),
+    [chequesList, valorLiquidoCheque, metas.taxaAnualizadaMaxima]
+  );
 
   // ===== ÚLTIMOS LANÇAMENTOS LOCAIS (criados aqui) =====
   // Agrupa por recorrenciaId/operacaoFinanceiraId para mostrar como "grupo" com qtd
@@ -1408,81 +1448,10 @@ export default function PainelFinanceiroGlobal() {
   }, [todasMovs, kpis.totD]);
 
   // ===== CÁLCULO DA OPERAÇÃO FINANCEIRA (preview em tempo real) =====
-  const opFinCalc = useMemo(() => {
-    const face = parseFloat(opFin.valorFace) || 0;
-    const liquido = parseFloat(opFin.valorLiquido) || 0;
-    const juros = face - liquido;
-    const taxaPct = face > 0 ? (juros / face * 100) : 0;
-    const valorParcela = opFin.parcelas > 0 ? face / opFin.parcelas : 0;
-
-    // Calcular datas das parcelas — usa parseLocalDate para evitar shift de timezone
-    const datasParcelas = [];
-    if (opFin.primeiroVencimento) {
-      const base = parseLocalDate(opFin.primeiroVencimento);
-      for (let i = 0; i < opFin.parcelas; i++) {
-        const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + (i * opFin.intervaloDias));
-        // Salvar como YYYY-MM-DD usando componentes locais (não toISOString que vira UTC)
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, '0');
-        const dd = String(d.getDate()).padStart(2, '0');
-        datasParcelas.push({
-          numero: i + 1,
-          data: `${yyyy}-${mm}-${dd}`,
-          dataLabel: d.toLocaleDateString('pt-BR'),
-          valor: valorParcela,
-        });
-      }
-    }
-    // Custo efetivo anualizado aproximado (taxa × 12 / (prazoMedio em meses))
-    const prazoMedio = opFin.parcelas > 0 ? ((opFin.parcelas + 1) / 2) * (opFin.intervaloDias / 30) : 1;
-    const taxaAnualizada = prazoMedio > 0 ? (taxaPct * 12 / prazoMedio) : 0;
-
-    // Operação é "cara" se taxa anualizada > threshold das metas
-    const isCaro = taxaAnualizada > metas.taxaAnualizadaMaxima;
-    // Severidade: leve (≤ 1.2x), médio (≤ 1.5x), grave (> 1.5x)
-    const nivelCaro = !isCaro ? null
-      : taxaAnualizada > metas.taxaAnualizadaMaxima * 1.5 ? 'grave'
-      : taxaAnualizada > metas.taxaAnualizadaMaxima * 1.2 ? 'medio'
-      : 'leve';
-
-    // IMPACTO ANTES × DEPOIS no caixa
-    // Antes: situação atual de saldo
-    const antes = {
-      saldo30: futuro.saldo30,
-      saldo60: futuro.saldo60,
-      saldo90: futuro.saldo90,
-      receber30: futuro.receber30,
-      pagar30: futuro.pagar30,
-    };
-    // Depois: aplica a operação na projeção
-    //  - Hoje: +liquido (receita) -juros (despesa) → entra liquido líquido no caixa hoje
-    //  - Próximos 30/60/90: somar parcelas em despesas conforme datas
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    let parcelas30 = 0, parcelas60 = 0, parcelas90 = 0;
-    datasParcelas.forEach(p => {
-      const d = parseLocalDate(p.data);
-      const dias = Math.round((d - hoje) / 86400000);
-      if (dias <= 30) parcelas30 += p.valor;
-      if (dias <= 60) parcelas60 += p.valor;
-      if (dias <= 90) parcelas90 += p.valor;
-    });
-    // Entrada de caixa hoje = liquido (não vai mudar saldoXd pois é "agora" — adicionamos como receita)
-    const depois = {
-      saldo30: antes.saldo30 + liquido - parcelas30,
-      saldo60: antes.saldo60 + liquido - parcelas60,
-      saldo90: antes.saldo90 + liquido - parcelas90,
-      receber30: antes.receber30 + liquido,
-      pagar30: antes.pagar30 + parcelas30,
-    };
-
-    return {
-      face, liquido, juros, taxaPct, valorParcela, datasParcelas,
-      prazoMedio, taxaAnualizada, isCaro, nivelCaro,
-      antes, depois,
-      deltaSaldo30: depois.saldo30 - antes.saldo30,
-      deltaSaldo90: depois.saldo90 - antes.saldo90,
-    };
-  }, [opFin, metas.taxaAnualizadaMaxima, futuro.saldo30, futuro.saldo60, futuro.saldo90, futuro.receber30, futuro.pagar30]);
+  const opFinCalc = useMemo(
+    () => calcOpFin({ opFin, taxaAnualizadaMaxima: metas.taxaAnualizadaMaxima, futuro }),
+    [opFin, metas.taxaAnualizadaMaxima, futuro.saldo30, futuro.saldo60, futuro.saldo90, futuro.receber30, futuro.pagar30]
+  );
 
   // ===== TIMELINE DE OPERAÇÕES FINANCEIRAS (próximos 12 meses) =====
   const opsFinanceirasTimeline = useMemo(() => {
@@ -1892,6 +1861,13 @@ export default function PainelFinanceiroGlobal() {
               <Lock className="h-3.5 w-3.5 mr-1" />
               Módulo Isolado
             </span>
+            <span
+              className="inline-flex items-center px-3 py-1 rounded-lg bg-slate-700/40 text-slate-300 text-xs font-medium border border-slate-600/40"
+              title="Espelha despesas da FÁBRICA (não-vinculadas a obra) + receitas de medições de TODAS as obras. Despesas de obra ficam na Gestão Financeira da Obra (GFO)."
+            >
+              <Building2 className="h-3.5 w-3.5 mr-1" />
+              Escopo: Fábrica + Receitas de Obra
+            </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{kpis.qtdTotal} mov.</span>
             <span className="text-emerald-400 text-xs">{kpis.qtdR} receitas</span>
@@ -1925,8 +1901,11 @@ export default function PainelFinanceiroGlobal() {
               <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={handleExportPDF}>
                 <FileText className="h-4 w-4 mr-2" />PDF Executivo
               </DropdownMenuItem>
-              <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={handleExportExcel}>
-                <FileSpreadsheet className="h-4 w-4 mr-2" />Excel Movimentações
+              <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleExportExcel('filtrado')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />Excel (filtro atual)
+              </DropdownMenuItem>
+              <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleExportExcel('tudo')}>
+                <FileSpreadsheet className="h-4 w-4 mr-2" />Excel (tudo)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -1984,19 +1963,9 @@ export default function PainelFinanceiroGlobal() {
 
       {/* FILTROS GLOBAIS */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-slate-400" />
-          <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[220px] bg-slate-800 border-slate-700 text-sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              {opcoesObra.map(o => <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <Calendar className="h-4 w-4 text-slate-400" />
+        <div className="flex items-center gap-2"
+          title={filtroMes !== 'todos' ? 'Período relativo desativado — há um mês específico selecionado (o mês tem precedência).' : undefined}>
+          <Calendar className={cn("h-4 w-4", filtroMes !== 'todos' ? "text-slate-600" : "text-slate-400")} />
           {[
             { value: 'geral', label: 'Geral' },
             { value: 'semanal', label: '7d' },
@@ -2004,8 +1973,10 @@ export default function PainelFinanceiroGlobal() {
             { value: 'trimestral', label: '90d' },
           ].map(p => (
             <button key={p.value} onClick={() => setFiltroPeriodo(p.value)}
+              disabled={filtroMes !== 'todos'}
               className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                filtroPeriodo === p.value ? "bg-purple-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
+                filtroMes !== 'todos' ? "bg-slate-800/50 text-slate-600 border border-slate-800 cursor-not-allowed opacity-50"
+                : filtroPeriodo === p.value ? "bg-purple-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
               )}>{p.label}</button>
           ))}
         </div>
@@ -2279,7 +2250,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onDeleteGroup={handleApagarGrupo} selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
+              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onDeleteGroup={handleApagarGrupo} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2359,7 +2330,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2764,7 +2735,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo selecionadosIds={selecionadosIds} setSelecionadosIds={setSelecionadosIds} />
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2797,7 +2768,10 @@ export default function PainelFinanceiroGlobal() {
                 </BarChart>
               </ResponsiveContainer>
               <p className="text-xs text-slate-500 mt-2">
-                Baseado em receitas pendentes/aprovadas com data de vencimento futura. Total: <strong className="text-purple-400">{formatCurrency(forecast.totalForecast)}</strong>
+                Receitas pendentes/aprovadas em aberto. A soma das barras é igual ao total.
+                {forecast.qtdVencidas > 0 && <> O mês atual <strong className="text-amber-400">+venc</strong> inclui {forecast.qtdVencidas} já vencida(s).</>}
+                {forecast.qtdAlemDe6m > 0 && <> O último mês <strong className="text-purple-400">+</strong> agrega {forecast.qtdAlemDe6m} além de 6 meses.</>}
+                {' '}Total: <strong className="text-purple-400">{formatCurrency(forecast.totalForecast)}</strong>
               </p>
             </CardContent>
           </Card>
@@ -3355,7 +3329,7 @@ export default function PainelFinanceiroGlobal() {
                   <div className="flex items-center justify-between mb-2">
                     <Label className="text-slate-300 text-xs">Cheques Recebidos / Emitidos</Label>
                     <Button type="button" variant="outline" size="sm" className="h-7 border-slate-700 text-slate-300 text-[10px]"
-                      onClick={() => setChequesList([...chequesList, { valor: '50000', vencimento: '' }])}>
+                      onClick={() => setChequesList([...chequesList, { valor: '', vencimento: '' }])}>
                       <Plus className="h-3 w-3 mr-1" />Add Cheque
                     </Button>
                   </div>
@@ -4096,13 +4070,22 @@ function FiltrosMovs({
 // ============================================================
 // SUB-COMPONENTE: Tabela de movimentações reutilizável
 // ============================================================
-function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo = false, selecionadosIds = [], setSelecionadosIds }) {
-  const idsSet = new Set(selecionadosIds || []);
+function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo = false }) {
+  // FIX M5: seleção é estado PRÓPRIO desta tabela (cada aba independente).
+  const [selecionadosIds, setSelecionadosIds] = useState([]);
+  // Remove da seleção ids que saíram da lista (filtro mudou) sem zerar tudo.
+  useEffect(() => {
+    setSelecionadosIds(prev => {
+      const next = prev.filter(id => rows.some(r => r.id === id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [rows]);
+
+  const idsSet = new Set(selecionadosIds);
   const todosSelecionados = rows.length > 0 && rows.every(r => idsSet.has(r.id));
   const algumSelecionado = rows.some(r => idsSet.has(r.id));
 
   const toggleTodos = () => {
-    if (!setSelecionadosIds) return;
     if (todosSelecionados) {
       setSelecionadosIds([]);
     } else {
@@ -4110,7 +4093,6 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo 
     }
   };
   const toggleUm = (id) => {
-    if (!setSelecionadosIds) return;
     setSelecionadosIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
@@ -4261,7 +4243,7 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo 
                       <Edit className="h-4 w-4 mr-2" />Editar (local)
                     </DropdownMenuItem>
                     {mov.origemModificado && (
-                      <DropdownMenuItem className="text-blue-300 focus:text-blue-200 focus:bg-slate-700" onClick={() => onRestore(mov.id)}>
+                      <DropdownMenuItem className="text-blue-300 focus:text-blue-200 focus:bg-slate-700" onClick={() => onRestore(mov)}>
                         <RotateCcw className="h-4 w-4 mr-2" />Restaurar original
                       </DropdownMenuItem>
                     )}

@@ -101,7 +101,7 @@ export default function RelatoriosFinanceiros() {
       {/* Header */}
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">Relatórios Financeiros</h1>
+          <h1 className="text-3xl font-bold text-white">Relatórios Financeiros</h1>
           <p className="text-slate-500 mt-1">Análise completa de fluxo de caixa, rentabilidade e despesas</p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -120,12 +120,12 @@ export default function RelatoriosFinanceiros() {
 
       {/* Cards de Resumo */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card className="border-emerald-200 bg-gradient-to-br from-emerald-50 to-emerald-100">
+        <Card className="border-emerald-500/30 bg-gradient-to-br from-emerald-50 to-emerald-100">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-emerald-700">Total Entradas</p>
-                <p className="text-2xl font-bold text-emerald-900 mt-1">
+                <p className="text-sm font-medium text-emerald-300">Total Entradas</p>
+                <p className="text-2xl font-bold text-emerald-200 mt-1">
                   R$ {entradas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </p>
               </div>
@@ -136,12 +136,12 @@ export default function RelatoriosFinanceiros() {
           </CardContent>
         </Card>
 
-        <Card className="border-red-200 bg-gradient-to-br from-red-50 to-red-100">
+        <Card className="border-red-500/30 bg-gradient-to-br from-red-50 to-red-100">
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-red-700">Total Saídas</p>
-                <p className="text-2xl font-bold text-red-900 mt-1">
+                <p className="text-sm font-medium text-red-300">Total Saídas</p>
+                <p className="text-2xl font-bold text-red-200 mt-1">
                   R$ {saidas.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </p>
               </div>
@@ -152,12 +152,12 @@ export default function RelatoriosFinanceiros() {
           </CardContent>
         </Card>
 
-        <Card className={saldo >= 0 ? 'border-blue-200 bg-gradient-to-br from-blue-50 to-blue-100' : 'border-orange-200 bg-gradient-to-br from-orange-50 to-orange-100'}>
+        <Card className={saldo >= 0 ? 'border-blue-500/30 bg-gradient-to-br from-blue-50 to-blue-100' : 'border-orange-500/30 bg-gradient-to-br from-orange-50 to-orange-100'}>
           <CardContent className="p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className={saldo >= 0 ? 'text-sm font-medium text-blue-700' : 'text-sm font-medium text-orange-700'}>Saldo do Contrato</p>
-                <p className={saldo >= 0 ? 'text-2xl font-bold text-blue-900 mt-1' : 'text-2xl font-bold text-orange-900 mt-1'}>
+                <p className={saldo >= 0 ? 'text-sm font-medium text-blue-300' : 'text-sm font-medium text-orange-300'}>Saldo do Contrato</p>
+                <p className={saldo >= 0 ? 'text-2xl font-bold text-blue-200 mt-1' : 'text-2xl font-bold text-orange-200 mt-1'}>
                   R$ {Math.abs(saldo).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                 </p>
               </div>
@@ -188,7 +188,7 @@ export default function RelatoriosFinanceiros() {
               })}
               variant="outline"
               size="sm"
-              className="gap-2 text-red-600 hover:text-red-700"
+              className="gap-2 text-red-600 hover:text-red-300"
             >
               <X className="h-4 w-4" />
               Limpar Filtros

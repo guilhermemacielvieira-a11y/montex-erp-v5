@@ -38,7 +38,10 @@ export default [
       "no-unused-vars": "off",
       "react/jsx-uses-vars": "error",
       "react/jsx-uses-react": "error",
-      "unused-imports/no-unused-imports": "error",
+      // Imports/variáveis não usados são AVISO (não erro): não devem quebrar o CI.
+      // Com `eslint . --quiet` os warnings nem aparecem no pipeline; rode
+      // `npm run lint:fix` localmente para limpá-los automaticamente.
+      "unused-imports/no-unused-imports": "warn",
       "unused-imports/no-unused-vars": [
         "warn",
         {

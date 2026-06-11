@@ -6,14 +6,16 @@ import { createClient } from '@supabase/supabase-js';
 // CONFIGURAÇÃO VIA VARIÁVEIS DE AMBIENTE
 // Nunca hardcode chaves no código-fonte!
 // ============================================
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-  || 'https://trxbohjcwsogthabairh.supabase.co';
-const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
-  || 'sb_publishable_8X7bPhCGF16mgZE8Z7fuVw_6pI74veM';
-// Service Role Key: bypassa RLS em tabelas restritivas (orcamentos, compras, etc.)
-// NOTA: Em produção com auth, mover para backend. Aqui o app não usa autenticação.
-const SUPABASE_SERVICE_KEY = import.meta.env.VITE_SUPABASE_SERVICE_KEY
-  || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRyeGJvaGpjd3NvZ3RoYWJhaXJoIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3MDA3NTUxMCwiZXhwIjoyMDg1NjUxNTEwfQ.DWv7azSBJop2iywuqh6J-g96ae9QH0IOHovny688pRs';
+const SUPABASE_URL = (import.meta.env.VITE_SUPABASE_URL
+  || 'https://trxbohjcwsogthabairh.supabase.co').trim();
+// .trim() defensivo: uma quebra de linha/espaco no valor da env var quebrava o
+// Realtime (apikey terminava em %0A no WebSocket). Trim elimina esse bug.
+const SUPABASE_ANON_KEY = (import.meta.env.VITE_SUPABASE_ANON_KEY
+  || 'sb_publishable_8X7bPhCGF16mgZE8Z7fuVw_6pI74veM').trim();
+// Service Role Key: NÃO existe mais no cliente (achado S1). Toda var VITE_* é
+// inlinada no bundle pelo Vite, então a service_role vazaria → CRUD total no
+// banco. As operações privilegiadas migraram para a Edge Function `admin-users`
+// (servidor), onde a chave nunca sai do ambiente. Ver invokeAdminFunction().
 
 // Validação de configuração
 if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
@@ -88,34 +90,47 @@ export const supabase = createClient(
 );
 
 // ============================================
-// CLIENTE SERVICE_ROLE (bypassa RLS para tabelas com políticas restritivas)
-// Usado para: orcamentos, compras, notas_fiscais, pedidos_material, maquinas, config_medicao
+// CLIENTE SERVICE_ROLE — REMOVIDO DO CLIENTE (achado S1)
 // ============================================
-const supabaseAdmin = SUPABASE_SERVICE_KEY
-  ? createClient(
-      SUPABASE_URL || 'https://placeholder.supabase.co',
-      SUPABASE_SERVICE_KEY,
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-        global: {
-          fetch: (url, options = {}) => {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 20000);
-            return fetch(url, {
-              ...options,
-              signal: controller.signal,
-            }).finally(() => clearTimeout(timeoutId));
-          }
-        }
-      }
-    )
-  : null;
-
-// Exporta o admin client (ou fallback para o anon se não configurado)
+// A service_role key NUNCA pode existir no bundle do cliente: ela bypassa
+// toda a RLS e dá CRUD total no banco. Antes era criada aqui a partir de
+// VITE_SUPABASE_SERVICE_KEY (que o Vite inlina no bundle) — vazamento crítico.
+//
+// Agora `supabaseAdmin` é SEMPRE null. As operações que exigiam service_role
+// foram movidas para a Edge Function `admin-users` (servidor), onde a chave
+// nunca sai do ambiente. Ver invokeAdminFunction() e supabase/functions/admin-users.
+//
+// O export permanece (= null) para compatibilidade: os consumidores usam o
+// padrão `supabaseAdmin || supabase`, que agora cai no cliente anon. As tabelas
+// "restritas" (orcamentos, compras, etc.) já são acessíveis pelo anon (RLS v10),
+// então continuam funcionando. user_profiles e auth.admin → via Edge Function.
+const supabaseAdmin = null;
 export { supabaseAdmin };
+
+/**
+ * Chama a Edge Function `admin-users` para operações privilegiadas.
+ * A service_role vive só no servidor; o cliente envia apenas a anon key.
+ * @param {string} action - list_profiles | create_user | update_profile | reset_password
+ * @param {object} [payload]
+ * @returns {Promise<object>} corpo JSON retornado pela função
+ */
+export async function invokeAdminFunction(action, payload = {}) {
+  const { data, error } = await supabase.functions.invoke('admin-users', {
+    body: { action, ...payload },
+  });
+  // functions.invoke devolve `error` para status != 2xx; o corpo (com a msg
+  // detalhada da função) vem em error.context quando disponível.
+  if (error) {
+    let detail = error.message;
+    try {
+      const body = await error.context?.json?.();
+      if (body?.error) detail = body.error;
+    } catch (_) { /* mantém error.message */ }
+    throw new Error(`admin-users/${action}: ${detail}`);
+  }
+  if (data?.error) throw new Error(`admin-users/${action}: ${data.error}`);
+  return data || {};
+}
 
 // ============================================
 // HELPER: Gera CRUD genérico para qualquer tabela
@@ -330,60 +345,29 @@ export const configMedicaoApi = createCrud('config_medicao', 'id', { useAdmin: t
 // FUNÇÕES DE GESTÃO DE USUÁRIOS
 // ============================================
 
+// user_profiles tem RLS por auth.uid()/role (v5) e NÃO é acessível pelo anon.
+// Como o serviço roda com service_role, estas operações vão pela Edge Function
+// `admin-users` (servidor) — o cliente não carrega mais a service key.
+
 export async function getAllUserProfiles() {
-  // user_profiles tem RLS que esconde linhas para usuários não-admin.
-  // Usar supabaseAdmin para garantir leitura completa no módulo de Gestão.
-  const client = supabaseAdmin || supabase;
-  const { data, error } = await client
-    .from('user_profiles')
-    .select('*')
-    .order('role', { ascending: true });
-  if (error) throw error;
-  return data || [];
+  const { profiles } = await invokeAdminFunction('list_profiles');
+  return profiles || [];
 }
 
 export async function updateUserProfile(id, updates) {
-  // RLS em user_profiles pode bloquear update vindo do cliente anônimo.
-  // Usar supabaseAdmin (service_role) garante a persistência.
-  const client = supabaseAdmin || supabase;
-  const { data, error } = await client
-    .from('user_profiles')
-    .update({ ...updates, updated_at: new Date().toISOString() })
-    .eq('id', id)
-    .select()
-    .single();
-  if (error) throw error;
-  if (!data) throw new Error('Update não retornou dados — verifique RLS policies em user_profiles');
-  return data;
+  const { profile } = await invokeAdminFunction('update_profile', { id, updates });
+  if (!profile) throw new Error('Update não retornou dados (admin-users/update_profile)');
+  return profile;
 }
 
 export async function createNewUser({ email, password, nome, role, cargo }) {
-  // Usa supabaseAdmin (service_role) pois auth.admin.createUser requer Bearer token com service_role
-  const adminClient = supabaseAdmin || supabase;
-  const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
-    email,
-    password,
-    email_confirm: true,
-    user_metadata: { nome, role }
-  });
-
-  if (authError) throw authError;
-
-  const { data: profile, error: profileError } = await adminClient
-    .from('user_profiles')
-    .insert([{
-      auth_id: authData.user.id,
-      email,
-      nome,
-      role,
-      cargo,
-      ativo: true
-    }])
-    .select()
-    .single();
-
-  if (profileError) throw profileError;
+  const { profile } = await invokeAdminFunction('create_user', { email, password, nome, role, cargo });
   return profile;
+}
+
+export async function resetUserPassword(authId, password) {
+  const { user } = await invokeAdminFunction('reset_password', { authId, password });
+  return user;
 }
 
 export async function toggleUserActive(id, ativo) {

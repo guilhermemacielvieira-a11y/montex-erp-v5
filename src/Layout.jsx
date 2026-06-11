@@ -6,13 +6,9 @@ import {
   LayoutDashboard,
   Calculator,
   FileSearch,
-  MessageSquare,
-  Wrench,
-  Users,
+  MessageSquare,  Users,
   Building2,
-  LogOut,
-  Menu,
-  X,
+  LogOut,  X,
   CheckSquare,
   DollarSign,
   Package,
@@ -44,23 +40,12 @@ import {
   ShoppingCart,
   FileSpreadsheet,
   ClipboardList,
-  AlertTriangle,
-  PanelLeftClose,
-  PanelLeft,
-  FileBarChart,
-  Bell,
-  Sun,
-  Moon,
-  Maximize2,
-  Command,
+  AlertTriangle,  PanelLeft,
+  FileBarChart,  Command,
   MoreHorizontal,
-  Home,
-  BarChart3,
-  Layers,
-  Star,
+  Home,  Star,
   Clock
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import NotificationCenter from '@/components/NotificationCenter';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -1097,7 +1082,7 @@ function LayoutContent({ children, currentPageName }) {
                 )}
               </div>
             </div>
-            {currentPageName !== 'SimuladorOrcamento' && currentPageName !== 'DespesasPage' && currentPageName !== 'ReceitasPage' && (
+            {currentPageName !== 'SimuladorOrcamento' && currentPageName !== 'DespesasPage' && currentPageName !== 'ReceitasPage' && currentPageName !== 'PainelFinanceiroGlobal' && (
               <div className="ml-4">
                 <SeletorObra compact />
               </div>

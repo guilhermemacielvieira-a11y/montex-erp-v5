@@ -1,7 +1,7 @@
 {
   "name": "montex-erp-premium",
   "private": true,
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "MONTEX ERP Premium - Sistema de Gestão Empresarial para Indústria de Estruturas Metálicas",
   "type": "module",
   "main": "electron/main.js",

@@ -3,7 +3,7 @@
 // Vinculação automática categoria/centro por NF+fornecedor
 // Exportação Excel conforme modelo Natureza de Aquisição
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect, useRef } from 'react';
 import toast from 'react-hot-toast';
 import {
   DollarSign,
@@ -76,6 +76,14 @@ import {
 } from 'recharts';
 import { useLancamentos, useObras } from '../contexts/ERPContext';
 import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
+import {
+  setCategoriaOverride,
+  removeCategoriaOverride,
+  aplicarOverridesNaLista,
+  syncOverridesParaSupabase,
+} from '../utils/despesasOverrides';
+import { categorizarSmart, categorizarDespesaSmart } from '../utils/categoriaInteligente';
+import MappingAprendidoModal from '../components/MappingAprendidoModal';
 import ImportarNFModal from '../components/ImportarNFModal';
 
 // ========== CONSTANTES ==========
@@ -200,8 +208,18 @@ const autoFillFromMapping = (fornecedor, nf) => {
   return null;
 };
 
-// Categorizar despesa automaticamente pela descrição
-const categorizarDespesa = (descricao) => {
+// Categorizar despesa automaticamente.
+// FASE 3 — usa pipeline inteligente: mapping > CFOP > NCM > keyword > fallback.
+// Mantemos esta função wrapper para compat com chamadas internas existentes
+// (XLSX import, NovaDespesa fallback). Aceita NCM/CFOP opcionais.
+const categorizarDespesa = (descricao, fornecedor, nf, ncm, cfop) => {
+  return categorizarDespesaSmart(descricao, fornecedor, nf, ncm, cfop);
+};
+
+// Mantém o keyword-match antigo apenas para referência/migração — pode ser
+// removido depois que tudo migrar para categorizarSmart.
+// eslint-disable-next-line no-unused-vars
+const categorizarPorKeywordLegado = (descricao) => {
   const d = (descricao || '').toUpperCase();
   if (d.includes('FOLHA') || d.includes('DIARIA') || d.includes('HORA EXTRA') || d.includes('FÉRIAS') || d.includes('FGTS') || d.includes('ACERTO')) return 'Mão de Obra';
   if (d.includes('CEMIG') || d.includes('COPASA') || d.includes('ENERGIA') || d.includes('LUZ') || d.includes('AGUA')) return 'Energia/Utilidades';
@@ -249,6 +267,31 @@ export default function DespesasPage() {
     notaFiscal: '',
     naturezaAquisicao: '',
   });
+  // Overrides de categoria (Fase 1) — força re-render quando o usuário edita.
+  // Incrementar `overridesVersion` invalida o useMemo de `despesas`.
+  const [overridesVersion, setOverridesVersion] = useState(0);
+  // Fase 3: modal de gerenciamento das regras de aprendizado (mapping CNPJ→cat)
+  const [showMappingModal, setShowMappingModal] = useState(false);
+
+  // Fase 2 — backfill best-effort: sincroniza overrides locais (Fase 1) ao
+  // Supabase quando a migration v12 já está ativa. Se a migration ainda não
+  // rodou (colunas inexistentes), o updateLancamento envia categoria_manual
+  // mas o transforms.js filtra a coluna → não há erro, só fica pendente até
+  // o próximo mount. `backfillFeitoRef` evita rodar em todo re-render.
+  const backfillFeitoRef = useRef(false);
+  useEffect(() => {
+    if (backfillFeitoRef.current) return;
+    if (!lancamentosSupabase || lancamentosSupabase.length === 0) return;
+    backfillFeitoRef.current = true;
+    syncOverridesParaSupabase(lancamentosSupabase, updateLancamento)
+      .then(r => {
+        if (r.sincronizados > 0) {
+          setOverridesVersion(v => v + 1);
+          console.log(`[Despesas] Backfill: ${r.sincronizados} categoria(s) sincronizada(s) ao Supabase. ${r.restantes} pendente(s).`);
+        }
+      })
+      .catch(e => console.warn('[Despesas] Backfill falhou:', e.message));
+  }, [lancamentosSupabase, updateLancamento]);
 
   // === MAPA DE OBRAS ===
   const obrasMap = useMemo(() => {
@@ -300,9 +343,18 @@ export default function DespesasPage() {
       return statusBruto || 'pendente';
     };
 
-    return filtrados.map(l => {
+    const lista = filtrados.map(l => {
       const statusBruto = l.status || 'pendente';
       const dataVenc = l.dataVencimento || l.data_vencimento || l.vencimento || '';
+      // Fase 2: se o Supabase já marca categoria_manual=true, NÃO normaliza —
+      // a categoria salva é exatamente o que o usuário escolheu. Caso contrário,
+      // aplica normalizarCategoria como antes (legado). O override local da
+      // Fase 1 ainda é aplicado depois e VENCE o resultado (cobre o gap
+      // enquanto a migration v12 não roda no Supabase).
+      const categoriaManualSupabase = l.categoria_manual === true || l.categoriaManual === true;
+      const categoriaResolvida = categoriaManualSupabase
+        ? (l.categoria || 'Outros')
+        : normalizarCategoria(l.categoria, l.descricao);
       return {
         id: l.id,
         dataEmissao: l.dataEmissao || l.data || l.createdAt || '',
@@ -310,7 +362,9 @@ export default function DespesasPage() {
         data: l.dataEmissao || l.data || l.createdAt || '',
         descricao: l.descricao || l.nome || '-',
         fornecedor: l.fornecedor || '-',
-        categoria: normalizarCategoria(l.categoria, l.descricao),
+        categoria: categoriaResolvida,
+        categoria_manual: categoriaManualSupabase,
+        categoria_origem: l.categoria_origem || l.categoriaOrigem || 'auto',
         centroCusto: l.centroCusto || l.centro_custo || 'Produção',
         valor: l.valor || 0,
         status: statusBruto,
@@ -323,7 +377,11 @@ export default function DespesasPage() {
         obraId: l.obraId || l.obra_id || null,
       };
     });
-  }, [lancamentosSupabase, filtroObra]);
+    // Aplica overrides de categoria (edições manuais persistidas em localStorage).
+    // Cobre o gap enquanto a migration v12 (categoria_manual) não foi aplicada,
+    // e cobre offline. Override local SOMA com categoria_manual=true do banco.
+    return aplicarOverridesNaLista(lista);
+  }, [lancamentosSupabase, filtroObra, overridesVersion]);
 
   // === AUTO-FILL: quando fornecedor ou NF muda ===
   const handleFornecedorChange = useCallback((novoFornecedor) => {
@@ -770,7 +828,7 @@ export default function DespesasPage() {
     const dados = {
       descricao: formData.descricao,
       fornecedor: formData.fornecedor || '-',
-      categoria: formData.categoria || categorizarDespesa(formData.descricao),
+      categoria: formData.categoria || categorizarDespesa(formData.descricao, formData.fornecedor, formData.notaFiscal),
       centroCusto: formData.centroCusto || 'Produção',
       valor: parseFloat(formData.valor),
       formaPagto: formData.formaPagto || '-',
@@ -786,8 +844,42 @@ export default function DespesasPage() {
 
     if (editando) {
       try {
-        await updateLancamento(editando.id, dados);
-        toast.success('Despesa atualizada!');
+        const categoriaOriginal = editando.categoria;
+        const categoriaNova = dados.categoria;
+        const categoriaMudou = categoriaNova && categoriaOriginal && categoriaNova !== categoriaOriginal;
+        // Fase 2: tenta enviar categoria_manual+categoria_origem ao Supabase.
+        // Se a migration v12 ainda não rodou, retry sem essas colunas para que
+        // a edição de categoria continue salvando — o override local (Fase 1)
+        // garante a persistência visual até a migration ser aplicada.
+        const dadosUpdate = categoriaMudou
+          ? { ...dados, categoriaManual: true, categoriaOrigem: 'manual' }
+          : dados;
+        try {
+          await updateLancamento(editando.id, dadosUpdate);
+        } catch (errCol) {
+          const msg = (errCol?.message || '').toLowerCase();
+          const semColuna = msg.includes('categoria_manual') || msg.includes('categoria_origem') ||
+                            (msg.includes('column') && msg.includes('does not exist'));
+          if (categoriaMudou && semColuna) {
+            console.warn('[Despesas] Migration v12 ausente — salvando sem categoria_manual. Override local cobre.');
+            await updateLancamento(editando.id, dados);
+          } else {
+            throw errCol;
+          }
+        }
+        if (categoriaMudou) {
+          // Fase 1 paralela: também grava override local + alimenta mapping
+          // CNPJ→categoria. Garante UI correta mesmo sem a migration v12 ativa.
+          setCategoriaOverride(editando.id, categoriaNova, {
+            categoria: categoriaOriginal,
+            fornecedor: dados.fornecedor,
+            notaFiscal: dados.notaFiscal,
+          });
+          setOverridesVersion(v => v + 1);
+          toast.success(`Categoria "${categoriaNova}" salva (correção manual aprendida)`);
+        } else {
+          toast.success('Despesa atualizada!');
+        }
       } catch (err) {
         console.error('Erro ao atualizar:', err);
         toast.error('Erro ao atualizar despesa');
@@ -889,6 +981,14 @@ export default function DespesasPage() {
           <Button variant="outline" className="border-amber-600/50 text-amber-400 hover:bg-amber-600/20" onClick={() => setShowImportNF(true)}>
             <FileText className="h-4 w-4 mr-2" />
             Importar NFe
+          </Button>
+          <Button
+            variant="outline"
+            className="border-cyan-600/50 text-cyan-300 hover:bg-cyan-600/10"
+            onClick={() => setShowMappingModal(true)}
+            title="Ver e gerenciar regras de categorização aprendidas (fornecedor → categoria)"
+          >
+            🧠 Regras
           </Button>
           <Button className="bg-gradient-to-r from-rose-500 to-red-500 hover:from-rose-600 hover:to-red-600" onClick={handleNovaDespesa}>
             <Plus className="h-4 w-4 mr-2" />
@@ -1005,7 +1105,37 @@ export default function DespesasPage() {
             {/* Linha 3: Categoria + Centro de Custo */}
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label className="text-slate-300">Categoria</Label>
+                <div className="flex items-center justify-between">
+                  <Label className="text-slate-300">Categoria</Label>
+                  {/* 💡 Sugestão Fase 3: roda pipeline categorizarSmart com o
+                      que já estiver preenchido. Quando a sugestão difere da
+                      categoria selecionada, mostra um botão pra aplicar. */}
+                  {(() => {
+                    if (!formData.descricao && !formData.fornecedor) return null;
+                    const sug = categorizarSmart({
+                      descricao: formData.descricao,
+                      fornecedor: formData.fornecedor,
+                      nf: formData.notaFiscal,
+                      ncm: formData.ncm,
+                      cfop: formData.cfop,
+                    });
+                    if (!sug.categoria || sug.categoria === formData.categoria) return null;
+                    const labelOrigem = {
+                      mapping: 'aprendido', cfop: 'CFOP', ncm: 'NCM',
+                      keyword: 'texto', fallback: '',
+                    }[sug.origem] || '';
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, categoria: sug.categoria })}
+                        title={`Pipeline: ${sug.origem} (${sug.confianca})`}
+                        className="text-[10px] px-2 py-0.5 rounded bg-cyan-500/10 text-cyan-300 border border-cyan-500/30 hover:bg-cyan-500/20 transition-colors"
+                      >
+                        💡 {sug.categoria}{labelOrigem ? ` · ${labelOrigem}` : ''}
+                      </button>
+                    );
+                  })()}
+                </div>
                 <Select value={formData.categoria} onValueChange={(v) => setFormData({...formData, categoria: v})}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700">
                     <SelectValue placeholder="Selecione" />
@@ -1449,10 +1579,25 @@ export default function DespesasPage() {
                     </TableCell>
                     <TableCell className="text-slate-300 text-sm">{despesa.fornecedor}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: getCategoriaColor(despesa.categoria) }}>
-                        <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(despesa.categoria) }} />
-                        {despesa.categoria}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: getCategoriaColor(despesa.categoria) }}>
+                          <div className="w-2 h-2 rounded-full mr-1" style={{ backgroundColor: getCategoriaColor(despesa.categoria) }} />
+                          {despesa.categoria}
+                        </Badge>
+                        {despesa._categoriaOverride && (
+                          <button
+                            onClick={() => {
+                              removeCategoriaOverride(despesa.id);
+                              setOverridesVersion(v => v + 1);
+                              toast.success('Edição manual removida — voltando à categorização automática');
+                            }}
+                            title={`Categoria editada manualmente em ${new Date(despesa._categoriaOverride.editadoEm).toLocaleDateString('pt-BR')}. Clique para desfazer.`}
+                            className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors leading-none"
+                          >
+                            ✏️ manual
+                          </button>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-slate-400 text-sm">{despesa.centroCusto}</TableCell>
                     <TableCell className="text-right font-semibold text-rose-400">{formatCurrency(despesa.valor)}</TableCell>
@@ -1538,6 +1683,12 @@ export default function DespesasPage() {
         onOpenChange={setShowImportNF}
         onImportar={handleImportarNF}
         obraId={(filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null}
+      />
+
+      {/* Modal Regras Aprendidas (Fase 3 — gerenciamento do mapping CNPJ→categoria) */}
+      <MappingAprendidoModal
+        open={showMappingModal}
+        onOpenChange={setShowMappingModal}
       />
     </div>
   );

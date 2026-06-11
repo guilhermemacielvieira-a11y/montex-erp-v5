@@ -82,7 +82,7 @@ export default function AgendamentoList({ agendamentos, onEdit, onDelete, isLoad
             </TableHeader>
             <TableBody>
               {agendamentos.map((agenda) => (
-                <TableRow key={agenda.id} className="hover:bg-slate-50">
+                <TableRow key={agenda.id} className="hover:bg-slate-900">
                   <TableCell className="font-medium">
                     <div>
                       <p className="text-sm font-semibold">{agenda.nome}</p>
@@ -93,9 +93,9 @@ export default function AgendamentoList({ agendamentos, onEdit, onDelete, isLoad
                   </TableCell>
                   <TableCell>
                     <Badge className={
-                      agenda.tipo_relatorio === 'producao' ? 'bg-blue-100 text-blue-700' :
-                      agenda.tipo_relatorio === 'financeiro' ? 'bg-green-100 text-green-700' :
-                      'bg-purple-100 text-purple-700'
+                      agenda.tipo_relatorio === 'producao' ? 'bg-blue-500/15 text-blue-300' :
+                      agenda.tipo_relatorio === 'financeiro' ? 'bg-green-500/15 text-green-300' :
+                      'bg-purple-500/15 text-purple-300'
                     }>
                       {agenda.tipo_relatorio === 'producao' ? 'Produção' :
                        agenda.tipo_relatorio === 'financeiro' ? 'Financeiro' : 'Ambos'}
@@ -138,7 +138,7 @@ export default function AgendamentoList({ agendamentos, onEdit, onDelete, isLoad
                     </div>
                   </TableCell>
                   <TableCell>
-                    <Badge className={agenda.ativo ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'}>
+                    <Badge className={agenda.ativo ? 'bg-emerald-500/15 text-emerald-300' : 'bg-slate-800 text-slate-600'}>
                       {agenda.ativo ? 'Ativo' : 'Inativo'}
                     </Badge>
                   </TableCell>
@@ -148,7 +148,7 @@ export default function AgendamentoList({ agendamentos, onEdit, onDelete, isLoad
                         variant="ghost"
                         size="icon"
                         onClick={() => onEdit(agenda)}
-                        className="text-orange-600 hover:bg-orange-50"
+                        className="text-orange-600 hover:bg-orange-500/10"
                       >
                         <Edit2 className="h-4 w-4" />
                       </Button>
@@ -156,7 +156,7 @@ export default function AgendamentoList({ agendamentos, onEdit, onDelete, isLoad
                         variant="ghost"
                         size="icon"
                         onClick={() => setDeleteId(agenda.id)}
-                        className="text-red-600 hover:bg-red-50"
+                        className="text-red-600 hover:bg-red-500/10"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>

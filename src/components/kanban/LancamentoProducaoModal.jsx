@@ -22,10 +22,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
-  X, Save, CheckCircle2, User, Calendar,
-  Scissors, Flame, Droplets, Paintbrush, Truck, Package,
-  Loader2, RefreshCw, Search, AlertCircle, Check, ArrowRight,
-  Copy, Layers
+  X, Save, CheckCircle2, User, Calendar, Flame, Droplets, Paintbrush, Truck,
+  Loader2, RefreshCw, Search, AlertCircle, Check, ArrowRight, Layers
 } from 'lucide-react';
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 import { useEquipes } from '@/contexts/ERPContext';

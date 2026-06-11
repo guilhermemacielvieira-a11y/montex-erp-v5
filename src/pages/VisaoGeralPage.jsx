@@ -14,17 +14,13 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Activity, AlertTriangle, BarChart3, Building2, Cpu, DollarSign,
-  Factory, Layers, Package, Paintbrush, Send, Shield, Target, Truck,
-  Users, Wrench, Zap, RefreshCw, ArrowUpRight, ArrowDownRight, TrendingUp,
-  TrendingDown, Clock, Award, Eye, CheckCircle2, Radio, Power, Flame,
-  Gauge,
+  Activity, AlertTriangle, Cpu, Shield, Truck, Wrench, RefreshCw, TrendingUp,
+  TrendingDown, CheckCircle2, Radio, Power,
 } from 'lucide-react';
 import {
-  AreaChart, Area, BarChart, Bar, LineChart, Line, ComposedChart,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell,
+  AreaChart, Area, BarChart, Bar, Line, ComposedChart,
+  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
-  ReferenceLine,
 } from 'recharts';
 import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
@@ -77,11 +73,17 @@ function useHistoricoProducao() {
         since.setDate(since.getDate() - 30);
         const { data: rows } = await supabase
           .from('producao_historico')
-          .select('id,peca_id,funcionario_nome,etapa_de,etapa_para,quantidade,data_movimentacao,obra_id')
-          .gte('data_movimentacao', since.toISOString())
-          .order('data_movimentacao', { ascending: true })
+          .select('id,peca_id,funcionario_nome,etapa_de,etapa_para,data_inicio,observacoes,created_at')
+          .gte('data_inicio', since.toISOString())
+          .order('data_inicio', { ascending: true })
           .limit(5000);
-        setData(rows || []);
+        // Normaliza p/ o formato esperado pela pagina: a tabela tem data_inicio
+        // (nao data_movimentacao) e a quantidade vive em observacoes ([QTD:n/total]).
+        const norm = (rows || []).map((h) => {
+          const m = /\[QTD:(\d+)/.exec(h.observacoes || '');
+          return { ...h, data_movimentacao: h.data_inicio || h.created_at, quantidade: m ? parseInt(m[1], 10) : 1 };
+        });
+        setData(norm);
       } catch (e) { /* ignore */ }
     })();
   }, []);

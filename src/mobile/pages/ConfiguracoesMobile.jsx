@@ -1,137 +1,134 @@
 // ============================================================
-// CONFIGURAÇÕES MOBILE — preferências reais do app
+// CONFIGURAÇÕES MOBILE - notificações, sincronização, sobre
 // ============================================================
-// Substitui o placeholder "Em breve". Preferências persistidas
-// (ui/settings.js): notificações (badge do sino) e haptics. Ações:
-// atualizar dados, limpar cache local e guia "Adicionar à tela inicial".
-// ============================================================
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
-import { Bell, BellRing, Vibrate, RefreshCw, Trash2, Smartphone, Info, ChevronRight, Loader2 } from 'lucide-react';
+import { Bell, RefreshCw, Info as InfoIcon, CheckCircle2, CloudOff, ChevronRight } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
-import { useERP } from '@/contexts/ERPContext';
+import { isPushAvailable, getPushStatus, enablePush } from '../ui/push';
+import { queueSize, QUEUE_EVENT } from '../ui/offlineQueue';
+import { getLastRefresh, formatRelative } from '../ui/lastRefresh';
+import { getSyncLog, SYNCLOG_EVENT } from '../ui/syncLog';
 import { useAuth } from '@/lib/AuthContext';
-import { useSettings, setSetting } from '../ui/settings';
-import { isPushSupported, registerPush, removePush } from '../ui/push';
-
-const APP_VERSION = '2.1.0';
-
-function Toggle({ on, onChange }) {
-  return (
-    <button
-      onClick={() => onChange(!on)}
-      role="switch" aria-checked={on}
-      className={`w-12 h-7 rounded-full p-0.5 transition flex-shrink-0 ${on ? 'bg-emerald-500' : 'bg-slate-700'}`}
-    >
-      <span className={`block w-6 h-6 rounded-full bg-white transition-transform ${on ? 'translate-x-5' : 'translate-x-0'}`} />
-    </button>
-  );
-}
-
-function Row({ icon: Icon, label, sub, right, onClick, danger }) {
-  const inner = (
-    <div className={`flex items-center gap-3 px-4 py-3.5 ${onClick ? 'active:bg-slate-800/60' : ''} transition`}>
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${danger ? 'bg-red-500/15' : 'bg-slate-800'}`}>
-        <Icon className={`w-5 h-5 ${danger ? 'text-red-400' : 'text-amber-400'}`} />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className={`text-sm font-semibold ${danger ? 'text-red-300' : ''}`}>{label}</div>
-        {sub && <div className="text-[11px] text-slate-400 mt-0.5">{sub}</div>}
-      </div>
-      {right}
-    </div>
-  );
-  return onClick ? <button onClick={onClick} className="w-full text-left">{inner}</button> : inner;
-}
 
 export default function ConfiguracoesMobile() {
-  const settings = useSettings();
-  const { reloadPecas, reloadEstoque, reloadExpedicoes } = useERP() || {};
-  const { user } = useAuth() || {};
-  const [refreshing, setRefreshing] = useState(false);
-  const [pushBusy, setPushBusy] = useState(false);
-  const pushSupported = isPushSupported();
+  const { user } = useAuth?.() || {};
+  const [pushStatus, setPushStatus] = useState(null);
+  const [pendentes, setPendentes] = useState(() => queueSize());
+  const [historico, setHistorico] = useState(() => getSyncLog());
 
-  // Liga/desliga push: pede permissão + registra o device, ou remove o token.
-  const togglePush = async (on) => {
-    if (pushBusy) return;
-    if (on) {
-      setPushBusy(true);
-      const r = await registerPush(user?.email);
-      setPushBusy(false);
-      if (r.ok) { setSetting('push', true); toast.success('Notificações push ativadas'); }
-      else if (r.reason === 'denied') toast.error('Permissão negada nas configurações do iOS');
-      else if (r.reason === 'unsupported') toast('Disponível apenas no app instalado', { icon: '📲' });
-      else toast.error('Falha ao ativar push');
-    } else {
-      setPushBusy(true);
-      await removePush(user?.email);
-      setPushBusy(false);
-      setSetting('push', false);
-      toast.success('Notificações push desativadas');
-    }
+  useEffect(() => {
+    getPushStatus().then(setPushStatus);
+    const upd = () => { setPendentes(queueSize()); setHistorico(getSyncLog()); };
+    window.addEventListener(QUEUE_EVENT, upd);
+    window.addEventListener('online', upd);
+    window.addEventListener(SYNCLOG_EVENT, upd);
+    return () => { window.removeEventListener(QUEUE_EVENT, upd); window.removeEventListener('online', upd); window.removeEventListener(SYNCLOG_EVENT, upd); };
+  }, []);
+
+  const ativarPush = async () => {
+    const r = await enablePush((notif) => {
+      toast(notif?.title || 'Nova notificação', { icon: '🔔' });
+    }, { role: user?.role || null });
+    if (r.ok) { toast.success('Notificações ativadas'); setPushStatus('granted'); }
+    else if (r.reason === 'indisponivel') toast('Disponível só no app instalado (iOS)', { icon: 'ℹ️' });
+    else if (r.reason === 'negado') { toast.error('Permissão negada — habilite nos Ajustes do iOS'); setPushStatus('denied'); }
+    else toast.error('Não foi possível ativar');
   };
 
-  const atualizar = async () => {
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) { toast.error('Sem conexão'); return; }
-    setRefreshing(true);
-    try {
-      await Promise.all([reloadPecas?.(), reloadEstoque?.(), reloadExpedicoes?.()]);
-      toast.success('Dados atualizados');
-    } catch { toast.error('Falha ao atualizar'); }
-    finally { setRefreshing(false); }
+  const sincronizarAgora = () => {
+    if (!pendentes) { toast('Nada para sincronizar', { icon: '✓' }); return; }
+    window.dispatchEvent(new Event('online')); // SyncManager esvazia a fila
   };
 
-  const limparCache = () => {
-    try {
-      // Remove apenas chaves do app (preserva login/Supabase). Mantém a fila
-      // offline para não perder escritas pendentes ainda não sincronizadas.
-      const manter = (k) => k.startsWith('sb-') || k.includes('offline') || k.includes('queue');
-      Object.keys(localStorage).filter(k => k.startsWith('montex_') && !manter(k)).forEach(k => localStorage.removeItem(k));
-      toast.success('Cache local limpo');
-    } catch { toast.error('Falha ao limpar cache'); }
-  };
+  const lastTs = getLastRefresh();
 
   return (
     <MobileLayout title="Configurações" back>
-      {/* Preferências */}
-      <div className="px-4 pt-4">
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Preferências</div>
-        <div className="bg-slate-900/70 border border-slate-800 rounded-2xl divide-y divide-slate-800">
-          <Row icon={Bell} label="Notificações" sub="Mostrar contador de alertas no sino"
-            right={<Toggle on={settings.notificacoes !== false} onChange={(v) => setSetting('notificacoes', v)} />} />
-          <Row icon={pushBusy ? Loader2 : BellRing} label="Notificações push"
-            sub={pushSupported ? 'Receber alertas mesmo com o app fechado' : 'Disponível apenas no app instalado (iOS/Android)'}
-            right={pushBusy
-              ? <Loader2 className="w-4 h-4 text-amber-400 animate-spin" />
-              : <Toggle on={!!settings.push && pushSupported} onChange={pushSupported ? togglePush : (() => toast('Instale o app para ativar', { icon: '📲' }))} />} />
-          <Row icon={Vibrate} label="Vibração (haptics)" sub="Feedback tátil nas ações"
-            right={<Toggle on={settings.haptics !== false} onChange={(v) => setSetting('haptics', v)} />} />
-        </div>
-      </div>
+      <div className="px-4 pt-4 space-y-5">
+        {/* Notificações */}
+        <Secao titulo="Notificações">
+          <Row icon={Bell} label="Notificações push" sub={pushSubtitle(pushStatus)}>
+            {pushStatus === 'granted' ? (
+              <span className="flex items-center gap-1 text-[12px] font-bold text-emerald-400"><CheckCircle2 className="w-4 h-4" /> Ativas</span>
+            ) : (
+              <button
+                onClick={ativarPush}
+                disabled={pushStatus === 'denied'}
+                className="text-[12px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 rounded-lg px-3 py-1.5 active:scale-95 transition disabled:opacity-50"
+              >Ativar</button>
+            )}
+          </Row>
+          {!isPushAvailable() && (
+            <div className="px-1 pt-1 text-[11px] text-slate-400">
+              Disponível no app instalado (iOS). Veja Perfil → "Instale o MONTEX".
+            </div>
+          )}
+        </Secao>
 
-      {/* Dados */}
-      <div className="px-4 pt-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Dados</div>
-        <div className="bg-slate-900/70 border border-slate-800 rounded-2xl divide-y divide-slate-800">
-          <Row icon={refreshing ? Loader2 : RefreshCw} label="Atualizar dados" sub="Recarrega produção, estoque e romaneios"
-            onClick={refreshing ? undefined : atualizar}
-            right={refreshing ? <Loader2 className="w-4 h-4 text-amber-400 animate-spin" /> : <ChevronRight className="w-4 h-4 text-slate-500" />} />
-          <Row icon={Trash2} label="Limpar cache local" sub="Mantém login e fila offline" danger onClick={limparCache} />
-        </div>
-      </div>
+        {/* Sincronização */}
+        <Secao titulo="Sincronização">
+          <Row icon={CloudOff} label="Ações pendentes" sub={pendentes ? `${pendentes} aguardando rede` : 'Tudo sincronizado'}>
+            <button
+              onClick={sincronizarAgora}
+              className="flex items-center gap-1 text-[12px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 rounded-lg px-3 py-1.5 active:scale-95 transition"
+            ><RefreshCw className="w-3.5 h-3.5" /> Sincronizar</button>
+          </Row>
+          {lastTs > 0 && (
+            <div className="px-1 pt-1 text-[11px] text-slate-400">Dados atualizados {formatRelative(lastTs)}.</div>
+          )}
+        </Secao>
 
-      {/* App */}
-      <div className="px-4 pt-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Aplicativo</div>
-        <div className="bg-slate-900/70 border border-slate-800 rounded-2xl divide-y divide-slate-800">
-          <Row icon={Smartphone} label="Adicionar à tela inicial" sub="Instalar como app (PWA)"
-            onClick={() => toast('No Safari: Compartilhar → Adicionar à Tela de Início', { icon: '📲', duration: 5000 })}
-            right={<ChevronRight className="w-4 h-4 text-slate-500" />} />
-          <Row icon={Info} label="Versão" right={<span className="text-sm text-slate-400">{APP_VERSION}</span>} />
-        </div>
+        {/* Atividade recente (histórico de sincronização) */}
+        {historico.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Atividade recente</div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl divide-y divide-slate-800">
+              {historico.slice(0, 8).map((h, i) => (
+                <div key={i} className="flex items-center gap-3 px-3.5 py-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                  <span className="flex-1 min-w-0 text-[13px] truncate">{h.label}</span>
+                  <span className="text-[11px] text-slate-400 whitespace-nowrap">sincronizado {formatRelative(h.ts)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Sobre */}
+        <Secao titulo="Sobre">
+          <Row icon={InfoIcon} label="MONTEX — Super App Operacional" sub="Produção · Montagem · Expedição · Estoque · Medição" />
+        </Secao>
       </div>
-      <div className="h-6" />
     </MobileLayout>
+  );
+}
+
+function pushSubtitle(status) {
+  if (status === 'granted') return 'Você recebe avisos de peça pronta, carga a conferir, etc.';
+  if (status === 'denied') return 'Permissão negada nos Ajustes do iOS';
+  if (status === 'indisponivel' || status === null) return 'Peça pronta, carga a conferir, estoque crítico';
+  return 'Toque em Ativar para receber avisos';
+}
+
+function Secao({ titulo, children }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{titulo}</div>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl divide-y divide-slate-800">{children}</div>
+    </div>
+  );
+}
+
+function Row({ icon: Icon, label, sub, children }) {
+  return (
+    <div className="flex items-center gap-3 p-3.5">
+      <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0"><Icon className="w-5 h-5 text-amber-400" /></div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold">{label}</div>
+        {sub && <div className="text-[11px] text-slate-400 leading-snug">{sub}</div>}
+      </div>
+      {children || <ChevronRight className="w-5 h-5 text-slate-500" />}
+    </div>
   );
 }

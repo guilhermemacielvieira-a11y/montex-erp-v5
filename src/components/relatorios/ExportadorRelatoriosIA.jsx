@@ -172,7 +172,7 @@ export default function ExportadorRelatoriosIA({ parametros, abaSelecionada }) {
         <div className="space-y-6">
           {/* Formatos */}
           <div className="space-y-3">
-            <Label className="text-slate-700 font-medium">Formatos</Label>
+            <Label className="text-slate-300 font-medium">Formatos</Label>
             <div className="space-y-2">
               {[
                 { id: 'pdf', label: 'PDF (Melhor para impressão)' },
@@ -197,7 +197,7 @@ export default function ExportadorRelatoriosIA({ parametros, abaSelecionada }) {
 
           {/* Opções */}
           <div className="space-y-3">
-            <Label className="text-slate-700 font-medium">Opções</Label>
+            <Label className="text-slate-300 font-medium">Opções</Label>
             <div className="space-y-2">
               {[
                 { id: 'incluirGraficos', label: 'Incluir Gráficos' },
