@@ -17,6 +17,7 @@
 // medições do sistema) continua igual, fora deste util.
 // ============================================
 import { supabase } from '../api/supabaseClient';
+if (typeof window !== "undefined") window.__PAINEL_SYNC_BUILD = "20260611";
 
 // Chaves localStorage isoladas (cache imediato/offline — mantidas idênticas)
 export const LS_KEYS = {
