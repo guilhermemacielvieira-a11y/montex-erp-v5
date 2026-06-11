@@ -26,6 +26,7 @@ export const LS_KEYS = {
   hidden:       'montex_global_hidden',
   metas:        'montex_global_metas',
   alertasLidos: 'montex_global_alert_read',
+  deletados:    'montex_global_deletados',
 };
 
 const TABLE = 'painel_financeiro_global';
@@ -50,6 +51,7 @@ export function loadBundleLocal() {
     hidden:       lerLS(LS_KEYS.hidden, []),
     metas:        lerLS(LS_KEYS.metas, {}),
     alertasLidos: lerLS(LS_KEYS.alertasLidos, []),
+    deletados:    lerLS(LS_KEYS.deletados, []),
   };
 }
 
@@ -60,6 +62,7 @@ export function saveBundleLocal(bundle) {
   if (bundle.hidden !== undefined)       salvarLS(LS_KEYS.hidden, bundle.hidden);
   if (bundle.metas !== undefined)        salvarLS(LS_KEYS.metas, bundle.metas);
   if (bundle.alertasLidos !== undefined) salvarLS(LS_KEYS.alertasLidos, bundle.alertasLidos);
+  if (bundle.deletados !== undefined)    salvarLS(LS_KEYS.deletados, bundle.deletados);
 }
 
 export function bundleVazio(b) {
@@ -69,22 +72,29 @@ export function bundleVazio(b) {
   const semHidden = !b.hidden || b.hidden.length === 0;
   const semMetas  = !b.metas || Object.keys(b.metas).length === 0;
   const semLidos  = !b.alertasLidos || b.alertasLidos.length === 0;
-  return semMovs && semOv && semHidden && semMetas && semLidos;
+  const semDel    = !b.deletados || b.deletados.length === 0;
+  return semMovs && semOv && semHidden && semMetas && semLidos && semDel;
 }
 
 // Une dois bundles (local + remoto) SEM perder dados: movs/hidden/alertasLidos
 // por UNIAO (dedupe por id); overrides/metas por merge (remoto vence no conflito).
 export function mergeBundles(a, b) {
   a = a || {}; b = b || {};
+  // Tombstones: uniao dos ids excluidos. Um mov apagado em QUALQUER fonte fica
+  // excluido no merge -> impede que hidratacao/realtime/cross-tab ressuscitem o
+  // lancamento (a UNIAO de movs sozinha nao expressa exclusao).
+  const deletados = Array.from(new Set([...(a.deletados || []), ...(b.deletados || [])]));
+  const delSet = new Set(deletados.map(String));
   const byId = new Map();
-  (a.movs || []).forEach((m) => { if (m && m.id != null) byId.set(m.id, m); });
-  (b.movs || []).forEach((m) => { if (m && m.id != null) byId.set(m.id, m); });
+  (a.movs || []).forEach((m) => { if (m && m.id != null && !delSet.has(String(m.id))) byId.set(m.id, m); });
+  (b.movs || []).forEach((m) => { if (m && m.id != null && !delSet.has(String(m.id))) byId.set(m.id, m); });
   return {
     movs: Array.from(byId.values()),
     overrides: { ...(a.overrides || {}), ...(b.overrides || {}) },
     hidden: Array.from(new Set([...(a.hidden || []), ...(b.hidden || [])])),
     metas: { ...(a.metas || {}), ...(b.metas || {}) },
     alertasLidos: Array.from(new Set([...(a.alertasLidos || []), ...(b.alertasLidos || [])])),
+    deletados,
   };
 }
 
@@ -123,15 +133,20 @@ export async function loadBundleRemote() {
       return null;
     }
 
-    const movs = []; const overrides = {}; const hidden = []; let metas = {}; const alertasLidos = [];
+    const movs = []; const overrides = {}; const hidden = []; let metas = {}; const alertasLidos = []; const deletados = [];
     for (const r of rows) {
       if (r.tipo === 'mov') movs.push(r.data);
       else if (r.tipo === 'override') overrides[r.ref_id] = r.data;
       else if (r.tipo === 'hidden') hidden.push(r.ref_id);
       else if (r.tipo === 'meta') metas = r.data || {};
+      else if (r.tipo === 'tombstone') deletados.push(r.ref_id);
       else if (r.tipo === 'alert_read' && r.usuario === userKey) alertasLidos.push(r.ref_id);
     }
-    return { movs, overrides, hidden, metas, alertasLidos };
+    // Aplica tombstones tambem no remoto: remove qualquer linha de mov que ainda
+    // exista mas ja tenha sido marcada como excluida (defesa extra contra corrida).
+    const delSet = new Set(deletados.map(String));
+    const movsFiltrados = movs.filter(m => m && !delSet.has(String(m.id)));
+    return { movs: movsFiltrados, overrides, hidden, metas, alertasLidos, deletados };
   } catch (e) {
     console.warn('[painelFinanceiroSync] load exc:', e.message);
     return null;
@@ -149,7 +164,15 @@ async function pruneByTipo(tipo, keepSet) {
 // realtime reinseria o lancamento (a tabela ainda tinha a linha) antes do prune
 // debounced (800ms) rodar — causava 'exclusao nao persiste'.
 export async function deleteMovRemote(id) {
-  try { await supabase.from(TABLE).delete().eq('row_id', `mov:${id}`); } catch { /* noop */ }
+  try {
+    await supabase.from(TABLE).delete().eq('row_id', `mov:${id}`);
+    // Tombstone gravado JA: mesmo que a re-hidratacao/realtime rode antes do save
+    // debounced, o mov nao volta (em qualquer aba ou dispositivo).
+    await supabase.from(TABLE).upsert(
+      [{ row_id: `tomb:${id}`, tipo: 'tombstone', ref_id: String(id), usuario: null, data: {}, updated_at: new Date().toISOString() }],
+      { onConflict: 'row_id' }
+    );
+  } catch { /* noop */ }
 }
 
 async function pruneAlerts(userKey, keepSet) {
@@ -188,6 +211,9 @@ export async function saveBundleRemote(bundle) {
     (bundle.alertasLidos || []).forEach((a) => {
       const rid = `alert:${userKey}:${a}`; keepAlert.add(rid);
       rows.push({ row_id: rid, tipo: 'alert_read', ref_id: String(a), usuario: userKey, data: {}, updated_at: now });
+    });
+    (bundle.deletados || []).forEach((delId) => {
+      rows.push({ row_id: `tomb:${delId}`, tipo: 'tombstone', ref_id: String(delId), usuario: null, data: {}, updated_at: now });
     });
 
     if (rows.length) {

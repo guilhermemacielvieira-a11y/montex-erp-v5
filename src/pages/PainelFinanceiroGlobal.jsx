@@ -236,6 +236,7 @@ export default function PainelFinanceiroGlobal() {
   const [hiddenLocais, setHiddenLocais] = useState(initBundle.hidden);
   const [metas, setMetas] = useState({ ...DEFAULT_METAS, ...initBundle.metas });
   const [alertasLidos, setAlertasLidos] = useState(initBundle.alertasLidos);
+  const [deletados, setDeletados] = useState(initBundle.deletados || []);
 
   // Aplica um bundle (vindo do remoto ou de outra aba) aos 5 estados
   const aplicarBundle = useCallback((b) => {
@@ -244,6 +245,7 @@ export default function PainelFinanceiroGlobal() {
     setHiddenLocais(b.hidden || []);
     setMetas({ ...DEFAULT_METAS, ...(b.metas || {}) });
     setAlertasLidos(b.alertasLidos || []);
+    setDeletados(b.deletados || []);
   }, []);
 
   // Hidratação remota na montagem + migração inicial local→remoto
@@ -278,12 +280,12 @@ export default function PainelFinanceiroGlobal() {
   // Só grava no remoto APÓS a hidratação, para não sobrescrever o servidor
   // com os defaults locais durante o boot.
   useEffect(() => {
-    const bundle = { movs: movsLocais, overrides: overridesLocais, hidden: hiddenLocais, metas, alertasLidos };
+    const bundle = { movs: movsLocais, overrides: overridesLocais, hidden: hiddenLocais, metas, alertasLidos, deletados };
     saveBundleLocal(bundle);
     if (!hidratadoRef.current) return;
     const t = setTimeout(() => saveBundleRemote(bundle), 800);
     return () => clearTimeout(t);
-  }, [movsLocais, overridesLocais, hiddenLocais, metas, alertasLidos]);
+  }, [movsLocais, overridesLocais, hiddenLocais, metas, alertasLidos, deletados]);
 
   // Sync REALTIME entre usuários: quando outro usuário grava na tabela do
   // painel, recarrega o bundle do banco e aplica (visibilidade imediata).
@@ -1145,7 +1147,8 @@ export default function PainelFinanceiroGlobal() {
     if (!mov) { setDeleteConfirmId(null); return; }
     if (mov.origem === 'local') {
       setMovsLocais(prev => prev.filter(m => m.id !== id));
-      deleteMovRemote(id); // apaga a linha na tabela JA (evita corrida de re-hidratacao)
+      setDeletados(prev => Array.from(new Set([...prev, id]))); // tombstone: impede ressurreicao via merge
+      deleteMovRemote(id); // apaga a linha + grava tombstone na tabela JA (evita corrida de re-hidratacao)
       toast.success('Lançamento local removido');
     } else {
       // FIX M2: oculta sob a chave de fonte (ovKey) com fallback ao id legado
@@ -1164,11 +1167,17 @@ export default function PainelFinanceiroGlobal() {
       return;
     }
     setMovsLocais(prev => prev.filter(m => m[grupoIdKey] !== grupoIdValue));
+    const idsRem = removidas.map(m => m.id);
+    setDeletados(prev => Array.from(new Set([...prev, ...idsRem]))); // tombstones do grupo
+    idsRem.forEach(rid => deleteMovRemote(rid));
     toast.success(`${removidas.length} lançamentos removidos do grupo`);
     setDeleteConfirmId(null);
   };
 
   const handleResetTudo = () => {
+    const idsAll = (movsLocais || []).map(m => m.id);
+    setDeletados(prev => Array.from(new Set([...prev, ...idsAll]))); // tombstones de tudo
+    idsAll.forEach(rid => deleteMovRemote(rid));
     setMovsLocais([]); setOverridesLocais({}); setHiddenLocais([]);
     setAlertasLidos([]);
     toast.success('Dados locais resetados');
