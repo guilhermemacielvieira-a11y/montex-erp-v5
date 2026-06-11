@@ -237,21 +237,39 @@ export function orcamentoToSupabase(record) {
   if (!record || typeof record !== 'object') return record;
   const result = {};
 
+  // PARTIAL-AWARE: só inclui colunas presentes no registro recebido.
+  // Antes, um update parcial (ex.: só { status } no drag & drop do pipeline)
+  // zerava itens (apagando setores/cálculos do Simulador), resetava
+  // data_criacao para hoje e anulava cliente_nome. Na criação, os DEFAULTs
+  // do banco cobrem os campos omitidos (status, data_criacao, valor_total).
+  const has = (...keys) => keys.some(k => record[k] !== undefined && record[k] !== null);
+
   // Campos diretos
   if (record.id) result.id = record.id;
   if (record.numero) result.numero = record.numero;
-  result.cliente_nome = record.cliente || record.clienteNome || record.cliente_nome || null;
-  result.cliente_id = record.clienteId || record.cliente_id || null;
-  result.obra_id = record.obraId || record.obra_id || null;
-  result.status = record.status || 'rascunho';
-  result.valor_total = record.valor_total || record.valorTotal || record.valor || 0;
-  result.data_criacao = record.data_criacao || record.dataCriacao
-    ? (record.data_criacao || record.dataCriacao).split('T')[0]
-    : new Date().toISOString().split('T')[0];
-  result.validade_ate = record.validade_ate || record.validade || null;
-  result.versao = record.versao || 1;
-  result.prazo_entrega = record.prazo_entrega || record.prazoEntrega || null;
-  result.condicoes_pagamento = record.condicoes_pagamento || record.condicoesPagamento || null;
+  if (has('cliente', 'clienteNome', 'cliente_nome')) {
+    result.cliente_nome = record.cliente || record.clienteNome || record.cliente_nome;
+  }
+  if (has('clienteId', 'cliente_id')) result.cliente_id = record.clienteId || record.cliente_id;
+  if (has('obraId', 'obra_id')) result.obra_id = record.obraId || record.obra_id;
+  if (has('status')) result.status = record.status;
+  if (has('valor_total', 'valorTotal', 'valor')) {
+    result.valor_total = record.valor_total ?? record.valorTotal ?? record.valor ?? 0;
+  }
+  if (record.data_criacao || record.dataCriacao) {
+    result.data_criacao = String(record.data_criacao || record.dataCriacao).split('T')[0];
+  }
+  if (has('validade_ate', 'validade')) {
+    // '' → null: coluna DATE rejeita string vazia
+    result.validade_ate = record.validade_ate || record.validade || null;
+  }
+  if (has('versao')) result.versao = record.versao;
+  if (has('prazo_entrega', 'prazoEntrega')) {
+    result.prazo_entrega = record.prazo_entrega || record.prazoEntrega;
+  }
+  if (has('condicoes_pagamento', 'condicoesPagamento')) {
+    result.condicoes_pagamento = record.condicoes_pagamento || record.condicoesPagamento;
+  }
 
   // Dados complexos serializados como JSON no campo 'itens'
   const dadosCompletos = {};
@@ -274,11 +292,21 @@ export function orcamentoToSupabase(record) {
   if (record.numeroPropostas) dadosCompletos.numeroPropostas = record.numeroPropostas;
   if (record.dataEmissao) dadosCompletos.dataEmissao = record.dataEmissao;
   if (record.dataValidade) dadosCompletos.dataValidade = record.dataValidade;
-  // Campo itens é jsonb no Supabase — enviar como objeto, não string
-  result.itens = dadosCompletos;
+  // Probabilidade de fechamento (pipeline comercial) — persistida no JSONB
+  if (record.probabilidade !== undefined && record.probabilidade !== null) {
+    dadosCompletos.probabilidade = Number(record.probabilidade);
+  }
+  // Campo itens é jsonb no Supabase — enviar como objeto, não string.
+  // Só incluir se houver dados complexos: evita que um update parcial
+  // sobrescreva o JSONB existente com objeto vazio.
+  if (Object.keys(dadosCompletos).length > 0) {
+    result.itens = dadosCompletos;
+  }
 
   // Observações
-  result.observacoes = record.observacoes || record.observacao || null;
+  if (has('observacoes', 'observacao')) {
+    result.observacoes = record.observacoes || record.observacao;
+  }
 
   return result;
 }
@@ -307,10 +335,18 @@ export function transformOrcamentoFromSupabase(record) {
     if (itens.numeroPropostas) base.numeroPropostas = itens.numeroPropostas;
     if (itens.dataEmissao) base.dataEmissao = itens.dataEmissao;
     if (itens.dataValidade) base.dataValidade = itens.dataValidade;
+    if (itens.probabilidade !== undefined) base.probabilidade = Number(itens.probabilidade);
   }
-  // Aliases
+  // Aliases (compatibilidade snake_case usada pelas páginas comerciais)
   base.cliente = base.clienteNome || base.cliente || '';
   base.valor = base.valorTotal || base.valor || 0;
+  base.valor_total = base.valorTotal ?? base.valor_total ?? base.valor ?? 0;
+  base.peso_estimado = base.pesoEstimado ?? base.peso_estimado ?? 0;
+  base.validade = base.validadeAte || base.validade || base.dataValidade || null;
+  base.projeto = base.projeto || base.nome || '';
+  if (base.probabilidade === undefined || base.probabilidade === null) {
+    base.probabilidade = 50;
+  }
   return base;
 }
 
