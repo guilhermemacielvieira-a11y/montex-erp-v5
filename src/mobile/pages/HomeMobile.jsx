@@ -13,7 +13,7 @@ import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart } from '@/utils/montagemSync';
-import { isRecebida, isDespesaPaga, isDespesaCancelada, isDespesaAtrasada, isEmFabrica, saiuDaFabrica, isEmObra, etapaDe } from '../dados';
+import { isRecebida, valorMedicao, isDespesaPaga, isDespesaCancelada, isDespesaAtrasada, isEmFabrica, saiuDaFabrica, isEmObra, etapaDe } from '../dados';
 
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtMoney = (n) => 'R$ ' + fmtBR(n, 0);
@@ -64,7 +64,7 @@ export default function HomeMobile() {
     const desPendentes = aPagar.length;
     const desValor = aPagar.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     // A receber = medições ainda não recebidas (status real do banco é 'paga')
-    const recPendentes = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const recPendentes = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + valorMedicao(r), 0);
     const desAtrasadas = despesas.filter(d => isDespesaAtrasada(d, hojeStr)).length;
     return { obrasAtivas, pecasMontadas, pecasProducao, desPendentes, desValor, recPendentes, desAtrasadas };
   }, [obras, pecasFiltradas, despesas, receitas, isTodas, concluidas]);

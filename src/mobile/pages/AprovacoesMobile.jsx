@@ -21,6 +21,7 @@ import { tap, success } from '../ui/haptics';
 import { confirmarBiometria } from '../ui/biometric';
 import { ensureOnline } from '../ui/online';
 import { useMedicoes, useOrcamentos, useCompras } from '@/contexts/ERPContext';
+import { valorMedicao } from '../dados';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
@@ -145,7 +146,7 @@ export default function AprovacoesMobile() {
               onOpen={() => { tap('light'); setDetalhe({ tipo: 'med', item: m }); }}
               titulo={m.numero || m.descricao || m.id}
               sub={`${m.obra || ''}${m.pesoMedido ? ' · ' + fmtKg(m.pesoMedido) : ''} · ${fmtData(m.dataMedicao || m.data)}`}
-              valor={fmtMoney(m.valorTotal || m.valor)}
+              valor={fmtMoney(valorMedicao(m))}
               busy={busy === `med:${m.id}`}
               onAprovar={() => aprovarMed(m)}
             />
@@ -275,7 +276,7 @@ function DetalheMedicao({ m }) {
       <Linha k="Número" v={m.numero || m.id} />
       <Linha k="Obra" v={m.obra || m.obraId || m.obra_id} />
       <Linha k="Peso medido" v={m.pesoMedido ? fmtKg(m.pesoMedido) : '—'} />
-      <Linha k="Valor" v={fmtMoney(m.valorTotal || m.valor)} />
+      <Linha k="Valor" v={fmtMoney(valorMedicao(m))} />
       <Linha k="Data" v={fmtData(m.dataMedicao || m.data)} />
       <Linha k="Responsável" v={m.responsavel} />
       {m.observacoes && <div className="mt-3 text-sm text-slate-300 bg-slate-800/60 rounded-xl p-3">{m.observacoes}</div>}

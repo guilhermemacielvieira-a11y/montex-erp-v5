@@ -7,7 +7,7 @@ import { TrendingUp, TrendingDown, Receipt, Wallet, AlertCircle, PieChart, Chevr
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
-import { isRecebida, isDespesaPaga, isDespesaAberta, isDespesaAtrasada, vencimentoDe } from '../dados';
+import { isRecebida, valorMedicao, isDespesaPaga, isDespesaAberta, isDespesaAtrasada, vencimentoDe } from '../dados';
 
 const fmtMoney = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 
@@ -33,9 +33,9 @@ export default function FinanceiroMobile() {
     const desVal = desP.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const desValAtr = desA.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const recP = receitas.filter(r => !isRecebida(r));
-    const recVal = recP.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const recVal = recP.reduce((s, r) => s + valorMedicao(r), 0);
     const desPagas = despesas.filter(isDespesaPaga).reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + valorMedicao(r), 0);
     return {
       saldo: recPagas - desPagas,
       saldoProj: recVal - desVal,

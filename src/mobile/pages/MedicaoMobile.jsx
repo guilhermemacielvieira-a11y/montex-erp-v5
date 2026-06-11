@@ -19,6 +19,7 @@ import { ensureOnline } from '../ui/online';
 import { useERP, useMedicoes } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
+import { valorMedicao } from '../dados';
 import { supabase } from '@/api/supabaseClient';
 
 const fmtMoney = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -184,7 +185,7 @@ export default function MedicaoMobile() {
                 </div>
               </div>
               <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                <div className="text-sm font-black text-emerald-300">{fmtMoney(m.valorTotal || m.valor)}</div>
+                <div className="text-sm font-black text-emerald-300">{fmtMoney(valorMedicao(m))}</div>
                 {pendente && podeAprovar && (
                   <button
                     onClick={() => aprovar(m)}

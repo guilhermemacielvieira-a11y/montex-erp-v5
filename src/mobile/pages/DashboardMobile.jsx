@@ -30,7 +30,7 @@ import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart } from '@/utils/montagemSync';
 import {
-  isRecebida, isDespesaPaga, isDespesaAberta, isDespesaAtrasada,
+  isRecebida, valorMedicao, isDespesaPaga, isDespesaAberta, isDespesaAtrasada,
   contratoPesoKg, contratoValor,
 } from '../dados';
 
@@ -164,8 +164,8 @@ export default function DashboardMobile() {
   const fin = useMemo(() => {
     const desPagas = despesas.filter(isDespesaPaga).reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const desPend = despesas.filter(isDespesaAberta).reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + (Number(r.valor) || 0), 0);
-    const recPend = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + valorMedicao(r), 0);
+    const recPend = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + valorMedicao(r), 0);
     const hoje = new Date().toISOString().slice(0, 10);
     const atrasadas = despesas.filter(d => isDespesaAtrasada(d, hoje));
     const desAtraso = atrasadas.reduce((s, d) => s + (Number(d.valor) || 0), 0);
@@ -192,7 +192,7 @@ export default function DashboardMobile() {
       meses.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, name: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), Receita: 0, Despesa: 0 });
     }
     const slot = (s) => meses.find(m => m.ym === String(s || '').slice(0, 7));
-    for (const r of receitas) { if (isRecebida(r)) { const m = slot(r.dataMedicao || r.data_medicao || r.data); if (m) m.Receita += Number(r.valor) || 0; } }
+    for (const r of receitas) { if (isRecebida(r)) { const m = slot(r.dataMedicao || r.data_medicao || r.data); if (m) m.Receita += valorMedicao(r); } }
     for (const d of despesas) { if (isDespesaPaga(d)) { const m = slot(d.dataVencimento || d.data_vencimento || d.dataEmissao || d.data_emissao); if (m) m.Despesa += Number(d.valor) || 0; } }
     return meses.map(m => ({ ...m, Receita: Math.round(m.Receita), Despesa: Math.round(m.Despesa) }));
   }, [receitas, despesas]);
@@ -205,8 +205,8 @@ export default function DashboardMobile() {
       const okObra = (x) => (x.obraId ?? x.obra_id ?? x.obra?.id) === o.id;
       const rec = medicoes.filter(okObra);
       const des = lancamentosDespesas.filter(okObra).filter(d => !String(d.status || '').toLowerCase().includes('cancelado'));
-      const medido = rec.reduce((s, r) => s + (Number(r.valor) || 0), 0);
-      const recebido = rec.filter(isRecebida).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+      const medido = rec.reduce((s, r) => s + valorMedicao(r), 0);
+      const recebido = rec.filter(isRecebida).reduce((s, r) => s + valorMedicao(r), 0);
       const gasto = des.reduce((s, d) => s + (Number(d.valor) || 0), 0);
       const contrato = contratoValor(o);
       return {
