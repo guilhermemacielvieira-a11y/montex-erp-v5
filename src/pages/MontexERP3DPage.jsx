@@ -1611,8 +1611,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         bM.unidades += montadasN;
         bM.peso += peso * (montadasN / qtd);
         if (marcaKey) bM.marcasSet.add(marcaKey);
-        // Conta como peça MONTADO somente se 100% montada (manteve semântica antiga do peças count)
-        if (montadasN >= qtd) bM.pecas++;
+        // Conta como peça MONTADO se houver QUALQUER unidade montada (parciais tambem aparecem na contagem)
+        if (montadasN > 0) bM.pecas++;
       }
       if (montadasN < qtd) {
         const b = result.byStatus[statusBase] || result.byStatus.NAO_INICIADO;
