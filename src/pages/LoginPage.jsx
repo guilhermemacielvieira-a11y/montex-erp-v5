@@ -11,7 +11,10 @@ export default function LoginPage() {
   const { login, isLoadingAuth, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState('');
+  // Pre-preenche o email quando o admin envia o link de acesso (?email=...).
+  const [email, setEmail] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('email') || ''; } catch { return ''; }
+  });
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');

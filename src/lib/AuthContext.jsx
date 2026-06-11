@@ -182,6 +182,9 @@ export const AuthProvider = ({ children }) => {
         cargo: data.cargo,
         avatar: data.avatar_url,
         obraPadrao: data.obra_padrao,
+        // Permissoes CUSTOMIZADAS por usuario (array de chaves). Quando definidas
+        // e nao-vazias, sobrepoem o mapa por papel (PERMISSIONS) no hasPermission.
+        permissoes: Array.isArray(data.permissoes) ? data.permissoes : null,
         ativo: data.ativo
       };
     } catch (err) {
@@ -494,6 +497,10 @@ export const AuthProvider = ({ children }) => {
   // Checar permissão
   const hasPermission = useCallback((permission) => {
     if (!user?.role) return false;
+    // Override por usuario: se o perfil tem permissoes customizadas, elas mandam.
+    if (Array.isArray(user.permissoes) && user.permissoes.length > 0) {
+      return user.permissoes.includes('*') || user.permissoes.includes(permission);
+    }
     const rolePerms = PERMISSIONS[user.role] || [];
     return rolePerms.includes('*') || rolePerms.includes(permission);
   }, [user]);

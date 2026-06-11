@@ -289,11 +289,115 @@ function SelectField({ label, value, onChange, options, required }) {
 }
 
 // ============================================================
+// PERMISSOES CUSTOMIZADAS POR USUARIO (papel base + ajuste fino)
+// ============================================================
+function defaultPermsForRole(role) {
+  if (role === 'admin') return ['*'];
+  return [...(ROLE_PERMISSIONS_MAP[role] || [])];
+}
+
+function PermissoesChecklist({ value, onChange }) {
+  const arr = Array.isArray(value) ? value : [];
+  const isAll = arr.includes('*');
+  const sel = new Set(arr);
+  const groups = {};
+  ALL_PERMISSIONS.forEach(pm => { const mod = pm.key.split('.')[0]; (groups[mod] = groups[mod] || []).push(pm); });
+  const base = () => arr.filter(v => v !== '*');
+  const toggle = (key) => { const x = new Set(base()); if (x.has(key)) x.delete(key); else x.add(key); onChange([...x]); };
+  const toggleGroup = (perms, on) => { const x = new Set(base()); perms.forEach(pm => { if (on) x.add(pm.key); else x.delete(pm.key); }); onChange([...x]); };
+  if (isAll) {
+    return <div className="text-xs text-orange-300 bg-orange-500/10 border border-orange-500/30 rounded-lg p-3">Administrador — acesso total a todas as permissoes.</div>;
+  }
+  return (
+    <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+      {Object.entries(groups).map(([mod, perms]) => {
+        const allOn = perms.every(pm => sel.has(pm.key));
+        return (
+          <div key={mod} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-2.5">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-bold text-slate-300 uppercase tracking-wide">{mod}</span>
+              <button type="button" onClick={() => toggleGroup(perms, !allOn)} className="text-[10px] text-orange-400 hover:text-orange-300">{allOn ? 'Desmarcar todas' : 'Marcar todas'}</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1">
+              {perms.map(pm => (
+                <label key={pm.key} className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-white">
+                  <input type="checkbox" checked={sel.has(pm.key)} onChange={() => toggle(pm.key)} className="accent-orange-500 w-3.5 h-3.5"/>
+                  <span>{(pm.label.split('\u2014')[1] || pm.label).trim()}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      <p className="text-[11px] text-slate-500">{sel.size} permissoes selecionadas</p>
+    </div>
+  );
+}
+
+function LinkAcessoCriadoModal({ info, onClose }) {
+  const [copied, setCopied] = useState('');
+  if (!info) return null;
+  const copy = (txt, key) => { try { navigator.clipboard.writeText(txt); } catch (_) {} setCopied(key); setTimeout(() => setCopied(''), 1800); };
+  const msg = `Ola ${info.nome}! Seu acesso ao MONTEX ERP foi criado.\n\nLink: ${info.link}\nE-mail: ${info.email}\nSenha inicial: ${info.senha}\n\nVoce pode alterar a senha depois de entrar.`;
+  return (
+    <Modal open={!!info} onClose={onClose} title="Usuario criado — link de acesso">
+      <div className="space-y-3">
+        <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-3">Conta de <b>{info.nome}</b> criada. Envie os dados abaixo por um canal seguro (WhatsApp, e-mail).</div>
+        {[['Link de acesso', info.link, 'link'], ['E-mail', info.email, 'email'], ['Senha inicial', info.senha, 'senha']].map(([label, val, key]) => (
+          <div key={key}>
+            <label className="block text-xs text-slate-400 mb-1">{label}</label>
+            <div className="flex gap-2">
+              <input readOnly value={val} className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white"/>
+              <button onClick={() => copy(val, key)} className="px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-white shrink-0">{copied === key ? 'Copiado' : 'Copiar'}</button>
+            </div>
+          </div>
+        ))}
+        <button onClick={() => copy(msg, 'tudo')} className="w-full py-2.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white text-sm font-semibold">{copied === 'tudo' ? 'Mensagem copiada!' : 'Copiar mensagem completa'}</button>
+        <button onClick={onClose} className="w-full py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 text-sm">Fechar</button>
+      </div>
+    </Modal>
+  );
+}
+
+function PermissoesUsuarioModal({ user, onClose, onSaved, toast, currentUser }) {
+  const [perms, setPerms] = useState(() => (Array.isArray(user?.permissoes) && user.permissoes.length ? user.permissoes : defaultPermsForRole(user?.role || 'viewer')));
+  const [loading, setLoading] = useState(false);
+  useEffect(() => { if (user) setPerms(Array.isArray(user.permissoes) && user.permissoes.length ? user.permissoes : defaultPermsForRole(user.role || 'viewer')); }, [user]);
+  if (!user) return null;
+  const save = async () => {
+    setLoading(true);
+    try {
+      await updateUserProfile(user.id, { permissoes: perms });
+      await logAudit('change_perms', `Permissoes customizadas: ${user.nome || user.email} (${perms.length})`, currentUser);
+      toast('Permissoes salvas!', 'success');
+      onSaved && onSaved();
+      onClose();
+    } catch (e) { toast((e.message || 'Erro ao salvar') + ' (verifique a coluna permissoes)', 'error'); }
+    finally { setLoading(false); }
+  };
+  return (
+    <Modal open={!!user} onClose={onClose} title={`Permissoes — ${user.nome || user.email}`}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs text-slate-400">Papel base: {ROLE_LABELS[user.role] || user.role}</span>
+        <button onClick={() => setPerms(defaultPermsForRole(user.role))} className="text-[11px] text-orange-400 hover:text-orange-300">Redefinir p/ padrao do papel</button>
+      </div>
+      <PermissoesChecklist value={perms} onChange={setPerms}/>
+      <div className="flex gap-3 mt-4">
+        <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 text-sm">Cancelar</button>
+        <button onClick={save} disabled={loading} className="flex-1 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-semibold text-sm disabled:opacity-50">{loading ? 'Salvando...' : 'Salvar permissoes'}</button>
+      </div>
+    </Modal>
+  );
+}
+
+// ============================================================
 // MODAL: NOVO USUÁRIO
 // ============================================================
 function NovoUsuarioModal({ open, onClose, onSave, toast }) {
-  const [form, setForm] = useState({ nome: '', email: '', senha: '', role: 'operador', cargo: '' });
+  const [form, setForm] = useState({ nome: '', email: '', senha: '', role: 'operador', cargo: '', permissoes: defaultPermsForRole('operador') });
   const [loading, setLoading] = useState(false);
+  const [showPerms, setShowPerms] = useState(false);
+  const setRole = (r) => setForm(p => ({ ...p, role: r, permissoes: defaultPermsForRole(r) }));
   const [errors, setErrors] = useState({});
 
   const setF = k => v => setForm(p => ({ ...p, [k]: v }));
@@ -313,7 +417,8 @@ function NovoUsuarioModal({ open, onClose, onSave, toast }) {
     setLoading(true);
     try {
       await onSave(form);
-      setForm({ nome: '', email: '', senha: '', role: 'operador', cargo: '' });
+      setForm({ nome: '', email: '', senha: '', role: 'operador', cargo: '', permissoes: defaultPermsForRole('operador') });
+      setShowPerms(false);
       onClose();
     } catch (err) {
       toast(err.message || 'Erro ao criar usuário', 'error');
@@ -335,8 +440,20 @@ function NovoUsuarioModal({ open, onClose, onSave, toast }) {
         </button>
       </div>
       <InputField label="Cargo / Função" value={form.cargo} onChange={setF('cargo')} placeholder="Ex: Operador de Produção"/>
-      <SelectField label="Perfil de Acesso" value={form.role} onChange={setF('role')} required
+      <SelectField label="Perfil de Acesso (base)" value={form.role} onChange={setRole} required
         options={ROLE_ORDER.map(r => ({ value: r, label: ROLE_LABELS[r] }))}/>
+      <div className="mb-4">
+        <button type="button" onClick={() => setShowPerms(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-slate-600 bg-slate-800/60 text-sm text-slate-200 hover:bg-slate-800 transition-all">
+          <span>Permissoes customizadas</span>
+          <span className="text-xs text-orange-400">{form.role === 'admin' ? 'acesso total' : `${form.permissoes.length} ativas`} {showPerms ? '\u25be' : '\u25b8'}</span>
+        </button>
+        {showPerms && (
+          <div className="mt-2">
+            <p className="text-[11px] text-slate-500 mb-2">Pre-marcadas pelo papel "{ROLE_LABELS[form.role]}". Marque/desmarque o que este usuario pode fazer.</p>
+            <PermissoesChecklist value={form.permissoes} onChange={v => setF('permissoes')(v)}/>
+          </div>
+        )}
+      </div>
       <div className="flex gap-3 mt-2">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 text-sm transition-all">Cancelar</button>
         <button onClick={handleSave} disabled={loading} className="flex-1 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-semibold text-sm transition-all disabled:opacity-50">
@@ -399,6 +516,7 @@ function TabUsuarios({ users, loading, onRefresh, toast, currentUser }) {
   const [filterRole, setFilterRole] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
   const [novoOpen, setNovoOpen] = useState(false);
+  const [criado, setCriado] = useState(null);
   const [editUser, setEditUser] = useState(null);
   const [toggling, setToggling] = useState(null);
 
@@ -410,9 +528,18 @@ function TabUsuarios({ users, loading, onRefresh, toast, currentUser }) {
   });
 
   const handleCreate = async (form) => {
-    await createNewUser(form);
-    await logAudit('create_user', `Usuário criado: ${form.email} (${form.role})`, currentUser);
-    toast(`Usuário ${form.nome} criado com sucesso!`, 'success');
+    // FIX: a Edge Function espera `password` (o form usa `senha`).
+    const profile = await createNewUser({ email: form.email, password: form.senha, nome: form.nome, role: form.role, cargo: form.cargo });
+    // Permissoes customizadas por usuario (admin = acesso total via papel, nao grava).
+    const perms = Array.isArray(form.permissoes) ? form.permissoes : null;
+    if (perms && !perms.includes('*')) {
+      try { await updateUserProfile(profile.id, { permissoes: perms }); }
+      catch (e) { toast('Usuario criado, mas as permissoes nao salvaram (rode a migracao da coluna permissoes). ' + (e.message || ''), 'error'); }
+    }
+    await logAudit('create_user', `Usuario criado: ${form.email} (${form.role}, ${perms && !perms.includes('*') ? perms.length + ' perms' : 'papel'})`, currentUser);
+    const link = `${window.location.origin}/login?email=${encodeURIComponent(form.email)}`;
+    setCriado({ nome: form.nome, email: form.email, senha: form.senha, role: form.role, link });
+    toast(`Usuario ${form.nome} criado!`, 'success');
     onRefresh();
   };
 
@@ -541,6 +668,7 @@ function TabUsuarios({ users, loading, onRefresh, toast, currentUser }) {
       </div>
 
       <NovoUsuarioModal open={novoOpen} onClose={() => setNovoOpen(false)} onSave={handleCreate} toast={toast}/>
+      <LinkAcessoCriadoModal info={criado} onClose={() => setCriado(null)}/>
       <EditarUsuarioModal open={!!editUser} onClose={() => setEditUser(null)} user={editUser} onSave={handleEdit} toast={toast}/>
     </div>
   );
@@ -689,6 +817,7 @@ function TabSenhas({ users, toast, currentUser }) {
 // ============================================================
 function TabPermissoes({ users, onRefresh, toast, currentUser }) {
   const [view, setView] = useState('matrix'); // 'matrix' | 'users'
+  const [permUser, setPermUser] = useState(null);
   const [editingRole, setEditingRole] = useState(null);
   const [savingId, setSavingId] = useState(null);
 
@@ -769,11 +898,13 @@ function TabPermissoes({ users, onRefresh, toast, currentUser }) {
                 className="bg-slate-800 border border-slate-600 rounded-lg px-2.5 py-1.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-orange-500/50 disabled:opacity-50">
                 {ROLE_ORDER.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
               </select>
+              <button onClick={() => setPermUser(u)} className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-white shrink-0">Permissoes</button>
               {savingId === u.id && <RefreshCw size={14} className="text-orange-400 animate-spin shrink-0"/>}
             </div>
           ))}
         </div>
       )}
+      <PermissoesUsuarioModal user={permUser} onClose={() => setPermUser(null)} onSaved={onRefresh} toast={toast} currentUser={currentUser}/>
     </div>
   );
 }
