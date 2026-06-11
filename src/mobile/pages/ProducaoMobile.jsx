@@ -5,14 +5,22 @@
 // fábrica: avançar a peça para a próxima etapa (moverPecaEtapa →
 // persiste no Supabase). Toque na etapa filtra; toque na peça abre o
 // sheet de avanço com escolha opcional de responsável e háptico.
+//
+// APONTAMENTO POR BIPAGEM (modo estação): o operador escolhe a etapa
+// de destino (sua estação) e bipa as peças em sequência — cada leitura
+// válida avança a peça automaticamente (Scanner continuous + offline
+// queue). Validação estrita: só avança quem está na etapa ANTERIOR à
+// de destino (evita pular etapas por bipe errado); duplicata vira
+// aviso "já apontada". Gated por producao.lancar_avanco.
 // ============================================================
-import React, { useMemo, useState, useEffect } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
-import { Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2 } from 'lucide-react';
+import { Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2, ScanLine } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
+import Scanner from '../ui/Scanner';
 import SearchBar from '../ui/SearchBar';
 import LoadMore from '../ui/LoadMore';
 import EmptyState from '../ui/EmptyState';
@@ -22,6 +30,7 @@ import { isOnline } from '../ui/online';
 import { enqueue } from '../ui/offlineQueue';
 import { useERP } from '@/contexts/ERPContext';
 import { useProducao } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
 // Ordem do fluxo (CLAUDE.md): fabricacao → solda → pintura → expedido → enviado.
@@ -48,13 +57,22 @@ export default function ProducaoMobile() {
   const erp = useERP?.() || {};
   const { pecas = [], funcionarios = [] } = erp;
   const { moverPecaEtapa } = useProducao?.() || {};
-  const { matchObra } = useObraFiltro();
+  const { matchObra, isTodas } = useObraFiltro();
+  const { hasPermission } = useAuth() || {};
+  // Sem hasPermission (fallback) libera — mesmo critério do resto do app
+  const podeApontar = !hasPermission || hasPermission('producao.lancar_avanco');
   const [q, setQ] = useState('');
   const [etapaSel, setEtapaSel] = useState(null); // etapa para drill-down
   const [pecaSel, setPecaSel] = useState(null);    // peça aberta no sheet
   const [funcId, setFuncId] = useState('');
   const [saving, setSaving] = useState(false);
   const [limite, setLimite] = useState(40);
+  // --- Apontamento por bipagem (modo estação) ---
+  const [apontarOpen, setApontarOpen] = useState(false); // sheet de config
+  const [scanOpen, setScanOpen] = useState(false);       // scanner contínuo
+  const [destino, setDestino] = useState('fabricacao');  // etapa da estação
+  const [apontFunc, setApontFunc] = useState('');        // responsável da sessão
+  const apontadasRef = useRef(new Set());                // ids já apontados na sessão
   const qd = useDebounced(q, 250); // busca com debounce (filtra 1103+ peças)
   useEffect(() => { setLimite(40); }, [etapaSel, qd]);
 
@@ -124,6 +142,62 @@ export default function ProducaoMobile() {
   };
 
   const prox = pecaSel ? proximaEtapa(pecaSel.etapa) : null;
+
+  // ===== Apontamento por bipagem =====
+  // Etapas válidas como destino de apontamento (não se aponta p/ 'aguardando';
+  // 'enviado' é ato da expedição/obra, não do chão de fábrica).
+  const DESTINOS = ETAPAS.filter(e => ['fabricacao', 'solda', 'pintura', 'expedido'].includes(e.key));
+  const etapaAnterior = ORDEM[ORDEM.indexOf(destino) - 1];
+
+  const iniciarBipagem = () => {
+    apontadasRef.current = new Set();
+    setApontarOpen(false);
+    setScanOpen(true);
+    tap('medium');
+  };
+
+  // Cada leitura do scanner contínuo: localiza a peça pelo código (marca ou ID,
+  // match exato case-insensitive, respeitando o filtro de obra) e valida a
+  // transição estrita anterior→destino antes de avançar.
+  const onScanApontamento = (code) => {
+    const v = String(code || '').trim().toUpperCase();
+    if (!v) return;
+    const candidatas = pecasFiltradas.filter(
+      p => String(p.marca || '').trim().toUpperCase() === v || String(p.id || '').trim().toUpperCase() === v
+    );
+    if (candidatas.length === 0) {
+      tap('heavy');
+      toast.error(`"${v}" não encontrada${isTodas ? '' : ' nesta obra'}`);
+      return;
+    }
+    // Prioridade: quem está na etapa anterior (apta) → depois quem já está no destino (dup)
+    const apta = candidatas.find(p => (p.etapa || 'aguardando').toLowerCase() === etapaAnterior && !apontadasRef.current.has(p.id));
+    if (!apta) {
+      const jaNoDestino = candidatas.find(p => (p.etapa || 'aguardando').toLowerCase() === destino || apontadasRef.current.has(p.id));
+      if (jaNoDestino) {
+        tap('light');
+        toast(`${v} já apontada em ${labelDe(destino)}`, { icon: 'ℹ️' });
+      } else {
+        tap('heavy');
+        toast.error(`${v} está em ${labelDe((candidatas[0].etapa || 'aguardando').toLowerCase())} — esperado: ${labelDe(etapaAnterior)}`);
+      }
+      return;
+    }
+    apontadasRef.current.add(apta.id);
+    if (!isOnline()) {
+      moverPecaEtapa?.(apta.id, destino, apontFunc || undefined)?.catch(() => {});
+      enqueue('moverPecaEtapa', [apta.id, destino, apontFunc || null], `${apta.marca || apta.id} → ${labelDe(destino)}`);
+      toast.success(`${apta.marca || apta.id} → ${labelDe(destino)} (offline)`);
+      return;
+    }
+    moverPecaEtapa?.(apta.id, destino, apontFunc || undefined)
+      .then(() => { success(); toast.success(`${apta.marca || apta.id} → ${labelDe(destino)}`); })
+      .catch((err) => {
+        apontadasRef.current.delete(apta.id); // permite re-bipar após falha
+        toast.error(`Falha ao apontar ${apta.marca || apta.id}`);
+        console.error('[ProducaoMobile] apontamento falhou:', err);
+      });
+  };
 
   return (
     <MobileLayout title="Produção" obraFilter>
@@ -238,6 +312,80 @@ export default function ProducaoMobile() {
           <ChevronRight className="w-5 h-5 text-amber-400" />
         </Link>
       </div>
+
+      {/* FAB Apontar por bipagem (chão de fábrica) */}
+      {podeApontar && (
+        <button
+          onClick={() => { tap('light'); setApontarOpen(true); }}
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
+        >
+          <ScanLine className="w-5 h-5" /> Apontar
+        </button>
+      )}
+
+      {/* SHEET de config do apontamento (estação + responsável) */}
+      <Sheet
+        open={apontarOpen}
+        onClose={() => setApontarOpen(false)}
+        title="Apontamento por bipagem"
+        footer={
+          <button
+            onClick={iniciarBipagem}
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-sm active:scale-[.99] transition"
+          >
+            <ScanLine className="w-5 h-5" /> Iniciar bipagem · {labelDe(destino)}
+          </button>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Minha estação (etapa de destino)</div>
+            <div className="grid grid-cols-2 gap-2">
+              {DESTINOS.map(e => {
+                const Icon = e.icon;
+                const sel = destino === e.key;
+                return (
+                  <button
+                    key={e.key}
+                    onClick={() => { setDestino(e.key); tap('light'); }}
+                    className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-bold transition active:scale-[.98] ${sel ? 'bg-amber-500/20 border-amber-500/60 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+                  >
+                    <Icon className="w-4 h-4" /> {e.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-2">
+              Só avança peças que estão em <b>{labelDe(etapaAnterior)}</b>. Bipe errado não pula etapa.
+            </div>
+          </div>
+          {funcionarios.length > 0 && (
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Responsável (opcional, vale p/ toda a sessão)</div>
+              <select
+                value={apontFunc}
+                onChange={e => setApontFunc(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+              >
+                <option value="">Sem responsável</option>
+                {funcionarios.map(f => (
+                  <option key={f.id} value={f.id}>{f.nome || f.id}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      </Sheet>
+
+      {/* Scanner contínuo do apontamento */}
+      <Scanner
+        open={scanOpen}
+        onClose={() => setScanOpen(false)}
+        onResult={onScanApontamento}
+        title={`Apontar → ${labelDe(destino)}`}
+        continuous
+      />
 
       {/* SHEET de avanço de etapa */}
       <Sheet
