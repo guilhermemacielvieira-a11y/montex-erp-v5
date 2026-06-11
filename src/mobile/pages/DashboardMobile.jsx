@@ -315,9 +315,12 @@ export default function DashboardMobile() {
           Empresa — caixa geral
         </SectionTitle>
         <div className="px-4 grid grid-cols-2 gap-2.5">
-          <KpiCard icon={empresa.lucro >= 0 ? TrendingUp : TrendingDown} label="Resultado da empresa"
-            value={fmtMoney(empresa.lucro)} sub={`Margem ${empresa.margem.toFixed(1)}% · ${empresa.qtd} mov.`}
-            color={empresa.lucro >= 0 ? 'green' : 'red'} to="/m/painel-global" />
+          {/* Lucro em base comparável: recebido − pago. Previsto (receitas
+              futuras x despesas só lançadas) é assimétrico — vai no sub. */}
+          <KpiCard icon={(empresa.recRecebidas - empresa.despPagas) >= 0 ? TrendingUp : TrendingDown} label="Resultado realizado"
+            value={fmtMoney(empresa.recRecebidas - empresa.despPagas)}
+            sub={`Previsto c/ pendências: ${fmtMoneyShort(empresa.lucro)} · ${empresa.qtd} mov.`}
+            color={(empresa.recRecebidas - empresa.despPagas) >= 0 ? 'green' : 'red'} to="/m/painel-global" />
           <KpiCard icon={Wallet} label="Saldo projetado 30d"
             value={fmtMoney(empresaFuturo.saldo30)}
             sub={empresaFuturo.semanasCriticas ? `${empresaFuturo.semanasCriticas} semana(s) abaixo do mínimo` : `+${fmtMoneyShort(empresaFuturo.receber30)} / −${fmtMoneyShort(empresaFuturo.pagar30)}`}

@@ -204,8 +204,14 @@ export default function PainelGlobalMobile() {
       <div className="px-4 grid grid-cols-2 gap-2.5 mt-3">
         <Kpi icon={TrendingUp} label="Receitas" value={fmtMoney(kpis.totR)} sub={`${fmtShort(kpis.recRecebidas)} recebido · ${fmtShort(kpis.recPendentes)} pendente`} tone="green" />
         <Kpi icon={TrendingDown} label="Despesas" value={fmtMoney(kpis.totD)} sub={`${fmtShort(kpis.despPagas)} pago · ${fmtShort(kpis.despPendentes)} pendente`} tone="red" />
-        <Kpi icon={Wallet} label="Resultado" value={fmtMoney(kpis.lucro)} sub={`Margem ${kpis.margem.toFixed(1)}%`} tone={kpis.lucro >= 0 ? 'green' : 'red'} />
-        <Kpi icon={PiggyBank} label="Caixa realizado" value={fmtMoney(kpis.recRecebidas - kpis.despPagas)} sub={`${kpis.qtd} movimento(s)`} tone={(kpis.recRecebidas - kpis.despPagas) >= 0 ? 'green' : 'red'} />
+        {/* Lucro = base COMPARÁVEL (recebido x pago). Receitas futuras x
+            despesas só lançadas inflava o resultado — previsto vai separado. */}
+        <Kpi icon={Wallet} label="Resultado (realizado)" value={fmtMoney(kpis.recRecebidas - kpis.despPagas)}
+          sub={`Margem ${kpis.recRecebidas > 0 ? (((kpis.recRecebidas - kpis.despPagas) / kpis.recRecebidas) * 100).toFixed(1) : '0.0'}% s/ recebido`}
+          tone={(kpis.recRecebidas - kpis.despPagas) >= 0 ? 'green' : 'red'} />
+        <Kpi icon={PiggyBank} label="Previsto (c/ pendências)" value={fmtMoney(kpis.lucro)}
+          sub={`+${fmtShort(kpis.recPendentes)} a receber · −${fmtShort(kpis.despPendentes)} a pagar`}
+          tone="blue" />
       </div>
 
       {/* Projeção 30/60/90 */}
