@@ -105,6 +105,34 @@ const FOCUS_STYLES = `
   border-radius: 10px;
 }`;
 
+// Aviso quando o app mobile e aberto num computador sem touch (ex.: atalho
+// salvo em /m). O desktop nunca e redirecionado para ca automaticamente -
+// se chegou aqui sem touch e tela larga, quase certamente foi sem querer.
+function DesktopHintBanner() {
+  const [visivel, setVisivel] = React.useState(() => {
+    if (typeof window === 'undefined') return false;
+    if (window.Capacitor?.isNativePlatform?.()) return false;
+    if (sessionStorage.getItem('m_desktop_hint_off') === '1') return false;
+    const semTouch = !window.matchMedia('(pointer: coarse)').matches && (navigator.maxTouchPoints || 0) === 0;
+    const telaLarga = window.matchMedia('(min-width: 1024px)').matches;
+    return semTouch && telaLarga;
+  });
+  if (!visivel) return null;
+  return (
+    <div className="fixed top-0 inset-x-0 z-[100] bg-amber-500 text-slate-950 text-sm font-semibold px-4 py-2 flex items-center justify-center gap-3" role="status">
+      <span>Voce esta na versao mobile.</span>
+      <a href="/" className="underline font-black">Ir para o desktop</a>
+      <button
+        onClick={() => { sessionStorage.setItem('m_desktop_hint_off', '1'); setVisivel(false); }}
+        aria-label="Fechar aviso"
+        className="ml-2 px-1 font-black"
+      >
+        ✕
+      </button>
+    </div>
+  );
+}
+
 export default function MobileApp() {
   // Marca a abertura do app como referência inicial de "atualizado há X".
   useEffect(() => { initLastRefresh(); }, []);
@@ -115,6 +143,7 @@ export default function MobileApp() {
           <style>{FOCUS_STYLES}</style>
           <SyncManager />
           <DeepLinkHandler />
+          <DesktopHintBanner />
           <MobileRoutes />
           <InstallPrompt />
           {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).
