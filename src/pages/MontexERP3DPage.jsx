@@ -192,7 +192,8 @@ const STATUS_CONFIG = {
   NAO_INICIADO: { color: new THREE.Color(0.18, 0.20, 0.25), label: 'Sem Escopo',            hex: '#374151', opacity: 0.18, order: 0 },
   EMBARQUE:     { color: new THREE.Color(0.97, 0.52, 0.10), label: 'Fila de Embarque',      hex: '#f97316', opacity: 0.85, order: 1 },
   EM_OBRA:      { color: new THREE.Color(0.92, 0.70, 0.05), label: 'Entregue em Obra',      hex: '#eab308', opacity: 0.92, order: 2 },
-  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',               hex: '#22c55e', opacity: 1.0,  order: 3 },
+  MONTADO_PARCIAL: { color: new THREE.Color(0.16, 0.83, 0.74), label: 'Montado Parcial',    hex: '#2dd4bf', opacity: 0.95, order: 3 },
+  MONTADO:      { color: new THREE.Color(0.13, 0.80, 0.40), label: 'Montado',               hex: '#22c55e', opacity: 1.0,  order: 4 },
 };
 
 // Alias para o helper compartilhado (sincroniza com MontagemPage)
@@ -884,7 +885,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     // Verificado por id da peca apos o matching
     const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
 
-    const statusPriority = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'];
+    const statusPriority = ['MONTADO', 'MONTADO_PARCIAL', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'];
 
     // Pre-index ERP peças por marca (upper). marcaIndex GUARDA A PRIMEIRA peça
     // para compatibilidade com strategies legadas (qualquer peça do conjunto).
@@ -1228,7 +1229,9 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         // Override MONTADO SOMENTE em match PRECISO (position code / marca exata).
         // Match por perfil (coarse) usa o status de produção da peça — nunca finge montado.
         if (preciseMatch && pecaIdsMontadas.has(String(bestMatch.id))) {
-          map.set(el.expressID, 'MONTADO');
+          const _qBM = Math.max(1, parseInt(bestMatch.quantidade) || 1);
+          const _mBM = getMontadasCount(concluidasMontagem?.[bestMatch.id], _qBM);
+          map.set(el.expressID, (_mBM > 0 && _mBM < _qBM) ? 'MONTADO_PARCIAL' : 'MONTADO');
         } else {
           map.set(el.expressID, bestMatch.status);
         }
@@ -1298,7 +1301,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           asmRedistribuidos.add(asmsOrd[ai]);
           const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
           // Primeiras `montadasN` unidades pintam MONTADO; restante = status produção
-          const novoStatus = (q < montadasN) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+          const novoStatus = (q < montadasN) ? ((montadasN < qtd) ? 'MONTADO_PARCIAL' : 'MONTADO') : (p.status || 'NAO_INICIADO');
           for (const eid of elems) { map.set(eid, novoStatus); eidsTratados.add(eid); }
           consumido++;
         }
@@ -1377,7 +1380,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           for (let q = 0; q < falta && ai < asmsOrd.length; q++, ai++) {
             const elems = elemsByAsm.get(asmsOrd[ai]) || [];
             // Primeiras `aindaMontar` unidades desta camada pintam MONTADO
-            const novoStatus = (q < aindaMontar) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
+            const novoStatus = (q < aindaMontar) ? ((montadasN < qtdTotal) ? 'MONTADO_PARCIAL' : 'MONTADO') : (p.status || 'NAO_INICIADO');
             for (const eid of elems) { map.set(eid, novoStatus); eidsTratados.add(eid); }
             consumidoAqui++;
           }
@@ -1423,7 +1426,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const nMont = Math.round(eids.length * (totMont / totQtd));
       const eidsOrd = eids.slice().sort((a, b) => a - b);
       for (let i = 0; i < eidsOrd.length; i++) {
-        map.set(eidsOrd[i], i < nMont ? 'MONTADO' : statusProd);
+        map.set(eidsOrd[i], i < nMont ? (totMont < totQtd ? 'MONTADO_PARCIAL' : 'MONTADO') : statusProd);
         eidsTratados.add(eidsOrd[i]);
       }
     }
@@ -1446,7 +1449,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       // (marca real / prefixo / sem-assembly) ficam com a alocação count-exact.
       const eidsLivres = eids.filter(eid => !eidsTratados.has(eid));
       if (!pecasDoTipo.length || eidsLivres.length === 0) continue;
-      const unidades = { MONTADO: 0, EM_OBRA: 0, EMBARQUE: 0, NAO_INICIADO: 0 };
+      const unidades = { MONTADO: 0, MONTADO_PARCIAL: 0, EM_OBRA: 0, EMBARQUE: 0, NAO_INICIADO: 0 };
       let totU = 0;
       for (const p of pecasDoTipo) {
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
@@ -1457,14 +1460,14 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         const qtdLivre = qtd - rQ;
         if (qtdLivre <= 0) continue;
         const montLivre = Math.max(0, Math.min(mont - rM, qtdLivre));
-        unidades.MONTADO += montLivre;
+        unidades[(mont >= qtd) ? 'MONTADO' : 'MONTADO_PARCIAL'] += montLivre;
         const st = unidades[p.status] != null ? p.status : 'NAO_INICIADO';
         unidades[st] += qtdLivre - montLivre;
         totU += qtdLivre;
       }
       if (totU <= 0) continue;
       // Cotas por status via maior-resto (soma exata = nº de elementos)
-      const cotas = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'].map(st => {
+      const cotas = ['MONTADO', 'MONTADO_PARCIAL', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'].map(st => {
         const exato = (eidsLivres.length * unidades[st]) / totU;
         return { st, n: Math.floor(exato), resto: exato - Math.floor(exato) };
       });
@@ -1589,6 +1592,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       totalPeso: 0,
       // Para cada status: pecas = registros do banco, unidades = soma quantidade, peso = soma peso, marcas = marcas distintas (Set size)
       byStatus: { MONTADO: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
+                  MONTADO_PARCIAL: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
                   EM_OBRA:  { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
                   EMBARQUE: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() },
                   NAO_INICIADO: { pecas: 0, unidades: 0, peso: 0, marcasSet: new Set() } },
@@ -1607,12 +1611,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       // Peças com montagem parcial CONTAM em ambos os status — sua marca aparece nos dois sets.
       const statusBase = p.status || 'NAO_INICIADO';
       if (montadasN > 0) {
-        const bM = result.byStatus.MONTADO;
+        // Montado FULL (todas as unidades) vs PARCIAL (algumas) — buckets distintos p/ cor própria no 3D
+        const bM = result.byStatus[(montadasN >= qtd) ? 'MONTADO' : 'MONTADO_PARCIAL'];
         bM.unidades += montadasN;
         bM.peso += peso * (montadasN / qtd);
         if (marcaKey) bM.marcasSet.add(marcaKey);
-        // Conta como peça MONTADO se houver QUALQUER unidade montada (parciais tambem aparecem na contagem)
-        if (montadasN > 0) bM.pecas++;
+        bM.pecas++;
       }
       if (montadasN < qtd) {
         const b = result.byStatus[statusBase] || result.byStatus.NAO_INICIADO;
@@ -1632,7 +1636,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       result.byStatus[k].marcas = result.byStatus[k].marcasSet.size;
       delete result.byStatus[k].marcasSet;
     }
-    result.marcasMontadasDistintas = result.byStatus.MONTADO.marcas;
+    result.marcasMontadasDistintas = result.byStatus.MONTADO.marcas + result.byStatus.MONTADO_PARCIAL.marcas;
     return result;
   }, [erpPecas, concluidasMontagem]);
 
@@ -1684,7 +1688,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const e = erpPorMarca.get(m);
       if (nAsm > 0 && e.qtd !== nAsm) qtdDiverge.push({ marca: displayMarca.get(m), erp: e.qtd, ifc: nAsm });
       if (e.montadas > 0) {
-        const verdes = (elemsPorMarca.get(m) || []).filter(eid => statusMap.get(eid) === 'MONTADO').length;
+        const verdes = (elemsPorMarca.get(m) || []).filter(eid => { const s = statusMap.get(eid); return s === 'MONTADO' || s === 'MONTADO_PARCIAL'; }).length;
         if (verdes === 0) montadaSemVerde.push({ marca: displayMarca.get(m), montadas: e.montadas });
       }
     }
@@ -2377,7 +2381,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                 {[
                   { val: erpStats.total.toLocaleString(), label: 'Peças ERP', bg: 'from-cyan-700/80 to-cyan-800/80' },
                   { val: erpStats.totalUnidades.toLocaleString(), label: 'Unidades', bg: 'from-amber-700/80 to-amber-800/80' },
-                  { val: erpStats.byStatus.MONTADO.unidades + '/' + erpStats.totalUnidades, label: 'Montadas', bg: 'from-emerald-700/80 to-emerald-800/80' },
+                  { val: (erpStats.byStatus.MONTADO.unidades + erpStats.byStatus.MONTADO_PARCIAL.unidades) + '/' + erpStats.totalUnidades, label: 'Montadas', bg: 'from-emerald-700/80 to-emerald-800/80' },
                 ].map((b, i) => (
                   <div key={i} className={`bg-gradient-to-b ${b.bg} backdrop-blur rounded-lg px-3 py-1.5 text-center border border-white/10`}>
                     <div className="text-white text-sm font-bold">{b.val}</div>
