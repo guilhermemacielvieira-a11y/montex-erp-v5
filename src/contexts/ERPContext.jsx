@@ -1336,10 +1336,31 @@ export function ERPProvider({ children }) {
       payload: { tipo: 'sucesso', mensagem: `${materiais.length} materiais importados (${pesoTotal.toLocaleString()} kg)` }
     });
 
-    // Persistir no Supabase
+    // Persistir no Supabase — SANITIZADO para as colunas reais de
+    // pedidos_material (peso_previsto/peso_comprado/peso_entregue/peso_falta;
+    // não existem peso_pedido/peso_recebido — verificado em prod)
     if (dataSource === 'supabase') {
+      const PM_VALID = new Set([
+        'id', 'obra_id', 'descricao', 'material', 'perfil', 'quantidade',
+        'unidade', 'peso_previsto', 'peso_comprado', 'peso_entregue',
+        'peso_falta', 'fornecedor', 'status', 'data_pedido', 'data_entrega',
+        'nota_fiscal', 'observacoes', 'created_at', 'updated_at'
+      ]);
+      const PM_ALIAS = {
+        peso_pedido: 'peso_previsto',
+        peso_recebido: 'peso_entregue',
+        peso_falta_entregar: 'peso_falta',
+      };
       try {
-        const records = materiais.map(m => reverseTransformRecord(m));
+        const records = materiais.map(m => {
+          const raw = reverseTransformRecord(m);
+          const clean = {};
+          for (const [k, v] of Object.entries(raw)) {
+            const key = PM_ALIAS[k] || k;
+            if (PM_VALID.has(key) && clean[key] === undefined) clean[key] = v;
+          }
+          return clean;
+        });
         for (const rec of records) {
           await pedidosMaterialApi.create(rec);
         }
@@ -2110,9 +2131,9 @@ export function useMateriais() {
     const parciais = materiaisEstoque.filter(m => m.status === 'parcial').length;
     const completos = materiaisEstoque.filter(m => m.status === 'completo').length;
 
-    // MÉTRICAS PRINCIPAIS EM PESO (KG)
-    const pesoPedido = materiaisEstoque.reduce((acc, m) => acc + (m.pesoPedido || 0), 0);
-    const pesoRecebido = materiaisEstoque.reduce((acc, m) => acc + (m.pesoRecebido || 0), 0);
+    // MÉTRICAS PRINCIPAIS EM PESO (KG) — fallback p/ colunas reais do banco
+    const pesoPedido = materiaisEstoque.reduce((acc, m) => acc + (m.pesoPedido || m.pesoPrevisto || 0), 0);
+    const pesoRecebido = materiaisEstoque.reduce((acc, m) => acc + (m.pesoRecebido || m.pesoEntregue || 0), 0);
     const pesoFalta = materiaisEstoque.reduce((acc, m) => acc + (m.pesoFalta || 0), 0);
     const percentualGeral = pesoPedido > 0 ? Math.round((pesoRecebido / pesoPedido) * 100) : 0;
 

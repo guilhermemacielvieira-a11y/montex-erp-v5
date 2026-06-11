@@ -36,11 +36,27 @@ import {
   Send,
   Weight,
   Receipt,
-  PackageCheck
+  PackageCheck,
+  Sparkles,
+  Link2,
+  TrendingDown,
+  History
 } from 'lucide-react';
 
-import { useCompras, useMateriais, useERP, useObras } from '@/contexts/ERPContext';
+import { useCompras, useMateriais, useERP, useObras, useLancamentos } from '@/contexts/ERPContext';
 import { fornecedoresApi } from '@/api/supabaseClient';
+import {
+  processarNF,
+  categorizarNF,
+  nfTemLancamento,
+  nfTemMateriais,
+  construirHistoricoPrecos,
+  buscarPrecosSimilares,
+  itemQtd,
+  itemValorUnit,
+  itemValorTotal,
+  itemUnidade,
+} from '@/services/nfPipeline';
 
 // Fallback local (usado apenas se a tabela `fornecedores` ainda não existir
 // no Supabase — ver supabase/migration_v16_suprimentos.sql)
@@ -129,7 +145,42 @@ function StatusBadge({ status }) {
 // mesma convenção do Financeiro Fábrica — ver DespesasPage/FinanceiroPage)
 const DESTINO_MONTEX = '__montex__';
 
-function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, escopo }) {
+// Painel de inteligência de preços (dados extraídos das NFs reais)
+function PainelHistoricoPrecos({ similares, fornecedorInfo, fornecedorNome }) {
+  if ((!similares || similares.length === 0) && !fornecedorInfo) return null;
+  return (
+    <div className="rounded-md border border-blue-200 bg-blue-50 p-3 space-y-2">
+      <p className="text-xs font-semibold text-blue-900 flex items-center gap-1">
+        <History className="h-3 w-3" />
+        Histórico real (extraído das NFs)
+      </p>
+      {fornecedorInfo && (
+        <p className="text-xs text-blue-800">
+          <strong>{fornecedorNome}</strong>: {fornecedorInfo.nfs} NF(s) ·
+          total {fmtMoeda(fornecedorInfo.valorTotal)}
+          {fornecedorInfo.ultimaData ? ` · última em ${fmtData(fornecedorInfo.ultimaData)}` : ''}
+        </p>
+      )}
+      {similares && similares.map((s, i) => {
+        const economia = s.maisRecente.valorUnit > 0 && s.menorValor > 0 && s.menorValor < s.maisRecente.valorUnit;
+        return (
+          <div key={i} className="text-xs text-blue-800 flex items-start gap-1">
+            {economia ? <TrendingDown className="h-3 w-3 mt-0.5 text-green-600 shrink-0" /> : <span className="w-3 shrink-0" />}
+            <span>
+              <strong className="truncate">{s.maisRecente.descricao}</strong>:
+              {' '}último {fmtMoeda(s.maisRecente.valorUnit)}/{s.maisRecente.unidade.toLowerCase()}
+              {' '}({s.maisRecente.fornecedor || 'NF ' + s.maisRecente.nf}, {fmtData(s.maisRecente.data)})
+              {s.ocorrencias > 1 && ` · ${s.ocorrencias} compras, média ${fmtMoeda(s.media)}`}
+              {economia && <span className="text-green-700"> · menor já pago: {fmtMoeda(s.menorValor)}</span>}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, escopo, historicoPrecos }) {
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
@@ -150,6 +201,19 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, es
       }));
     }
   }, [open, escopo, obraAtual]);
+
+  // ALERTA: histórico real do fornecedor + materiais similares à descrição
+  const fornecedorNomeSel = fornecedores.find(f => String(f.id) === formData.fornecedor)?.nome || '';
+  const fornecedorInfo = useMemo(
+    () => (fornecedorNomeSel && historicoPrecos?.porFornecedor?.get(fornecedorNomeSel)) || null,
+    [fornecedorNomeSel, historicoPrecos]
+  );
+  const similares = useMemo(
+    () => (formData.descricao && formData.descricao.length >= 4)
+      ? buscarPrecosSimilares(historicoPrecos, formData.descricao, 3)
+      : [],
+    [formData.descricao, historicoPrecos]
+  );
 
   const handleSave = async () => {
     if (!formData.fornecedor || !formData.prazo) {
@@ -232,6 +296,11 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, es
             <Label htmlFor="descricao">Descrição</Label>
             <Textarea id="descricao" placeholder="Descreva os itens do pedido..." value={formData.descricao} onChange={(e) => setFormData({...formData, descricao: e.target.value})} />
           </div>
+          <PainelHistoricoPrecos
+            similares={similares}
+            fornecedorInfo={fornecedorInfo}
+            fornecedorNome={fornecedorNomeSel}
+          />
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="valorPrevisto">Valor Previsto (R$)</Label>
@@ -276,7 +345,7 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, es
   );
 }
 
-function NovaCotacaoDialog({ onSave, obras = [], obraAtual, escopo }) {
+function NovaCotacaoDialog({ onSave, obras = [], obraAtual, escopo, historicoPrecos }) {
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
@@ -297,6 +366,18 @@ function NovaCotacaoDialog({ onSave, obras = [], obraAtual, escopo }) {
       }));
     }
   }, [open, escopo, obraAtual]);
+
+  // ALERTA: preços já pagos por materiais similares ao que está sendo cotado
+  const similares = useMemo(
+    () => (formData.titulo && formData.titulo.length >= 4)
+      ? buscarPrecosSimilares(historicoPrecos, `${formData.titulo} ${formData.especificacoes}`, 4)
+      : [],
+    [formData.titulo, formData.especificacoes, historicoPrecos]
+  );
+  const fornecedorInfoCot = useMemo(
+    () => (formData.fornecedor && historicoPrecos?.porFornecedor?.get(formData.fornecedor.trim())) || null,
+    [formData.fornecedor, historicoPrecos]
+  );
 
   const handleSave = async () => {
     if (!formData.titulo || !formData.prazo) {
@@ -393,6 +474,11 @@ function NovaCotacaoDialog({ onSave, obras = [], obraAtual, escopo }) {
               <Input id="fornecedor_cotacao" placeholder="Nome do fornecedor consultado" value={formData.fornecedor} onChange={(e) => setFormData({...formData, fornecedor: e.target.value})} />
             </div>
           </div>
+          <PainelHistoricoPrecos
+            similares={similares}
+            fornecedorInfo={fornecedorInfoCot}
+            fornecedorNome={formData.fornecedor}
+          />
           <div className="space-y-2">
             <Label htmlFor="destino_cotacao">Destino</Label>
             <Select value={formData.obraId} onValueChange={(value) => setFormData({...formData, obraId: value})}>
@@ -539,9 +625,17 @@ function FornecedorDialog({ onSave, fornecedor = null, open, onOpenChange, trigg
 export default function ComprasPage() {
   // === DADOS DO SUPABASE VIA ERPCONTEXT ===
   const { compras: comprasContext, addCompra, updateCompra, receberCompra } = useCompras();
-  const { materiaisEstoque } = useMateriais();
+  const { materiaisEstoque, importarMateriais } = useMateriais();
   const { notasFiscais } = useERP();
+  const { lancamentosDespesas, addLancamento } = useLancamentos();
   const { obras, obraAtual, obraAtualData } = useObras();
+
+  // ===== HISTÓRICO DE PREÇOS (todas as NFs, todas as origens) =====
+  // Base de dados p/ alertas em pedidos/cotações futuras
+  const historicoPrecos = useMemo(
+    () => construirHistoricoPrecos(notasFiscais),
+    [notasFiscais]
+  );
 
   // ===== ESCOPO: OBRA SELECIONADA × MONTEX (EMPRESA) × GERAL =====
   // Mesma convenção do financeiro do ERP (DespesasPage/FinanceiroPage):
@@ -728,8 +822,9 @@ export default function ComprasPage() {
   }, [materiaisEscopo, searchTermMat]);
 
   // Estatísticas de materiais DO ESCOPO (antes vinham globais do contexto)
+  // Fallbacks p/ colunas reais do banco: peso_previsto/peso_entregue
   const statsMateriais = useMemo(() => {
-    const pesoPedido = materiaisEscopo.reduce((a, m) => a + (m.pesoPedido || 0), 0);
+    const pesoPedido = materiaisEscopo.reduce((a, m) => a + (m.pesoPedido || m.pesoPrevisto || 0), 0);
     const pesoRecebido = materiaisEscopo.reduce((a, m) => a + (m.pesoRecebido || m.pesoEntregue || 0), 0);
     const pesoFalta = materiaisEscopo.reduce((a, m) => a + (m.pesoFalta || m.pesoFaltaEntregar || 0), 0);
     return { total: materiaisEscopo.length, pesoPedido, pesoRecebido, pesoFalta };
@@ -768,6 +863,64 @@ export default function ComprasPage() {
       toast.error(`Erro ao receber pedido: ${err.message}`);
     } finally {
       setRecebendoId(null);
+    }
+  };
+
+  // ===== PIPELINE AUTOMÁTICO DE NF =====
+  // NF → lançamento categorizado (categoria + centro de custo automáticos)
+  //    → itens extraídos para a aba Materiais (pedidos_material)
+  const [processandoNF, setProcessandoNF] = useState(null);
+
+  const handleProcessarNF = async (nf) => {
+    setProcessandoNF(nf.id);
+    try {
+      const r = await processarNF(nf, {
+        lancamentos: lancamentosDespesas,
+        materiais: materiaisEstoque,
+        addLancamento,
+        importarMateriais,
+      });
+      const partes = [];
+      if (r.lancamentoCriado) partes.push(`lançamento "${r.categoria}" (${r.centroCusto})`);
+      if (r.materiaisCriados > 0) partes.push(`${r.materiaisCriados} materiais`);
+      toast.success(partes.length > 0
+        ? `NF ${nf.numero} processada: ${partes.join(' + ')} criados`
+        : `NF ${nf.numero} já estava vinculada`);
+    } catch (err) {
+      toast.error(`Erro ao processar NF ${nf.numero}: ${err.message}`);
+    } finally {
+      setProcessandoNF(null);
+    }
+  };
+
+  const nfsPendentesProcessamento = useMemo(
+    () => nfsEscopo.filter(nf =>
+      !nfTemLancamento(nf, lancamentosDespesas) || !nfTemMateriais(nf, materiaisEstoque)
+    ),
+    [nfsEscopo, lancamentosDespesas, materiaisEstoque]
+  );
+
+  const handleProcessarTodas = async () => {
+    if (nfsPendentesProcessamento.length === 0) return;
+    if (!window.confirm(`Processar ${nfsPendentesProcessamento.length} NF(s): gerar lançamentos categorizados e abastecer a aba Materiais automaticamente?`)) return;
+    setProcessandoNF('todas');
+    let lanc = 0, mats = 0;
+    try {
+      for (const nf of nfsPendentesProcessamento) {
+        const r = await processarNF(nf, {
+          lancamentos: lancamentosDespesas,
+          materiais: materiaisEstoque,
+          addLancamento,
+          importarMateriais,
+        });
+        if (r.lancamentoCriado) lanc += 1;
+        mats += r.materiaisCriados;
+      }
+      toast.success(`Processamento concluído: ${lanc} lançamentos + ${mats} materiais criados`);
+    } catch (err) {
+      toast.error(`Erro no processamento em lote: ${err.message}`);
+    } finally {
+      setProcessandoNF(null);
     }
   };
 
@@ -840,8 +993,8 @@ export default function ComprasPage() {
               </Button>
             )}
           />
-          <NovaCotacaoDialog onSave={addCompra} obras={obras || []} obraAtual={obraAtual} escopo={escopo} />
-          <NovoPedidoDialog onSave={addCompra} fornecedores={fornecedores.filter(f => f.cadastrado !== false)} obras={obras || []} obraAtual={obraAtual} escopo={escopo} />
+          <NovaCotacaoDialog onSave={addCompra} obras={obras || []} obraAtual={obraAtual} escopo={escopo} historicoPrecos={historicoPrecos} />
+          <NovoPedidoDialog onSave={addCompra} fornecedores={fornecedores.filter(f => f.cadastrado !== false)} obras={obras || []} obraAtual={obraAtual} escopo={escopo} historicoPrecos={historicoPrecos} />
         </div>
       </div>
 
@@ -1112,7 +1265,7 @@ export default function ComprasPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredMateriais.map((mat) => {
-                    const pesoPedido = mat.pesoPedido || 0;
+                    const pesoPedido = mat.pesoPedido || mat.pesoPrevisto || 0;
                     const pesoEntregue = mat.pesoRecebido || mat.pesoEntregue || 0;
                     const pesoFalta = mat.pesoFalta || mat.pesoFaltaEntregar || Math.max(0, pesoPedido - pesoEntregue);
                     const percentual = mat.percentualEntregue || (pesoPedido > 0 ? Math.round((pesoEntregue / pesoPedido) * 100) : 0);
@@ -1174,7 +1327,7 @@ export default function ComprasPage() {
                     <div>
                       <span className="text-muted-foreground">Peso Total: </span>
                       <span className="font-bold">
-                        {filteredMateriais.reduce((a, m) => a + (m.pesoPedido || 0), 0).toLocaleString('pt-BR')} kg
+                        {filteredMateriais.reduce((a, m) => a + (m.pesoPedido || m.pesoPrevisto || 0), 0).toLocaleString('pt-BR')} kg
                       </span>
                     </div>
                   </div>
@@ -1209,13 +1362,34 @@ export default function ComprasPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Notas Fiscais Recebidas</CardTitle>
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <CardTitle>Notas Fiscais Recebidas</CardTitle>
+                {nfsPendentesProcessamento.length > 0 && (
+                  <Button
+                    onClick={handleProcessarTodas}
+                    disabled={processandoNF !== null}
+                    className="gap-2"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                    {processandoNF === 'todas'
+                      ? 'Processando...'
+                      : `Processar ${nfsPendentesProcessamento.length} NF(s) pendente(s)`}
+                  </Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Processar = gerar lançamento de despesa com categoria e centro de custo automáticos
+                + extrair os itens para a aba Materiais. Idempotente: NF já vinculada não duplica.
+              </p>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4">
                 {nfsEscopo.map((nf) => {
                   const itensArr = Array.isArray(nf.itens) ? nf.itens : [];
-                  const pesoTotal = itensArr.reduce((a, i) => a + (i.quantidade || 0), 0);
+                  const pesoTotal = itensArr.reduce((a, i) => a + itemQtd(i), 0);
+                  const temLanc = nfTemLancamento(nf, lancamentosDespesas);
+                  const temMat = nfTemMateriais(nf, materiaisEstoque);
+                  const catSugerida = (!temLanc) ? categorizarNF(nf) : null;
                   return (
                     <Card key={nf.id} className="hover:shadow-md transition-shadow">
                       <CardContent className="p-4">
@@ -1246,6 +1420,36 @@ export default function ComprasPage() {
                           </div>
                         </div>
 
+                        {/* VÍNCULOS AUTOMÁTICOS (lançamento + materiais) */}
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <Badge className={temLanc ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
+                            <Link2 className="h-3 w-3 mr-1" />
+                            {temLanc ? 'Lançamento vinculado' : 'Sem lançamento'}
+                          </Badge>
+                          <Badge className={temMat ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
+                            <Weight className="h-3 w-3 mr-1" />
+                            {temMat ? 'Materiais extraídos' : 'Materiais não extraídos'}
+                          </Badge>
+                          {catSugerida && (
+                            <Badge variant="outline" className="text-xs">
+                              Sugerido: {catSugerida.categoria} · {catSugerida.centroCusto}
+                              {catSugerida.origem === 'aprendido' && ' (aprendido)'}
+                            </Badge>
+                          )}
+                          {(!temLanc || !temMat) && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="gap-1 ml-auto"
+                              disabled={processandoNF !== null}
+                              onClick={() => handleProcessarNF(nf)}
+                            >
+                              <Sparkles className="h-3 w-3" />
+                              {processandoNF === nf.id ? 'Processando...' : 'Processar'}
+                            </Button>
+                          )}
+                        </div>
+
                         {/* Itens da NF */}
                         {itensArr.length > 0 && (
                           <div className="mt-4 pt-3 border-t">
@@ -1255,9 +1459,15 @@ export default function ComprasPage() {
                                 <div key={idx} className="flex justify-between items-center text-sm py-1 px-2 rounded bg-muted/40">
                                   <span className="truncate max-w-[300px]">{item.descricao}</span>
                                   <div className="flex gap-4 items-center">
-                                    <Badge variant="outline" className="text-xs">{item.material || item.categoria}</Badge>
+                                    {(item.material || item.categoria || item.ncm) && (
+                                      <Badge variant="outline" className="text-xs">{item.material || item.categoria || `NCM ${item.ncm}`}</Badge>
+                                    )}
+                                    <span className="font-mono text-xs text-right text-muted-foreground">
+                                      {itemValorUnit(item) > 0 && `${fmtMoeda(itemValorUnit(item))}/${itemUnidade(item).toLowerCase()} · `}
+                                      {fmtMoeda(itemValorTotal(item))}
+                                    </span>
                                     <span className="font-mono text-xs min-w-[80px] text-right">
-                                      {(item.quantidade || 0).toLocaleString('pt-BR')} {item.unidade || 'KG'}
+                                      {itemQtd(item).toLocaleString('pt-BR')} {itemUnidade(item)}
                                     </span>
                                   </div>
                                 </div>
