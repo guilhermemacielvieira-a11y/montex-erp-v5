@@ -82,8 +82,8 @@ PropertySets extraídos: `Profile`, `Position code`, `Class`, `Grade`, `Top/Bott
 
 ## 🔐 Credenciais & segurança
 
-- Service role key **hardcoded** em `src/api/supabaseClient.js` como fallback (aceito pelo usuário, app sem auth real)
-- **Credenciais expostas que precisam rotação:** GitHub PAT, Supabase secret (já avisado)
+- Service role key **REMOVIDA do cliente** (`src/api/supabaseClient.js` usa só a anon key; `supabaseAdmin` é sempre `null`). Operações que exigem service_role vão por Edge Functions (`admin-users`, `send-push`, `notify-pending`) — **NUNCA reintroduzir a service key no bundle**
+- **Credenciais expostas que precisam rotação:** GitHub PAT, Supabase secret legado (já avisado)
 - **NÃO COMMITAR** novos secrets
 
 ---
