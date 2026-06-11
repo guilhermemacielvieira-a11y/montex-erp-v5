@@ -2390,7 +2390,7 @@ const SimulacoesList = ({ orcamentos, onNew, onLoad, onDelete }) => {
                   <div className="flex items-center justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
-                        <h3 className="text-lg font-semibold text-white">{orc.nome || 'Sem nome'}</h3>
+                        <h3 className="text-lg font-semibold text-white">{orc.nome || orc.projeto || 'Sem nome'}</h3>
                         <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${st.bg} ${st.text} border ${st.border}`}>
                           {st.label}
                         </span>
