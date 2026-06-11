@@ -7,7 +7,8 @@
 // (com header voltar) quando não há versão mobile dedicada.
 // ============================================================
 import React, { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { ArrowLeft } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
 import InstallPrompt from './ui/InstallPrompt';
@@ -52,6 +53,29 @@ const Relatorios = lazy(() => import('../pages/Relatorios'));
 const DashboardPremium = lazy(() => import('../pages/DashboardPremium'));
 const AnaliseProducaoPage = lazy(() => import('../pages/AnaliseProducaoPage'));
 const DiarioProducaoPage = lazy(() => import('../pages/DiarioProducaoPage'));
+
+// 3D em TELA CHEIA no mobile: o viewer dimensiona o canvas com
+// h-[calc(100vh-120px)] e root -m-6; dentro do DesktopWrap (header +
+// tab bar) o canvas estourava e rolava. Aqui ele ganha a viewport
+// inteira — OrbitControls já é touch-nativo (1 dedo gira, pinça dá
+// zoom) — com botão Voltar flutuante. O p-6 neutraliza o -m-6 do root.
+function Fullscreen3D({ children }) {
+  return (
+    <div className="relative min-h-screen bg-[#030712] text-slate-100">
+      <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando 3D…</div>}>
+        <div className="p-6">{children}</div>
+      </Suspense>
+      <Link
+        to="/m"
+        aria-label="Voltar ao início"
+        className="fixed z-[70] flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900/90 border border-slate-700 text-slate-100 text-xs font-bold backdrop-blur-md active:scale-95 transition"
+        style={{ top: 'calc(env(safe-area-inset-top) + 10px)', left: '10px' }}
+      >
+        <ArrowLeft className="w-4 h-4 text-amber-400" /> Voltar
+      </Link>
+    </div>
+  );
+}
 
 function DesktopWrap({ title, children }) {
   return (
@@ -120,7 +144,7 @@ function MobileRoutes() {
       <Route path="mais" element={<MaisMobile />} />
 
       {/* Páginas desktop em wrapper */}
-      <Route path="3d" element={<Protected perm="producao.view"><DesktopWrap title="Visualizador 3D"><MontexERP3DPage /></DesktopWrap></Protected>} />
+      <Route path="3d" element={<Protected perm="producao.view"><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
       <Route path="kanban" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
       <Route path="kanban-corte" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Corte"><KanbanCortePage /></DesktopWrap></Protected>} />
       <Route path="expedicao-desktop" element={<Protected perm="expedicao.view"><DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap></Protected>} />
