@@ -33,6 +33,7 @@ import GaleriaMobile from './pages/GaleriaMobile';
 import DashboardMobile from './pages/DashboardMobile';
 import AprovacoesMobile from './pages/AprovacoesMobile';
 import DiarioObraMobile from './pages/DiarioObraMobile';
+import PainelGlobalMobile from './pages/PainelGlobalMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -44,6 +45,7 @@ const EstoquePageV2 = lazy(() => import('../pages/EstoquePageV2'));
 const DespesasPage = lazy(() => import('../pages/DespesasPage'));
 const ReceitasPage = lazy(() => import('../pages/ReceitasPage'));
 const GestaoFinanceiraObra = lazy(() => import('../pages/GestaoFinanceiraObra'));
+const PainelFinanceiroGlobal = lazy(() => import('../pages/PainelFinanceiroGlobal'));
 const DREPage = lazy(() => import('../pages/DREPage'));
 const Projetos = lazy(() => import('../pages/Projetos'));
 const Clientes = lazy(() => import('../pages/Clientes'));
@@ -159,6 +161,9 @@ function MobileRoutes() {
       <Route path="despesas" element={<Protected perm="financeiro.view"><DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap></Protected>} />
       <Route path="receitas" element={<Protected perm="financeiro.view"><DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap></Protected>} />
       <Route path="obras-gfo" element={<Protected perm="financeiro.view"><DesktopWrap title="Gestão por Obra"><GestaoFinanceiraObra /></DesktopWrap></Protected>} />
+      {/* Financeiro GERAL da empresa (≠ financeiro de obra): analítico nativo + edição desktop */}
+      <Route path="painel-global" element={<Protected perm="financeiro.view"><PainelGlobalMobile /></Protected>} />
+      <Route path="painel-global-desktop" element={<Protected perm="financeiro.view"><DesktopWrap title="Painel Global (edição)"><PainelFinanceiroGlobal /></DesktopWrap></Protected>} />
       <Route path="dre" element={<Protected perm="financeiro.view"><DesktopWrap title="DRE"><DREPage /></DesktopWrap></Protected>} />
       <Route path="obras" element={<Protected perm="projetos.view"><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
       <Route path="clientes" element={<Protected perm="clientes.view"><DesktopWrap title="Clientes"><Clientes /></DesktopWrap></Protected>} />
