@@ -920,7 +920,9 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const positionsByTipoIfc = new Map(); // tipoIfc -> Set de position codes
     for (const el of ifcElements) {
       const pos = el.props?.['Assembly/Cast unit position code'];
-      const tipoIfc = (el.name || el.props?.['Assembly/Cast unit name'] || '').toUpperCase().trim();
+      // MESMA prioridade do lookup (Strategy 0): Assembly name primeiro. Chaves
+      // divergentes entre índice e consulta quebravam o match silenciosamente.
+      const tipoIfc = (el.props?.['Assembly/Cast unit name'] || el.name || '').toUpperCase().trim();
       if (!pos || !tipoIfc) continue;
       if (!positionsByTipoIfc.has(tipoIfc)) positionsByTipoIfc.set(tipoIfc, new Set());
       positionsByTipoIfc.get(tipoIfc).add(pos);
@@ -1015,6 +1017,10 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       return matches;
     };
 
+    // Elementos coloridos pelo fallback por TIPO (Strategy 7) — agrupados para a
+    // camada proporcional ao final (montadas/etapas na fração real do tipo).
+    const fallbackTipoElems = new Map(); // tipoErp -> [expressID]
+
     for (const el of ifcElements) {
       const elName = (el.name || '').toUpperCase().trim();
       const elDesc = (el.description || '').toUpperCase().trim();
@@ -1027,6 +1033,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
       let bestMatch = null;
       let matchedStatus = null;
+      let matchedTipoErp = null;
 
       // Strategy -1 (MAXIMA PRIORIDADE): marca REAL extraida do IFC Tekla 100%
       // No novo IFC, IFCELEMENTASSEMBLY tem:
@@ -1172,6 +1179,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           const erpTipo = IFC_TO_ERP_TIPO_MAP[txt];
           if (erpTipo && tipoIndex.has(erpTipo)) {
             matchedStatus = getRepresentativeStatus(tipoIndex.get(erpTipo));
+            matchedTipoErp = erpTipo;
             break;
           }
         }
@@ -1192,10 +1200,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         }
       } else if (matchedStatus) {
         // Strategy 7 (FALLBACK POR TIPO): sem marca/perfil/position casavel.
-        // matchedStatus = status de PRODUÇÃO representativo do TIPO ERP (NUNCA montado).
-        // Garante que familias sem ERP proprio (DIAGONAL-VM, MONTANTE-VM, DIAGONAL-TL...)
-        // destaquem herdando o status de produção do conjunto-pai (VIGA-MESTRA / TRELIÇA).
+        // matchedStatus = status de PRODUÇÃO representativo do TIPO ERP como base;
+        // a camada proporcional ao final redistribui (incl. MONTADO na fração real).
         map.set(el.expressID, matchedStatus);
+        if (matchedTipoErp) {
+          if (!fallbackTipoElems.has(matchedTipoErp)) fallbackTipoElems.set(matchedTipoErp, []);
+          fallbackTipoElems.get(matchedTipoErp).push(el.expressID);
+        }
       }
       // sem else: elemento sem match e sem tipo conhecido -> NAO_INICIADO no render
     }
@@ -1361,6 +1372,50 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
     }
 
+    // ============================================================
+    // CAMADA PROPORCIONAL POR TIPO (corrige o fallback Strategy 7)
+    // ============================================================
+    // O fallback por tipo pintava TODOS os elementos do tipo com o status
+    // MAJORITÁRIO de produção — peças montadas NUNCA apareciam verdes e a
+    // cena de um tipo inteiro virava uma cor só (ex.: 59 COLUNAs amarelas
+    // mesmo com N unidades montadas em campo). Aqui redistribuímos os
+    // elementos do fallback na PROPORÇÃO real de unidades do tipo no ERP:
+    // montadas (entity_store) em verde e o restante por etapa de produção.
+    // A POSIÇÃO dentro do tipo é aproximada (IFC mascarado não identifica a
+    // peça física), mas as CONTAGENS ficam fiéis ao fluxo. Pinta em blocos
+    // contíguos de expressID (partes da mesma peça tendem a ser vizinhas).
+    for (const [tipoErp, eids] of fallbackTipoElems) {
+      const pecasDoTipo = tipoIndex.get(tipoErp) || [];
+      if (!pecasDoTipo.length || eids.length === 0) continue;
+      const unidades = { MONTADO: 0, EM_OBRA: 0, EMBARQUE: 0, NAO_INICIADO: 0 };
+      let totU = 0;
+      for (const p of pecasDoTipo) {
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        const mont = getMontadasCount(concluidasMontagem?.[p.id], qtd);
+        unidades.MONTADO += mont;
+        const st = unidades[p.status] != null ? p.status : 'NAO_INICIADO';
+        unidades[st] += qtd - mont;
+        totU += qtd;
+      }
+      if (totU <= 0) continue;
+      // Cotas por status via maior-resto (soma exata = nº de elementos)
+      const cotas = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'].map(st => {
+        const exato = (eids.length * unidades[st]) / totU;
+        return { st, n: Math.floor(exato), resto: exato - Math.floor(exato) };
+      });
+      let alocado = cotas.reduce((s, c) => s + c.n, 0);
+      for (const c of cotas.slice().sort((a, b) => b.resto - a.resto)) {
+        if (alocado >= eids.length) break;
+        c.n++; alocado++;
+      }
+      const eidsOrd = eids.slice().sort((a, b) => a - b);
+      let i = 0;
+      for (const c of cotas) {
+        for (let k = 0; k < c.n && i < eidsOrd.length; k++, i++) map.set(eidsOrd[i], c.st);
+      }
+      for (; i < eidsOrd.length; i++) map.set(eidsOrd[i], 'NAO_INICIADO');
+    }
+
     return map;
   }, [ifcElements, erpPecas, concluidasMontagem]);
 
@@ -1388,7 +1443,9 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const positionsByTipo = new Map();
     for (const el of ifcElements) {
       const pos = el.props?.['Assembly/Cast unit position code'];
-      const tipoIfc = (el.name || el.props?.['Assembly/Cast unit name'] || '').toUpperCase().trim();
+      // MESMA prioridade do lookup (Strategy 0): Assembly name primeiro. Chaves
+      // divergentes entre índice e consulta quebravam o match silenciosamente.
+      const tipoIfc = (el.props?.['Assembly/Cast unit name'] || el.name || '').toUpperCase().trim();
       if (!pos || !tipoIfc) continue;
       if (!positionsByTipo.has(tipoIfc)) positionsByTipo.set(tipoIfc, new Set());
       positionsByTipo.get(tipoIfc).add(pos);
