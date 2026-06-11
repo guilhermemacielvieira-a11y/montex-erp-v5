@@ -7,6 +7,23 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ## [2.2.0] - 2026-06-11
 
+### Módulo Comercial — Reestruturação (PR7 / #24)
+
+#### Corrigido
+- **Projetos**: criar/editar gravava colunas inexistentes em `obras` (falha silenciosa) — mapeamento p/ schema real + metadados em `endereco.meta`; gera `id`/`codigo` automaticamente
+- **Projetos**: crash ao abrir "IA de Gestão" (imports `Target`/`AlertTriangle` ausentes)
+- **Orçamentos**: cards R$ 0,00 / probabilidade vazia (snake_case vs camelCase) — normalização + probabilidade persistida no JSONB `itens`
+- **transforms.js**: `orcamentoToSupabase` agora é partial-aware — update parcial zerava `itens` (setores/cálculos do Simulador), resetava `data_criacao` e anulava `cliente_nome`
+- **Simulador**: aceita `/SimuladorOrcamento?editar=<id>` vindo do pipeline
+
+#### Adicionado
+- Pipeline: drag & drop, duplicar e enviar persistem no Supabase; Exportar gera CSV real
+- Seletor de cliente com clientes reais; Projetos com autocomplete de clientes; Clientes exibe nº de projetos + orçamentos e valor de pipeline
+- Confirmação de exclusão (Clientes/Projetos) e toasts de sucesso/erro
+
+#### Observação
+- Rodar `seed_comercial_v1.sql` (pacote montex-pr7-pronto) no SQL Editor do Supabase para alimentar o módulo comercial com os dados em uso (idempotente)
+
 ### Módulo Suprimentos — Reestruturação
 
 #### Adicionado
