@@ -60,6 +60,7 @@ import {
   LS_KEYS as GLOBAL_LS_KEYS,
   loadBundleLocal, saveBundleLocal,
   loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote, mergeBundles,
+  deleteMovRemote,
 } from '../utils/painelFinanceiroSync';
 import { syncReceitas } from '../utils/receitasSync';
 import {
@@ -1139,6 +1140,7 @@ export default function PainelFinanceiroGlobal() {
     if (!mov) { setDeleteConfirmId(null); return; }
     if (mov.origem === 'local') {
       setMovsLocais(prev => prev.filter(m => m.id !== id));
+      deleteMovRemote(id); // apaga a linha na tabela JA (evita corrida de re-hidratacao)
       toast.success('Lançamento local removido');
     } else {
       // FIX M2: oculta sob a chave de fonte (ovKey) com fallback ao id legado

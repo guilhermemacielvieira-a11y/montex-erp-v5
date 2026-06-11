@@ -17,7 +17,7 @@
 // medições do sistema) continua igual, fora deste util.
 // ============================================
 import { supabase } from '../api/supabaseClient';
-if (typeof window !== "undefined") window.__PAINEL_SYNC_BUILD = "20260611";
+
 
 // Chaves localStorage isoladas (cache imediato/offline — mantidas idênticas)
 export const LS_KEYS = {
@@ -145,6 +145,13 @@ async function pruneByTipo(tipo, keepSet) {
     if (toDelete.length) await supabase.from(TABLE).delete().in('row_id', toDelete);
   } catch { /* noop */ }
 }
+// Apaga UMA linha de mov imediatamente. Evita a corrida em que a re-hidratacao/
+// realtime reinseria o lancamento (a tabela ainda tinha a linha) antes do prune
+// debounced (800ms) rodar — causava 'exclusao nao persiste'.
+export async function deleteMovRemote(id) {
+  try { await supabase.from(TABLE).delete().eq('row_id', `mov:${id}`); } catch { /* noop */ }
+}
+
 async function pruneAlerts(userKey, keepSet) {
   try {
     const { data } = await supabase.from(TABLE)
