@@ -12,6 +12,7 @@ import MobileLayout from '../MobileLayout';
 
 const MODULOS = [
   { group: 'Operação', items: [
+    { to: '/m/diario-obra', icon: ClipboardList, label: 'Diário de Obra', cor: 'emerald' },
     { to: '/m/3d', icon: Box, label: 'Visualizador 3D', cor: 'amber' },
     { to: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção', cor: 'blue' },
     { to: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', cor: 'purple' },
