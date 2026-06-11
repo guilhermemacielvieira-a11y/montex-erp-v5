@@ -51,7 +51,10 @@ export default function CroquisPage() {
 
   // PEÇAS REAIS da produção (Supabase via ERPContext) — antes usava mock
   // estático de src/data/database.js, mostrando qtd/peso/etapa desatualizados.
-  const { pecas: pecasContext } = useProducao();
+  // Filtro por OBRA: prioriza as peças da obra selecionada no seletor global;
+  // se a obra não tiver peças, cai para todas (croquis são por obra).
+  const { pecas: pecasTodas, pecasObraAtual } = useProducao();
+  const pecasContext = (pecasObraAtual && pecasObraAtual.length > 0) ? pecasObraAtual : pecasTodas;
 
   // Tipos disponíveis
   const tiposDisponiveis = useMemo(() => {

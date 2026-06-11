@@ -51,7 +51,9 @@ export default function DetalhamentosPage() {
 
   // PEÇAS REAIS da produção (Supabase via ERPContext) — antes usava mock
   // estático, mostrando etapa/quantidades desatualizadas.
-  const { pecas: pecasContext } = useProducao();
+  // Filtro por OBRA: prioriza as peças da obra selecionada no seletor global.
+  const { pecas: pecasTodas, pecasObraAtual } = useProducao();
+  const pecasContext = (pecasObraAtual && pecasObraAtual.length > 0) ? pecasObraAtual : pecasTodas;
 
   // Vincular peças da produção ao detalhamento por tipo (real; fallback mock)
   const pecasPorTipo = useMemo(() => {

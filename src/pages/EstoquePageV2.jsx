@@ -669,7 +669,7 @@ export default function EstoquePageV2() {
                     <Select.ItemText>📦 Todas as Obras + Geral</Select.ItemText>
                   </Select.Item>
                   <Select.Item value="sem_obra" className="px-3 py-2 text-sm text-cyan-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>🏢 Estoque Geral (sem obra)</Select.ItemText>
+                    <Select.ItemText>🏭 MONTEX (Geral — sem obra)</Select.ItemText>
                   </Select.Item>
                   {obraAtualData && (
                     <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
@@ -774,7 +774,7 @@ export default function EstoquePageV2() {
               Exibindo <strong className="text-white">{paginationItens.totalCount}</strong> de <strong className="text-white">{estoque.length}</strong> itens
               {filtroObra !== 'todas' && (
                 <span> · obra: <strong className="text-orange-400">{
-                  filtroObra === 'sem_obra' ? 'Estoque Geral' :
+                  filtroObra === 'sem_obra' ? 'MONTEX (Geral)' :
                   filtroObra === 'obra_atual' ? obraAtualData?.codigo :
                   (obras || []).find(o => o.id === filtroObra)?.codigo || filtroObra
                 }</strong></span>
