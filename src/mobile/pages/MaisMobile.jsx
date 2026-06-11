@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import {
   Box, Truck, Package, Scissors, ClipboardList, Building2,
   Users, Calculator, FileText, BarChart3, Activity, PieChart,
-  Wallet, Receipt, TrendingUp, Settings, User, Bell,
+  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 
@@ -19,6 +19,7 @@ const MODULOS = [
     { to: '/m/estoque', icon: Package, label: 'Estoque', cor: 'cyan' },
   ]},
   { group: 'Gestão', items: [
+    { to: '/m/aprovacoes', icon: CheckCircle2, label: 'Aprovações', cor: 'emerald' },
     { to: '/m/obras', icon: Building2, label: 'Obras', cor: 'amber' },
     { to: '/m/clientes', icon: User, label: 'Clientes', cor: 'blue' },
     { to: '/m/equipes', icon: Users, label: 'Equipes', cor: 'purple' },

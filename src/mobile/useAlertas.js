@@ -6,18 +6,39 @@
 // sub, to, icon, color }.
 // ============================================================
 import { useMemo } from 'react';
-import { AlertCircle, Package, PackageCheck, Truck, Hammer } from 'lucide-react';
+import { AlertCircle, Package, PackageCheck, Truck, Hammer, CheckCircle2 } from 'lucide-react';
 import { useERP } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from './ObraContext';
+
+// Predicados compartilhados com AprovacoesMobile (manter em sincronia)
+const medPendente = (m) => ['pendente', 'aguardando'].includes(String(m?.status || '').toLowerCase());
+const ORC_ABERTOS = ['enviado', 'em_analise', 'negociacao', 'pendente'];
+const orcPendente = (o) => ORC_ABERTOS.includes(String(o?.status || '').toLowerCase());
 
 export function useAlertas() {
   const erp = useERP?.() || {};
-  const { lancamentosDespesas = [], estoque = [], pecas = [], expedicoes = [] } = erp;
+  const { lancamentosDespesas = [], estoque = [], pecas = [], expedicoes = [], medicoes = [], orcamentos = [] } = erp;
   const { matchObra } = useObraFiltro();
+  const { hasPermission } = useAuth() || {};
+  const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
+  const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
 
   return useMemo(() => {
     const hoje = new Date().toISOString().slice(0, 10);
     const list = [];
+
+    // Aprovações pendentes (gestor) — primeiro da lista: é decisão, não aviso
+    const medsAprovar = podeMed ? medicoes.filter(medPendente).filter(matchObra).length : 0;
+    const orcsAprovar = podeOrc ? orcamentos.filter(orcPendente).filter(o => !(o.obraId ?? o.obra_id) || matchObra(o)).length : 0;
+    const aprovacoes = medsAprovar + orcsAprovar;
+    if (aprovacoes) {
+      const partes = [];
+      if (medsAprovar) partes.push(`${medsAprovar} medição(ões)`);
+      if (orcsAprovar) partes.push(`${orcsAprovar} orçamento(s)`);
+      list.push({ id: 'aprov', icon: CheckCircle2, color: 'emerald', count: aprovacoes,
+        title: `${aprovacoes} aprovação(ões) pendente(s)`, sub: partes.join(' · '), to: '/m/aprovacoes' });
+    }
 
     const despObra = lancamentosDespesas.filter(matchObra);
     const venc = (d) => d.dataVencimento || d.data_vencimento || '';
@@ -54,5 +75,5 @@ export function useAlertas() {
     }
 
     return list;
-  }, [lancamentosDespesas, estoque, pecas, expedicoes, matchObra]);
+  }, [lancamentosDespesas, estoque, pecas, expedicoes, medicoes, orcamentos, matchObra, podeMed, podeOrc]);
 }

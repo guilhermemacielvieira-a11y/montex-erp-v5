@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Building2, Hammer, Factory, Wallet, TrendingUp, TrendingDown,
-  AlertCircle, ChevronRight, Box, Truck, Package, Ruler, BarChart3,
+  AlertCircle, ChevronRight, Box, Truck, Package, Ruler, BarChart3, CheckCircle2,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
@@ -41,7 +41,7 @@ function KpiCard({ icon: Icon, label, value, color = 'amber', sub, to }) {
 export default function HomeMobile() {
   const erp = useERP?.() || {};
   // FIX: ERPContext expõe 'lancamentosDespesas' e 'medicoes' (não 'despesas'/'receitas').
-  const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [] } = erp;
+  const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [], orcamentos = [] } = erp;
   const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   // Aplica o filtro global por obra a todos os conjuntos de dados
@@ -67,16 +67,23 @@ export default function HomeMobile() {
   // "Meu dia": tarefas priorizadas por função (gestor vê aprovações; chão de
   // fábrica vê sua fila operacional). Some quando não há nada relevante.
   const tarefas = useMemo(() => {
-    const podeAprovar = !!hasPermission && hasPermission('medicao.aprovar');
+    const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
+    const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
     const aMontar = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'enviado').length;
     const prontas = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'expedido').length;
-    const medPend = receitas.filter(r => ['pendente', 'aguardando'].includes(String(r.status || '').toLowerCase())).length;
+    const medPend = podeMed ? receitas.filter(r => ['pendente', 'aguardando'].includes(String(r.status || '').toLowerCase())).length : 0;
+    // Orçamento sem obra vinculada aparece sempre (não sumir pendência com filtro)
+    const orcPend = podeOrc ? orcamentos
+      .filter(o => ['enviado', 'em_analise', 'negociacao', 'pendente'].includes(String(o.status || '').toLowerCase()))
+      .filter(o => !(o.obraId ?? o.obra_id) || matchObra(o)).length : 0;
+    const aprovacoes = medPend + orcPend;
     const t = [];
-    if (podeAprovar && medPend) t.push({ id: 'aprovar', icon: Ruler, count: medPend, label: 'medições a aprovar', to: '/m/medicao', cor: 'text-blue-400' });
+    // Caixa unificada de aprovações (medições + orçamentos) → /m/aprovacoes
+    if (aprovacoes) t.push({ id: 'aprovar', icon: CheckCircle2, count: aprovacoes, label: 'aprovações pendentes', to: '/m/aprovacoes', cor: 'text-emerald-400' });
     if (aMontar) t.push({ id: 'montar', icon: Hammer, count: aMontar, label: 'peças a montar', to: '/m/montagem', cor: 'text-emerald-400' });
     if (prontas) t.push({ id: 'expedir', icon: Truck, count: prontas, label: 'prontas p/ expedir', to: '/m/expedicao', cor: 'text-blue-400' });
     return t;
-  }, [pecasFiltradas, receitas, hasPermission]);
+  }, [pecasFiltradas, receitas, orcamentos, hasPermission, matchObra]);
 
   return (
     <MobileLayout title="Início" obraFilter>
