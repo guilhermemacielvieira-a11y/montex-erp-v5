@@ -2245,12 +2245,21 @@ const StepPrevia = ({ project, setores, calculations, unitCosts, paymentConditio
 // SAVED SIMULATIONS LIST
 // ============================================================================
 
+// Alinhado com o pipeline da página de Orçamentos (statusConfig)
 const statusLabels = {
   rascunho: { label: 'Rascunho', bg: 'bg-yellow-500/20', text: 'text-yellow-400', border: 'border-yellow-500/30' },
-  pendente: { label: 'Pendente', bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' },
+  enviado: { label: 'Enviado', bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30' },
+  em_analise: { label: 'Em Análise', bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30' },
+  negociacao: { label: 'Negociação', bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30' },
   aprovado: { label: 'Aprovado', bg: 'bg-green-500/20', text: 'text-green-400', border: 'border-green-500/30' },
+  perdido: { label: 'Perdido', bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' },
+  // Legado
+  pendente: { label: 'Pendente', bg: 'bg-orange-500/20', text: 'text-orange-400', border: 'border-orange-500/30' },
   reprovado: { label: 'Reprovado', bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30' },
 };
+
+// Status exibidos nos filtros da lista (legados ficam de fora, mas continuam renderizando)
+const STATUS_FILTROS = ['todos', 'rascunho', 'enviado', 'em_analise', 'negociacao', 'aprovado', 'perdido'];
 
 const SimulacoesList = ({ orcamentos, onNew, onLoad, onDelete }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -2325,7 +2334,7 @@ const SimulacoesList = ({ orcamentos, onNew, onLoad, onDelete }) => {
             />
           </div>
           <div className="flex gap-2">
-            {['todos', 'rascunho', 'pendente', 'aprovado', 'reprovado'].map(status => (
+            {STATUS_FILTROS.map(status => (
               <button
                 key={status}
                 onClick={() => setFilterStatus(status)}
@@ -2548,6 +2557,30 @@ export default function SimuladorOrcamento() {
     setShowList(true);
     setEditingId(null);
   }, []);
+
+  // Abrir orçamento vindo de outra página via /SimuladorOrcamento?editar=<id>
+  // (antes o parâmetro era ignorado e o Simulador sempre abria a lista)
+  const urlParamProcessado = React.useRef(false);
+  useEffect(() => {
+    if (urlParamProcessado.current) return;
+    const params = new URLSearchParams(window.location.search);
+    const editarId = params.get('editar');
+    if (!editarId) {
+      urlParamProcessado.current = true;
+      return;
+    }
+    if (!orcamentos || orcamentos.length === 0) return; // aguardar carga do Supabase
+    urlParamProcessado.current = true;
+    const orc = orcamentos.find(o => String(o.id) === String(editarId));
+    if (orc) {
+      handleLoadSimulation(orc);
+      toast.success(`Orçamento ${orc.numero || orc.nome || editarId} carregado no Simulador`);
+    } else {
+      toast.error(`Orçamento ${editarId} não encontrado`);
+    }
+    // Limpar o parâmetro da URL sem recarregar
+    window.history.replaceState({}, '', window.location.pathname);
+  }, [orcamentos, handleLoadSimulation]);
 
   // Delete simulation
   const handleDeleteSimulation = useCallback(async (id) => {

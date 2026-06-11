@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import {
   Users,
   Plus,
@@ -12,7 +13,9 @@ import {
   Building2,
   MoreVertical,
   Edit,
-  Trash2
+  Trash2,
+  FileText,
+  AlertTriangle
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -54,6 +57,7 @@ const segmentos = [
 export default function Clientes() {
   const [showModal, setShowModal] = useState(false);
   const [editingCliente, setEditingCliente] = useState(null);
+  const [clienteParaExcluir, setClienteParaExcluir] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [formData, setFormData] = useState({
     nome: '',
@@ -80,11 +84,22 @@ export default function Clientes() {
     queryFn: () => base44.entities.Projeto.list()
   });
 
+  // Integração com o módulo de Orçamentos — pipeline por cliente
+  const { data: orcamentos = [] } = useQuery({
+    queryKey: ['orcamentos-clientes'],
+    queryFn: () => base44.entities.Orcamento.list('-created_date', 200)
+  });
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Cliente.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientes'] });
+      toast.success('Cliente cadastrado com sucesso!');
       closeModal();
+    },
+    onError: (e) => {
+      console.error('Erro ao cadastrar cliente:', e);
+      toast.error('Erro ao cadastrar cliente');
     }
   });
 
@@ -92,7 +107,12 @@ export default function Clientes() {
     mutationFn: ({ id, data }) => base44.entities.Cliente.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientes'] });
+      toast.success('Cliente atualizado com sucesso!');
       closeModal();
+    },
+    onError: (e) => {
+      console.error('Erro ao atualizar cliente:', e);
+      toast.error('Erro ao atualizar cliente');
     }
   });
 
@@ -100,6 +120,12 @@ export default function Clientes() {
     mutationFn: (id) => base44.entities.Cliente.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['clientes'] });
+      toast.success('Cliente excluído');
+      setClienteParaExcluir(null);
+    },
+    onError: (e) => {
+      console.error('Erro ao excluir cliente:', e);
+      toast.error('Erro ao excluir cliente');
     }
   });
 
@@ -145,19 +171,39 @@ export default function Clientes() {
     }
   };
 
+  // Obras (tabela `obras`): cliente fica na coluna `cliente` ou em endereco.meta
   const getProjetosCliente = (clienteNome) => {
-    return projetos.filter(p => p.cliente_nome === clienteNome);
+    if (!clienteNome) return [];
+    const nome = clienteNome.trim().toLowerCase();
+    return projetos.filter(p => {
+      const candidatos = [p.cliente, p.cliente_nome, p.endereco?.meta?.cliente_nome];
+      return candidatos.some(c => c && String(c).trim().toLowerCase() === nome);
+    });
   };
+
+  // Orçamentos do cliente (coluna cliente_nome da tabela `orcamentos`)
+  const getOrcamentosCliente = (clienteNome) => {
+    if (!clienteNome) return [];
+    const nome = clienteNome.trim().toLowerCase();
+    return orcamentos.filter(o =>
+      o.cliente_nome && String(o.cliente_nome).trim().toLowerCase() === nome
+    );
+  };
+
+  const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
   const getSegmentoLabel = (segmento) => {
     const config = segmentos.find(s => s.value === segmento);
     return config?.label || segmento;
   };
 
-  const filteredClientes = clientes.filter(cliente => 
-    cliente.nome?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.cidade?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    cliente.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  const termo = searchTerm.toLowerCase();
+  const filteredClientes = clientes.filter(cliente =>
+    cliente.nome?.toLowerCase().includes(termo) ||
+    cliente.cidade?.toLowerCase().includes(termo) ||
+    cliente.email?.toLowerCase().includes(termo) ||
+    cliente.cnpj?.toLowerCase().includes(termo) ||
+    cliente.contato?.toLowerCase().includes(termo)
   );
 
   return (
@@ -213,6 +259,8 @@ export default function Clientes() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredClientes.map((cliente, index) => {
             const projetosCliente = getProjetosCliente(cliente.nome);
+            const orcamentosCliente = getOrcamentosCliente(cliente.nome);
+            const valorPipeline = orcamentosCliente.reduce((acc, o) => acc + (Number(o.valor_total) || 0), 0);
             return (
               <motion.div
                 key={cliente.id}
@@ -250,9 +298,9 @@ export default function Clientes() {
                             Editar
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-red-600"
-                            onClick={() => deleteMutation.mutate(cliente.id)}
+                            onClick={() => setClienteParaExcluir(cliente)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Excluir
@@ -287,14 +335,25 @@ export default function Clientes() {
                       )}
                     </div>
 
-                    {projetosCliente.length > 0 && (
-                      <div className="mt-4 pt-4 border-t border-slate-100">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Building2 className="h-4 w-4 text-orange-500" />
-                          <span className="font-medium text-slate-900">
-                            {projetosCliente.length} projeto{projetosCliente.length !== 1 ? 's' : ''}
-                          </span>
-                        </div>
+                    {(projetosCliente.length > 0 || orcamentosCliente.length > 0) && (
+                      <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
+                        {projetosCliente.length > 0 && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <Building2 className="h-4 w-4 text-orange-500" />
+                            <span className="font-medium text-slate-900">
+                              {projetosCliente.length} projeto{projetosCliente.length !== 1 ? 's' : ''}
+                            </span>
+                          </div>
+                        )}
+                        {orcamentosCliente.length > 0 && (
+                          <div className="flex items-center gap-2 text-sm">
+                            <FileText className="h-4 w-4 text-purple-500" />
+                            <span className="font-medium text-slate-900">
+                              {orcamentosCliente.length} orçamento{orcamentosCliente.length !== 1 ? 's' : ''}
+                            </span>
+                            <span className="text-slate-500">· {formatCurrency(valorPipeline)}</span>
+                          </div>
+                        )}
                       </div>
                     )}
                   </CardContent>
@@ -304,6 +363,44 @@ export default function Clientes() {
           })}
         </div>
       )}
+
+      {/* Modal de Confirmação de Exclusão */}
+      <Dialog open={!!clienteParaExcluir} onOpenChange={() => setClienteParaExcluir(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Confirmar Exclusão
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-slate-700">
+              Tem certeza que deseja excluir o cliente{' '}
+              <span className="font-bold">{clienteParaExcluir?.nome}</span>?
+            </p>
+            {getProjetosCliente(clienteParaExcluir?.nome).length > 0 && (
+              <p className="text-sm text-amber-600 mt-2">
+                Atenção: este cliente possui {getProjetosCliente(clienteParaExcluir?.nome).length} projeto(s) vinculado(s).
+              </p>
+            )}
+            <p className="text-sm text-red-500 mt-2">Esta ação não pode ser desfeita.</p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setClienteParaExcluir(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => deleteMutation.mutate(clienteParaExcluir.id)}
+              disabled={deleteMutation.isPending}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {deleteMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Trash2 className="h-4 w-4 mr-2" />
+              Excluir
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal */}
       <Dialog open={showModal} onOpenChange={closeModal}>
