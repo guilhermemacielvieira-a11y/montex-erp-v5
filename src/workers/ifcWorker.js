@@ -49,8 +49,23 @@ self.onmessage = async (ev) => {
     );
     // 'done' leva APENAS os secundários (os primários já foram no 'stage').
     const secondary = all.filter((el) => !el.isPrimary);
+    // CRÍTICO: o 'stage primary' foi postado ANTES das etapas 3/4 do parser
+    // (PropertySets + propagação da marca do Assembly via IFCRELAGGREGATES).
+    // O clone do postMessage congelou os primários SEM marcaFromIfc/assemblyId/
+    // props — colunas/tesouras/vigas-mestras perdiam a marca real e o matching
+    // do 3D caía no fallback (marcas "só no ERP", montadas sem verde).
+    // Enviamos um PATCH leve (sem geometria — os buffers já foram transferidos)
+    // para a página mesclar nos primários.
+    const primaryPatch = all
+      .filter((el) => el.isPrimary)
+      .map((el) => ({
+        expressID: el.expressID,
+        marcaFromIfc: el.marcaFromIfc || '',
+        assemblyId: el.assemblyId ?? null,
+        props: el.props || null,
+      }));
     self.postMessage(
-      { type: 'done', elements: secondary, correctedTypes: { ...IFC_TYPES } },
+      { type: 'done', elements: secondary, primaryPatch, correctedTypes: { ...IFC_TYPES } },
       collectGeometryBuffers(secondary)
     );
   } catch (e) {
