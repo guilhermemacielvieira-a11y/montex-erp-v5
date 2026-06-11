@@ -125,7 +125,11 @@ function StatusBadge({ status }) {
   );
 }
 
-function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) {
+// Valor especial do select de destino: despesa geral da empresa (obra_id NULL,
+// mesma convenção do Financeiro Fábrica — ver DespesasPage/FinanceiroPage)
+const DESTINO_MONTEX = '__montex__';
+
+function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, escopo }) {
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
@@ -137,6 +141,16 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) 
     urgencia: 'normal'
   });
 
+  // Pré-selecionar destino conforme o escopo ativo da página
+  useEffect(() => {
+    if (open) {
+      setFormData(f => ({
+        ...f,
+        obraId: escopo === 'montex' ? DESTINO_MONTEX : (obraAtual ? String(obraAtual) : '')
+      }));
+    }
+  }, [open, escopo, obraAtual]);
+
   const handleSave = async () => {
     if (!formData.fornecedor || !formData.prazo) {
       toast.error('Preencha fornecedor e prazo de entrega');
@@ -145,6 +159,9 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) 
 
     const fornecedorNome = fornecedores.find(f => String(f.id) === formData.fornecedor)?.nome || formData.fornecedor;
     const hoje = new Date().toISOString().split('T')[0];
+    const obraDestino = formData.obraId === DESTINO_MONTEX
+      ? null
+      : (formData.obraId || obraAtual || null);
 
     const novaCompra = {
       id: `CMP-${Date.now()}`,
@@ -158,7 +175,7 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) 
       dataPrevisao: formData.prazo,
       valorPrevisto: parseFloat(formData.valorPrevisto) || 0,
       valorTotal: parseFloat(formData.valorPrevisto) || 0,
-      obraId: formData.obraId || obraAtual || null,
+      obraId: obraDestino,
       itens: [],
       observacoes: formData.descricao || ''
     };
@@ -221,12 +238,13 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) 
               <Input type="number" min="0" step="0.01" id="valorPrevisto" placeholder="0,00" value={formData.valorPrevisto} onChange={(e) => setFormData({...formData, valorPrevisto: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="obra">Obra (opcional)</Label>
+              <Label htmlFor="obra">Destino</Label>
               <Select value={formData.obraId} onValueChange={(value) => setFormData({...formData, obraId: value})}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Vincular a obra" />
+                  <SelectValue placeholder="Obra ou MONTEX (Geral)" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value={DESTINO_MONTEX}>🏭 MONTEX — Geral (Empresa)</SelectItem>
                   {obras.map(o => (
                     <SelectItem key={o.id} value={String(o.id)}>{o.nome}</SelectItem>
                   ))}
@@ -258,7 +276,7 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) 
   );
 }
 
-function NovaCotacaoDialog({ onSave, obraAtual }) {
+function NovaCotacaoDialog({ onSave, obras = [], obraAtual, escopo }) {
   const [open, setOpen] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
@@ -267,14 +285,28 @@ function NovaCotacaoDialog({ onSave, obraAtual }) {
     quantidade: '',
     unidade: 'kg',
     prazo: '',
-    fornecedor: ''
+    fornecedor: '',
+    obraId: ''
   });
+
+  useEffect(() => {
+    if (open) {
+      setFormData(f => ({
+        ...f,
+        obraId: escopo === 'montex' ? DESTINO_MONTEX : (obraAtual ? String(obraAtual) : '')
+      }));
+    }
+  }, [open, escopo, obraAtual]);
 
   const handleSave = async () => {
     if (!formData.titulo || !formData.prazo) {
       toast.error('Preencha título e prazo da cotação');
       return;
     }
+
+    const obraDestino = formData.obraId === DESTINO_MONTEX
+      ? null
+      : (formData.obraId || obraAtual || null);
 
     const novaCotacao = {
       id: `COT-${Date.now()}`,
@@ -286,7 +318,7 @@ function NovaCotacaoDialog({ onSave, obraAtual }) {
       dataPedido: new Date().toISOString().split('T')[0],
       dataValidade: formData.prazo,
       dataPrevisao: formData.prazo,
-      obraId: obraAtual || null,
+      obraId: obraDestino,
       itens: formData.quantidade
         ? [{ descricao: formData.titulo, quantidade: parseFloat(formData.quantidade) || 0, unidade: formData.unidade }]
         : [],
@@ -360,6 +392,20 @@ function NovaCotacaoDialog({ onSave, obraAtual }) {
               <Label htmlFor="fornecedor_cotacao">Fornecedor (opcional)</Label>
               <Input id="fornecedor_cotacao" placeholder="Nome do fornecedor consultado" value={formData.fornecedor} onChange={(e) => setFormData({...formData, fornecedor: e.target.value})} />
             </div>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="destino_cotacao">Destino</Label>
+            <Select value={formData.obraId} onValueChange={(value) => setFormData({...formData, obraId: value})}>
+              <SelectTrigger>
+                <SelectValue placeholder="Obra ou MONTEX (Geral)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={DESTINO_MONTEX}>🏭 MONTEX — Geral (Empresa)</SelectItem>
+                {obras.map(o => (
+                  <SelectItem key={o.id} value={String(o.id)}>{o.nome}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <DialogFooter>
@@ -493,9 +539,32 @@ function FornecedorDialog({ onSave, fornecedor = null, open, onOpenChange, trigg
 export default function ComprasPage() {
   // === DADOS DO SUPABASE VIA ERPCONTEXT ===
   const { compras: comprasContext, addCompra, updateCompra, receberCompra } = useCompras();
-  const { materiaisEstoque, estatisticasEstoque } = useMateriais();
+  const { materiaisEstoque } = useMateriais();
   const { notasFiscais } = useERP();
-  const { obras, obraAtual } = useObras();
+  const { obras, obraAtual, obraAtualData } = useObras();
+
+  // ===== ESCOPO: OBRA SELECIONADA × MONTEX (EMPRESA) × GERAL =====
+  // Mesma convenção do financeiro do ERP (DespesasPage/FinanceiroPage):
+  // obra_id NULL = despesa geral da empresa (MONTEX); obra_id = obra específica.
+  const [escopo, setEscopo] = useState('obra'); // 'obra' | 'montex' | 'geral'
+
+  const matchEscopo = useCallback((obraId) => {
+    if (escopo === 'geral') return true;
+    if (escopo === 'montex') return !obraId; // sem obra = MONTEX/empresa
+    return obraId === obraAtual; // escopo 'obra'
+  }, [escopo, obraAtual]);
+
+  const obrasMap = useMemo(() => {
+    const m = {};
+    (obras || []).forEach(o => { m[o.id] = o.nome; });
+    return m;
+  }, [obras]);
+
+  const nomeEscopoAtivo = escopo === 'montex'
+    ? 'MONTEX (Geral)'
+    : escopo === 'geral'
+      ? 'Todas as origens'
+      : (obraAtualData?.nome || obrasMap[obraAtual] || 'Obra atual');
 
   // ===== FORNECEDORES (tabela `fornecedores` + dados derivados do uso real) =====
   const [fornecedoresCadastrados, setFornecedoresCadastrados] = useState([]);
@@ -540,14 +609,28 @@ export default function ComprasPage() {
     };
   }), [comprasContext]);
 
+  // Aplicar ESCOPO (obra ativa / MONTEX / geral) a todas as fontes do módulo
+  const comprasEscopo = useMemo(
+    () => comprasNormalizadas.filter(c => matchEscopo(c.obraId)),
+    [comprasNormalizadas, matchEscopo]
+  );
+  const materiaisEscopo = useMemo(
+    () => (materiaisEstoque || []).filter(m => matchEscopo(m.obraId)),
+    [materiaisEstoque, matchEscopo]
+  );
+  const nfsEscopo = useMemo(
+    () => (notasFiscais || []).filter(nf => matchEscopo(nf.obraId)),
+    [notasFiscais, matchEscopo]
+  );
+
   // Separar fluxos: cotações vs pedidos
   const cotacoes = useMemo(
-    () => comprasNormalizadas.filter(c => c.tipo === 'cotacao' || c.status === 'cotacao'),
-    [comprasNormalizadas]
+    () => comprasEscopo.filter(c => c.tipo === 'cotacao' || c.status === 'cotacao'),
+    [comprasEscopo]
   );
   const pedidos = useMemo(
-    () => comprasNormalizadas.filter(c => c.tipo !== 'cotacao' && c.status !== 'cotacao'),
-    [comprasNormalizadas]
+    () => comprasEscopo.filter(c => c.tipo !== 'cotacao' && c.status !== 'cotacao'),
+    [comprasEscopo]
   );
 
   // Fornecedores consolidados: cadastro + estatísticas REAIS puxadas de
@@ -562,15 +645,17 @@ export default function ComprasPage() {
       return stats.get(k);
     };
 
-    comprasNormalizadas.forEach(c => {
+    // Estatísticas calculadas SOBRE O ESCOPO ativo (obra / MONTEX / geral) —
+    // assim os valores por fornecedor refletem a obra selecionada ou a empresa
+    comprasEscopo.forEach(c => {
       const s = touch(c.fornecedor);
       if (s) { s.pedidos += 1; s.valorTotal += c.valor || 0; }
     });
-    (notasFiscais || []).forEach(nf => {
+    nfsEscopo.forEach(nf => {
       const s = touch(nf.fornecedor);
-      if (s) { s.nfs += 1; }
+      if (s) { s.nfs += 1; s.valorTotal += nf.valorTotal || nf.valor || 0; }
     });
-    (materiaisEstoque || []).forEach(m => {
+    materiaisEscopo.forEach(m => {
       const s = touch(m.fornecedor);
       if (s) { s.materiais += 1; }
     });
@@ -589,8 +674,15 @@ export default function ComprasPage() {
       ...s
     }));
 
-    return [...cadastrados, ...derivados].sort((a, b) => (b.valorTotal || 0) - (a.valorTotal || 0));
-  }, [fornecedoresCadastrados, comprasNormalizadas, notasFiscais, materiaisEstoque]);
+    // No escopo 'geral' mostra todo o cadastro; nos escopos obra/MONTEX,
+    // cadastrados sem movimento no escopo ficam ocultos para a análise focar
+    // em quem realmente forneceu naquele contexto (cadastro segue íntegro).
+    const lista = [...cadastrados, ...derivados];
+    const filtrada = escopo === 'geral'
+      ? lista
+      : lista.filter(f => (f.pedidos || 0) + (f.nfs || 0) + (f.materiais || 0) > 0);
+    return filtrada.sort((a, b) => (b.valorTotal || 0) - (a.valorTotal || 0));
+  }, [fornecedoresCadastrados, comprasEscopo, nfsEscopo, materiaisEscopo, escopo]);
 
   // ===== ESTADO DE UI =====
   const [searchTerm, setSearchTerm] = useState('');
@@ -623,17 +715,25 @@ export default function ComprasPage() {
     );
   }, [fornecedores, searchTermForn]);
 
-  // Filtrar materiais
+  // Filtrar materiais (já restritos ao escopo ativo)
   const filteredMateriais = useMemo(() => {
-    if (!searchTermMat) return materiaisEstoque;
+    if (!searchTermMat) return materiaisEscopo;
     const term = searchTermMat.toLowerCase();
-    return materiaisEstoque.filter(m =>
+    return materiaisEscopo.filter(m =>
       (m.codigo || '').toLowerCase().includes(term) ||
       (m.descricao || '').toLowerCase().includes(term) ||
       (m.notaFiscal || '').toLowerCase().includes(term) ||
       (m.fornecedor || '').toLowerCase().includes(term)
     );
-  }, [materiaisEstoque, searchTermMat]);
+  }, [materiaisEscopo, searchTermMat]);
+
+  // Estatísticas de materiais DO ESCOPO (antes vinham globais do contexto)
+  const statsMateriais = useMemo(() => {
+    const pesoPedido = materiaisEscopo.reduce((a, m) => a + (m.pesoPedido || 0), 0);
+    const pesoRecebido = materiaisEscopo.reduce((a, m) => a + (m.pesoRecebido || m.pesoEntregue || 0), 0);
+    const pesoFalta = materiaisEscopo.reduce((a, m) => a + (m.pesoFalta || m.pesoFaltaEntregar || 0), 0);
+    return { total: materiaisEscopo.length, pesoPedido, pesoRecebido, pesoFalta };
+  }, [materiaisEscopo]);
 
   // ===== AÇÕES =====
   const handleSalvarFornecedor = async (dados) => {
@@ -688,11 +788,12 @@ export default function ComprasPage() {
 
   const handleExportarCSV = () => {
     const linhas = [
-      ['ID', 'Documento', 'Fornecedor', 'Data', 'Itens', 'Peso (kg)', 'Valor Previsto', 'Status', 'Financeiro', 'Prazo'].join(';'),
+      ['ID', 'Documento', 'Fornecedor', 'Origem', 'Data', 'Itens', 'Peso (kg)', 'Valor Previsto', 'Status', 'Financeiro', 'Prazo'].join(';'),
       ...filteredPedidos.map(p => [
         p.id,
         p.documento,
         `"${(p.fornecedor || '').replace(/"/g, '""')}"`,
+        `"${p.obraId ? (obrasMap[p.obraId] || p.obraId) : 'MONTEX'}"`,
         fmtData(p.data),
         p.numItens,
         String(p.pesoKg || 0).replace('.', ','),
@@ -739,9 +840,45 @@ export default function ComprasPage() {
               </Button>
             )}
           />
-          <NovaCotacaoDialog onSave={addCompra} obraAtual={obraAtual} />
-          <NovoPedidoDialog onSave={addCompra} fornecedores={fornecedores.filter(f => f.cadastrado !== false)} obras={obras || []} obraAtual={obraAtual} />
+          <NovaCotacaoDialog onSave={addCompra} obras={obras || []} obraAtual={obraAtual} escopo={escopo} />
+          <NovoPedidoDialog onSave={addCompra} fornecedores={fornecedores.filter(f => f.cadastrado !== false)} obras={obras || []} obraAtual={obraAtual} escopo={escopo} />
         </div>
+      </div>
+
+      {/* ===== FILTRO DE ESCOPO: OBRA × MONTEX × GERAL ===== */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm text-muted-foreground mr-1">Origem:</span>
+        <Button
+          variant={escopo === 'obra' ? 'default' : 'outline'}
+          size="sm"
+          className="gap-2"
+          onClick={() => setEscopo('obra')}
+        >
+          <Building2 className="h-4 w-4" />
+          {obraAtualData?.nome || obrasMap[obraAtual] || 'Obra atual'}
+        </Button>
+        <Button
+          variant={escopo === 'montex' ? 'default' : 'outline'}
+          size="sm"
+          className="gap-2"
+          onClick={() => setEscopo('montex')}
+        >
+          🏭 MONTEX (Geral)
+        </Button>
+        <Button
+          variant={escopo === 'geral' ? 'default' : 'outline'}
+          size="sm"
+          onClick={() => setEscopo('geral')}
+        >
+          Todas
+        </Button>
+        <span className="text-xs text-muted-foreground ml-2">
+          {escopo === 'montex'
+            ? 'Despesas e compras gerais da empresa — independentes de obra'
+            : escopo === 'obra'
+              ? 'Somente registros vinculados à obra selecionada no topo'
+              : 'Todas as obras + MONTEX'}
+        </span>
       </div>
 
       {/* KPIs */}
@@ -749,7 +886,7 @@ export default function ComprasPage() {
         <KPICard
           title="Total Previsto (Pré-Pedidos)"
           value={fmtMoeda(totalPrevisto)}
-          subtitle="Valores previstos - sem lançamento real"
+          subtitle={`Previsto — ${nomeEscopoAtivo}`}
           icon={DollarSign}
         />
         <KPICard
@@ -840,6 +977,7 @@ export default function ComprasPage() {
                     <TableHead>ID</TableHead>
                     <TableHead>Documento</TableHead>
                     <TableHead>Fornecedor</TableHead>
+                    <TableHead>Origem</TableHead>
                     <TableHead>Data</TableHead>
                     <TableHead>Itens</TableHead>
                     <TableHead className="text-right">Peso (kg)</TableHead>
@@ -857,6 +995,15 @@ export default function ComprasPage() {
                         <TableCell className="font-medium">{pedido.id}</TableCell>
                         <TableCell className="text-xs font-mono">{pedido.documento}</TableCell>
                         <TableCell className="max-w-[150px] truncate">{pedido.fornecedor}</TableCell>
+                        <TableCell>
+                          {pedido.obraId ? (
+                            <Badge variant="outline" className="text-xs max-w-[140px] truncate">
+                              {obrasMap[pedido.obraId] || pedido.obraId}
+                            </Badge>
+                          ) : (
+                            <Badge className="bg-slate-200 text-slate-800 text-xs">MONTEX</Badge>
+                          )}
+                        </TableCell>
                         <TableCell>{fmtData(pedido.data)}</TableCell>
                         <TableCell>{pedido.numItens}</TableCell>
                         <TableCell className="text-right">{(pedido.pesoKg || 0).toLocaleString('pt-BR')}</TableCell>
@@ -892,8 +1039,8 @@ export default function ComprasPage() {
                   })}
                   {filteredPedidos.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
-                        Nenhum pedido encontrado
+                      <TableCell colSpan={11} className="text-center py-8 text-muted-foreground">
+                        Nenhum pedido em {nomeEscopoAtivo}
                       </TableCell>
                     </TableRow>
                   )}
@@ -909,25 +1056,25 @@ export default function ComprasPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             <KPICard
               title="Total de Itens"
-              value={estatisticasEstoque?.total || materiaisEstoque.length}
-              subtitle="Materiais cadastrados"
+              value={statsMateriais.total}
+              subtitle={`Materiais — ${nomeEscopoAtivo}`}
               icon={Package}
             />
             <KPICard
               title="Peso Pedido"
-              value={`${(estatisticasEstoque?.pesoPedido || materiaisEstoque.reduce((a, m) => a + (m.pesoPedido || 0), 0)).toLocaleString('pt-BR')} kg`}
+              value={`${statsMateriais.pesoPedido.toLocaleString('pt-BR')} kg`}
               subtitle="Total solicitado"
               icon={Weight}
             />
             <KPICard
               title="Peso Recebido"
-              value={`${(estatisticasEstoque?.pesoRecebido || materiaisEstoque.reduce((a, m) => a + (m.pesoRecebido || m.pesoEntregue || 0), 0)).toLocaleString('pt-BR')} kg`}
+              value={`${statsMateriais.pesoRecebido.toLocaleString('pt-BR')} kg`}
               subtitle="Total entregue"
               icon={Truck}
             />
             <KPICard
               title="Peso Faltante"
-              value={`${(estatisticasEstoque?.pesoFalta || materiaisEstoque.reduce((a, m) => a + (m.pesoFalta || m.pesoFaltaEntregar || 0), 0)).toLocaleString('pt-BR')} kg`}
+              value={`${statsMateriais.pesoFalta.toLocaleString('pt-BR')} kg`}
               subtitle="A receber"
               icon={AlertCircle}
             />
@@ -1042,19 +1189,19 @@ export default function ComprasPage() {
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <KPICard
               title="Notas Fiscais"
-              value={notasFiscais.length}
-              subtitle="Total recebidas"
+              value={nfsEscopo.length}
+              subtitle={`Recebidas — ${nomeEscopoAtivo}`}
               icon={Receipt}
             />
             <KPICard
               title="Valor Total NFs"
-              value={fmtMoeda(notasFiscais.reduce((a, nf) => a + (nf.valorTotal || nf.valor || 0), 0))}
+              value={fmtMoeda(nfsEscopo.reduce((a, nf) => a + (nf.valorTotal || nf.valor || 0), 0))}
               subtitle="Soma das notas"
               icon={DollarSign}
             />
             <KPICard
               title="Fornecedores"
-              value={[...new Set(notasFiscais.map(nf => nf.fornecedor).filter(Boolean))].length}
+              value={[...new Set(nfsEscopo.map(nf => nf.fornecedor).filter(Boolean))].length}
               subtitle="Distintos nas NFs"
               icon={Building2}
             />
@@ -1066,7 +1213,7 @@ export default function ComprasPage() {
             </CardHeader>
             <CardContent>
               <div className="grid gap-4">
-                {notasFiscais.map((nf) => {
+                {nfsEscopo.map((nf) => {
                   const itensArr = Array.isArray(nf.itens) ? nf.itens : [];
                   const pesoTotal = itensArr.reduce((a, i) => a + (i.quantidade || 0), 0);
                   return (
@@ -1128,9 +1275,9 @@ export default function ComprasPage() {
                     </Card>
                   );
                 })}
-                {notasFiscais.length === 0 && (
+                {nfsEscopo.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
-                    Nenhuma nota fiscal encontrada
+                    Nenhuma nota fiscal em {nomeEscopoAtivo}
                   </div>
                 )}
               </div>
@@ -1154,6 +1301,11 @@ export default function ComprasPage() {
                           <div className="flex items-center gap-2">
                             <h4 className="font-semibold">{cotacao.id}</h4>
                             <StatusBadge status={cotacao.status} />
+                            {cotacao.obraId ? (
+                              <Badge variant="outline" className="text-xs">{obrasMap[cotacao.obraId] || cotacao.obraId}</Badge>
+                            ) : (
+                              <Badge className="bg-slate-200 text-slate-800 text-xs">MONTEX</Badge>
+                            )}
                           </div>
                           <p className="text-sm text-muted-foreground">{cotacao.descricao || cotacao.observacao}</p>
                           {cotacao.fornecedor && (
@@ -1193,7 +1345,7 @@ export default function ComprasPage() {
                 ))}
                 {cotacoes.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground">
-                    Nenhuma cotação registrada. Use o botão "Nova Cotação" acima.
+                    Nenhuma cotação em {nomeEscopoAtivo}. Use o botão "Nova Cotação" acima.
                   </div>
                 )}
               </div>
@@ -1214,7 +1366,10 @@ export default function ComprasPage() {
           <Card>
             <CardHeader>
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <CardTitle>Fornecedores ({filteredFornecedores.length})</CardTitle>
+                <CardTitle>
+                  Fornecedores ({filteredFornecedores.length})
+                  <span className="ml-2 text-sm font-normal text-muted-foreground">— {nomeEscopoAtivo}</span>
+                </CardTitle>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
@@ -1304,7 +1459,8 @@ export default function ComprasPage() {
                 ))}
                 {filteredFornecedores.length === 0 && (
                   <div className="text-center py-8 text-muted-foreground md:col-span-2">
-                    Nenhum fornecedor encontrado
+                    Nenhum fornecedor com movimento em {nomeEscopoAtivo}.
+                    {escopo !== 'geral' && ' Selecione "Todas" para ver o cadastro completo.'}
                   </div>
                 )}
               </div>
