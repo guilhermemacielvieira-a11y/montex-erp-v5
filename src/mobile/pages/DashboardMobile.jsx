@@ -218,6 +218,7 @@ export default function DashboardMobile() {
       const medido = rec.reduce((s, r) => s + valorMedicao(r), 0);
       const recebido = rec.filter(isRecebida).reduce((s, r) => s + valorMedicao(r), 0);
       const gasto = des.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+      const gastoPago = des.filter(isDespesaPaga).reduce((s, d) => s + (Number(d.valor) || 0), 0);
       const contrato = contratoValor(o);
       // % faturado (medido/contrato em R$) vs % avanço físico (montado/contrato em kg):
       // físico >> faturado = trabalho executado sem medição emitida (dinheiro parado).
@@ -232,7 +233,11 @@ export default function DashboardMobile() {
       return {
         id: o.id, nome: o.nome || o.codigo || o.id,
         contrato, medido, recebido, gasto,
-        margem: medido - gasto,
+        // Lucro em base comparavel: recebido − pago (realizado). O antigo
+        // medido − gasto comparava receitas FUTURAS (medicoes pendentes)
+        // com despesas SO LANCADAS — assimetrico; mantido como previsao.
+        margem: recebido - gastoPago,
+        margemPrevista: medido - gasto,
         backlog: Math.max(0, contrato - medido),
         semContrato: !contrato,
         pctFat, pctFis,
@@ -298,9 +303,9 @@ export default function DashboardMobile() {
             sub={`${fmtTon(prod.pesoMontado)} / ${fmtTon(pesoContrato)}`} color="green" to="/m/montagem" />
           <KpiCard icon={Factory} label="Produção (fábrica)" value={`${prod.pctProducao.toFixed(0)}%`}
             sub={`${fmtTon(prod.pesoSaiu)} fora da fábrica`} color="blue" to="/m/producao" />
-          <KpiCard icon={fin.margem >= 0 ? TrendingUp : TrendingDown} label="Margem (medido − gasto)"
-            value={fmtMoney(fin.margem)} sub={`Caixa realizado ${fmtMoneyShort(fin.saldoReal)}`}
-            color={fin.margem >= 0 ? 'green' : 'red'} to="/m/financeiro" />
+          <KpiCard icon={fin.saldoReal >= 0 ? TrendingUp : TrendingDown} label="Lucro (recebido − pago)"
+            value={fmtMoney(fin.saldoReal)} sub={`Projecao c/ pendencias ${fmtMoneyShort(fin.margem)}`}
+            color={fin.saldoReal >= 0 ? 'green' : 'red'} to="/m/financeiro" />
           <KpiCard icon={DollarSign} label="Recebido / contrato" value={`${fin.pctFaturado.toFixed(0)}%`}
             sub={`${fmtMoneyShort(fin.recPagas)} de ${fmtMoneyShort(valorContrato)}`} color="amber" to="/m/receitas" />
           <KpiCard icon={Wallet} label="A receber (medido)" value={fmtMoney(fin.recPend)}
@@ -441,7 +446,7 @@ export default function DashboardMobile() {
 
         {/* ── Visão executiva por obra (margem & backlog) ─── */}
         {isTodas && execObras.length > 0 && (<>
-          <SectionTitle icon={Building2}>Resultado por obra</SectionTitle>
+          <SectionTitle icon={Building2}>Resultado por obra (realizado)</SectionTitle>
           <div className="mx-4 bg-slate-900/70 border border-slate-800 rounded-2xl divide-y divide-slate-800">
             {execObras.map(o => (
               <div key={o.id} className="px-3.5 py-3">
