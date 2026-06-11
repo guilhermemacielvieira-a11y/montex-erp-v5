@@ -1006,6 +1006,25 @@ export function ERPProvider({ children }) {
     }
   }, [dataSource]);
 
+  // Aprovação de compra (gestão): pendente → aprovada/recusada (1 toque no
+  // mobile /m/aprovacoes, perm compras.aprovar). Persiste APENAS {status} —
+  // não inventar coluna nova (lição da auditoria de schema). Reducer:
+  // UPDATE_COMPRA (já existente em comprasReducer).
+  const aprovarCompra = useCallback(async (compraId, aprovado = true) => {
+    const status = aprovado ? 'aprovada' : 'recusada';
+    dispatch({ type: ACTIONS.UPDATE_COMPRA, payload: { id: compraId, data: { status } } });
+    if (dataSource === 'supabase') {
+      try {
+        await comprasApi.update(compraId, { status });
+        console.log(`✅ Compra ${compraId} → ${status} no Supabase`);
+      } catch (err) {
+        console.error('❌ Erro ao aprovar/recusar compra no Supabase:', err.message);
+        toast.error(`Erro ao salvar compra: ${err.message}`);
+        throw err;
+      }
+    }
+  }, [dataSource]);
+
   // ===== AÇÕES - MEDIÇÕES =====
   // Helper: sanitizar dados de medição para colunas válidas do Supabase
   const sanitizeMedicaoForSupabase = (record) => {
@@ -1523,6 +1542,7 @@ export function ERPProvider({ children }) {
     comprasObraAtual,
     addCompra,
     receberCompra,
+    aprovarCompra,
     materiaisEstoque: state.materiaisEstoque,
     importarMateriais,
     registrarEntregaMaterial,
@@ -1543,6 +1563,7 @@ export function ERPProvider({ children }) {
     comprasObraAtual,
     addCompra,
     receberCompra,
+    aprovarCompra,
     state.materiaisEstoque,
     importarMateriais,
     registrarEntregaMaterial,
@@ -2035,7 +2056,8 @@ export function useCompras() {
     compras: context.compras,
     comprasObraAtual: context.comprasObraAtual,
     addCompra: context.addCompra,
-    receberCompra: context.receberCompra
+    receberCompra: context.receberCompra,
+    aprovarCompra: context.aprovarCompra
   };
 }
 

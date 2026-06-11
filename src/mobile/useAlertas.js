@@ -15,14 +15,16 @@ import { useObraFiltro } from './ObraContext';
 const medPendente = (m) => ['pendente', 'aguardando'].includes(String(m?.status || '').toLowerCase());
 const ORC_ABERTOS = ['enviado', 'em_analise', 'negociacao', 'pendente'];
 const orcPendente = (o) => ORC_ABERTOS.includes(String(o?.status || '').toLowerCase());
+const cmpPendente = (c) => String(c?.status || '').toLowerCase() === 'pendente';
 
 export function useAlertas() {
   const erp = useERP?.() || {};
-  const { lancamentosDespesas = [], estoque = [], pecas = [], expedicoes = [], medicoes = [], orcamentos = [] } = erp;
+  const { lancamentosDespesas = [], estoque = [], pecas = [], expedicoes = [], medicoes = [], orcamentos = [], compras = [] } = erp;
   const { matchObra } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
   const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
+  const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
 
   return useMemo(() => {
     const hoje = new Date().toISOString().slice(0, 10);
@@ -31,11 +33,13 @@ export function useAlertas() {
     // Aprovações pendentes (gestor) — primeiro da lista: é decisão, não aviso
     const medsAprovar = podeMed ? medicoes.filter(medPendente).filter(matchObra).length : 0;
     const orcsAprovar = podeOrc ? orcamentos.filter(orcPendente).filter(o => !(o.obraId ?? o.obra_id) || matchObra(o)).length : 0;
-    const aprovacoes = medsAprovar + orcsAprovar;
+    const cmpsAprovar = podeCmp ? compras.filter(cmpPendente).filter(c => !(c.obraId ?? c.obra_id) || matchObra(c)).length : 0;
+    const aprovacoes = medsAprovar + orcsAprovar + cmpsAprovar;
     if (aprovacoes) {
       const partes = [];
       if (medsAprovar) partes.push(`${medsAprovar} medição(ões)`);
       if (orcsAprovar) partes.push(`${orcsAprovar} orçamento(s)`);
+      if (cmpsAprovar) partes.push(`${cmpsAprovar} compra(s)`);
       list.push({ id: 'aprov', icon: CheckCircle2, color: 'emerald', count: aprovacoes,
         title: `${aprovacoes} aprovação(ões) pendente(s)`, sub: partes.join(' · '), to: '/m/aprovacoes' });
     }
