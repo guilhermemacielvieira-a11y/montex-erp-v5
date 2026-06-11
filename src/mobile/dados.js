@@ -19,6 +19,14 @@
 export const isRecebida = (r) => ['pago', 'paga'].includes(String(r?.status || '').toLowerCase());
 // Aguardando aprovação (caixa de aprovações)
 export const isMedicaoPendente = (m) => ['pendente', 'aguardando'].includes(String(m?.status || '').toLowerCase());
+// VALOR da medição: a tabela NÃO tem coluna `valor` — tem valor_bruto,
+// valor_liquido e valor_total. Nos dados reais o LÍQUIDO está sempre
+// preenchido; valor_total fica 0 na maioria. `valor` (alias local de
+// itens recém-criados no app) tem prioridade quando existe.
+export const valorMedicao = (r) =>
+  Number(r?.valor) || Number(r?.valorLiquido) || Number(r?.valor_liquido) ||
+  Number(r?.valorBruto) || Number(r?.valor_bruto) ||
+  Number(r?.valorTotal) || Number(r?.valor_total) || 0;
 
 // ── Despesas ────────────────────────────────────────────────
 export const isDespesaPaga = (d) => String(d?.status || '').toLowerCase() === 'pago';
