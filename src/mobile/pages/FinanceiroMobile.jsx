@@ -7,6 +7,7 @@ import { TrendingUp, TrendingDown, Receipt, Wallet, AlertCircle, PieChart, Chevr
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
+import { isRecebida, isDespesaPaga, isDespesaAberta, isDespesaAtrasada, vencimentoDe } from '../dados';
 
 const fmtMoney = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 
@@ -21,20 +22,20 @@ export default function FinanceiroMobile() {
   const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
 
   // Atraso por DATA de vencimento (não só status==='atrasado', que muitos lançamentos não têm).
+  // Predicados da fonte única ../dados (medição recebida = 'paga' no banco!).
   const hojeStr = new Date().toISOString().slice(0, 10);
-  // Campos vêm em camelCase (transformArray): dataVencimento. Mantém fallback snake por robustez.
-  const vencOf = (d) => d.dataVencimento || d.data_vencimento || '';
-  const isAtrasada = (d) => d.status !== 'pago' && d.status !== 'cancelado' && vencOf(d) && String(vencOf(d)).slice(0, 10) < hojeStr;
+  const vencOf = vencimentoDe;
+  const isAtrasada = (d) => isDespesaAtrasada(d, hojeStr);
 
   const k = useMemo(() => {
-    const desP = despesas.filter(d => d.status !== 'pago' && d.status !== 'cancelado');
+    const desP = despesas.filter(isDespesaAberta);
     const desA = despesas.filter(isAtrasada);
     const desVal = desP.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const desValAtr = desA.reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const recP = receitas.filter(r => r.status !== 'pago');
+    const recP = receitas.filter(r => !isRecebida(r));
     const recVal = recP.reduce((s, r) => s + (Number(r.valor) || 0), 0);
-    const desPagas = despesas.filter(d => d.status === 'pago').reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const recPagas = receitas.filter(r => r.status === 'pago').reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const desPagas = despesas.filter(isDespesaPaga).reduce((s, d) => s + (Number(d.valor) || 0), 0);
+    const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + (Number(r.valor) || 0), 0);
     return {
       saldo: recPagas - desPagas,
       saldoProj: recVal - desVal,
@@ -48,7 +49,7 @@ export default function FinanceiroMobile() {
     const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
     const limite = new Date(hoje); limite.setDate(limite.getDate() + 7);
     return despesas
-      .filter(d => d.status !== 'pago' && d.status !== 'cancelado' && vencOf(d))
+      .filter(d => isDespesaAberta(d) && vencOf(d))
       .map(d => ({ ...d, dt: new Date(String(vencOf(d)).slice(0, 10) + 'T00:00:00') }))
       .filter(d => d.dt <= limite && !isNaN(d.dt))
       .sort((a, b) => a.dt - b.dt)

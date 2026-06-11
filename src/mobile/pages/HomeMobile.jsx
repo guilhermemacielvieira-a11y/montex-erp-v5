@@ -1,7 +1,7 @@
 // ============================================================
 // HOME MOBILE - KPIs + Atalhos + Alertas
 // ============================================================
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -12,6 +12,8 @@ import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
+import { loadConcluidasSmart } from '@/utils/montagemSync';
+import { isRecebida, isDespesaPaga, isDespesaCancelada, isDespesaAtrasada, isEmFabrica, saiuDaFabrica, isEmObra, etapaDe } from '../dados';
 
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtMoney = (n) => 'R$ ' + fmtBR(n, 0);
@@ -48,21 +50,24 @@ export default function HomeMobile() {
   const despesas = useMemo(() => lancamentosDespesas.filter(matchObra), [lancamentosDespesas, matchObra]);
   const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
   const pecasFiltradas = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
+  // Montadas: entity_store/localStorage — a etapa do banco NÃO tem 'montado'
+  const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(r => setConcluidas(r || {})) || {});
 
   const stats = useMemo(() => {
     const hojeStr = new Date().toISOString().slice(0, 10);
-    const isAtrasada = (d) => { const v = d.dataVencimento || d.data_vencimento; return d.status !== 'pago' && d.status !== 'cancelado' && v && String(v).slice(0, 10) < hojeStr; };
-    const aPagar = despesas.filter(d => d.status !== 'pago' && d.status !== 'cancelado');
+    const aPagar = despesas.filter(d => !isDespesaPaga(d) && !isDespesaCancelada(d));
     // "Obras ativas" reflete o filtro: 1 quando uma obra está selecionada
     const obrasAtivas = isTodas ? obras.filter(o => o.status !== 'concluida' && o.status !== 'cancelada').length : 1;
-    const pecasMontadas = pecasFiltradas.filter(p => p.etapa === 'montado' || p.status === 'MONTADO').length;
-    const pecasProducao = pecasFiltradas.filter(p => ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'].includes(p.etapa)).length;
+    // Montadas = entity_store (fonte de verdade da montagem)
+    const pecasMontadas = pecasFiltradas.filter(p => !!concluidas[String(p.id)]).length;
+    const pecasProducao = pecasFiltradas.filter(p => isEmFabrica(p) || saiuDaFabrica(p)).length;
     const desPendentes = aPagar.length;
     const desValor = aPagar.reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const recPendentes = receitas.filter(r => r.status !== 'pago').reduce((s, r) => s + (Number(r.valor) || 0), 0);
-    const desAtrasadas = despesas.filter(isAtrasada).length;
+    // A receber = medições ainda não recebidas (status real do banco é 'paga')
+    const recPendentes = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const desAtrasadas = despesas.filter(d => isDespesaAtrasada(d, hojeStr)).length;
     return { obrasAtivas, pecasMontadas, pecasProducao, desPendentes, desValor, recPendentes, desAtrasadas };
-  }, [obras, pecasFiltradas, despesas, receitas, isTodas]);
+  }, [obras, pecasFiltradas, despesas, receitas, isTodas, concluidas]);
 
   // "Meu dia": tarefas priorizadas por função (gestor vê aprovações; chão de
   // fábrica vê sua fila operacional). Some quando não há nada relevante.
@@ -70,8 +75,9 @@ export default function HomeMobile() {
     const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
     const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
     const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
-    const aMontar = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'enviado').length;
-    const prontas = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'expedido').length;
+    // Em obra p/ montar = enviado + entregue (etapa real do banco), menos as já montadas
+    const aMontar = pecasFiltradas.filter(p => isEmObra(p) && !concluidas[String(p.id)]).length;
+    const prontas = pecasFiltradas.filter(p => etapaDe(p) === 'expedido').length;
     const medPend = podeMed ? receitas.filter(r => ['pendente', 'aguardando'].includes(String(r.status || '').toLowerCase())).length : 0;
     // Orçamento/compra sem obra vinculada aparece sempre (não sumir pendência com filtro)
     const orcPend = podeOrc ? orcamentos
@@ -87,7 +93,7 @@ export default function HomeMobile() {
     if (aMontar) t.push({ id: 'montar', icon: Hammer, count: aMontar, label: 'peças a montar', to: '/m/montagem', cor: 'text-emerald-400' });
     if (prontas) t.push({ id: 'expedir', icon: Truck, count: prontas, label: 'prontas p/ expedir', to: '/m/expedicao', cor: 'text-blue-400' });
     return t;
-  }, [pecasFiltradas, receitas, orcamentos, compras, hasPermission, matchObra]);
+  }, [pecasFiltradas, receitas, orcamentos, compras, hasPermission, matchObra, concluidas]);
 
   return (
     <MobileLayout title="Início" obraFilter>

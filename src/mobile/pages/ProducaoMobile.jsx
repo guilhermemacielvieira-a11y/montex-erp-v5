@@ -33,8 +33,10 @@ import { useProducao } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
-// Ordem do fluxo (CLAUDE.md): fabricacao → solda → pintura → expedido → enviado.
-// 'aguardando' é o estado inicial antes de entrar em produção.
+// Ordem do fluxo (etapas REAIS do banco — auditoria 11/06): fabricacao →
+// solda → pintura → expedido → enviado → entregue. 'aguardando' é o estado
+// inicial. 'entregue' (recebida na obra) estava fora da lista e as peças
+// nessa etapa caíam em 'Aguardando' na contagem.
 const ETAPAS = [
   { key: 'aguardando', label: 'Aguardando', icon: Factory, color: 'slate' },
   { key: 'fabricacao', label: 'Fabricação', icon: Wrench, color: 'blue' },
@@ -42,6 +44,7 @@ const ETAPAS = [
   { key: 'pintura', label: 'Pintura', icon: PaintBucket, color: 'purple' },
   { key: 'expedido', label: 'Expedido', icon: PackageCheck, color: 'emerald' },
   { key: 'enviado', label: 'Enviado', icon: Truck, color: 'green' },
+  { key: 'entregue', label: 'Entregue na obra', icon: PackageCheck, color: 'green' },
 ];
 const ORDEM = ETAPAS.map(e => e.key);
 const proximaEtapa = (etapa) => {

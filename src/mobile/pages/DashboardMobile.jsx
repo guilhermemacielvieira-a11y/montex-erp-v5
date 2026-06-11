@@ -29,6 +29,10 @@ import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart } from '@/utils/montagemSync';
+import {
+  isRecebida, isDespesaPaga, isDespesaAberta, isDespesaAtrasada,
+  contratoPesoKg, contratoValor,
+} from '../dados';
 
 // ── Helpers de formatação ──────────────────────────────────
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -43,7 +47,7 @@ const fmtMoneyShort = (n) => {
 // Peso total da peça: prefere o campo agregado, cai p/ unitário×qtd (regra mobile)
 const pesoDe = (p) => Number(p.pesoTotal) || (Number(p.peso) || 0) * (Number(p.quantidade) || 1);
 
-// Paleta de etapas (alinhada à paleta de status do CLAUDE.md)
+// Paleta de etapas (etapas REAIS do banco — auditoria 11/06 incluiu 'entregue')
 const ETAPAS = [
   { key: 'aguardando', label: 'Aguardando', color: '#475569' },
   { key: 'fabricacao', label: 'Fabricação', color: '#3b82f6' },
@@ -51,6 +55,7 @@ const ETAPAS = [
   { key: 'pintura', label: 'Pintura', color: '#8b5cf6' },
   { key: 'expedido', label: 'Expedido', color: '#f97316' },
   { key: 'enviado', label: 'Em obra', color: '#eab308' },
+  { key: 'entregue', label: 'Entregue', color: '#14b8a6' },
   { key: 'montado', label: 'Montado', color: '#22c55e' },
 ];
 const TIPO_CORES = ['#f59e0b', '#3b82f6', '#8b5cf6', '#22c55e', '#ec4899', '#06b6d4', '#64748b'];
@@ -136,10 +141,10 @@ export default function DashboardMobile() {
       const slot = m[etapa] || m.aguardando;
       slot.peso += w; slot.conjuntos += 1;
     }
-    // "Concluído na fábrica" = saiu da fábrica (expedido+enviado+montado)
-    const pesoSaiu = m.expedido.peso + m.enviado.peso + m.montado.peso;
+    // "Concluído na fábrica" = saiu da fábrica (expedido+enviado+entregue+montado)
+    const pesoSaiu = m.expedido.peso + m.enviado.peso + m.entregue.peso + m.montado.peso;
     const pesoMontado = m.montado.peso;
-    const pesoCampo = m.enviado.peso + m.montado.peso; // em obra
+    const pesoCampo = m.enviado.peso + m.entregue.peso + m.montado.peso; // em obra
     return {
       m, pesoTotal, pesoSaiu, pesoMontado, pesoCampo,
       pctProducao: pesoTotal ? (pesoSaiu / pesoTotal) * 100 : 0,
@@ -147,37 +152,73 @@ export default function DashboardMobile() {
     };
   }, [pecasF, concluidas]);
 
-  // Peso contratado (soma das obras em escopo)
-  const pesoContrato = useMemo(
-    () => obrasEscopo.reduce((s, o) => s + (Number(o.contratoPesoTotal) || Number(o.contrato_peso_total) || 0), 0),
-    [obrasEscopo]
-  );
-  const valorContrato = useMemo(
-    () => obrasEscopo.reduce((s, o) => s + (Number(o.contratoValorTotal) || Number(o.contrato_valor_total) || 0), 0),
-    [obrasEscopo]
-  );
+  // Peso/valor contratados (fonte única ../dados — contrato_peso_total em KG)
+  const pesoContrato = useMemo(() => obrasEscopo.reduce((s, o) => s + contratoPesoKg(o), 0), [obrasEscopo]);
+  const valorContrato = useMemo(() => obrasEscopo.reduce((s, o) => s + contratoValor(o), 0), [obrasEscopo]);
+  // Obras do escopo SEM valor de contrato cadastrado (dados incompletos → backlog subestimado)
+  const obrasSemContrato = useMemo(() => obrasEscopo.filter(o => !contratoValor(o)), [obrasEscopo]);
   // Avanço físico da obra = peso montado / peso contratado
   const pctAvancoFisico = pesoContrato ? Math.min(100, (prod.pesoMontado / pesoContrato) * 100) : 0;
 
-  // ── Financeiro ──
+  // ── Financeiro (predicados da fonte única: medição recebida = 'paga') ──
   const fin = useMemo(() => {
-    const isPago = (x) => x.status === 'pago';
-    const isCancel = (x) => x.status === 'cancelado';
-    const desPagas = despesas.filter(isPago).reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const desPend = despesas.filter(d => !isPago(d) && !isCancel(d)).reduce((s, d) => s + (Number(d.valor) || 0), 0);
-    const recPagas = receitas.filter(isPago).reduce((s, r) => s + (Number(r.valor) || 0), 0);
-    const recPend = receitas.filter(r => !isPago(r)).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const desPagas = despesas.filter(isDespesaPaga).reduce((s, d) => s + (Number(d.valor) || 0), 0);
+    const desPend = despesas.filter(isDespesaAberta).reduce((s, d) => s + (Number(d.valor) || 0), 0);
+    const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+    const recPend = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + (Number(r.valor) || 0), 0);
     const hoje = new Date().toISOString().slice(0, 10);
-    const atrasadas = despesas.filter(d => !isPago(d) && !isCancel(d) && (d.dataVencimento || d.data_vencimento) && String(d.dataVencimento || d.data_vencimento).slice(0, 10) < hoje);
+    const atrasadas = despesas.filter(d => isDespesaAtrasada(d, hoje));
     const desAtraso = atrasadas.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const margem = (recPagas + recPend) - (desPagas + desPend);
+    const medidoTotal = recPagas + recPend;
     return {
-      desPagas, desPend, recPagas, recPend,
+      desPagas, desPend, recPagas, recPend, medidoTotal,
       saldoReal: recPagas - desPagas, saldoProj: recPend - desPend, margem,
       atrasoCount: atrasadas.length, desAtraso,
       pctFaturado: valorContrato ? (recPagas / valorContrato) * 100 : 0,
+      // Backlog comercial = contrato − tudo já medido (a executar/medir)
+      backlog: Math.max(0, valorContrato - medidoTotal),
     };
   }, [despesas, receitas, valorContrato]);
+
+  // ── Fluxo de caixa mensal (últimos 6 meses, realizado) ──
+  // Receita: medições recebidas por mês (dataMedicao); Despesa: pagas por
+  // mês de vencimento (proxy de competência — data de pagamento não existe).
+  const fluxoMensal = useMemo(() => {
+    const meses = [];
+    const ref = new Date(); ref.setDate(1);
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
+      meses.push({ ym: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, name: d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', ''), Receita: 0, Despesa: 0 });
+    }
+    const slot = (s) => meses.find(m => m.ym === String(s || '').slice(0, 7));
+    for (const r of receitas) { if (isRecebida(r)) { const m = slot(r.dataMedicao || r.data_medicao || r.data); if (m) m.Receita += Number(r.valor) || 0; } }
+    for (const d of despesas) { if (isDespesaPaga(d)) { const m = slot(d.dataVencimento || d.data_vencimento || d.dataEmissao || d.data_emissao); if (m) m.Despesa += Number(d.valor) || 0; } }
+    return meses.map(m => ({ ...m, Receita: Math.round(m.Receita), Despesa: Math.round(m.Despesa) }));
+  }, [receitas, despesas]);
+  const temFluxo = fluxoMensal.some(m => m.Receita || m.Despesa);
+
+  // ── Visão executiva por obra (modo "Todas"): margem e backlog ──
+  const execObras = useMemo(() => {
+    if (!isTodas) return [];
+    return obras.map(o => {
+      const okObra = (x) => (x.obraId ?? x.obra_id ?? x.obra?.id) === o.id;
+      const rec = medicoes.filter(okObra);
+      const des = lancamentosDespesas.filter(okObra).filter(d => !String(d.status || '').toLowerCase().includes('cancelado'));
+      const medido = rec.reduce((s, r) => s + (Number(r.valor) || 0), 0);
+      const recebido = rec.filter(isRecebida).reduce((s, r) => s + (Number(r.valor) || 0), 0);
+      const gasto = des.reduce((s, d) => s + (Number(d.valor) || 0), 0);
+      const contrato = contratoValor(o);
+      return {
+        id: o.id, nome: o.nome || o.codigo || o.id,
+        contrato, medido, recebido, gasto,
+        margem: medido - gasto,
+        backlog: Math.max(0, contrato - medido),
+        semContrato: !contrato,
+      };
+    }).filter(o => o.contrato || o.medido || o.gasto)
+      .sort((a, b) => b.margem - a.margem);
+  }, [isTodas, obras, medicoes, lancamentosDespesas]);
 
   // ── Charts data ──
   const funilData = useMemo(
@@ -207,7 +248,7 @@ export default function DashboardMobile() {
       for (const p of ps) {
         const w = pesoDe(p); total += w;
         const et = concluidas[String(p.id)] ? 'montado' : (p.etapa || '').toLowerCase();
-        if (['expedido', 'enviado', 'montado'].includes(et)) saiu += w;
+        if (['expedido', 'enviado', 'entregue', 'montado'].includes(et)) saiu += w;
       }
       return { nome: (o.nome || o.codigo || o.id).slice(0, 14), pct: total ? Math.round((saiu / total) * 100) : 0, total };
     }).filter(o => o.total > 0).sort((a, b) => b.pct - a.pct).slice(0, 6);
@@ -229,18 +270,33 @@ export default function DashboardMobile() {
       )}
 
       {!semDados && (<>
-        {/* ── KPIs estratégicos ───────────────────────────── */}
+        {/* ── KPIs estratégicos (visão CEO) ───────────────── */}
         <div className="px-4 grid grid-cols-2 gap-2.5 mt-3">
           <KpiCard icon={Target} label="Avanço físico (obra)" value={`${pctAvancoFisico.toFixed(0)}%`}
             sub={`${fmtTon(prod.pesoMontado)} / ${fmtTon(pesoContrato)}`} color="green" to="/m/montagem" />
           <KpiCard icon={Factory} label="Produção (fábrica)" value={`${prod.pctProducao.toFixed(0)}%`}
-            sub={`${fmtTon(prod.pesoSaiu)} expedido`} color="blue" to="/m/producao" />
-          <KpiCard icon={fin.margem >= 0 ? TrendingUp : TrendingDown} label="Margem do contrato"
-            value={fmtMoney(fin.margem)} sub={`Saldo real ${fmtMoneyShort(fin.saldoReal)}`}
+            sub={`${fmtTon(prod.pesoSaiu)} fora da fábrica`} color="blue" to="/m/producao" />
+          <KpiCard icon={fin.margem >= 0 ? TrendingUp : TrendingDown} label="Margem (medido − gasto)"
+            value={fmtMoney(fin.margem)} sub={`Caixa realizado ${fmtMoneyShort(fin.saldoReal)}`}
             color={fin.margem >= 0 ? 'green' : 'red'} to="/m/financeiro" />
-          <KpiCard icon={DollarSign} label="Faturado / contrato" value={`${fin.pctFaturado.toFixed(0)}%`}
+          <KpiCard icon={DollarSign} label="Recebido / contrato" value={`${fin.pctFaturado.toFixed(0)}%`}
             sub={`${fmtMoneyShort(fin.recPagas)} de ${fmtMoneyShort(valorContrato)}`} color="amber" to="/m/receitas" />
+          <KpiCard icon={Wallet} label="A receber (medido)" value={fmtMoney(fin.recPend)}
+            sub={`${fmtMoneyShort(fin.desPend)} a pagar`} color="violet" to="/m/receitas" />
+          <KpiCard icon={Building2} label="Backlog (a medir)" value={fmtMoney(fin.backlog)}
+            sub={obrasSemContrato.length ? `${obrasSemContrato.length} obra(s) sem valor de contrato` : 'Contrato − medições'}
+            color="blue" to="/m/obras" />
         </div>
+
+        {/* Dados incompletos: obra sem valor de contrato distorce backlog/% */}
+        {obrasSemContrato.length > 0 && (
+          <div className="mx-4 mt-3 flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+            <div className="text-[11px] text-amber-200/90">
+              Sem valor de contrato: <b>{obrasSemContrato.map(o => o.nome || o.id).join(', ')}</b> — backlog e % recebido ficam subestimados. Cadastre em Obras.
+            </div>
+          </div>
+        )}
 
         {/* Alerta de despesas em atraso */}
         {fin.atrasoCount > 0 && (
@@ -319,6 +375,53 @@ export default function DashboardMobile() {
           </div>
         </ChartCard>
 
+        {/* ── Fluxo de caixa mensal (realizado, 6 meses) ──── */}
+        {temFluxo && (<>
+          <SectionTitle icon={TrendingUp} action={<Link to="/m/financeiro" className="text-[11px] font-bold text-amber-400 pr-4">Detalhes</Link>}>
+            Fluxo de caixa — 6 meses (realizado)
+          </SectionTitle>
+          <ChartCard>
+            <ResponsiveContainer width="100%" height={170}>
+              <BarChart data={fluxoMensal} margin={{ top: 8, right: 4, left: -8, bottom: 0 }} barGap={2}>
+                <XAxis dataKey="name" tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 9, fill: '#64748b' }} tickFormatter={fmtMoneyShort} axisLine={false} tickLine={false} width={40} />
+                <Tooltip cursor={{ fill: '#ffffff08' }} content={<DarkTooltip fmt={fmtMoney} />} />
+                <Bar dataKey="Receita" fill="#22c55e" radius={[3, 3, 0, 0]} />
+                <Bar dataKey="Despesa" fill="#ef4444" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="flex justify-center gap-4 text-[10px] text-slate-400 mt-1">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> Recebido</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-red-500" /> Pago</span>
+            </div>
+          </ChartCard>
+        </>)}
+
+        {/* ── Visão executiva por obra (margem & backlog) ─── */}
+        {isTodas && execObras.length > 0 && (<>
+          <SectionTitle icon={Building2}>Resultado por obra</SectionTitle>
+          <div className="mx-4 bg-slate-900/70 border border-slate-800 rounded-2xl divide-y divide-slate-800">
+            {execObras.map(o => (
+              <div key={o.id} className="px-3.5 py-3">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-[13px] truncate flex-1">{o.nome}</span>
+                  {o.semContrato && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 border border-amber-500/30">SEM CONTRATO</span>}
+                  <span className={`text-[13px] font-black ${o.margem >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{fmtMoneyShort(o.margem)}</span>
+                </div>
+                <div className="grid grid-cols-4 gap-1 mt-1.5 text-center">
+                  <MiniStat label="Contrato" value={o.contrato ? fmtMoneyShort(o.contrato) : '—'} />
+                  <MiniStat label="Medido" value={fmtMoneyShort(o.medido)} />
+                  <MiniStat label="Gasto" value={fmtMoneyShort(o.gasto)} />
+                  <MiniStat label="Backlog" value={o.contrato ? fmtMoneyShort(o.backlog) : '—'} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="px-5 mt-1.5 text-[10px] text-slate-500">
+            Margem = medições (recebidas + a receber) − despesas não-canceladas, por obra.
+          </div>
+        </>)}
+
         {/* ── Composição por tipo ─────────────────────────── */}
         {tipoData.length > 0 && (<>
           <SectionTitle icon={Layers}>Composição por tipo (peso)</SectionTitle>
@@ -378,6 +481,15 @@ export default function DashboardMobile() {
 
       <div className="h-6" />
     </MobileLayout>
+  );
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <div className="bg-slate-800/50 rounded-lg py-1">
+      <div className="text-[8px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="text-[11px] font-bold text-slate-200">{value}</div>
+    </div>
   );
 }
 
