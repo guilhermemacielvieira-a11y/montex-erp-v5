@@ -1236,6 +1236,16 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const asmRedistribuidos = new Set(); // assemblies já tratados pela redistribuição por marca
     const pecasAtendidas = new Set();     // ids das peças que receberam Assembly via redistribuição
     const consumoPorPeca = new Map();     // pecaId -> unidades atribuídas (para detectar atendimento parcial)
+    // Contabilidade p/ camada proporcional por tipo (anti dupla contagem):
+    // eids já pintados pelas camadas exatas + unidades/montadas representadas por peça.
+    const eidsTratados = new Set();       // expressIDs pintados pelas camadas de redistribuição
+    const reprQtd = new Map();            // pecaId -> unidades já representadas no 3D
+    const reprMont = new Map();           // pecaId -> unidades MONTADAS já representadas
+    const addRepr = (pecaId, qtd, mont) => {
+      const id = String(pecaId);
+      reprQtd.set(id, (reprQtd.get(id) || 0) + qtd);
+      reprMont.set(id, (reprMont.get(id) || 0) + mont);
+    };
     for (const [marca, asms] of asmByMarcaReal) {
       const pecas = marcaIndexAll.get(marca);
       if (!pecas || !pecas.length) continue;
@@ -1253,12 +1263,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
           // Primeiras `montadasN` unidades pintam MONTADO; restante = status produção
           const novoStatus = (q < montadasN) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
-          for (const eid of elems) map.set(eid, novoStatus);
+          for (const eid of elems) { map.set(eid, novoStatus); eidsTratados.add(eid); }
           consumido++;
         }
         if (consumido > 0) {
           pecasAtendidas.add(String(p.id));
           consumoPorPeca.set(String(p.id), consumido);
+          addRepr(p.id, consumido, Math.min(montadasN, consumido));
         }
       }
       // Se o IFC tem MAIS assemblies que peças no banco, reseta o excedente p/ status da última peça
@@ -1266,7 +1277,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       for (; ai < asmsOrd.length; ai++) {
         asmRedistribuidos.add(asmsOrd[ai]);
         const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
-        for (const eid of elems) map.set(eid, ultimaPecaStatus);
+        for (const eid of elems) { map.set(eid, ultimaPecaStatus); eidsTratados.add(eid); }
       }
     }
 
@@ -1325,12 +1336,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
           const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtdTotal);
           const jaConsumido = consumoPorPeca.get(String(p.id)) || 0;
           const aindaMontar = Math.max(0, montadasN - jaConsumido);
+          let consumidoAqui = 0;
           for (let q = 0; q < falta && ai < asmsOrd.length; q++, ai++) {
             const elems = elemsByAsm.get(asmsOrd[ai]) || [];
             // Primeiras `aindaMontar` unidades desta camada pintam MONTADO
             const novoStatus = (q < aindaMontar) ? 'MONTADO' : (p.status || 'NAO_INICIADO');
-            for (const eid of elems) map.set(eid, novoStatus);
+            for (const eid of elems) { map.set(eid, novoStatus); eidsTratados.add(eid); }
+            consumidoAqui++;
           }
+          if (consumidoAqui > 0) addRepr(p.id, consumidoAqui, Math.min(aindaMontar, consumidoAqui));
         }
       }
     }
@@ -1360,7 +1374,10 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       for (const p of pecas) {
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
         totQtd += qtd;
-        totMont += getMontadasCount(concluidasMontagem?.[p.id], qtd);
+        const mont = getMontadasCount(concluidasMontagem?.[p.id], qtd);
+        totMont += mont;
+        // Marca representada por inteiro nesta camada (proporção sobre o grupo)
+        addRepr(p.id, qtd, mont);
       }
       if (totQtd <= 0) continue;
       const statusProd = getRepresentativeStatus(pecas); // produção (nunca montado)
@@ -1369,6 +1386,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const eidsOrd = eids.slice().sort((a, b) => a - b);
       for (let i = 0; i < eidsOrd.length; i++) {
         map.set(eidsOrd[i], i < nMont ? 'MONTADO' : statusProd);
+        eidsTratados.add(eidsOrd[i]);
       }
     }
 
@@ -1386,29 +1404,38 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     // contíguos de expressID (partes da mesma peça tendem a ser vizinhas).
     for (const [tipoErp, eids] of fallbackTipoElems) {
       const pecasDoTipo = tipoIndex.get(tipoErp) || [];
-      if (!pecasDoTipo.length || eids.length === 0) continue;
+      // Anti dupla contagem: elementos já pintados pelas camadas exatas
+      // (marca real / prefixo / sem-assembly) ficam com a alocação count-exact.
+      const eidsLivres = eids.filter(eid => !eidsTratados.has(eid));
+      if (!pecasDoTipo.length || eidsLivres.length === 0) continue;
       const unidades = { MONTADO: 0, EM_OBRA: 0, EMBARQUE: 0, NAO_INICIADO: 0 };
       let totU = 0;
       for (const p of pecasDoTipo) {
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
         const mont = getMontadasCount(concluidasMontagem?.[p.id], qtd);
-        unidades.MONTADO += mont;
+        // Desconta o que as camadas exatas já representaram desta peça
+        const rQ = Math.min(qtd, reprQtd.get(String(p.id)) || 0);
+        const rM = Math.min(mont, reprMont.get(String(p.id)) || 0);
+        const qtdLivre = qtd - rQ;
+        if (qtdLivre <= 0) continue;
+        const montLivre = Math.max(0, Math.min(mont - rM, qtdLivre));
+        unidades.MONTADO += montLivre;
         const st = unidades[p.status] != null ? p.status : 'NAO_INICIADO';
-        unidades[st] += qtd - mont;
-        totU += qtd;
+        unidades[st] += qtdLivre - montLivre;
+        totU += qtdLivre;
       }
       if (totU <= 0) continue;
       // Cotas por status via maior-resto (soma exata = nº de elementos)
       const cotas = ['MONTADO', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'].map(st => {
-        const exato = (eids.length * unidades[st]) / totU;
+        const exato = (eidsLivres.length * unidades[st]) / totU;
         return { st, n: Math.floor(exato), resto: exato - Math.floor(exato) };
       });
       let alocado = cotas.reduce((s, c) => s + c.n, 0);
       for (const c of cotas.slice().sort((a, b) => b.resto - a.resto)) {
-        if (alocado >= eids.length) break;
+        if (alocado >= eidsLivres.length) break;
         c.n++; alocado++;
       }
-      const eidsOrd = eids.slice().sort((a, b) => a - b);
+      const eidsOrd = eidsLivres.slice().sort((a, b) => a - b);
       let i = 0;
       for (const c of cotas) {
         for (let k = 0; k < c.n && i < eidsOrd.length; k++, i++) map.set(eidsOrd[i], c.st);
