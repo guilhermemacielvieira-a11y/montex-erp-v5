@@ -48,8 +48,9 @@ export default function MontagemMobile() {
 
   // Todas as peças da obra (p/ mensagem útil quando a marca existe mas não está em campo)
   const pecasDaObra = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
-  // Peças em montagem (enviado/montado) — escopo de campo
-  const pecasCampo = useMemo(() => pecasDaObra.filter(p => p.etapa === 'enviado' || p.etapa === 'montado'), [pecasDaObra]);
+  // Peças em montagem — escopo de campo. Etapas reais do banco: 'enviado'
+  // E 'entregue' (38 peças em prod estavam invisíveis aqui — auditoria 11/06).
+  const pecasCampo = useMemo(() => pecasDaObra.filter(p => ['enviado', 'entregue', 'montado'].includes(String(p.etapa || '').toLowerCase())), [pecasDaObra]);
 
   const listaFiltrada = useMemo(() => {
     const QQ = norm(qd);

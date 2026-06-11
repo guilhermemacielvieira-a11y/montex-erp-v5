@@ -63,8 +63,9 @@ if (crit.length) alerts.push({ title: 'Estoque crítico', body: `${crit.length} 
 const { count: prontas } = await admin.from('pecas_producao').select('id', { count: 'exact', head: true }).eq('etapa', 'expedido');
 if (prontas && prontas > 0) alerts.push({ title: 'Fila de embarque', body: `${prontas} conjunto(s) prontos para expedição`, path: '/m/expedicao', roles: OPER });
 
-// 4) Medições pendentes de recebimento
-const { data: med } = await admin.from('medicoes').select('valor, status').neq('status', 'pago');
+// 4) Medições pendentes de recebimento — status pago no banco é 'paga'
+// (auditoria 11/06); aceitar as duas grafias para não contar recebidas.
+const { data: med } = await admin.from('medicoes').select('valor, status').not('status', 'in', '("pago","paga")');
 if (med && med.length) {
 const total = med.reduce((s, m) => s + num(m.valor), 0);
 alerts.push({ title: 'Medições pendentes', body: `${med.length} medição(ões) · a receber ${money(total)}`, path: '/m/receitas', roles: GESTAO });
