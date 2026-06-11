@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   Building2, Hammer, Factory, Wallet, TrendingUp, TrendingDown,
-  AlertCircle, ChevronRight, Box, Truck, Package, Ruler,
+  AlertCircle, ChevronRight, Box, Truck, Package, Ruler, BarChart3,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
@@ -126,6 +126,20 @@ export default function HomeMobile() {
         <KpiCard icon={Hammer} label="Peças montadas" value={fmtBR(stats.pecasMontadas)} color="green" to="/m/montagem" />
         <KpiCard icon={Factory} label="Em produção" value={fmtBR(stats.pecasProducao)} color="blue" to="/m/producao" />
         <KpiCard icon={Wallet} label="A pagar" value={fmtMoney(stats.desValor)} sub={`${stats.desPendentes} título(s)`} color="red" to="/m/despesas" />
+      </div>
+
+      {/* Análise estratégica (dashboard com gráficos/KPIs) */}
+      <div className="px-4 mb-5">
+        <Link to="/m/dashboard" className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-br from-violet-500/15 to-blue-600/5 border border-violet-500/25 active:scale-[.99] transition">
+          <div className="w-11 h-11 rounded-xl bg-violet-500/20 flex items-center justify-center">
+            <BarChart3 className="w-5 h-5 text-violet-300" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-bold">Análise Estratégica</div>
+            <div className="text-[11px] text-slate-400">Dashboard com gráficos, avanço físico e financeiro</div>
+          </div>
+          <ChevronRight className="w-5 h-5 text-violet-300" />
+        </Link>
       </div>
 
       {/* Atalhos rápidos */}

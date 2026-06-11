@@ -31,9 +31,10 @@ const MODULOS = [
     { to: '/m/obras-gfo', icon: Wallet, label: 'GFO', cor: 'blue' },
   ]},
   { group: 'Analytics', items: [
-    { to: '/m/dashboard', icon: BarChart3, label: 'Dashboard BI', cor: 'purple' },
+    { to: '/m/dashboard', icon: BarChart3, label: 'Dashboard', cor: 'purple' },
     { to: '/m/analise-producao', icon: Activity, label: 'Análise Produção', cor: 'amber' },
     { to: '/m/diario', icon: ClipboardList, label: 'Diário Produção', cor: 'cyan' },
+    { to: '/m/dashboard-bi', icon: PieChart, label: 'Dashboard BI', cor: 'green' },
     { to: '/m/relatorios', icon: FileText, label: 'Relatórios', cor: 'blue' },
   ]},
   { group: 'Sistema', items: [

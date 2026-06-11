@@ -29,6 +29,7 @@ import PerfilMobile from './pages/PerfilMobile';
 import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
 import NotificacoesMobile from './pages/NotificacoesMobile';
 import GaleriaMobile from './pages/GaleriaMobile';
+import DashboardMobile from './pages/DashboardMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -134,7 +135,10 @@ function MobileRoutes() {
       <Route path="equipes" element={<Protected perm="equipes.view"><DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap></Protected>} />
       <Route path="orcamentos" element={<Protected perm="orcamentos.view"><DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap></Protected>} />
       <Route path="relatorios" element={<Protected perm="relatorios.view"><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
-      <Route path="dashboard" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
+      {/* Dashboard estratégico NATIVO mobile (gráficos + KPIs). O BI desktop
+          completo fica em /m/dashboard-bi (wrapper escalado). */}
+      <Route path="dashboard" element={<Protected perm="bi.view"><DashboardMobile /></Protected>} />
+      <Route path="dashboard-bi" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
       <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
       <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />
       <Route path="notificacoes" element={<NotificacoesMobile />} />

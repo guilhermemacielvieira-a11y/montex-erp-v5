@@ -106,6 +106,14 @@ Adicione no `ios/App/App/Info.plist` as descrições de uso (obrigatório p/ App
 <string>Usado para login rápido e confirmação de ações.</string>
 ```
 
+> **Bipagem contínua (Expedição):** o `ui/Scanner.jsx` usa o modo `continuous`
+> via `@capacitor-mlkit/barcode-scanning` (`startScan` + listener
+> `barcodeScanned`). A câmera do OS renderiza ATRÁS da webview, então o
+> Scanner é portado para o `<body>` e o `#root` fica oculto enquanto escaneia
+> (classe `montex-scanner-native`, CSS em `MobileApp`). No web/PWA degrada
+> para `BarcodeDetector`; sem nada, entrada manual. Requer o plugin instalado
+> e a permissão de câmera acima.
+
 ---
 
 ## 6. Publicar (TestFlight → App Store)
@@ -115,6 +123,107 @@ npm run ios:sync
 ```
 No Xcode: **Product ▸ Archive** → **Distribute App** ▸ App Store Connect ▸ Upload.
 Depois libere o build no TestFlight para os usuários internos testarem.
+
+---
+
+## 7. Push Notifications (APNs + Edge Function)
+
+O código do app já está pronto: `src/mobile/ui/push.js` (permissão + registro +
+salva o token) e `src/mobile/DeepLinkHandler.jsx` (toque na push → abre a rota
+em `notification.data.path`). Falta só a infra do lado servidor.
+
+### 7.1 Tabela de tokens (Supabase)
+
+Rode `supabase/migration_v11_push_tokens.sql` no banco. Cria a tabela
+`push_tokens` (token, role, obra_id, platform, enabled) com RLS: o app faz
+upsert do próprio token com a anon key e só o service_role lê (usado pelas
+Edge Functions para direcionar por papel/obra).
+
+### 7.2 Chave APNs (.p8)
+
+1. Apple Developer ▸ **Certificates, IDs & Profiles ▸ Keys ▸ +**
+2. Marque **Apple Push Notifications service (APNs)**, baixe o `AuthKey_XXXX.p8`
+   (download único). Anote o **Key ID** e o **Team ID**.
+3. No Xcode, confirme a capability **Push Notifications** + **Background Modes ▸
+   Remote notifications** (passo 3).
+
+### 7.3 Deploy da Edge Function
+
+A função está em `supabase/functions/send-push/index.ts`.
+
+```bash
+# Secrets (P8 = conteúdo COMPLETO do .p8, com BEGIN/END)
+supabase secrets set \
+  APNS_KEY_ID=XXXXXXXXXX \
+  APNS_TEAM_ID=YYYYYYYYYY \
+  APNS_BUNDLE_ID=com.montex.erp \
+  APNS_PRODUCTION=true \
+  APNS_PRIVATE_KEY="$(cat AuthKey_XXXX.p8)"
+# SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY já existem no ambiente da função.
+
+supabase functions deploy send-push --no-verify-jwt
+```
+
+> Em build de **debug** o iOS usa o sandbox APNs → omita `APNS_PRODUCTION` (ou
+> `false`). Em **TestFlight/App Store** use `APNS_PRODUCTION=true`.
+
+### 7.4 Enviar (exemplos)
+
+```bash
+# Por papel (todos os gerentes), abrindo direto em /m/estoque ao tocar
+curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Estoque crítico","body":"5 itens abaixo do mínimo","data":{"path":"/m/estoque"},"filtro":{"role":"gerente"}}'
+
+# Para tokens explícitos
+curl -X POST "$SUPABASE_URL/functions/v1/send-push" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Despesa vencida","body":"3 despesas venceram","data":{"path":"/m/despesas"},"filtro":{"tokens":["<device-token>"]}}'
+```
+
+`filtro`: `{ "role" }` · `{ "obra_id" }` · `{ "tokens": [] }` · `{}` (todos os iOS
+habilitados). O conteúdo de `data` vai no nível superior do payload APNs → vira
+`notification.data` no app; `data.path` é a rota que o `DeepLinkHandler` abre.
+
+### 7.5 Disparo automático (cron)
+
+A função `supabase/functions/notify-pending` porta a lógica de alertas do app
+(`useAlertas`) para o servidor: varre pendências (despesas vencidas, estoque
+crítico, fila de embarque, medições) e dispara push aos papéis responsáveis com
+`data.path` apontando para a tela que resolve cada uma. Resolve os tokens em
+`push_tokens` por papel e delega o envio à `send-push`.
+
+```bash
+supabase functions deploy notify-pending --no-verify-jwt
+```
+
+Agende com **pg_cron** + **pg_net** (SQL no Supabase). Ex.: todo dia útil às 8h:
+
+```sql
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+select cron.schedule(
+  'montex-notify-pending',
+  '0 11 * * 1-5',                       -- 11h UTC ≈ 08h BRT, seg–sex
+  $$
+  select net.http_post(
+    url     := 'https://<PROJECT_REF>.supabase.co/functions/v1/notify-pending',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer <SUPABASE_SERVICE_ROLE_KEY>'
+    ),
+    body    := '{}'::jsonb
+  );
+  $$
+);
+-- Para remover: select cron.unschedule('montex-notify-pending');
+```
+
+> A função só envia quando há pendência. Mantenha **1 disparo/dia** para não
+> repetir o mesmo alerta. Para granularidade maior (ex.: alertar só o que
+> mudou desde o último envio), registre o último estado numa tabela de
+> controle e compare antes de enviar.
 
 ---
 
