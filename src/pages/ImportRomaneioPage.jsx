@@ -211,11 +211,58 @@ export default function ImportRomaneioPage() {
   const [itensSelecionados, setItensSelecionados] = useState([]);
   const [progresso, setProgresso] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
-  const [historicoImportacoes, setHistoricoImportacoes] = useState([]);
+  // Importações desta sessão (têm o nome do arquivo)
+  const [historicoSessao, setHistoricoSessao] = useState([]);
   const [showEntregaModal, setShowEntregaModal] = useState(false);
   const [materialSelecionado, setMaterialSelecionado] = useState(null);
   const [novaEntrega, setNovaEntrega] = useState({ quantidade: 0, data: '', notaFiscal: '' });
   const [activeTab, setActiveTab] = useState('importar'); // Controle de tab ativa
+
+  // HISTÓRICO PERSISTENTE: reconstruído a partir dos dados já gravados no
+  // Supabase (pedidos_material e pecas_producao), agrupados por lote de
+  // importação (mesmo minuto de created_at + obra). Antes o histórico vivia
+  // só em useState e sumia ao recarregar a página.
+  const historicoImportacoes = React.useMemo(() => {
+    const nomeObra = (id) => obras?.find(o => o.id === id)?.nome || id || '—';
+    const lotes = new Map();
+
+    const agrupar = (registros, tipo, getPeso) => {
+      (registros || []).forEach(r => {
+        const ts = r.createdAt || r.created_at || r.dataImportacao;
+        if (!ts) return;
+        const chave = `${tipo}|${r.obraId || r.obra_id || ''}|${String(ts).slice(0, 16)}`; // precisão de minuto
+        if (!lotes.has(chave)) {
+          lotes.set(chave, {
+            id: chave,
+            arquivo: '(registro do banco)',
+            obra: nomeObra(r.obraId || r.obra_id),
+            data: String(ts).slice(0, 10),
+            itens: 0,
+            pesoTotal: 0,
+            tipo,
+            status: 'sucesso',
+            _ts: ts
+          });
+        }
+        const lote = lotes.get(chave);
+        lote.itens += 1;
+        lote.pesoTotal += getPeso(r) || 0;
+      });
+    };
+
+    agrupar(materiaisEstoque, TIPO_LISTA.RESUMO_MATERIAL, (m) => m.pesoPedido || m.pesoPrevisto || 0);
+    agrupar(pecas, TIPO_LISTA.CORTE, (p) => p.pesoTotal || p.peso || 0);
+
+    const derivados = [...lotes.values()];
+    // Entradas da sessão atual têm o nome do arquivo — substituem o lote
+    // derivado equivalente (mesma data, tipo e nº de itens)
+    const semDuplicados = derivados.filter(d =>
+      !historicoSessao.some(s => s.data === d.data && s.tipo === d.tipo && s.itens === d.itens)
+    );
+
+    return [...historicoSessao, ...semDuplicados]
+      .sort((a, b) => String(b._ts || b.data).localeCompare(String(a._ts || a.data)));
+  }, [materiaisEstoque, pecas, historicoSessao, obras]);
 
   // Detectar tipo de lista pelo nome do arquivo
   const detectarTipoLista = (fileName) => {
@@ -385,7 +432,7 @@ export default function ImportRomaneioPage() {
       ? itensParaImportar.reduce((acc, p) => acc + (p.peso || 0), 0)
       : itensParaImportar.reduce((acc, m) => acc + (m.pesoPedido || 0), 0);
 
-    setHistoricoImportacoes(prev => [...prev, {
+    setHistoricoSessao(prev => [...prev, {
       id: Date.now(),
       arquivo: arquivoSelecionado.name,
       obra: obraAtualData?.nome || obraSelecionada,

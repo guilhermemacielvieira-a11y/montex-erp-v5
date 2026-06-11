@@ -13,7 +13,8 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import * as Dialog from '@radix-ui/react-dialog';
 import { CROQUI_INDEX, CROQUI_FOLDERS, CROQUI_METADATA } from '../data/croquiDatabase';
-import { pecasProducao } from '../data/database';
+import { pecasProducao as pecasMock } from '../data/database';
+import { useProducao } from '@/contexts/ERPContext';
 
 // Cores por tipo de peça
 const CORES_TIPO = {
@@ -48,21 +49,33 @@ export default function CroquisPage() {
   const [paginaAtual, setPaginaAtual] = useState(1);
   const itensPorPagina = modoView === 'grid' ? 24 : 50;
 
+  // PEÇAS REAIS da produção (Supabase via ERPContext) — antes usava mock
+  // estático de src/data/database.js, mostrando qtd/peso/etapa desatualizados.
+  const { pecas: pecasContext } = useProducao();
+
   // Tipos disponíveis
   const tiposDisponiveis = useMemo(() => {
     return Object.keys(CROQUI_FOLDERS).sort();
   }, []);
 
-  // Vincular peças da produção ao croqui
+  // Vincular peças da produção ao croqui (dados reais; fallback p/ mock se contexto vazio)
   const pecasPorMarca = useMemo(() => {
+    const fonte = (pecasContext && pecasContext.length > 0)
+      ? pecasContext.map(p => ({
+          ...p,
+          // normalizar campos: contexto usa pesoUnitario/pesoTotal (Supabase)
+          peso: p.peso ?? p.pesoUnitario ?? p.pesoTotal ?? 0,
+          quantidade: p.quantidade ?? 0,
+        }))
+      : pecasMock;
     const map = {};
-    pecasProducao.forEach(p => {
+    fonte.forEach(p => {
       const m = String(p.marca);
       if (!map[m]) map[m] = [];
       map[m].push(p);
     });
     return map;
-  }, []);
+  }, [pecasContext]);
 
   // Lista filtrada
   const croquisFiltrados = useMemo(() => {
@@ -152,7 +165,7 @@ export default function CroquisPage() {
             <div className="text-xs text-slate-400">Tipos de Peça</div>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">
-            <div className="text-2xl font-bold text-green-400">{pecasProducao.length}</div>
+            <div className="text-2xl font-bold text-green-400">{(pecasContext && pecasContext.length > 0) ? pecasContext.length : pecasMock.length}</div>
             <div className="text-xs text-slate-400">Peças na Produção</div>
           </div>
           <div className="bg-slate-800/50 rounded-lg p-3 border border-slate-700/50">

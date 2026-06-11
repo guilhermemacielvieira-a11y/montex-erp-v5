@@ -5,6 +5,32 @@ Todas as mudanças notáveis deste projeto serão documentadas neste arquivo.
 O formato é baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/),
 e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR/).
 
+## [2.2.0] - 2026-06-11
+
+### Módulo Suprimentos — Reestruturação
+
+#### Adicionado
+- **Compras com persistência real**: Novo Pedido e Nova Cotação agora salvam no Supabase via `addCompra` (antes ficavam só em estado local e sumiam ao recarregar)
+- **Cotações reais**: cotação registrada como compra `status='cotacao'`, com ações funcionais "Converter em Pedido" e "Encerrar" (antes exibia valores falsos hardcoded R$ 15.000/25.000)
+- **Receber Pedido** na tabela de Compras: marca como entregue e registra movimentações de ENTRADA em `movimentacoes_estoque` por item (integração Compras → Estoque, que a notificação prometia mas não existia)
+- **Fornecedores consolidados**: aba puxa fornecedores reais identificados nas compras, NFs e pedidos de material (estatísticas de pedidos/NFs/valor por fornecedor), além do cadastro persistente
+- **Tabela `fornecedores`** + alinhamento de colunas de `compras`: `supabase/migration_v16_suprimentos.sql` (idempotente; inclui seed do fornecedor Gerdau antes hardcoded no front)
+- **`updateCompra`** no ERPContext/useCompras
+- **Exportar CSV** dos pedidos filtrados (botão antes sem handler)
+- **Histórico de importações persistente** no Import Listas: reconstruído dos lotes gravados em `pedidos_material`/`pecas_producao` (antes sumia no F5)
+
+#### Corrigido
+- **Crash no DetalhamentosPage**: ícone `Package` usado sem import — quebrava ao abrir modal com peças relacionadas
+- **Reducer RECEBER_COMPRA**: lia `payload.id` mas o dispatch envia `compraId` (estado local nunca atualizava); status local agora espelha o Supabase (`entregue`)
+- **Croquis/Detalhamentos com dados desatualizados**: passaram a cruzar com peças REAIS da produção (Supabase) em vez do mock estático de `src/data/database.js` (fallback para mock se contexto vazio)
+- **Datas inválidas** ("Invalid Date") em pedidos/NFs sem data — agora exibe "—"
+- **Badge Financeiro** na tabela de pedidos refletia sempre "PREVISTO" — agora usa o `statusFinanceiro` real (previsto/lançado/pago)
+- **Busca de fornecedores** funcional (campo era decorativo)
+- Botões "Visualizar/Editar fornecedor" que só exibiam toast → edição real com persistência
+
+#### Observação
+- Rodar `supabase/migration_v16_suprimentos.sql` no SQL Editor do Supabase para habilitar o cadastro de fornecedores e garantir as colunas de `compras`. O front degrada graciosamente caso a migration ainda não tenha sido aplicada.
+
 ## [2.1.0] - 2026-02-13
 
 ### Adicionado

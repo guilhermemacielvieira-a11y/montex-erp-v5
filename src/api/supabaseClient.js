@@ -340,6 +340,8 @@ export const notasFiscaisApi = createCrud('notas_fiscais', 'data_emissao', { use
 export const maquinasApi = createCrud('maquinas', 'nome', { useAdmin: true });
 export const pedidosMaterialApi = createCrud('pedidos_material', 'created_at', { useAdmin: true });
 export const configMedicaoApi = createCrud('config_medicao', 'id', { useAdmin: true });
+// Suprimentos — cadastro de fornecedores (migration_v16_suprimentos.sql)
+export const fornecedoresApi = createCrud('fornecedores', 'nome', { useAdmin: true });
 
 // ============================================
 // FUNÇÕES DE GESTÃO DE USUÁRIOS

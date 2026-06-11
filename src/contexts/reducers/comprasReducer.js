@@ -26,11 +26,18 @@ export function comprasReducer(state, action) {
       };
 
     case ACTIONS.RECEBER_COMPRA:
+      // FIX: o dispatch envia `compraId` (não `id`) e o status no Supabase
+      // é 'entregue' — antes o estado local nunca era atualizado e divergia
+      // do banco até o próximo reload.
       return {
         ...state,
         compras: state.compras.map(c =>
-          c.id === action.payload.id
-            ? { ...c, status: 'recebido', dataRecebimento: action.payload.dataRecebimento }
+          c.id === action.payload.compraId
+            ? {
+                ...c,
+                status: 'entregue',
+                dataEntrega: action.payload.dataRecebimento || new Date().toISOString().split('T')[0]
+              }
             : c
         )
       };

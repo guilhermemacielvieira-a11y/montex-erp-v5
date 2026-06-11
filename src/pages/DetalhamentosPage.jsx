@@ -5,7 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import {
   Search, Download, Eye, FileText, ChevronLeft, ChevronRight,
-  LayoutGrid, Table2, Filter, Layers, X as XIcon
+  LayoutGrid, Table2, Filter, Layers, X as XIcon, Package
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +17,8 @@ import {
   DETALHAMENTO_METADATA
 } from '../data/detalhamentoDatabase';
 import { getCroquiByMarca } from '../data/croquiDatabase';
-import { pecasProducao } from '../data/database';
+import { pecasProducao as pecasMock } from '../data/database';
+import { useProducao } from '@/contexts/ERPContext';
 
 // Cores por tipo de peça
 const CORES_TIPO = {
@@ -48,16 +49,27 @@ export default function DetalhamentosPage() {
     return DETALHAMENTO_METADATA.tipos.sort();
   }, []);
 
-  // Vincular peças da produção ao detalhamento por tipo
+  // PEÇAS REAIS da produção (Supabase via ERPContext) — antes usava mock
+  // estático, mostrando etapa/quantidades desatualizadas.
+  const { pecas: pecasContext } = useProducao();
+
+  // Vincular peças da produção ao detalhamento por tipo (real; fallback mock)
   const pecasPorTipo = useMemo(() => {
+    const fonte = (pecasContext && pecasContext.length > 0)
+      ? pecasContext.map(p => ({
+          ...p,
+          peso: p.peso ?? p.pesoUnitario ?? p.pesoTotal ?? 0,
+          quantidade: p.quantidade ?? 0,
+        }))
+      : pecasMock;
     const map = {};
-    pecasProducao.forEach(p => {
+    fonte.forEach(p => {
       const t = p.tipo;
       if (!map[t]) map[t] = [];
       map[t].push(p);
     });
     return map;
-  }, []);
+  }, [pecasContext]);
 
   // Lista filtrada
   const detalhamentosFiltrados = useMemo(() => {

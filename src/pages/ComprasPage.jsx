@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,20 +34,23 @@ import {
   Edit,
   Eye,
   Send,
-  RefreshCw,
   Weight,
-  Receipt
+  Receipt,
+  PackageCheck
 } from 'lucide-react';
 
-import { useCompras, useMateriais, useERP } from '@/contexts/ERPContext';
+import { useCompras, useMateriais, useERP, useObras } from '@/contexts/ERPContext';
+import { fornecedoresApi } from '@/api/supabaseClient';
 
-// Fornecedores reais cadastrados (base)
+// Fallback local (usado apenas se a tabela `fornecedores` ainda não existir
+// no Supabase — ver supabase/migration_v16_suprimentos.sql)
 const fornecedoresBase = [
   {
-    id: 1,
+    id: 'FOR-GERDAU',
     nome: 'Gerdau Aços Longos S.A.',
     cnpj: '07.358.761/0001-69',
-    cidade: 'Ouro Branco, MG',
+    cidade: 'Ouro Branco',
+    estado: 'MG',
     telefone: '(31) 9988-305655',
     email: 'eduardo.acosgrdau@gmail.com',
     contato: 'Eduardo Bruno da Purificação',
@@ -57,6 +60,7 @@ const fornecedoresBase = [
 ];
 
 const statusConfig = {
+  cotacao: { label: 'Cotação', color: 'bg-purple-100 text-purple-800', icon: FileText },
   cotacao_recebida: { label: 'Cotação Recebida', color: 'bg-amber-100 text-amber-800', icon: FileText },
   ordem_confirmada: { label: 'Ordem Confirmada', color: 'bg-blue-100 text-blue-800', icon: CheckCircle },
   aprovado: { label: 'Aprovado', color: 'bg-green-100 text-green-800', icon: CheckCircle },
@@ -68,6 +72,20 @@ const statusConfig = {
   finalizada: { label: 'Finalizada', color: 'bg-green-100 text-green-800', icon: CheckCircle },
   em_analise: { label: 'Em Análise', color: 'bg-purple-100 text-purple-800', icon: Search },
 };
+
+const statusFinanceiroConfig = {
+  previsto: { label: 'PREVISTO', color: 'bg-orange-100 text-orange-800' },
+  lancado: { label: 'LANÇADO', color: 'bg-blue-100 text-blue-800' },
+  pago: { label: 'PAGO', color: 'bg-green-100 text-green-800' },
+};
+
+const fmtData = (d) => {
+  if (!d) return '—';
+  const date = new Date(d);
+  return isNaN(date.getTime()) ? '—' : date.toLocaleDateString('pt-BR');
+};
+
+const fmtMoeda = (v) => `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
 
 function KPICard({ title, value, subtitle, icon: Icon, trend, trendUp }) {
   return (
@@ -107,36 +125,55 @@ function StatusBadge({ status }) {
   );
 }
 
-function NovoPedidoDialog({ onSave, fornecedoresCadastrados = fornecedoresBase }) {
+function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual }) {
   const [open, setOpen] = useState(false);
+  const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
     fornecedor: '',
     prazo: '',
     descricao: '',
-    projeto: '',
-    urgencia: ''
+    valorPrevisto: '',
+    obraId: '',
+    urgencia: 'normal'
   });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.fornecedor || !formData.prazo) {
-      toast.error('Preencha todos os campos obrigatórios');
+      toast.error('Preencha fornecedor e prazo de entrega');
       return;
     }
 
-    const newPedido = {
-      id: `PC-${String(Date.now()).slice(-3)}`,
-      fornecedor: fornecedoresCadastrados.find(f => f.id.toString() === formData.fornecedor)?.nome || formData.fornecedor,
-      data: new Date().toISOString().split('T')[0],
-      valor: 0,
+    const fornecedorNome = fornecedores.find(f => String(f.id) === formData.fornecedor)?.nome || formData.fornecedor;
+    const hoje = new Date().toISOString().split('T')[0];
+
+    const novaCompra = {
+      id: `CMP-${Date.now()}`,
+      descricao: formData.descricao || `Pedido de compra — ${fornecedorNome}`,
+      fornecedor: fornecedorNome,
       status: 'pendente',
-      itens: 1,
-      prazo: formData.prazo
+      statusFinanceiro: 'previsto',
+      tipo: 'pre_pedido',
+      urgencia: formData.urgencia,
+      dataPedido: hoje,
+      dataPrevisao: formData.prazo,
+      valorPrevisto: parseFloat(formData.valorPrevisto) || 0,
+      valorTotal: parseFloat(formData.valorPrevisto) || 0,
+      obraId: formData.obraId || obraAtual || null,
+      itens: [],
+      observacoes: formData.descricao || ''
     };
 
-    onSave(newPedido);
-    setFormData({ fornecedor: '', prazo: '', descricao: '', projeto: '', urgencia: '' });
-    setOpen(false);
-    toast.success('Pedido criado com sucesso!');
+    setSalvando(true);
+    try {
+      await onSave(novaCompra);
+      setFormData({ fornecedor: '', prazo: '', descricao: '', valorPrevisto: '', obraId: '', urgencia: 'normal' });
+      setOpen(false);
+      toast.success('Pedido criado e salvo!');
+    } catch {
+      // addCompra já exibe toast de erro
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -151,26 +188,26 @@ function NovoPedidoDialog({ onSave, fornecedoresCadastrados = fornecedoresBase }
         <DialogHeader>
           <DialogTitle>Novo Pedido de Compra</DialogTitle>
           <DialogDescription>
-            Preencha os dados para criar um novo pedido de compra.
+            O pedido é salvo no banco e entra como valor PREVISTO (sem lançamento financeiro real).
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="fornecedor">Fornecedor</Label>
+              <Label htmlFor="fornecedor">Fornecedor *</Label>
               <Select value={formData.fornecedor} onValueChange={(value) => setFormData({...formData, fornecedor: value})}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecione o fornecedor" />
                 </SelectTrigger>
                 <SelectContent>
-                  {fornecedoresCadastrados.map(f => (
-                    <SelectItem key={f.id} value={f.id.toString()}>{f.nome}</SelectItem>
+                  {fornecedores.map(f => (
+                    <SelectItem key={f.id} value={String(f.id)}>{f.nome}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="prazo">Prazo de Entrega</Label>
+              <Label htmlFor="prazo">Prazo de Entrega *</Label>
               <Input type="date" id="prazo" value={formData.prazo} onChange={(e) => setFormData({...formData, prazo: e.target.value})} />
             </div>
           </div>
@@ -178,17 +215,21 @@ function NovoPedidoDialog({ onSave, fornecedoresCadastrados = fornecedoresBase }
             <Label htmlFor="descricao">Descrição</Label>
             <Textarea id="descricao" placeholder="Descreva os itens do pedido..." value={formData.descricao} onChange={(e) => setFormData({...formData, descricao: e.target.value})} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="projeto">Projeto (opcional)</Label>
-              <Select value={formData.projeto} onValueChange={(value) => setFormData({...formData, projeto: value})}>
+              <Label htmlFor="valorPrevisto">Valor Previsto (R$)</Label>
+              <Input type="number" min="0" step="0.01" id="valorPrevisto" placeholder="0,00" value={formData.valorPrevisto} onChange={(e) => setFormData({...formData, valorPrevisto: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="obra">Obra (opcional)</Label>
+              <Select value={formData.obraId} onValueChange={(value) => setFormData({...formData, obraId: value})}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Vincular a projeto" />
+                  <SelectValue placeholder="Vincular a obra" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="proj1">Projeto Alfa</SelectItem>
-                  <SelectItem value="proj2">Projeto Beta</SelectItem>
-                  <SelectItem value="proj3">Projeto Gamma</SelectItem>
+                  {obras.map(o => (
+                    <SelectItem key={o.id} value={String(o.id)}>{o.nome}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -210,44 +251,59 @@ function NovoPedidoDialog({ onSave, fornecedoresCadastrados = fornecedoresBase }
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button onClick={handleSave}>Criar Pedido</Button>
+          <Button onClick={handleSave} disabled={salvando}>{salvando ? 'Salvando...' : 'Criar Pedido'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-function NovaCotacaoDialog({ onSave }) {
+function NovaCotacaoDialog({ onSave, obraAtual }) {
   const [open, setOpen] = useState(false);
+  const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
     titulo: '',
     especificacoes: '',
     quantidade: '',
-    unidade: '',
+    unidade: 'kg',
     prazo: '',
-    fornecedores: ''
+    fornecedor: ''
   });
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!formData.titulo || !formData.prazo) {
-      toast.error('Preencha os campos obrigatórios');
+      toast.error('Preencha título e prazo da cotação');
       return;
     }
 
-    const newCotacao = {
-      id: `COT-${String(Date.now()).slice(-3)}`,
+    const novaCotacao = {
+      id: `COT-${Date.now()}`,
       descricao: formData.titulo,
-      fornecedores: 3,
-      menor: 15000,
-      maior: 25000,
-      prazo: formData.prazo,
-      status: 'aberta'
+      fornecedor: formData.fornecedor || '',
+      status: 'cotacao',
+      statusFinanceiro: 'previsto',
+      tipo: 'cotacao',
+      dataPedido: new Date().toISOString().split('T')[0],
+      dataValidade: formData.prazo,
+      dataPrevisao: formData.prazo,
+      obraId: obraAtual || null,
+      itens: formData.quantidade
+        ? [{ descricao: formData.titulo, quantidade: parseFloat(formData.quantidade) || 0, unidade: formData.unidade }]
+        : [],
+      observacoes: formData.especificacoes || ''
     };
 
-    onSave(newCotacao);
-    setFormData({ titulo: '', especificacoes: '', quantidade: '', unidade: '', prazo: '', fornecedores: '' });
-    setOpen(false);
-    toast.success('Cotação criada com sucesso!');
+    setSalvando(true);
+    try {
+      await onSave(novaCotacao);
+      setFormData({ titulo: '', especificacoes: '', quantidade: '', unidade: 'kg', prazo: '', fornecedor: '' });
+      setOpen(false);
+      toast.success('Cotação registrada!');
+    } catch {
+      // toast de erro já exibido pelo contexto
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
@@ -262,12 +318,12 @@ function NovaCotacaoDialog({ onSave }) {
         <DialogHeader>
           <DialogTitle>Nova Cotação</DialogTitle>
           <DialogDescription>
-            Crie uma nova solicitação de cotação para fornecedores.
+            Registre uma solicitação de cotação. Ao receber os preços, ela pode ser convertida em pedido.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-2">
-            <Label htmlFor="titulo">Título da Cotação</Label>
+            <Label htmlFor="titulo">Título da Cotação *</Label>
             <Input id="titulo" placeholder="Ex: Chapas de Aço Inox 304" value={formData.titulo} onChange={(e) => setFormData({...formData, titulo: e.target.value})} />
           </div>
           <div className="space-y-2">
@@ -277,7 +333,7 @@ function NovaCotacaoDialog({ onSave }) {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="quantidade">Quantidade</Label>
-              <Input type="number" id="quantidade" placeholder="0" value={formData.quantidade} onChange={(e) => setFormData({...formData, quantidade: e.target.value})} />
+              <Input type="number" min="0" id="quantidade" placeholder="0" value={formData.quantidade} onChange={(e) => setFormData({...formData, quantidade: e.target.value})} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="unidade">Unidade</Label>
@@ -297,29 +353,20 @@ function NovaCotacaoDialog({ onSave }) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="prazo_cotacao">Prazo para Respostas</Label>
+              <Label htmlFor="prazo_cotacao">Prazo para Respostas *</Label>
               <Input type="date" id="prazo_cotacao" value={formData.prazo} onChange={(e) => setFormData({...formData, prazo: e.target.value})} />
             </div>
             <div className="space-y-2">
-              <Label>Fornecedores</Label>
-              <Select value={formData.fornecedores} onValueChange={(value) => setFormData({...formData, fornecedores: value})}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Selecionar fornecedores" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todos">Todos os cadastrados</SelectItem>
-                  <SelectItem value="favoritos">Apenas favoritos</SelectItem>
-                  <SelectItem value="selecionar">Selecionar manualmente</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label htmlFor="fornecedor_cotacao">Fornecedor (opcional)</Label>
+              <Input id="fornecedor_cotacao" placeholder="Nome do fornecedor consultado" value={formData.fornecedor} onChange={(e) => setFormData({...formData, fornecedor: e.target.value})} />
             </div>
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button onClick={handleSave} className="gap-2">
+          <Button onClick={handleSave} disabled={salvando} className="gap-2">
             <Send className="h-4 w-4" />
-            Enviar Cotação
+            {salvando ? 'Salvando...' : 'Registrar Cotação'}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -327,62 +374,73 @@ function NovaCotacaoDialog({ onSave }) {
   );
 }
 
-function NovoFornecedorDialog({ onSave }) {
-  const [open, setOpen] = useState(false);
+function FornecedorDialog({ onSave, fornecedor = null, open, onOpenChange, trigger }) {
+  const isEdicao = !!fornecedor;
+  const [salvando, setSalvando] = useState(false);
   const [formData, setFormData] = useState({
-    nome: '',
-    cnpj: '',
-    telefone: '',
-    email: '',
-    cidade: '',
-    estado: '',
-    cep: '',
-    categorias: ''
+    nome: '', cnpj: '', telefone: '', email: '', contato: '', cidade: '', estado: '', cep: '', categorias: ''
   });
 
-  const handleSave = () => {
-    if (!formData.nome || !formData.cnpj || !formData.email) {
-      toast.error('Preencha todos os campos obrigatórios');
+  useEffect(() => {
+    if (fornecedor) {
+      setFormData({
+        nome: fornecedor.nome || '',
+        cnpj: fornecedor.cnpj || '',
+        telefone: fornecedor.telefone || '',
+        email: fornecedor.email || '',
+        contato: fornecedor.contato || '',
+        cidade: fornecedor.cidade || '',
+        estado: fornecedor.estado || '',
+        cep: fornecedor.cep || '',
+        categorias: Array.isArray(fornecedor.categorias) ? fornecedor.categorias.join(', ') : (fornecedor.categorias || '')
+      });
+    }
+  }, [fornecedor]);
+
+  const handleSave = async () => {
+    if (!formData.nome) {
+      toast.error('Informe a razão social');
       return;
     }
-
-    const newFornecedor = {
-      id: Date.now(),
-      nome: formData.nome,
-      cnpj: formData.cnpj,
-      cidade: formData.cidade,
-      telefone: formData.telefone,
-      email: formData.email,
-      rating: 4.0,
-      pedidos: 0,
-      valorTotal: 0
-    };
-
-    onSave(newFornecedor);
-    setFormData({ nome: '', cnpj: '', telefone: '', email: '', cidade: '', estado: '', cep: '', categorias: '' });
-    setOpen(false);
-    toast.success('Fornecedor cadastrado com sucesso!');
+    setSalvando(true);
+    try {
+      await onSave({
+        ...(isEdicao ? { id: fornecedor.id } : {}),
+        nome: formData.nome,
+        cnpj: formData.cnpj,
+        telefone: formData.telefone,
+        email: formData.email,
+        contato: formData.contato,
+        cidade: formData.cidade,
+        estado: formData.estado,
+        cep: formData.cep,
+        categorias: formData.categorias
+          ? formData.categorias.split(',').map(c => c.trim()).filter(Boolean)
+          : []
+      });
+      if (!isEdicao) {
+        setFormData({ nome: '', cnpj: '', telefone: '', email: '', contato: '', cidade: '', estado: '', cep: '', categorias: '' });
+      }
+      onOpenChange(false);
+    } finally {
+      setSalvando(false);
+    }
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        <Button variant="outline" className="gap-2">
-          <Building2 className="h-4 w-4" />
-          Novo Fornecedor
-        </Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Cadastrar Fornecedor</DialogTitle>
+          <DialogTitle>{isEdicao ? 'Editar Fornecedor' : 'Cadastrar Fornecedor'}</DialogTitle>
           <DialogDescription>
-            Adicione um novo fornecedor ao sistema.
+            {isEdicao ? 'Atualize os dados do fornecedor.' : 'Adicione um novo fornecedor ao sistema.'}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="nome_fornecedor">Razão Social</Label>
+              <Label htmlFor="nome_fornecedor">Razão Social *</Label>
               <Input id="nome_fornecedor" placeholder="Nome da empresa" value={formData.nome} onChange={(e) => setFormData({...formData, nome: e.target.value})} />
             </div>
             <div className="space-y-2">
@@ -390,7 +448,7 @@ function NovoFornecedorDialog({ onSave }) {
               <Input id="cnpj" placeholder="00.000.000/0000-00" value={formData.cnpj} onChange={(e) => setFormData({...formData, cnpj: e.target.value})} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="telefone">Telefone</Label>
               <Input id="telefone" placeholder="(00) 0000-0000" value={formData.telefone} onChange={(e) => setFormData({...formData, telefone: e.target.value})} />
@@ -398,6 +456,10 @@ function NovoFornecedorDialog({ onSave }) {
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
               <Input type="email" id="email" placeholder="contato@empresa.com" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="contato">Contato</Label>
+              <Input id="contato" placeholder="Nome do contato" value={formData.contato} onChange={(e) => setFormData({...formData, contato: e.target.value})} />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-4">
@@ -407,19 +469,7 @@ function NovoFornecedorDialog({ onSave }) {
             </div>
             <div className="space-y-2">
               <Label htmlFor="estado">Estado</Label>
-              <Select value={formData.estado} onValueChange={(value) => setFormData({...formData, estado: value})}>
-                <SelectTrigger>
-                  <SelectValue placeholder="UF" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="SP">SP</SelectItem>
-                  <SelectItem value="RJ">RJ</SelectItem>
-                  <SelectItem value="MG">MG</SelectItem>
-                  <SelectItem value="PR">PR</SelectItem>
-                  <SelectItem value="SC">SC</SelectItem>
-                  <SelectItem value="RS">RS</SelectItem>
-                </SelectContent>
-              </Select>
+              <Input id="estado" placeholder="UF" maxLength={2} value={formData.estado} onChange={(e) => setFormData({...formData, estado: e.target.value.toUpperCase()})} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="cep">CEP</Label>
@@ -427,24 +477,13 @@ function NovoFornecedorDialog({ onSave }) {
             </div>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="categorias">Categorias de Produtos</Label>
-            <Select value={formData.categorias} onValueChange={(value) => setFormData({...formData, categorias: value})}>
-              <SelectTrigger>
-                <SelectValue placeholder="Selecione as categorias" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="metais">Metais</SelectItem>
-                <SelectItem value="vidros">Vidros</SelectItem>
-                <SelectItem value="madeiras">Madeiras</SelectItem>
-                <SelectItem value="ferragens">Ferragens</SelectItem>
-                <SelectItem value="quimicos">Químicos</SelectItem>
-              </SelectContent>
-            </Select>
+            <Label htmlFor="categorias">Categorias (separadas por vírgula)</Label>
+            <Input id="categorias" placeholder="Ex: Perfis W, Chapas, Barras" value={formData.categorias} onChange={(e) => setFormData({...formData, categorias: e.target.value})} />
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-          <Button onClick={handleSave}>Cadastrar</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button onClick={handleSave} disabled={salvando}>{salvando ? 'Salvando...' : (isEdicao ? 'Salvar' : 'Cadastrar')}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -453,64 +492,136 @@ function NovoFornecedorDialog({ onSave }) {
 
 export default function ComprasPage() {
   // === DADOS DO SUPABASE VIA ERPCONTEXT ===
-  const { compras: comprasContext } = useCompras();
+  const { compras: comprasContext, addCompra, updateCompra, receberCompra } = useCompras();
   const { materiaisEstoque, estatisticasEstoque } = useMateriais();
   const { notasFiscais } = useERP();
+  const { obras, obraAtual } = useObras();
 
-  // Normalizar compras (compatível com dados Supabase e mock)
-  const pedidosReais = useMemo(() => comprasContext.map(c => {
+  // ===== FORNECEDORES (tabela `fornecedores` + dados derivados do uso real) =====
+  const [fornecedoresCadastrados, setFornecedoresCadastrados] = useState([]);
+  const [tabelaFornecedoresOk, setTabelaFornecedoresOk] = useState(true);
+
+  const carregarFornecedores = useCallback(async () => {
+    try {
+      const data = await fornecedoresApi.getAll();
+      setFornecedoresCadastrados(data || []);
+      setTabelaFornecedoresOk(true);
+    } catch (err) {
+      // Tabela ainda não criada (migration_v16) → fallback local
+      console.warn('[Compras] Tabela fornecedores indisponível, usando base local:', err.message);
+      setFornecedoresCadastrados(fornecedoresBase);
+      setTabelaFornecedoresOk(false);
+    }
+  }, []);
+
+  useEffect(() => { carregarFornecedores(); }, [carregarFornecedores]);
+
+  // Normalizar compras (tolerante a variações de schema: valor_total / valor_previsto etc.)
+  const comprasNormalizadas = useMemo(() => comprasContext.map(c => {
     const itensArr = Array.isArray(c.itens) ? c.itens : [];
     const pesoCalc = itensArr.reduce((acc, i) => acc + (i.quantidade || 0), 0);
     return {
       id: c.id,
       fornecedor: c.fornecedor || '',
       documento: c.documentoOrigem || c.numero || c.id,
-      data: c.dataCotacao || c.dataPedido || null,
-      valor: c.valorTotal || 0,
+      data: c.dataCotacao || c.dataPedido || c.createdAt || null,
+      valor: c.valorTotal ?? c.valorPrevisto ?? c.valorReal ?? 0,
       pesoKg: c.pesoTotalKg || pesoCalc,
       status: c.status || 'pendente',
       statusFinanceiro: c.statusFinanceiro || 'previsto',
-      itens: itensArr.length,
-      prazo: c.dataValidade || c.dataPrevisaoEntrega || null,
+      numItens: itensArr.length,
+      prazo: c.dataValidade || c.dataPrevisaoEntrega || c.dataPrevisao || null,
       observacao: c.observacao || c.observacoes || '',
       condicaoPagamento: c.condicaoPagamento || '',
-      tipo: c.tipo || 'pre_pedido',
+      tipo: c.tipo || (c.status === 'cotacao' ? 'cotacao' : 'pre_pedido'),
+      descricao: c.descricao || '',
+      obraId: c.obraId || null,
       _original: c
     };
   }), [comprasContext]);
 
-  // Fornecedores com totais calculados
-  const fornecedoresCadastrados = useMemo(() => fornecedoresBase.map(f => ({
-    ...f,
-    pedidos: comprasContext.length,
-    valorTotal: comprasContext.reduce((acc, c) => acc + (c.valorTotal || 0), 0)
-  })), [comprasContext]);
+  // Separar fluxos: cotações vs pedidos
+  const cotacoes = useMemo(
+    () => comprasNormalizadas.filter(c => c.tipo === 'cotacao' || c.status === 'cotacao'),
+    [comprasNormalizadas]
+  );
+  const pedidos = useMemo(
+    () => comprasNormalizadas.filter(c => c.tipo !== 'cotacao' && c.status !== 'cotacao'),
+    [comprasNormalizadas]
+  );
 
-  const [pedidos, setPedidos] = useState([]);
-  const [cotacoes, setCotacoes] = useState([]);
-  const [fornecedores, setFornecedores] = useState([]);
+  // Fornecedores consolidados: cadastro + estatísticas REAIS puxadas de
+  // compras, notas fiscais e pedidos de material (informação já existente no módulo)
+  const fornecedores = useMemo(() => {
+    const stats = new Map();
+    const keyOf = (nome) => (nome || '').trim().toLowerCase();
+    const touch = (nome) => {
+      const k = keyOf(nome);
+      if (!k) return null;
+      if (!stats.has(k)) stats.set(k, { nome: nome.trim(), pedidos: 0, valorTotal: 0, nfs: 0, materiais: 0 });
+      return stats.get(k);
+    };
+
+    comprasNormalizadas.forEach(c => {
+      const s = touch(c.fornecedor);
+      if (s) { s.pedidos += 1; s.valorTotal += c.valor || 0; }
+    });
+    (notasFiscais || []).forEach(nf => {
+      const s = touch(nf.fornecedor);
+      if (s) { s.nfs += 1; }
+    });
+    (materiaisEstoque || []).forEach(m => {
+      const s = touch(m.fornecedor);
+      if (s) { s.materiais += 1; }
+    });
+
+    const cadastrados = fornecedoresCadastrados.map(f => {
+      const s = stats.get(keyOf(f.nome)) || { pedidos: 0, valorTotal: 0, nfs: 0, materiais: 0 };
+      stats.delete(keyOf(f.nome));
+      return { ...f, ...s, nome: f.nome, cadastrado: true };
+    });
+
+    // Fornecedores que aparecem nos dados mas não têm cadastro formal
+    const derivados = [...stats.values()].map(s => ({
+      id: `derivado-${keyOf(s.nome)}`,
+      nome: s.nome,
+      cadastrado: false,
+      ...s
+    }));
+
+    return [...cadastrados, ...derivados].sort((a, b) => (b.valorTotal || 0) - (a.valorTotal || 0));
+  }, [fornecedoresCadastrados, comprasNormalizadas, notasFiscais, materiaisEstoque]);
+
+  // ===== ESTADO DE UI =====
   const [searchTerm, setSearchTerm] = useState('');
   const [searchTermMat, setSearchTermMat] = useState('');
+  const [searchTermForn, setSearchTermForn] = useState('');
   const [statusFilter, setStatusFilter] = useState('todos');
   const [activeTab, setActiveTab] = useState('pedidos');
   const [selectedPedido, setSelectedPedido] = useState(null);
+  const [fornecedorEditando, setFornecedorEditando] = useState(null);
+  const [dialogNovoFornecedor, setDialogNovoFornecedor] = useState(false);
+  const [recebendoId, setRecebendoId] = useState(null);
 
-  // Atualizar pedidos quando dados do contexto mudarem
-  React.useEffect(() => {
-    if (pedidosReais.length > 0) setPedidos(pedidosReais);
-  }, [pedidosReais]);
-
-  React.useEffect(() => {
-    if (fornecedoresCadastrados.length > 0) setFornecedores(fornecedoresCadastrados);
-  }, [fornecedoresCadastrados]);
-
-  const filteredPedidos = pedidos.filter(pedido => {
-    const matchesSearch = (pedido.fornecedor || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (pedido.id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (pedido.documento || '').toLowerCase().includes(searchTerm.toLowerCase());
+  const filteredPedidos = useMemo(() => pedidos.filter(pedido => {
+    const t = searchTerm.toLowerCase();
+    const matchesSearch = (pedido.fornecedor || '').toLowerCase().includes(t) ||
+                         String(pedido.id || '').toLowerCase().includes(t) ||
+                         String(pedido.documento || '').toLowerCase().includes(t) ||
+                         (pedido.descricao || '').toLowerCase().includes(t);
     const matchesStatus = statusFilter === 'todos' || pedido.status === statusFilter;
     return matchesSearch && matchesStatus;
-  });
+  }), [pedidos, searchTerm, statusFilter]);
+
+  const filteredFornecedores = useMemo(() => {
+    if (!searchTermForn) return fornecedores;
+    const t = searchTermForn.toLowerCase();
+    return fornecedores.filter(f =>
+      (f.nome || '').toLowerCase().includes(t) ||
+      (f.cnpj || '').toLowerCase().includes(t) ||
+      (f.cidade || '').toLowerCase().includes(t)
+    );
+  }, [fornecedores, searchTermForn]);
 
   // Filtrar materiais
   const filteredMateriais = useMemo(() => {
@@ -524,9 +635,87 @@ export default function ComprasPage() {
     );
   }, [materiaisEstoque, searchTermMat]);
 
-  const totalCompras = pedidos.reduce((acc, p) => acc + (p.valor || 0), 0);
-  const pedidosPendentes = pedidos.filter(p => (p.statusFinanceiro || '') === 'previsto').length;
-  const cotacoesAbertas = cotacoes.filter(c => c.status === 'aberta').length;
+  // ===== AÇÕES =====
+  const handleSalvarFornecedor = async (dados) => {
+    if (!tabelaFornecedoresOk) {
+      toast.error('Tabela de fornecedores ainda não existe no banco. Rode a migration_v16_suprimentos.sql no Supabase.');
+      throw new Error('tabela fornecedores ausente');
+    }
+    try {
+      if (dados.id) {
+        const { id, ...resto } = dados;
+        await fornecedoresApi.update(id, resto);
+        toast.success('Fornecedor atualizado!');
+      } else {
+        await fornecedoresApi.create({ id: `FOR-${Date.now()}`, ...dados });
+        toast.success('Fornecedor cadastrado!');
+      }
+      await carregarFornecedores();
+    } catch (err) {
+      toast.error(`Erro ao salvar fornecedor: ${err.message}`);
+      throw err;
+    }
+  };
+
+  const handleReceberPedido = async (pedido) => {
+    if (!window.confirm(`Confirmar recebimento do pedido ${pedido.id}? Serão registradas movimentações de ENTRADA no estoque.`)) return;
+    setRecebendoId(pedido.id);
+    try {
+      const itensArr = Array.isArray(pedido._original?.itens) ? pedido._original.itens : [];
+      await receberCompra(pedido.id, itensArr);
+      toast.success(`Pedido ${pedido.id} recebido!`);
+    } catch (err) {
+      toast.error(`Erro ao receber pedido: ${err.message}`);
+    } finally {
+      setRecebendoId(null);
+    }
+  };
+
+  const handleEncerrarCotacao = async (cotacao) => {
+    try {
+      await updateCompra(cotacao.id, { status: 'finalizada' });
+      toast.success('Cotação encerrada');
+    } catch { /* toast já exibido */ }
+  };
+
+  const handleConverterCotacao = async (cotacao) => {
+    try {
+      await updateCompra(cotacao.id, { status: 'pendente', tipo: 'pre_pedido' });
+      toast.success('Cotação convertida em pedido!');
+      setActiveTab('pedidos');
+    } catch { /* toast já exibido */ }
+  };
+
+  const handleExportarCSV = () => {
+    const linhas = [
+      ['ID', 'Documento', 'Fornecedor', 'Data', 'Itens', 'Peso (kg)', 'Valor Previsto', 'Status', 'Financeiro', 'Prazo'].join(';'),
+      ...filteredPedidos.map(p => [
+        p.id,
+        p.documento,
+        `"${(p.fornecedor || '').replace(/"/g, '""')}"`,
+        fmtData(p.data),
+        p.numItens,
+        String(p.pesoKg || 0).replace('.', ','),
+        String(p.valor || 0).replace('.', ','),
+        p.status,
+        p.statusFinanceiro,
+        fmtData(p.prazo)
+      ].join(';'))
+    ];
+    const blob = new Blob(['﻿' + linhas.join('\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `pedidos_compra_${new Date().toISOString().split('T')[0]}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+    toast.success(`${filteredPedidos.length} pedidos exportados`);
+  };
+
+  // ===== KPIs =====
+  const totalPrevisto = pedidos.reduce((acc, p) => acc + (p.valor || 0), 0);
+  const pedidosPrevistos = pedidos.filter(p => (p.statusFinanceiro || '') === 'previsto').length;
+  const cotacoesAbertas = cotacoes.filter(c => c.status === 'cotacao' || c.status === 'aberta').length;
 
   return (
     <div className="space-y-6 p-6">
@@ -539,9 +728,19 @@ export default function ComprasPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          <NovoFornecedorDialog onSave={(fornecedor) => setFornecedores([...fornecedores, fornecedor])} />
-          <NovaCotacaoDialog onSave={(cotacao) => setCotacoes([...cotacoes, cotacao])} />
-          <NovoPedidoDialog onSave={(pedido) => setPedidos([...pedidos, pedido])} fornecedoresCadastrados={fornecedoresCadastrados} />
+          <FornecedorDialog
+            open={dialogNovoFornecedor}
+            onOpenChange={setDialogNovoFornecedor}
+            onSave={handleSalvarFornecedor}
+            trigger={(
+              <Button variant="outline" className="gap-2">
+                <Building2 className="h-4 w-4" />
+                Novo Fornecedor
+              </Button>
+            )}
+          />
+          <NovaCotacaoDialog onSave={addCompra} obraAtual={obraAtual} />
+          <NovoPedidoDialog onSave={addCompra} fornecedores={fornecedores.filter(f => f.cadastrado !== false)} obras={obras || []} obraAtual={obraAtual} />
         </div>
       </div>
 
@@ -549,13 +748,13 @@ export default function ComprasPage() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <KPICard
           title="Total Previsto (Pré-Pedidos)"
-          value={`R$ ${totalCompras.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+          value={fmtMoeda(totalPrevisto)}
           subtitle="Valores previstos - sem lançamento real"
           icon={DollarSign}
         />
         <KPICard
           title="Pré-Pedidos"
-          value={pedidosPendentes}
+          value={pedidosPrevistos}
           subtitle="Status: Previsto"
           icon={Clock}
         />
@@ -566,10 +765,10 @@ export default function ComprasPage() {
           icon={Package}
         />
         <KPICard
-          title="Fornecedores"
-          value={fornecedores.length}
-          subtitle="Cadastrados"
-          icon={Building2}
+          title="Cotações Abertas"
+          value={cotacoesAbertas}
+          subtitle={`${fornecedores.length} fornecedores`}
+          icon={FileText}
         />
       </div>
 
@@ -620,6 +819,7 @@ export default function ComprasPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="todos">Todos</SelectItem>
+                      <SelectItem value="pendente">Pendente</SelectItem>
                       <SelectItem value="cotacao_recebida">Cotação Recebida</SelectItem>
                       <SelectItem value="ordem_confirmada">Ordem Confirmada</SelectItem>
                       <SelectItem value="aprovado">Aprovado</SelectItem>
@@ -627,7 +827,7 @@ export default function ComprasPage() {
                       <SelectItem value="entregue">Entregue</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="icon">
+                  <Button variant="outline" size="icon" onClick={handleExportarCSV} title="Exportar CSV">
                     <Download className="h-4 w-4" />
                   </Button>
                 </div>
@@ -650,32 +850,53 @@ export default function ComprasPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredPedidos.map((pedido) => (
-                    <TableRow key={pedido.id}>
-                      <TableCell className="font-medium">{pedido.id}</TableCell>
-                      <TableCell className="text-xs font-mono">{pedido.documento}</TableCell>
-                      <TableCell className="max-w-[150px] truncate">{pedido.fornecedor}</TableCell>
-                      <TableCell>{new Date(pedido.data).toLocaleDateString('pt-BR')}</TableCell>
-                      <TableCell>{pedido.itens}</TableCell>
-                      <TableCell className="text-right">{pedido.pesoKg?.toLocaleString('pt-BR')}</TableCell>
-                      <TableCell className="text-right font-medium">R$ {pedido.valor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
-                      <TableCell><StatusBadge status={pedido.status} /></TableCell>
-                      <TableCell>
-                        <Badge className="bg-orange-100 text-orange-800 text-xs">
-                          PREVISTO
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => {
-                            setSelectedPedido(pedido._original || pedido);
-                          }}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
+                  {filteredPedidos.map((pedido) => {
+                    const finConfig = statusFinanceiroConfig[pedido.statusFinanceiro] || statusFinanceiroConfig.previsto;
+                    return (
+                      <TableRow key={pedido.id}>
+                        <TableCell className="font-medium">{pedido.id}</TableCell>
+                        <TableCell className="text-xs font-mono">{pedido.documento}</TableCell>
+                        <TableCell className="max-w-[150px] truncate">{pedido.fornecedor}</TableCell>
+                        <TableCell>{fmtData(pedido.data)}</TableCell>
+                        <TableCell>{pedido.numItens}</TableCell>
+                        <TableCell className="text-right">{(pedido.pesoKg || 0).toLocaleString('pt-BR')}</TableCell>
+                        <TableCell className="text-right font-medium">{fmtMoeda(pedido.valor)}</TableCell>
+                        <TableCell><StatusBadge status={pedido.status} /></TableCell>
+                        <TableCell>
+                          <Badge className={`${finConfig.color} text-xs`}>
+                            {finConfig.label}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" title="Ver detalhes" onClick={() => {
+                              setSelectedPedido(pedido._original || pedido);
+                            }}>
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {pedido.status !== 'entregue' && pedido.status !== 'cancelado' && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                title="Receber pedido (gera entrada no estoque)"
+                                disabled={recebendoId === pedido.id}
+                                onClick={() => handleReceberPedido(pedido)}
+                              >
+                                <PackageCheck className="h-4 w-4 text-emerald-600" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {filteredPedidos.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={10} className="text-center py-8 text-muted-foreground">
+                        Nenhum pedido encontrado
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )}
                 </TableBody>
               </Table>
             </CardContent>
@@ -774,11 +995,11 @@ export default function ComprasPage() {
                         <TableCell className="text-xs font-mono">{mat.notaFiscal || '—'}</TableCell>
                         <TableCell>
                           <Badge className={
-                            status === 'entregue' ? 'bg-green-100 text-green-800' :
+                            status === 'entregue' || status === 'completo' ? 'bg-green-100 text-green-800' :
                             status === 'parcial' ? 'bg-amber-100 text-amber-800' :
                             'bg-gray-100 text-gray-800'
                           }>
-                            {status === 'entregue' ? 'Entregue' : status === 'parcial' ? 'Parcial' : 'Pendente'}
+                            {status === 'entregue' || status === 'completo' ? 'Entregue' : status === 'parcial' ? 'Parcial' : 'Pendente'}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -800,7 +1021,7 @@ export default function ComprasPage() {
                     <div>
                       <span className="text-muted-foreground">Valor Total Pedido: </span>
                       <span className="font-bold">
-                        R$ {filteredMateriais.reduce((a, m) => a + (m.valorTotalPedido || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                        {fmtMoeda(filteredMateriais.reduce((a, m) => a + (m.valorTotalPedido || 0), 0))}
                       </span>
                     </div>
                     <div>
@@ -827,13 +1048,13 @@ export default function ComprasPage() {
             />
             <KPICard
               title="Valor Total NFs"
-              value={`R$ ${notasFiscais.reduce((a, nf) => a + (nf.valorTotal || 0), 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+              value={fmtMoeda(notasFiscais.reduce((a, nf) => a + (nf.valorTotal || nf.valor || 0), 0))}
               subtitle="Soma das notas"
               icon={DollarSign}
             />
             <KPICard
               title="Fornecedores"
-              value={[...new Set(notasFiscais.map(nf => nf.fornecedor))].length}
+              value={[...new Set(notasFiscais.map(nf => nf.fornecedor).filter(Boolean))].length}
               subtitle="Distintos nas NFs"
               icon={Building2}
             />
@@ -866,13 +1087,13 @@ export default function ComprasPage() {
                             <p className="text-sm text-muted-foreground">{nf.fornecedor}</p>
                             {nf.dataEmissao && (
                               <p className="text-xs text-muted-foreground">
-                                Emissão: {new Date(nf.dataEmissao).toLocaleDateString('pt-BR')}
+                                Emissão: {fmtData(nf.dataEmissao)}
                               </p>
                             )}
                           </div>
                           <div className="text-right space-y-1">
                             <p className="text-lg font-bold">
-                              R$ {(nf.valorTotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                              {fmtMoeda(nf.valorTotal || nf.valor)}
                             </p>
                             <p className="text-sm text-muted-foreground">{pesoTotal.toLocaleString('pt-BR')} kg</p>
                           </div>
@@ -921,13 +1142,7 @@ export default function ComprasPage() {
         <TabsContent value="cotacoes" className="space-y-4">
           <Card>
             <CardHeader>
-              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <CardTitle>Cotações</CardTitle>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <RefreshCw className="h-4 w-4" />
-                  Atualizar
-                </Button>
-              </div>
+              <CardTitle>Cotações</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4">
@@ -940,38 +1155,47 @@ export default function ComprasPage() {
                             <h4 className="font-semibold">{cotacao.id}</h4>
                             <StatusBadge status={cotacao.status} />
                           </div>
-                          <p className="text-sm text-muted-foreground">{cotacao.descricao}</p>
+                          <p className="text-sm text-muted-foreground">{cotacao.descricao || cotacao.observacao}</p>
+                          {cotacao.fornecedor && (
+                            <p className="text-xs text-muted-foreground">Fornecedor: {cotacao.fornecedor}</p>
+                          )}
                         </div>
                         <div className="text-right space-y-1">
-                          <p className="text-sm text-muted-foreground">{cotacao.fornecedores} fornecedores</p>
-                          <p className="text-xs text-muted-foreground">Prazo: {new Date(cotacao.prazo).toLocaleDateString('pt-BR')}</p>
+                          {cotacao.valor > 0 && (
+                            <p className="font-semibold">{fmtMoeda(cotacao.valor)}</p>
+                          )}
+                          <p className="text-xs text-muted-foreground">Prazo: {fmtData(cotacao.prazo)}</p>
                         </div>
                       </div>
                       <div className="mt-4 flex items-center justify-between">
-                        <div className="flex gap-6">
-                          <div>
-                            <p className="text-xs text-muted-foreground">Menor Preço</p>
-                            <p className="font-semibold text-green-600">R$ {cotacao.menor.toLocaleString('pt-BR')}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Maior Preço</p>
-                            <p className="font-semibold text-red-600">R$ {cotacao.maior.toLocaleString('pt-BR')}</p>
-                          </div>
-                          <div>
-                            <p className="text-xs text-muted-foreground">Economia</p>
-                            <p className="font-semibold text-blue-600">{Math.round((1 - cotacao.menor/cotacao.maior) * 100)}%</p>
-                          </div>
+                        <div className="text-xs text-muted-foreground">
+                          Criada em {fmtData(cotacao.data)}
+                          {cotacao.numItens > 0 && ` · ${cotacao.numItens} item(ns)`}
                         </div>
                         <div className="flex gap-2">
-                          <Button variant="outline" size="sm">Ver Detalhes</Button>
-                          {cotacao.status === 'aberta' && (
-                            <Button size="sm">Encerrar</Button>
+                          <Button variant="outline" size="sm" onClick={() => setSelectedPedido(cotacao._original || cotacao)}>
+                            Ver Detalhes
+                          </Button>
+                          {(cotacao.status === 'cotacao' || cotacao.status === 'aberta') && (
+                            <>
+                              <Button size="sm" onClick={() => handleConverterCotacao(cotacao)}>
+                                Converter em Pedido
+                              </Button>
+                              <Button variant="outline" size="sm" onClick={() => handleEncerrarCotacao(cotacao)}>
+                                Encerrar
+                              </Button>
+                            </>
                           )}
                         </div>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
+                {cotacoes.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    Nenhuma cotação registrada. Use o botão "Nova Cotação" acima.
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -979,75 +1203,127 @@ export default function ComprasPage() {
 
         {/* Fornecedores */}
         <TabsContent value="fornecedores" className="space-y-4">
+          {!tabelaFornecedoresOk && (
+            <Card className="border-amber-300 bg-amber-50">
+              <CardContent className="p-4 text-sm text-amber-800 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Cadastro persistente de fornecedores indisponível — rode <code className="font-mono">supabase/migration_v16_suprimentos.sql</code> no Supabase para habilitar.
+              </CardContent>
+            </Card>
+          )}
           <Card>
             <CardHeader>
               <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                <CardTitle>Fornecedores Cadastrados</CardTitle>
+                <CardTitle>Fornecedores ({filteredFornecedores.length})</CardTitle>
                 <div className="relative">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="Buscar fornecedor..." className="pl-8 w-[250px]" />
+                  <Input
+                    placeholder="Buscar fornecedor..."
+                    className="pl-8 w-[250px]"
+                    value={searchTermForn}
+                    onChange={(e) => setSearchTermForn(e.target.value)}
+                  />
                 </div>
               </div>
             </CardHeader>
             <CardContent>
               <div className="grid gap-4 md:grid-cols-2">
-                {fornecedores.map((fornecedor) => (
+                {filteredFornecedores.map((fornecedor) => (
                   <Card key={fornecedor.id} className="hover:shadow-md transition-shadow">
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="font-semibold">{fornecedor.nome}</h4>
-                            <div className="flex items-center gap-1 text-yellow-500">
-                              <Star className="h-4 w-4 fill-current" />
-                              <span className="text-sm font-medium">{fornecedor.rating}</span>
-                            </div>
+                            {fornecedor.rating > 0 && (
+                              <div className="flex items-center gap-1 text-yellow-500">
+                                <Star className="h-4 w-4 fill-current" />
+                                <span className="text-sm font-medium">{fornecedor.rating}</span>
+                              </div>
+                            )}
+                            {fornecedor.cadastrado === false && (
+                              <Badge variant="outline" className="text-xs text-amber-600 border-amber-300">
+                                Identificado nas compras/NFs
+                              </Badge>
+                            )}
                           </div>
-                          <p className="text-sm text-muted-foreground">{fornecedor.cnpj}</p>
+                          {fornecedor.cnpj && <p className="text-sm text-muted-foreground">{fornecedor.cnpj}</p>}
                         </div>
-                        <div className="flex gap-1">
-                          <Button variant="ghost" size="icon" onClick={() => toast.success(`Visualizando fornecedor ${fornecedor.nome}`)}>
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          <Button variant="ghost" size="icon" onClick={() => toast.success(`Editando fornecedor ${fornecedor.nome}`)}>
+                        {fornecedor.cadastrado !== false && (
+                          <Button variant="ghost" size="icon" title="Editar" onClick={() => setFornecedorEditando(fornecedor)}>
                             <Edit className="h-4 w-4" />
                           </Button>
-                        </div>
+                        )}
+                        {fornecedor.cadastrado === false && tabelaFornecedoresOk && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-xs"
+                            onClick={() => handleSalvarFornecedor({ nome: fornecedor.nome }).catch(() => {})}
+                          >
+                            <Plus className="h-3 w-3 mr-1" /> Cadastrar
+                          </Button>
+                        )}
                       </div>
                       <div className="mt-4 space-y-2">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <MapPin className="h-4 w-4" />
-                          {fornecedor.cidade}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Phone className="h-4 w-4" />
-                          {fornecedor.telefone}
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Mail className="h-4 w-4" />
-                          {fornecedor.email}
-                        </div>
+                        {fornecedor.cidade && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <MapPin className="h-4 w-4" />
+                            {fornecedor.cidade}{fornecedor.estado ? `, ${fornecedor.estado}` : ''}
+                          </div>
+                        )}
+                        {fornecedor.telefone && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Phone className="h-4 w-4" />
+                            {fornecedor.telefone}
+                          </div>
+                        )}
+                        {fornecedor.email && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Mail className="h-4 w-4" />
+                            {fornecedor.email}
+                          </div>
+                        )}
                       </div>
-                      <div className="mt-4 pt-4 border-t flex justify-between">
+                      <div className="mt-4 pt-4 border-t grid grid-cols-3 gap-2">
                         <div>
                           <p className="text-xs text-muted-foreground">Pedidos</p>
-                          <p className="font-semibold">{fornecedor.pedidos}</p>
+                          <p className="font-semibold">{fornecedor.pedidos || 0}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">NFs</p>
+                          <p className="font-semibold">{fornecedor.nfs || 0}</p>
                         </div>
                         <div className="text-right">
                           <p className="text-xs text-muted-foreground">Total Comprado</p>
-                          <p className="font-semibold">R$ {fornecedor.valorTotal.toLocaleString('pt-BR')}</p>
+                          <p className="font-semibold">{fmtMoeda(fornecedor.valorTotal)}</p>
                         </div>
                       </div>
                     </CardContent>
                   </Card>
                 ))}
+                {filteredFornecedores.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground md:col-span-2">
+                    Nenhum fornecedor encontrado
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
         </TabsContent>
       </Tabs>
 
-      {/* Modal de detalhes do pré-pedido */}
+      {/* Modal de edição de fornecedor */}
+      {fornecedorEditando && (
+        <FornecedorDialog
+          fornecedor={fornecedorEditando}
+          open={!!fornecedorEditando}
+          onOpenChange={(o) => { if (!o) setFornecedorEditando(null); }}
+          onSave={handleSalvarFornecedor}
+        />
+      )}
+
+      {/* Modal de detalhes do pré-pedido / cotação */}
       {selectedPedido && (() => {
         const sp = selectedPedido;
         const itensArr = Array.isArray(sp.itens) ? sp.itens : [];
@@ -1075,11 +1351,11 @@ export default function ComprasPage() {
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <p className="text-muted-foreground">Fornecedor</p>
-                    <p className="font-medium">{sp.fornecedor}</p>
+                    <p className="font-medium">{sp.fornecedor || '—'}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Data</p>
-                    <p className="font-medium">{dataDoc ? new Date(dataDoc).toLocaleDateString('pt-BR') : '—'}</p>
+                    <p className="font-medium">{fmtData(dataDoc)}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Condição Pgto</p>
@@ -1109,9 +1385,16 @@ export default function ComprasPage() {
                         <TableCell><Badge variant="outline" className="text-xs">{item.material || item.categoria}</Badge></TableCell>
                         <TableCell className="text-right">{(item.quantidade || 0).toLocaleString('pt-BR')}</TableCell>
                         <TableCell className="text-right">{(item.precoUnitario || 0).toFixed(2)}</TableCell>
-                        <TableCell className="text-right font-medium">R$ {(item.valorTotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</TableCell>
+                        <TableCell className="text-right font-medium">{fmtMoeda(item.valorTotal)}</TableCell>
                       </TableRow>
                     ))}
+                    {itensArr.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center py-4 text-muted-foreground text-sm">
+                          Sem itens detalhados
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
                 <div className="flex justify-between items-center pt-4 border-t">
@@ -1120,7 +1403,7 @@ export default function ComprasPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-sm text-muted-foreground">Peso: {pesoTotal.toLocaleString('pt-BR')} kg</p>
-                    <p className="text-lg font-bold">R$ {(sp.valorTotal || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p className="text-lg font-bold">{fmtMoeda(sp.valorTotal ?? sp.valorPrevisto)}</p>
                   </div>
                 </div>
               </div>
