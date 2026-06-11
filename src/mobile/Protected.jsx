@@ -13,7 +13,10 @@ import MobileLayout from './MobileLayout';
 
 export default function Protected({ perm, children }) {
   const { hasPermission } = useAuth() || {};
-  const allowed = !perm || !hasPermission || hasPermission(perm);
+  // `perm` aceita string OU array (libera se tiver QUALQUER uma — usado em
+  // telas multi-domínio como /m/aprovacoes: medicao.aprovar OU orcamentos.aprovar).
+  const perms = Array.isArray(perm) ? perm : (perm ? [perm] : []);
+  const allowed = perms.length === 0 || !hasPermission || perms.some(p => hasPermission(p));
   if (allowed) return children;
   return (
     <MobileLayout title="Acesso restrito" back>
