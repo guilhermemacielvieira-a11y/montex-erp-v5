@@ -13,14 +13,14 @@
 import React, { useMemo, useState } from 'react';
 import { toast } from 'react-hot-toast';
 import {
-  CheckCheck, CheckCircle2, XCircle, Ruler, Calculator, Loader2, ChevronRight,
+  CheckCheck, CheckCircle2, XCircle, Ruler, Calculator, Loader2, ChevronRight, ShoppingCart,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import { tap, success } from '../ui/haptics';
 import { confirmarBiometria } from '../ui/biometric';
 import { ensureOnline } from '../ui/online';
-import { useMedicoes, useOrcamentos } from '@/contexts/ERPContext';
+import { useMedicoes, useOrcamentos, useCompras } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
@@ -38,14 +38,18 @@ const medPendente = (m) => ['pendente', 'aguardando'].includes(String(m?.status 
 // Orçamento aguardando decisão (colunas pré-aprovação do kanban desktop)
 const ORC_ABERTOS = ['enviado', 'em_analise', 'negociacao', 'pendente'];
 const orcPendente = (o) => ORC_ABERTOS.includes(String(o?.status || '').toLowerCase());
+// Compra aguardando aprovação (criada como 'pendente' no desktop)
+const cmpPendente = (c) => String(c?.status || '').toLowerCase() === 'pendente';
 
 export default function AprovacoesMobile() {
   const { medicoes = [], updateMedicao } = useMedicoes?.() || {};
   const { orcamentos = [], aprovarOrcamento, updateOrcamento } = useOrcamentos?.() || {};
+  const { compras = [], aprovarCompra } = useCompras?.() || {};
   const { matchObra } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
   const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
+  const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
 
   const [busy, setBusy] = useState(null);      // `${tipo}:${id}` em processamento
   const [detalhe, setDetalhe] = useState(null); // { tipo: 'med'|'orc', item }
@@ -60,7 +64,12 @@ export default function AprovacoesMobile() {
       .slice().sort((a, b) => String(b.created_at || b.data || '').localeCompare(String(a.created_at || a.data || ''))),
     [orcamentos, matchObra, podeOrc]
   );
-  const total = medsPend.length + orcsPend.length;
+  const cmpsPend = useMemo(
+    () => (podeCmp ? compras.filter(cmpPendente).filter(c => !(c.obraId ?? c.obra_id) || matchObra(c)) : [])
+      .slice().sort((a, b) => String(b.created_at || b.data || '').localeCompare(String(a.created_at || a.data || ''))),
+    [compras, matchObra, podeCmp]
+  );
+  const total = medsPend.length + orcsPend.length + cmpsPend.length;
 
   // ---- ações (todas: online + Face ID + haptic + toast) ----
   const executar = async (key, reason, fn, okMsg, errMsg) => {
@@ -97,6 +106,18 @@ export default function AprovacoesMobile() {
     `orc-rec:${o.id}`, `Recusar orçamento ${o.numero || ''}`.trim(),
     () => updateOrcamento(o.id, { status: 'recusado', data_aprovacao: new Date().toISOString().slice(0, 10) }),
     `Orçamento ${o.numero || ''} recusado`.replace('  ', ' '), 'Falha ao recusar orçamento'
+  );
+
+  const aprovarCmp = (c) => executar(
+    `cmp:${c.id}`, `Aprovar compra ${c.id || ''}`.trim(),
+    () => aprovarCompra(c.id, true),
+    `Compra ${c.id || ''} aprovada`.replace('  ', ' '), 'Falha ao aprovar compra'
+  );
+
+  const recusarCmp = (c) => executar(
+    `cmp-rec:${c.id}`, `Recusar compra ${c.id || ''}`.trim(),
+    () => aprovarCompra(c.id, false),
+    `Compra ${c.id || ''} recusada`.replace('  ', ' '), 'Falha ao recusar compra'
   );
 
   return (
@@ -149,29 +170,46 @@ export default function AprovacoesMobile() {
         </Secao>
       )}
 
+      {/* ===== Compras ===== */}
+      {cmpsPend.length > 0 && (
+        <Secao icon={ShoppingCart} cor="text-violet-400" titulo={`Compras · ${cmpsPend.length}`}>
+          {cmpsPend.map(c => (
+            <Card
+              key={c.id}
+              onOpen={() => { tap('light'); setDetalhe({ tipo: 'cmp', item: c }); }}
+              titulo={c.id}
+              sub={`${c.fornecedor || '—'}${c.prazo ? ' · prazo ' + fmtData(c.prazo) : ''}`}
+              valor={fmtMoney(c.valor ?? c.valor_total)}
+              busy={busy === `cmp:${c.id}`}
+              onAprovar={() => aprovarCmp(c)}
+            />
+          ))}
+        </Secao>
+      )}
+
       {/* ===== Detalhe (Sheet) ===== */}
       <Sheet
         open={!!detalhe}
         onClose={() => !busy && setDetalhe(null)}
-        title={detalhe?.tipo === 'med' ? 'Detalhe da medição' : 'Detalhe do orçamento'}
+        title={detalhe?.tipo === 'med' ? 'Detalhe da medição' : detalhe?.tipo === 'cmp' ? 'Detalhe da compra' : 'Detalhe do orçamento'}
         footer={detalhe && (
           <div className="flex gap-2">
-            {detalhe.tipo === 'orc' && (
+            {(detalhe.tipo === 'orc' || detalhe.tipo === 'cmp') && (
               <button
-                onClick={() => recusarOrc(detalhe.item)}
+                onClick={() => (detalhe.tipo === 'orc' ? recusarOrc(detalhe.item) : recusarCmp(detalhe.item))}
                 disabled={!!busy}
                 className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-red-500/15 border border-red-500/40 text-red-300 font-black text-sm active:scale-[.99] transition disabled:opacity-60"
               >
-                {busy === `orc-rec:${detalhe.item.id}` ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
+                {(busy === `orc-rec:${detalhe.item.id}` || busy === `cmp-rec:${detalhe.item.id}`) ? <Loader2 className="w-5 h-5 animate-spin" /> : <XCircle className="w-5 h-5" />}
                 Recusar
               </button>
             )}
             <button
-              onClick={() => (detalhe.tipo === 'med' ? aprovarMed(detalhe.item) : aprovarOrc(detalhe.item))}
+              onClick={() => (detalhe.tipo === 'med' ? aprovarMed(detalhe.item) : detalhe.tipo === 'cmp' ? aprovarCmp(detalhe.item) : aprovarOrc(detalhe.item))}
               disabled={!!busy}
               className="flex-[2] flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm active:scale-[.99] transition disabled:opacity-60"
             >
-              {busy && busy.startsWith(detalhe.tipo === 'med' ? 'med:' : 'orc:') ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
+              {busy && busy.startsWith(detalhe.tipo === 'med' ? 'med:' : detalhe.tipo === 'cmp' ? 'cmp:' : 'orc:') ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
               Aprovar com Face ID
             </button>
           </div>
@@ -179,6 +217,7 @@ export default function AprovacoesMobile() {
       >
         {detalhe?.tipo === 'med' && <DetalheMedicao m={detalhe.item} />}
         {detalhe?.tipo === 'orc' && <DetalheOrcamento o={detalhe.item} />}
+        {detalhe?.tipo === 'cmp' && <DetalheCompra c={detalhe.item} />}
       </Sheet>
     </MobileLayout>
   );
@@ -245,6 +284,20 @@ function DetalheMedicao({ m }) {
           <img src={fotoUrl} alt="evidência da medição" className="w-full h-44 object-cover" loading="lazy" />
         </div>
       )}
+    </div>
+  );
+}
+
+function DetalheCompra({ c }) {
+  return (
+    <div>
+      <Linha k="Pedido" v={c.id} />
+      <Linha k="Fornecedor" v={c.fornecedor} />
+      <Linha k="Valor" v={fmtMoney(c.valor ?? c.valor_total)} />
+      <Linha k="Itens" v={c.itens != null ? String(Array.isArray(c.itens) ? c.itens.length : c.itens) : '—'} />
+      <Linha k="Prazo" v={c.prazo ? fmtData(c.prazo) : '—'} />
+      <Linha k="Criado em" v={fmtData(c.created_at || c.data)} />
+      {c.descricao && <div className="mt-3 text-sm text-slate-300 bg-slate-800/60 rounded-xl p-3">{c.descricao}</div>}
     </div>
   );
 }

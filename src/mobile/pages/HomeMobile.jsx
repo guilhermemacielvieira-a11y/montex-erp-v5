@@ -41,7 +41,7 @@ function KpiCard({ icon: Icon, label, value, color = 'amber', sub, to }) {
 export default function HomeMobile() {
   const erp = useERP?.() || {};
   // FIX: ERPContext expõe 'lancamentosDespesas' e 'medicoes' (não 'despesas'/'receitas').
-  const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [], orcamentos = [] } = erp;
+  const { obras = [], pecas = [], lancamentosDespesas = [], medicoes = [], orcamentos = [], compras = [] } = erp;
   const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   // Aplica o filtro global por obra a todos os conjuntos de dados
@@ -69,21 +69,25 @@ export default function HomeMobile() {
   const tarefas = useMemo(() => {
     const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
     const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
+    const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
     const aMontar = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'enviado').length;
     const prontas = pecasFiltradas.filter(p => (p.etapa || '').toLowerCase() === 'expedido').length;
     const medPend = podeMed ? receitas.filter(r => ['pendente', 'aguardando'].includes(String(r.status || '').toLowerCase())).length : 0;
-    // Orçamento sem obra vinculada aparece sempre (não sumir pendência com filtro)
+    // Orçamento/compra sem obra vinculada aparece sempre (não sumir pendência com filtro)
     const orcPend = podeOrc ? orcamentos
       .filter(o => ['enviado', 'em_analise', 'negociacao', 'pendente'].includes(String(o.status || '').toLowerCase()))
       .filter(o => !(o.obraId ?? o.obra_id) || matchObra(o)).length : 0;
-    const aprovacoes = medPend + orcPend;
+    const cmpPend = podeCmp ? compras
+      .filter(c => String(c.status || '').toLowerCase() === 'pendente')
+      .filter(c => !(c.obraId ?? c.obra_id) || matchObra(c)).length : 0;
+    const aprovacoes = medPend + orcPend + cmpPend;
     const t = [];
     // Caixa unificada de aprovações (medições + orçamentos) → /m/aprovacoes
     if (aprovacoes) t.push({ id: 'aprovar', icon: CheckCircle2, count: aprovacoes, label: 'aprovações pendentes', to: '/m/aprovacoes', cor: 'text-emerald-400' });
     if (aMontar) t.push({ id: 'montar', icon: Hammer, count: aMontar, label: 'peças a montar', to: '/m/montagem', cor: 'text-emerald-400' });
     if (prontas) t.push({ id: 'expedir', icon: Truck, count: prontas, label: 'prontas p/ expedir', to: '/m/expedicao', cor: 'text-blue-400' });
     return t;
-  }, [pecasFiltradas, receitas, orcamentos, hasPermission, matchObra]);
+  }, [pecasFiltradas, receitas, orcamentos, compras, hasPermission, matchObra]);
 
   return (
     <MobileLayout title="Início" obraFilter>
