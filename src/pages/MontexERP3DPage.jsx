@@ -644,6 +644,23 @@ function parseViaWorker(buffer, onProgress, onStage) {
       } else if (m.type === 'done') {
         settled = true;
         cleanup();
+        // Aplica o patch pós-propagação nos primários: o 'stage' chegou ANTES
+        // das etapas 3/4 do parser (props + marca real do Assembly). Sem isto,
+        // colunas/tesouras/vigas-mestras ficam sem marcaFromIfc e o matching
+        // por marca real do statusMap não funciona (montadas sem verde).
+        if (Array.isArray(m.primaryPatch) && m.primaryPatch.length && primary.length) {
+          const byId = new Map(primary.map(el => [el.expressID, el]));
+          let aplicados = 0;
+          for (const patch of m.primaryPatch) {
+            const el = byId.get(patch.expressID);
+            if (!el) continue;
+            if (patch.marcaFromIfc) el.marcaFromIfc = patch.marcaFromIfc;
+            if (patch.assemblyId != null) el.assemblyId = patch.assemblyId;
+            if (patch.props) el.props = { ...(patch.props || {}), ...(el.props || {}) };
+            aplicados++;
+          }
+          console.log(`[3D][Worker] patch pós-propagação aplicado em ${aplicados}/${primary.length} primários`);
+        }
         resolve({ primary, secondary: m.elements || [], correctedTypes: m.correctedTypes });
       } else if (m.type === 'error') {
         settled = true;
