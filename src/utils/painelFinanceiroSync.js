@@ -1,3 +1,4 @@
+// rebuild-bust: garantir chunk do painel com merge+prune (PR #10/#11) em prod 2026-06-11
 // ============================================
 // SINCRONIZAÇÃO PAINEL FINANCEIRO GLOBAL (camada local ISOLADA)
 // ============================================

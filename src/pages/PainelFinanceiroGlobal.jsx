@@ -1,3 +1,4 @@
+// rebuild-bust 2026-06-11
 // MONTEX ERP Premium - Painel Financeiro GLOBAL (ISOLADO)
 //
 // Módulo de análise financeira independente. Espelha receitas/despesas/medições
