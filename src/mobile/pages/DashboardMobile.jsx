@@ -33,6 +33,7 @@ import {
   isRecebida, valorMedicao, isDespesaPaga, isDespesaAberta, isDespesaAtrasada,
   contratoPesoKg, contratoValor,
 } from '../dados';
+import { usePainelGlobal, kpisDe, futuroDe } from '../usePainelGlobal';
 
 // ── Helpers de formatação ──────────────────────────────────
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -181,6 +182,11 @@ export default function DashboardMobile() {
     };
   }, [despesas, receitas, valorContrato]);
 
+  // ── EMPRESA (Painel Financeiro Global) — caixa geral, ≠ financeiro de obra ──
+  const { todasMovs: movsGlobais, metas: metasGlobais } = usePainelGlobal();
+  const empresa = useMemo(() => kpisDe(movsGlobais), [movsGlobais]);
+  const empresaFuturo = useMemo(() => futuroDe(movsGlobais, Number(metasGlobais?.saldoMinimo) || 50000), [movsGlobais, metasGlobais]);
+
   // ── Fluxo de caixa mensal (últimos 6 meses, realizado) ──
   // Receita: medições recebidas por mês (dataMedicao); Despesa: pagas por
   // mês de vencimento (proxy de competência — data de pagamento não existe).
@@ -288,6 +294,23 @@ export default function DashboardMobile() {
             color="blue" to="/m/obras" />
         </div>
 
+        {/* ── EMPRESA: caixa geral (Painel Global) — separado das obras ── */}
+        <SectionTitle icon={Wallet} action={<Link to="/m/painel-global" className="text-[11px] font-bold text-amber-400 pr-4">Painel Global</Link>}>
+          Empresa — caixa geral
+        </SectionTitle>
+        <div className="px-4 grid grid-cols-2 gap-2.5">
+          <KpiCard icon={empresa.lucro >= 0 ? TrendingUp : TrendingDown} label="Resultado da empresa"
+            value={fmtMoney(empresa.lucro)} sub={`Margem ${empresa.margem.toFixed(1)}% · ${empresa.qtd} mov.`}
+            color={empresa.lucro >= 0 ? 'green' : 'red'} to="/m/painel-global" />
+          <KpiCard icon={Wallet} label="Saldo projetado 30d"
+            value={fmtMoney(empresaFuturo.saldo30)}
+            sub={empresaFuturo.semanasCriticas ? `${empresaFuturo.semanasCriticas} semana(s) abaixo do mínimo` : `+${fmtMoneyShort(empresaFuturo.receber30)} / −${fmtMoneyShort(empresaFuturo.pagar30)}`}
+            color={empresaFuturo.saldo30 >= 0 ? 'blue' : 'red'} to="/m/painel-global" />
+        </div>
+        <div className="px-5 mt-1.5 text-[10px] text-slate-500">
+          Caixa geral consolidado (fábrica + obras + painel). Os blocos abaixo analisam as OBRAS (contratos e medições).
+        </div>
+
         {/* Dados incompletos: obra sem valor de contrato distorce backlog/% */}
         {obrasSemContrato.length > 0 && (
           <div className="mx-4 mt-3 flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl p-3">
@@ -357,7 +380,7 @@ export default function DashboardMobile() {
 
         {/* ── Financeiro: realizado x previsto ────────────── */}
         <SectionTitle icon={Wallet} action={<Link to="/m/financeiro" className="text-[11px] font-bold text-amber-400 pr-4">Detalhes</Link>}>
-          Financeiro — realizado x previsto
+          Obras — realizado x previsto (medições)
         </SectionTitle>
         <ChartCard>
           <ResponsiveContainer width="100%" height={180}>
@@ -378,7 +401,7 @@ export default function DashboardMobile() {
         {/* ── Fluxo de caixa mensal (realizado, 6 meses) ──── */}
         {temFluxo && (<>
           <SectionTitle icon={TrendingUp} action={<Link to="/m/financeiro" className="text-[11px] font-bold text-amber-400 pr-4">Detalhes</Link>}>
-            Fluxo de caixa — 6 meses (realizado)
+            Obras — fluxo 6 meses (medições x despesas)
           </SectionTitle>
           <ChartCard>
             <ResponsiveContainer width="100%" height={170}>

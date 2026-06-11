@@ -57,11 +57,22 @@ export default function FinanceiroMobile() {
   }, [despesas]);
 
   return (
-    <MobileLayout title="Financeiro" obraFilter>
+    <MobileLayout title="Financeiro da Obra" obraFilter>
+      {/* ESCOPO: este módulo é o financeiro DA OBRA filtrada (medições e
+          despesas vinculadas). O caixa GERAL da empresa vive no Painel
+          Financeiro Global — link cruzado abaixo. */}
+      <div className="px-4 pt-3">
+        <Link to="/m/painel-global" className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/25 rounded-xl px-3 py-2 active:scale-[.99] transition">
+          <PieChart className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+          <span className="text-[11px] text-emerald-200/90 flex-1">Procurando o caixa geral da empresa? Abra o <b>Painel Financeiro Global</b>.</span>
+          <ChevronRight className="w-4 h-4 text-emerald-400" />
+        </Link>
+      </div>
+
       {/* Saldo Projetado Hero */}
-      <div className="px-4 pt-4">
+      <div className="px-4 pt-3">
         <div className="bg-gradient-to-br from-slate-900 to-slate-950 border border-slate-800 rounded-3xl p-5">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saldo projetado (30d)</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saldo projetado da obra (30d)</div>
           <div className={`text-3xl font-black mt-1 ${k.saldoProj >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
             {k.saldoProj >= 0 ? '+' : ''}{fmtMoney(k.saldoProj)}
           </div>

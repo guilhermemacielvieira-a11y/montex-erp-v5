@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import {
   Box, Truck, Package, Scissors, ClipboardList, Building2,
   Users, Calculator, FileText, BarChart3, Activity, PieChart,
-  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2,
+  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2, Landmark,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 
@@ -26,11 +26,16 @@ const MODULOS = [
     { to: '/m/equipes', icon: Users, label: 'Equipes', cor: 'purple' },
     { to: '/m/orcamentos', icon: Calculator, label: 'Orçamentos', cor: 'green' },
   ]},
-  { group: 'Financeiro', items: [
-    { to: '/m/despesas', icon: Receipt, label: 'Despesas', cor: 'red' },
-    { to: '/m/receitas', icon: TrendingUp, label: 'Receitas', cor: 'emerald' },
+  // Financeiro GERAL (empresa) ≠ financeiro de OBRA — módulos separados
+  { group: 'Financeiro · Empresa', items: [
+    { to: '/m/painel-global', icon: Landmark, label: 'Painel Global', cor: 'emerald' },
     { to: '/m/dre', icon: PieChart, label: 'DRE', cor: 'amber' },
-    { to: '/m/obras-gfo', icon: Wallet, label: 'GFO', cor: 'blue' },
+    { to: '/m/receitas', icon: TrendingUp, label: 'Receitas', cor: 'emerald' },
+    { to: '/m/despesas', icon: Receipt, label: 'Despesas', cor: 'red' },
+  ]},
+  { group: 'Financeiro · Obra', items: [
+    { to: '/m/financeiro', icon: Wallet, label: 'Financeiro da Obra', cor: 'blue' },
+    { to: '/m/obras-gfo', icon: Wallet, label: 'GFO (desktop)', cor: 'blue' },
   ]},
   { group: 'Analytics', items: [
     { to: '/m/dashboard', icon: BarChart3, label: 'Dashboard', cor: 'purple' },
