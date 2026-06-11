@@ -506,7 +506,12 @@ export default function PainelFinanceiroGlobal() {
         if (!ov) return m;
         return { ...m, ...ov, id: m.id, ovKey: m.ovKey, origem: 'externo', origemModificado: true };
       });
-    const todas = [...externasComOv, ...movsLocaisNorm];
+    // Juros de operacao financeira (id terminando em '-juros') e o CUSTO ja embutido
+    // na face das parcelas — nao e um evento de caixa separado. Excluir da consolidacao
+    // evita a dupla contagem (face ja inclui o juros). O custo segue visivel na secao
+    // "Operacoes Financeiras". Vale p/ cheque trocado, emprestimo, financiamento.
+    const ehJurosOperacao = (m) => m.operacaoFinanceiraId && typeof m.id === 'string' && m.id.endsWith('-juros');
+    const todas = [...externasComOv, ...movsLocaisNorm].filter(m => !ehJurosOperacao(m));
 
     // Sem filtro por obra: o painel sempre consolida TUDO. As despesas de obra
     // (GFO) já são excluídas na origem (despesasExternas filtra !obraId).
@@ -1517,7 +1522,9 @@ export default function PainelFinanceiroGlobal() {
         op.parcelas.forEach(p => {
           const d = parseLocalDate(p.data);
           if (d >= mes && d <= mesFim && p.status !== 'pago') {
-            capital += p.valor;
+            // Capital = porcao PRINCIPAL da parcela (a face ja embute o juros).
+            // O juros entra no loop abaixo; capital + juros = parcela (sem dupla contagem).
+            capital += op.face > 0 ? p.valor * ((op.face - op.juros) / op.face) : p.valor;
           }
         });
       });
