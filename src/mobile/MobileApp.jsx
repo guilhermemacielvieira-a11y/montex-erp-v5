@@ -125,8 +125,8 @@ function MobileRoutes() {
       <Route path="expedicao-desktop" element={<Protected perm="expedicao.view"><DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap></Protected>} />
       <Route path="estoque" element={<Protected perm="estoque.view"><EstoqueMobile /></Protected>} />
       <Route path="medicao" element={<Protected perm="medicao.view"><MedicaoMobile /></Protected>} />
-      {/* Caixa de aprovações unificada — libera p/ quem aprova medições OU orçamentos */}
-      <Route path="aprovacoes" element={<Protected perm={['medicao.aprovar', 'orcamentos.aprovar']}><AprovacoesMobile /></Protected>} />
+      {/* Caixa de aprovações unificada — libera p/ quem aprova medições, orçamentos OU compras */}
+      <Route path="aprovacoes" element={<Protected perm={['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar']}><AprovacoesMobile /></Protected>} />
       <Route path="evidencias" element={<Protected perm="producao.view"><GaleriaMobile /></Protected>} />
       <Route path="estoque-desktop" element={<Protected perm="estoque.view"><DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap></Protected>} />
       <Route path="despesas" element={<Protected perm="financeiro.view"><DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap></Protected>} />
