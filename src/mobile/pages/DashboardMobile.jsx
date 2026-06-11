@@ -124,7 +124,11 @@ export default function DashboardMobile() {
 
   // Datasets filtrados pela obra global
   const pecasF = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
-  const despesas = useMemo(() => lancamentosDespesas.filter(matchObra), [lancamentosDespesas, matchObra]);
+  // Blocos de OBRA: só despesas VINCULADAS a obra. Fábrica/adm (sem obra) vivem
+  // no Painel Global — sem este filtro, no modo "Todas" a margem de obra somava
+  // o custo fixo da empresa inteira e ficava milhões negativa (irreal).
+  const temObra = (x) => (x?.obraId ?? x?.obra_id ?? x?.obra?.id) != null;
+  const despesas = useMemo(() => lancamentosDespesas.filter(temObra).filter(matchObra), [lancamentosDespesas, matchObra]);
   const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
   const obrasEscopo = useMemo(
     () => (isTodas ? obras : obras.filter(o => o.id === obraSelecionada?.id)),

@@ -112,7 +112,19 @@ export default function PainelGlobalMobile() {
 
   const obrasComMov = useMemo(() => {
     const ids = [...new Set(todasMovs.map(m => m.obraId).filter(Boolean))];
-    return ids.map(id => ({ id, nome: obrasMap[id] || id })).sort((a, b) => a.nome.localeCompare(b.nome));
+    const arr = ids.map(id => ({ id, nome: obrasMap[id] || id })).sort((a, b) => a.nome.localeCompare(b.nome));
+    // Labels ÚNICOS nos chips: obras com prefixo igual (ex.: 4× "TEMEC - QUADRO
+    // MAS…") truncavam idênticas. Quando o prefixo colide, mantém o começo e
+    // acrescenta o FINAL do nome, que é a parte distintiva.
+    const prefixo = (s) => String(s).slice(0, 18);
+    const colisoes = {};
+    arr.forEach(o => { const p = prefixo(o.nome); colisoes[p] = (colisoes[p] || 0) + 1; });
+    return arr.map(o => {
+      const nome = String(o.nome);
+      if (nome.length <= 18) return { ...o, label: nome };
+      if (colisoes[prefixo(nome)] > 1) return { ...o, label: nome.slice(0, 10).trimEnd() + '…' + nome.slice(-8).trimStart() };
+      return { ...o, label: nome.slice(0, 17).trimEnd() + '…' };
+    });
   }, [todasMovs, obrasMap]);
 
   const ultimos = useMemo(() => movsFiltradas.slice(0, 8), [movsFiltradas]);
@@ -148,7 +160,7 @@ export default function PainelGlobalMobile() {
         {obrasComMov.map(o => (
           <button key={o.id} onClick={() => setOrigem(o.id)}
             className={`px-3 py-1.5 rounded-full text-[11px] font-bold whitespace-nowrap border transition ${origem === o.id ? 'bg-blue-500/20 border-blue-500/60 text-blue-300' : 'bg-slate-900 border-slate-700 text-slate-300'}`}>
-            {o.nome.slice(0, 18)}
+            {o.label}
           </button>
         ))}
       </div>

@@ -17,8 +17,11 @@ export default function FinanceiroMobile() {
   // Sem este alias, a página vinha 100% zerada.
   const { lancamentosDespesas = [], medicoes = [] } = erp;
   const { matchObra } = useObraFiltro();
-  // Aplica o filtro global por obra (quando "Todas", matchObra deixa tudo passar)
-  const despesas = useMemo(() => lancamentosDespesas.filter(matchObra), [lancamentosDespesas, matchObra]);
+  // Aplica o filtro global por obra (quando "Todas", matchObra deixa tudo passar).
+  // Página é "Financeiro da OBRA": despesas sem obra (fábrica/adm) ficam fora —
+  // elas pertencem ao Painel Financeiro Global.
+  const temObra = (x) => (x?.obraId ?? x?.obra_id ?? x?.obra?.id) != null;
+  const despesas = useMemo(() => lancamentosDespesas.filter(temObra).filter(matchObra), [lancamentosDespesas, matchObra]);
   const receitas = useMemo(() => medicoes.filter(matchObra), [medicoes, matchObra]);
 
   // Atraso por DATA de vencimento (não só status==='atrasado', que muitos lançamentos não têm).
