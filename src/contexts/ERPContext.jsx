@@ -738,8 +738,11 @@ export function ERPProvider({ children }) {
 
     // Determinar quais peças foram totalmente enviadas vs parcialmente enviadas
     const detalhes = expedicao.pecas_detalhes || [];
+    // Number() obrigatório: strings comparam lexicograficamente ('5' < '10' = false)
     const pecasParciais = new Set(
-      detalhes.filter(d => d.qtd_enviada < d.qtd_total).map(d => String(d.id))
+      detalhes
+        .filter(d => Number(d.qtd_enviada) < Number(d.qtd_total))
+        .map(d => String(d.id))
     );
 
     // Só muda etapa para ENVIADO se a peça foi TOTALMENTE enviada
@@ -777,7 +780,7 @@ export function ERPProvider({ children }) {
             }
             const agora = new Date().toISOString();
             const pesoUnit = (orig.peso_total || 0) / qtdOrig;
-            const splitId = `${d.id}__split_enviado_${Date.now()}`;
+            const splitId = `${d.id}__split_enviado_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
             await pecasApi.create({
               ...orig,
               id: splitId,
@@ -788,14 +791,23 @@ export function ERPProvider({ children }) {
               created_at: agora,
               updated_at: agora,
             });
-            await pecasApi.update(d.id, {
-              quantidade: restante,
-              peso_total: pesoUnit * restante,
-              updated_at: agora,
-            });
+            try {
+              await pecasApi.update(d.id, {
+                quantidade: restante,
+                peso_total: pesoUnit * restante,
+                updated_at: agora,
+              });
+            } catch (updErr) {
+              // ROLLBACK: sem reduzir a original, o split duplicaria unidades
+              // (5 'enviado' + 10 'expedido'). Remove o split e mantém o
+              // comportamento antigo (peça inteira na fila) para esta peça.
+              await pecasApi.delete(splitId).catch(() => {});
+              throw updErr;
+            }
             idRemap.set(String(d.id), splitId);
           } catch (splitErr) {
             console.error(`⚠️ Erro no split parcial da peça ${d.id}:`, splitErr.message);
+            toast.error(`Envio parcial da peça ${d.id} não registrado — ela permanece inteira na Fila de Embarque`);
           }
         }
 
