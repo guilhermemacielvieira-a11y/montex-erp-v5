@@ -31,6 +31,7 @@ import NotificacoesMobile from './pages/NotificacoesMobile';
 import GaleriaMobile from './pages/GaleriaMobile';
 import DashboardMobile from './pages/DashboardMobile';
 import AprovacoesMobile from './pages/AprovacoesMobile';
+import DiarioObraMobile from './pages/DiarioObraMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -128,6 +129,8 @@ function MobileRoutes() {
       {/* Caixa de aprovações unificada — libera p/ quem aprova medições, orçamentos OU compras */}
       <Route path="aprovacoes" element={<Protected perm={['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar']}><AprovacoesMobile /></Protected>} />
       <Route path="evidencias" element={<Protected perm="producao.view"><GaleriaMobile /></Protected>} />
+      {/* Diário de obra (montagem em campo, com fotos) — operador pode lançar */}
+      <Route path="diario-obra" element={<Protected perm="producao.lancar_avanco"><DiarioObraMobile /></Protected>} />
       <Route path="estoque-desktop" element={<Protected perm="estoque.view"><DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap></Protected>} />
       <Route path="despesas" element={<Protected perm="financeiro.view"><DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap></Protected>} />
       <Route path="receitas" element={<Protected perm="financeiro.view"><DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap></Protected>} />
