@@ -46,6 +46,26 @@ DO $$ BEGIN
     FOR DELETE TO anon USING (true);
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- O app autenticado consulta com role `authenticated` (não anon) —
+-- sem estas policies a API retorna 200 com lista vazia (RLS filtra).
+-- Aplicado em prod em 2026-06-11 junto com o restante da v16.
+DO $$ BEGIN
+  CREATE POLICY "fornecedores_auth_select" ON fornecedores
+    FOR SELECT TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "fornecedores_auth_insert" ON fornecedores
+    FOR INSERT TO authenticated WITH CHECK (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "fornecedores_auth_update" ON fornecedores
+    FOR UPDATE TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "fornecedores_auth_delete" ON fornecedores
+    FOR DELETE TO authenticated USING (true);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 -- Seed: fornecedor real que estava hardcoded no front (ComprasPage)
 INSERT INTO fornecedores (id, nome, cnpj, telefone, email, contato, cidade, estado, categorias, rating)
 VALUES (
