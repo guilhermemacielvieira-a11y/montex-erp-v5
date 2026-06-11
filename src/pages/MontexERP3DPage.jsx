@@ -876,20 +876,29 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     // montadas e 5 não, NÃO podemos pintar todas verdes).
     const marcaIndex = new Map();
     const marcaIndexAll = new Map(); // marca -> [pecas]
+    // Tolerância a grafia: indexa também a marca NORMALIZADA (só A-Z0-9).
+    // Cobre divergências reais banco×IFC: 'TS-59A', 'TS 59A', 'ts59a' ↔ 'TS59A'.
+    const normMarca = (s) => s.replace(/[^A-Z0-9]/g, '');
     for (const peca of erpPecas) {
       const marca = (peca.marca || '').toUpperCase().trim();
       if (marca && marca.length >= 2) {
-        if (!marcaIndex.has(marca)) marcaIndex.set(marca, peca);
-        if (!marcaIndexAll.has(marca)) marcaIndexAll.set(marca, []);
-        marcaIndexAll.get(marca).push(peca);
-        const marcaSemEspaco = marca.replace(/\s+/g, '');
-        if (marcaSemEspaco !== marca) {
-          if (!marcaIndex.has(marcaSemEspaco)) marcaIndex.set(marcaSemEspaco, peca);
-          if (!marcaIndexAll.has(marcaSemEspaco)) marcaIndexAll.set(marcaSemEspaco, []);
-          marcaIndexAll.get(marcaSemEspaco).push(peca);
+        const chaves = new Set([marca, marca.replace(/\s+/g, ''), normMarca(marca)]);
+        for (const k of chaves) {
+          if (k.length < 2) continue;
+          if (!marcaIndex.has(k)) marcaIndex.set(k, peca);
+          if (!marcaIndexAll.has(k)) marcaIndexAll.set(k, []);
+          marcaIndexAll.get(k).push(peca);
         }
       }
     }
+    // Lookup tolerante: tenta exata, depois normalizada
+    const buscaMarca = (idx, m) => idx.get(m) ?? (m ? idx.get(normMarca(m)) : undefined);
+    const chaveMarca = (idx, m) => {
+      if (!m) return null;
+      if (idx.has(m)) return m;
+      const n = normMarca(m);
+      return idx.has(n) ? n : null;
+    };
 
     // Pre-index ERP peças por perfil (upper)
     const perfilIndex = new Map();
@@ -933,7 +942,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     for (const [tipoIfc, posicoesSet] of positionsByTipoIfc) {
       const tipoErp = IFC_TIPO_NAME_TO_ERP[tipoIfc];
       if (!tipoErp) continue;
-      const pecasDoTipo = (erpPecas.filter(p => p.tipo === tipoErp))
+      // Tolerância espaço↔hífen na comparação de tipo (mesma do tipoIndex)
+      const pecasDoTipo = (erpPecas.filter(p => {
+          const t = (p.tipo || '').toUpperCase().trim();
+          return t === tipoErp || t.replace(/\s+/g, '-') === tipoErp || t.replace(/-+/g, ' ') === tipoErp;
+        }))
         .sort((a, b) => (a.marca || '').localeCompare(b.marca || ''));
       if (pecasDoTipo.length === 0) continue;
       const posicoesOrdenadas = Array.from(posicoesSet).sort();
@@ -956,12 +969,17 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     }
 
     // Pre-index ERP peças por tipo (upper) - NOVO: para match por tipo de peça
+    // Tolerância espaço↔hífen: 'VIGA MESTRA' no banco casa lookup 'VIGA-MESTRA'
+    // (e vice-versa) — divergência real que zerava o fallback do tipo inteiro.
     const tipoIndex = new Map();
     for (const peca of erpPecas) {
       const tipo = (peca.tipo || '').toUpperCase().trim();
       if (tipo) {
-        if (!tipoIndex.has(tipo)) tipoIndex.set(tipo, []);
-        tipoIndex.get(tipo).push(peca);
+        const variantes = new Set([tipo, tipo.replace(/\s+/g, '-'), tipo.replace(/-+/g, ' ')]);
+        for (const t of variantes) {
+          if (!tipoIndex.has(t)) tipoIndex.set(t, []);
+          tipoIndex.get(t).push(peca);
+        }
       }
     }
 
@@ -1041,8 +1059,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       //   - Name = 'VIGA-MESTRA [VM50A]'
       // Filhos do Assembly herdam essa marca via propagacao IFCRELAGGREGATES (etapa 4 do parser).
       const elMarcaFromIfc = (el.marcaFromIfc || '').toUpperCase().trim();
-      if (elMarcaFromIfc && marcaIndex.has(elMarcaFromIfc)) {
-        bestMatch = marcaIndex.get(elMarcaFromIfc);
+      if (elMarcaFromIfc) {
+        bestMatch = buscaMarca(marcaIndex, elMarcaFromIfc) || null;
       }
 
       // Strategy 0a (MAIS PRECISA): marca REAL via PropertySet do Tekla.
@@ -1051,11 +1069,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const rawMark = (elProps['Assembly/Cast unit Mark'] || elProps['Assembly mark'] || elProps['Part mark'] || '').toUpperCase().trim();
       const elMarcaPset = rawMark.includes('(?)') ? '' : rawMark.replace(/\s+/g, '');
       if (!bestMatch && elMarcaPset) {
-        if (marcaIndex.has(elMarcaPset)) {
-          bestMatch = marcaIndex.get(elMarcaPset);
-        } else if (marcaIndex.has(rawMark)) {
-          bestMatch = marcaIndex.get(rawMark);
-        }
+        bestMatch = buscaMarca(marcaIndex, elMarcaPset) || buscaMarca(marcaIndex, rawMark) || null;
       }
 
       // Strategy 0 (PRIORITARIA): Match por Position code do PropertySet (Tekla)
@@ -1227,10 +1241,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const marcaReal = (el.marcaFromIfc || '').toUpperCase().trim();
       if (!elemsByAsmReal.has(el.assemblyId)) elemsByAsmReal.set(el.assemblyId, []);
       elemsByAsmReal.get(el.assemblyId).push(el.expressID);
-      if (marcaReal && marcaReal.length >= 2 && marcaIndexAll.has(marcaReal) && !marcaByAsmReal.has(el.assemblyId)) {
-        marcaByAsmReal.set(el.assemblyId, marcaReal);
-        if (!asmByMarcaReal.has(marcaReal)) asmByMarcaReal.set(marcaReal, []);
-        asmByMarcaReal.get(marcaReal).push(el.assemblyId);
+      // chaveMarca: tolera grafia divergente banco×IFC ('TS 59A' ↔ 'TS59A')
+      const marcaKey = (marcaReal && marcaReal.length >= 2) ? chaveMarca(marcaIndexAll, marcaReal) : null;
+      if (marcaKey && !marcaByAsmReal.has(el.assemblyId)) {
+        marcaByAsmReal.set(el.assemblyId, marcaKey);
+        if (!asmByMarcaReal.has(marcaKey)) asmByMarcaReal.set(marcaKey, []);
+        asmByMarcaReal.get(marcaKey).push(el.assemblyId);
       }
     }
     const asmRedistribuidos = new Set(); // assemblies já tratados pela redistribuição por marca
@@ -1363,9 +1379,10 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     for (const el of ifcElements) {
       if (el.assemblyId != null) continue; // já tratado pelas camadas de assembly
       const marca = (el.marcaFromIfc || '').toUpperCase().trim();
-      if (!marca || marca.length < 2 || !marcaIndexAll.has(marca)) continue;
-      if (!elemsByMarcaSemAsm.has(marca)) elemsByMarcaSemAsm.set(marca, []);
-      elemsByMarcaSemAsm.get(marca).push(el.expressID);
+      const marcaKey = (marca && marca.length >= 2) ? chaveMarca(marcaIndexAll, marca) : null;
+      if (!marcaKey) continue;
+      if (!elemsByMarcaSemAsm.has(marcaKey)) elemsByMarcaSemAsm.set(marcaKey, []);
+      elemsByMarcaSemAsm.get(marcaKey).push(el.expressID);
     }
     for (const [marca, eids] of elemsByMarcaSemAsm) {
       const pecas = marcaIndexAll.get(marca);
@@ -1455,7 +1472,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     const marcaIndex = new Map();
     for (const peca of erpPecas) {
       const marca = (peca.marca || '').toUpperCase().trim();
-      if (marca && marca.length >= 2) marcaIndex.set(marca, peca);
+      if (marca && marca.length >= 2) {
+        if (!marcaIndex.has(marca)) marcaIndex.set(marca, peca);
+        // Tolerância de grafia (igual ao statusMap): chave normalizada A-Z0-9
+        const n = marca.replace(/[^A-Z0-9]/g, '');
+        if (n.length >= 2 && !marcaIndex.has(n)) marcaIndex.set(n, peca);
+      }
     }
 
     // Construir mesmo position-to-peca mapping
@@ -1499,8 +1521,11 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const elTipoAssembly = (el.props?.['Assembly/Cast unit name'] || elName).toUpperCase().trim();
       // Strategy -1: marca real do IFC (Tekla 100% com marcas)
       const elMarcaIfc = (el.marcaFromIfc || '').toUpperCase().trim();
-      if (elMarcaIfc && marcaIndex.has(elMarcaIfc)) {
-        map.set(el.expressID, marcaIndex.get(elMarcaIfc));
+      const hitMarcaIfc = elMarcaIfc
+        ? (marcaIndex.get(elMarcaIfc) ?? marcaIndex.get(elMarcaIfc.replace(/[^A-Z0-9]/g, '')))
+        : undefined;
+      if (hitMarcaIfc) {
+        map.set(el.expressID, hitMarcaIfc);
         continue;
       }
       // Strategy 0: position code (mais confiavel quando ha marcas mascaradas)
@@ -1589,6 +1614,76 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     result.marcasMontadasDistintas = result.byStatus.MONTADO.marcas;
     return result;
   }, [erpPecas, concluidasMontagem]);
+
+  // ==============================================
+  // DIAGNÓSTICO DE MATCHING (IFC × ERP × Montagem)
+  // ==============================================
+  // Cruza marcas reais do IFC com o banco e com o colorido aplicado.
+  // Objetivo: tornar visível ONDE os dados divergem quando "o 3D parece errado":
+  // marca só de um lado, quantidade ERP ≠ conjuntos no IFC, montada sem verde.
+  const diagnostico = useMemo(() => {
+    if (ifcElements.length === 0 || erpPecas.length === 0) return null;
+    const norm = (s) => (s || '').toUpperCase().trim().replace(/[^A-Z0-9]/g, '');
+    // IFC: conjuntos (assemblies) e elementos por marca real
+    const asmPorMarca = new Map();   // marcaNorm -> Set(assemblyId)
+    const elemsPorMarca = new Map(); // marcaNorm -> [expressID]
+    const displayMarca = new Map();  // marcaNorm -> grafia original IFC
+    for (const el of ifcElements) {
+      const m = norm(el.marcaFromIfc);
+      if (!m || m.length < 2) continue;
+      if (!displayMarca.has(m)) displayMarca.set(m, (el.marcaFromIfc || '').toUpperCase().trim());
+      if (!elemsPorMarca.has(m)) elemsPorMarca.set(m, []);
+      elemsPorMarca.get(m).push(el.expressID);
+      if (el.assemblyId != null) {
+        if (!asmPorMarca.has(m)) asmPorMarca.set(m, new Set());
+        asmPorMarca.get(m).add(el.assemblyId);
+      }
+    }
+    // ERP: unidades e montadas por marca
+    const erpPorMarca = new Map(); // marcaNorm -> { qtd, montadas, display }
+    for (const p of erpPecas) {
+      const m = norm(p.marca);
+      if (!m || m.length < 2) continue;
+      const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+      const mont = getMontadasCount(concluidasMontagem?.[p.id], qtd);
+      if (!erpPorMarca.has(m)) erpPorMarca.set(m, { qtd: 0, montadas: 0, display: (p.marca || '').toUpperCase().trim() });
+      const e = erpPorMarca.get(m);
+      e.qtd += qtd;
+      e.montadas += mont;
+    }
+    const casadas = [];
+    const soIfc = [];
+    const soErp = [];
+    for (const m of elemsPorMarca.keys()) (erpPorMarca.has(m) ? casadas : soIfc).push(m);
+    for (const m of erpPorMarca.keys()) if (!elemsPorMarca.has(m)) soErp.push(m);
+    const qtdDiverge = [];
+    const montadaSemVerde = [];
+    for (const m of casadas) {
+      const nAsm = asmPorMarca.get(m)?.size || 0;
+      const e = erpPorMarca.get(m);
+      if (nAsm > 0 && e.qtd !== nAsm) qtdDiverge.push({ marca: displayMarca.get(m), erp: e.qtd, ifc: nAsm });
+      if (e.montadas > 0) {
+        const verdes = (elemsPorMarca.get(m) || []).filter(eid => statusMap.get(eid) === 'MONTADO').length;
+        if (verdes === 0) montadaSemVerde.push({ marca: displayMarca.get(m), montadas: e.montadas });
+      }
+    }
+    qtdDiverge.sort((a, b) => Math.abs(b.erp - b.ifc) - Math.abs(a.erp - a.ifc));
+    const report = {
+      temMarcasReais: elemsPorMarca.size > 0,
+      marcasIfc: elemsPorMarca.size,
+      marcasErp: erpPorMarca.size,
+      casadas: casadas.length,
+      soIfc: soIfc.map(m => displayMarca.get(m)).sort(),
+      soErp: soErp.map(m => erpPorMarca.get(m).display).sort(),
+      qtdDiverge,
+      montadaSemVerde,
+    };
+    // Log completo para depuração remota (console do navegador)
+    console.log('[3D][Diagnóstico IFC×ERP]', report);
+    if (qtdDiverge.length) console.table(qtdDiverge.slice(0, 50));
+    if (montadaSemVerde.length) console.table(montadaSemVerde.slice(0, 50));
+    return report;
+  }, [ifcElements, erpPecas, concluidasMontagem, statusMap]);
 
   // ==============================================
   // INIT THREE.JS SCENE
@@ -1999,6 +2094,55 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   </div>
                 )}
               </div>
+
+              {/* ===== DIAGNÓSTICO IFC × ERP (visível quando há divergência) ===== */}
+              {modelLoaded && diagnostico && !diagnostico.temMarcasReais && (
+                <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-3 text-[10px]">
+                  <p className="text-red-300 font-bold mb-1">🩺 IFC SEM marcas reais</p>
+                  <p className="text-red-200/80 leading-relaxed">
+                    O modelo carregado não traz marcas (C1A, VM50A...). Importe o arquivo
+                    novo <strong>MARCAS-100</strong> pelo botão Importar IFC — sem ele o
+                    colorido por peça é aproximado.
+                  </p>
+                </div>
+              )}
+              {modelLoaded && diagnostico && diagnostico.temMarcasReais && (
+                <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-3 text-[10px] space-y-1.5">
+                  <p className="text-cyan-300 font-bold flex items-center justify-between">
+                    <span>🩺 Diagnóstico IFC × ERP</span>
+                    <span className="text-emerald-400">{diagnostico.casadas}/{diagnostico.marcasIfc} marcas casadas</span>
+                  </p>
+                  {diagnostico.soErp.length > 0 && (
+                    <p className="text-amber-300/90 leading-relaxed">
+                      <strong>{diagnostico.soErp.length} marcas só no ERP</strong> (não existem no IFC):{' '}
+                      {diagnostico.soErp.slice(0, 8).join(', ')}{diagnostico.soErp.length > 8 ? '…' : ''}
+                    </p>
+                  )}
+                  {diagnostico.soIfc.length > 0 && (
+                    <p className="text-slate-400 leading-relaxed">
+                      {diagnostico.soIfc.length} marcas só no IFC (sem cadastro):{' '}
+                      {diagnostico.soIfc.slice(0, 8).join(', ')}{diagnostico.soIfc.length > 8 ? '…' : ''}
+                    </p>
+                  )}
+                  {diagnostico.qtdDiverge.length > 0 && (
+                    <p className="text-orange-300/90 leading-relaxed">
+                      <strong>{diagnostico.qtdDiverge.length} marcas com quantidade divergente</strong> (ERP×IFC):{' '}
+                      {diagnostico.qtdDiverge.slice(0, 6).map(d => `${d.marca} ${d.erp}≠${d.ifc}`).join(', ')}
+                      {diagnostico.qtdDiverge.length > 6 ? '…' : ''}
+                    </p>
+                  )}
+                  {diagnostico.montadaSemVerde.length > 0 && (
+                    <p className="text-red-300/90 leading-relaxed">
+                      <strong>{diagnostico.montadaSemVerde.length} marcas montadas SEM verde no 3D</strong>:{' '}
+                      {diagnostico.montadaSemVerde.slice(0, 6).map(d => `${d.marca} (${d.montadas})`).join(', ')}
+                      {diagnostico.montadaSemVerde.length > 6 ? '…' : ''}
+                    </p>
+                  )}
+                  {diagnostico.soErp.length === 0 && diagnostico.qtdDiverge.length === 0 && diagnostico.montadaSemVerde.length === 0 && (
+                    <p className="text-emerald-300/90">✓ Marcas, quantidades e montagens consistentes com o ERP.</p>
+                  )}
+                </div>
+              )}
 
               {/* ===== BARRA DE FILTROS ATIVOS (header agregado) ===== */}
               {(statusFilter.size > 0 || typeFilter.size > 0 || searchText) && (
