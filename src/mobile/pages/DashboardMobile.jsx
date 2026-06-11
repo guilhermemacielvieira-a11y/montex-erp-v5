@@ -219,16 +219,28 @@ export default function DashboardMobile() {
       const recebido = rec.filter(isRecebida).reduce((s, r) => s + valorMedicao(r), 0);
       const gasto = des.reduce((s, d) => s + (Number(d.valor) || 0), 0);
       const contrato = contratoValor(o);
+      // % faturado (medido/contrato em R$) vs % avanço físico (montado/contrato em kg):
+      // físico >> faturado = trabalho executado sem medição emitida (dinheiro parado).
+      const pesoContr = contratoPesoKg(o);
+      const pesoMont = pecas.reduce((s, p) => {
+        if ((p.obraId ?? p.obra_id ?? p.obra?.id) !== o.id) return s;
+        const montada = !!concluidas[String(p.id)] || String(p.etapa || '').toLowerCase() === 'montado';
+        return montada ? s + pesoDe(p) : s;
+      }, 0);
+      const pctFat = contrato ? Math.min(100, (medido / contrato) * 100) : null;
+      const pctFis = pesoContr ? Math.min(100, (pesoMont / pesoContr) * 100) : null;
       return {
         id: o.id, nome: o.nome || o.codigo || o.id,
         contrato, medido, recebido, gasto,
         margem: medido - gasto,
         backlog: Math.max(0, contrato - medido),
         semContrato: !contrato,
+        pctFat, pctFis,
+        gapFis: (pctFat != null && pctFis != null) ? pctFis - pctFat : null,
       };
     }).filter(o => o.contrato || o.medido || o.gasto)
       .sort((a, b) => b.margem - a.margem);
-  }, [isTodas, obras, medicoes, lancamentosDespesas]);
+  }, [isTodas, obras, medicoes, lancamentosDespesas, pecas, concluidas]);
 
   // ── Charts data ──
   const funilData = useMemo(
@@ -441,11 +453,32 @@ export default function DashboardMobile() {
                   <MiniStat label="Gasto" value={fmtMoneyShort(o.gasto)} />
                   <MiniStat label="Backlog" value={o.contrato ? fmtMoneyShort(o.backlog) : '—'} />
                 </div>
+                {/* % faturado (R$) vs % avanço físico (kg montado) */}
+                {o.pctFat != null && o.pctFis != null && (
+                  <div className="mt-2">
+                    <div className="flex items-center justify-between text-[9px] text-slate-400 font-semibold mb-1">
+                      <span>Faturado {o.pctFat.toFixed(0)}%</span>
+                      {o.gapFis > 10 && (
+                        <span className="text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded px-1.5 py-px font-bold">
+                          {o.gapFis.toFixed(0)}pp executado sem faturar
+                        </span>
+                      )}
+                      <span>Físico {o.pctFis.toFixed(0)}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden">
+                      <div className="h-full bg-emerald-500" style={{ width: `${o.pctFat}%` }} />
+                    </div>
+                    <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden mt-0.5">
+                      <div className="h-full bg-blue-500" style={{ width: `${o.pctFis}%` }} />
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
           <div className="px-5 mt-1.5 text-[10px] text-slate-500">
             Margem = medições (recebidas + a receber) − despesas não-canceladas, por obra.
+            Barras: <span className="text-emerald-400 font-semibold">faturado (R$)</span> x <span className="text-blue-400 font-semibold">avanço físico (kg montado)</span> — físico acima de faturado = medição a emitir.
           </div>
         </>)}
 

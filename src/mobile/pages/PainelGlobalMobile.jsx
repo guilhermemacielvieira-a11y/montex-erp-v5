@@ -20,7 +20,7 @@ import {
   ComposedChart, Line, PieChart, Pie,
 } from 'recharts';
 import {
-  Landmark, TrendingUp, TrendingDown, AlertTriangle, ChevronRight, Wallet, PiggyBank,
+  Landmark, TrendingUp, TrendingDown, AlertTriangle, ChevronRight, Wallet, PiggyBank, Hourglass, Flame,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { usePainelGlobal, kpisDe, futuroDe, parseLocalDate, ehPago } from '../usePainelGlobal';
@@ -129,6 +129,41 @@ export default function PainelGlobalMobile() {
 
   const ultimos = useMemo(() => movsFiltradas.slice(0, 8), [movsFiltradas]);
 
+  // ===== Aging de recebíveis (pendentes da ORIGEM, sem corte de período) =====
+  // Quanto mais velho o título vencido, menor a chance de receber sem ação.
+  const aging = useMemo(() => {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const pend = baseOrigem.filter(m => m.tipo === 'receita' && !ehPago(m));
+    const b = {
+      aVencer: { v: 0, n: 0 }, d30: { v: 0, n: 0 }, d60: { v: 0, n: 0 }, d60p: { v: 0, n: 0 },
+    };
+    for (const m of pend) {
+      const d = parseLocalDate(m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data);
+      const atraso = d ? Math.round((hoje - d) / 86400000) : 0;
+      const slot = (!d || atraso <= 0) ? b.aVencer : atraso <= 30 ? b.d30 : atraso <= 60 ? b.d60 : b.d60p;
+      slot.v += m.valor || 0; slot.n += 1;
+    }
+    return { ...b, total: pend.reduce((s, m) => s + (m.valor || 0), 0), vencido: b.d30.v + b.d60.v + b.d60p.v };
+  }, [baseOrigem]);
+
+  // ===== Burn rate fixo mensal (EMPRESA: despesas sem obra, média 3 meses) =====
+  // É o custo de manter a porta aberta — a margem mínima que as obras
+  // precisam gerar por mês para a empresa empatar. Sempre da empresa
+  // inteira (independe do filtro de origem).
+  const burn = useMemo(() => {
+    const hoje = new Date();
+    const meses = [];
+    for (let i = 3; i >= 1; i--) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+      meses.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    const fixas = todasMovs.filter(m => m.tipo === 'despesa' && !m.obraId);
+    const porMes = meses.map(ym => fixas.filter(m => String(m.data || m.vencimento || '').slice(0, 7) === ym).reduce((s, m) => s + (m.valor || 0), 0));
+    const comDado = porMes.filter(v => v > 0);
+    const media = comDado.length ? comDado.reduce((a, b2) => a + b2, 0) / comDado.length : 0;
+    return { media, nMeses: comDado.length };
+  }, [todasMovs]);
+
   return (
     <MobileLayout title="Painel Global" back>
       <div className="px-4 pt-4 pb-1">
@@ -190,6 +225,48 @@ export default function PainelGlobalMobile() {
           <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
           <div className="text-[11px] text-red-200/90">
             <b>{futuro.semanasCriticas} semana(s)</b> com saldo acumulado abaixo do mínimo ({fmtMoney(saldoMinimo)}) nas próximas 13 semanas.
+          </div>
+        </div>
+      )}
+
+      {/* Aging de recebíveis */}
+      {aging.total > 0 && (<>
+        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold px-4 mt-5 mb-2 flex items-center gap-1.5">
+          <Hourglass className="w-3 h-3" /> Aging de recebíveis (pendentes)
+        </div>
+        <div className="px-4 grid grid-cols-4 gap-1.5">
+          {[
+            ['A vencer', aging.aVencer, 'text-emerald-300 border-emerald-500/25 bg-emerald-500/10'],
+            ['1–30d', aging.d30, 'text-amber-300 border-amber-500/25 bg-amber-500/10'],
+            ['31–60d', aging.d60, 'text-orange-300 border-orange-500/30 bg-orange-500/10'],
+            ['60+d', aging.d60p, 'text-red-300 border-red-500/30 bg-red-500/10'],
+          ].map(([l, b, cls]) => (
+            <div key={l} className={`border rounded-xl p-2 text-center ${cls}`}>
+              <div className="text-[9px] uppercase tracking-wide font-bold opacity-80">{l}</div>
+              <div className="text-[13px] font-black mt-0.5">{fmtShort(b.v)}</div>
+              <div className="text-[9px] opacity-70">{b.n} título(s)</div>
+            </div>
+          ))}
+        </div>
+        {aging.vencido > 0 && (
+          <div className="px-5 mt-1.5 text-[10px] text-slate-500">
+            {fmtMoney(aging.vencido)} já vencidos — priorizar cobrança dos mais antigos.
+          </div>
+        )}
+      </>)}
+
+      {/* Burn rate fixo mensal */}
+      {burn.media > 0 && (
+        <div className="mx-4 mt-3 flex items-center gap-3 bg-slate-900/80 border border-slate-800 rounded-2xl p-3.5">
+          <div className="w-10 h-10 rounded-xl bg-orange-500/15 flex items-center justify-center flex-shrink-0">
+            <Flame className="w-5 h-5 text-orange-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Burn fixo mensal (fábrica/adm)</div>
+            <div className="text-lg font-black text-orange-300 leading-tight">{fmtMoney(burn.media)}</div>
+            <div className="text-[10px] text-slate-400">
+              Média de {burn.nMeses} mês(es) sem obra — é a margem mínima que as obras precisam gerar/mês p/ empatar.
+            </div>
           </div>
         </div>
       )}
