@@ -6,8 +6,15 @@ import {
   Download, Upload, Key, FileUp, Tag, CreditCard, Layers,
   Edit3, ExternalLink
 } from 'lucide-react';
-import { notasFiscaisApi } from '../api/supabaseClient';
+import { notasFiscaisApi, pedidosMaterialApi } from '../api/supabaseClient';
 import { toast } from 'sonner';
+import {
+  CATEGORIAS_DISPONIVEIS,
+  classificarCategoria,
+  classificarCentroCusto,
+  extrairMateriaisDaNF,
+} from '../services/nfPipeline';
+import { reverseTransformRecord } from '../contexts/transforms';
 
 // ============================================
 // PARSER XML NFe (usa DOMParser nativo)
@@ -195,42 +202,9 @@ function classificarNaturezaPorCFOP(cfop) {
   return '';
 }
 
-const CATEGORIAS_DISPONIVEIS = [
-  'Matéria Prima', 'Mão de Obra', 'Energia/Utilidades',
-  'Manutenção', 'Transporte', 'Administrativo', 'Impostos', 'Outros',
-];
-
-function classificarCategoria(itens, naturezaOp) {
-  if (!itens || itens.length === 0) return 'Outros';
-  const descricoes = itens.map(i => (i.descricao || '').toLowerCase()).join(' ');
-  const ncms = itens.map(i => (i.ncm || '').substring(0, 4));
-  const cfops = itens.map(i => String(i.cfop || ''));
-  const natOpLower = (naturezaOp || '').toLowerCase();
-
-  if (descricoes.match(/frete|transporte|logistic|carreto|mudança/) ||
-      natOpLower.includes('frete') || natOpLower.includes('transporte') ||
-      cfops.some(c => ['1352', '2352', '1353', '2353'].includes(c))) return 'Transporte';
-
-  if (descricoes.match(/servico|serviço|mao de obra|mão de obra|consultoria|locação|aluguel/) ||
-      natOpLower.includes('serviço') || natOpLower.includes('servico') || natOpLower.includes('prestação') ||
-      cfops.some(c => ['1126', '2126', '1128', '2128', '1933', '2933'].includes(c))) return 'Mão de Obra';
-
-  if (descricoes.match(/energia|eletric|gas|agua|água|combustivel|combustível|diesel|gasolina|etanol/) ||
-      ncms.some(n => ['2710', '2711', '2716'].includes(n))) return 'Energia/Utilidades';
-
-  if (descricoes.match(/manutenção|manutencao|peça|peca|rolamento|correia|filtro|lubrific|oleo|óleo|ferramenta|epi/) ||
-      ncms.some(n => ['8482', '8483', '8484', '4016', '8481'].includes(n))) return 'Manutenção';
-
-  if (descricoes.match(/chapa|perfil|viga|tubo|aço|aco|ferro|metalon|barra|cantoneira|tinta|primer|epoxi|epóxi|solda|eletrodo|arame|abrasivo|disco|lixa/) ||
-      ncms.some(n => ['7208', '7209', '7210', '7214', '7216', '7306', '7307', '3208', '3209', '8311', '7217', '6804', '6805'].includes(n)) ||
-      cfops.some(c => ['1101', '2101', '1151', '2151'].includes(c))) return 'Matéria Prima';
-
-  if (descricoes.match(/escritorio|escritório|papel|impressora|toner|cartucho|inform|computador|notebook|monitor|telefone/) ||
-      ncms.some(n => ['4802', '8471', '8443', '8528'].includes(n))) return 'Administrativo';
-
-  if (cfops.some(c => c.startsWith('1') || c.startsWith('2'))) return 'Matéria Prima';
-  return 'Outros';
-}
+// Classificadores agora vivem no pipeline central (fonte única) e são
+// reexportados aqui por compatibilidade.
+export { CATEGORIAS_DISPONIVEIS, classificarCategoria, classificarCentroCusto };
 
 const CENTROS_CUSTO = [
   { nome: 'Produção', codigo: 'CC-001' },
@@ -240,21 +214,6 @@ const CENTROS_CUSTO = [
   { nome: 'RH', codigo: 'CC-005' },
 ];
 
-function classificarCentroCusto(categoria, naturezaOp) {
-  const natLower = (naturezaOp || '').toLowerCase();
-  if (natLower.includes('venda') || natLower.includes('comercial')) return 'Comercial';
-  if (natLower.includes('frete') || natLower.includes('transporte')) return 'Logística';
-  switch (categoria) {
-    case 'Matéria Prima': return 'Produção';
-    case 'Mão de Obra': return 'Produção';
-    case 'Manutenção': return 'Produção';
-    case 'Transporte': return 'Logística';
-    case 'Administrativo': return 'Administrativo';
-    case 'Energia/Utilidades': return 'Produção';
-    case 'Impostos': return 'Administrativo';
-    default: return 'Produção';
-  }
-}
 
 function formatCurrency(val) {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val || 0);
@@ -560,6 +519,27 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
       });
     } catch (err) {
       console.error('Erro ao salvar NF no Supabase:', err.message);
+    }
+
+    // PIPELINE AUTOMÁTICO: extrair itens da NF para o controle de materiais
+    // (aba Materiais de Compras / pedidos_material) — base abastecida na hora.
+    try {
+      const materiais = extrairMateriaisDaNF({
+        numero: nfData.numero,
+        fornecedor: nfData.fornecedor,
+        dataEmissao,
+        dataEntrada: new Date().toISOString().split('T')[0],
+        itens: itensParaImportar,
+        obraId: lancamento.obra_id || null,
+      });
+      for (const m of materiais) {
+        await pedidosMaterialApi.create(reverseTransformRecord(m));
+      }
+      if (materiais.length > 0) {
+        toast.success(`${materiais.length} materiais extraídos da NF para o controle de Suprimentos`);
+      }
+    } catch (err) {
+      console.error('NF importada, mas falhou extração de materiais:', err.message);
     }
 
     if (onImportar) {
