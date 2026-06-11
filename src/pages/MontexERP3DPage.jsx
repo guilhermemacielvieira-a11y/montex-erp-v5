@@ -2518,6 +2518,20 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                         <span className="text-slate-500 text-[10px]">Quantidade</span>
                         <span className="text-white text-[11px] font-bold">{selectedElement.erpPeca.quantidade || 1} un</span>
                       </div>
+                      {(() => {
+                        const _q = Math.max(1, parseInt(selectedElement.erpPeca.quantidade) || 1);
+                        const _m = getMontadasCount(concluidasMontagem?.[String(selectedElement.erpPeca.id)], _q);
+                        if (_m <= 0) return null;
+                        const _full = _m >= _q;
+                        return (
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-500 text-[10px]">Montadas</span>
+                            <span className="text-[11px] font-bold tabular-nums" style={{ color: _full ? '#22c55e' : '#2dd4bf' }}>
+                              {_m}/{_q}{_full ? '' : ' \u00b7 parcial'}
+                            </span>
+                          </div>
+                        );
+                      })()}
                       <div className="flex justify-between gap-2">
                         <span className="text-slate-500 text-[10px]">Peso total</span>
                         <span className="text-white text-[11px] tabular-nums">{(selectedElement.erpPeca.peso || 0).toFixed(2)} kg</span>
