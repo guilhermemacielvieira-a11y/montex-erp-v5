@@ -3,10 +3,10 @@
 // ============================================================
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
-import { Bell, RefreshCw, Info as InfoIcon, CheckCircle2, CloudOff, ChevronRight } from 'lucide-react';
+import { Bell, RefreshCw, Info as InfoIcon, CheckCircle2, CloudOff, ChevronRight, AlertTriangle, RotateCcw, Trash2 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { isPushAvailable, getPushStatus, enablePush } from '../ui/push';
-import { queueSize, QUEUE_EVENT } from '../ui/offlineQueue';
+import { queueSize, QUEUE_EVENT, getDead, retryDead, discardDead, MAX_ATTEMPTS } from '../ui/offlineQueue';
 import { getLastRefresh, formatRelative } from '../ui/lastRefresh';
 import { getSyncLog, SYNCLOG_EVENT } from '../ui/syncLog';
 import { useAuth } from '@/lib/AuthContext';
@@ -16,10 +16,11 @@ export default function ConfiguracoesMobile() {
   const [pushStatus, setPushStatus] = useState(null);
   const [pendentes, setPendentes] = useState(() => queueSize());
   const [historico, setHistorico] = useState(() => getSyncLog());
+  const [mortas, setMortas] = useState(() => getDead());
 
   useEffect(() => {
     getPushStatus().then(setPushStatus);
-    const upd = () => { setPendentes(queueSize()); setHistorico(getSyncLog()); };
+    const upd = () => { setPendentes(queueSize()); setHistorico(getSyncLog()); setMortas(getDead()); };
     window.addEventListener(QUEUE_EVENT, upd);
     window.addEventListener('online', upd);
     window.addEventListener(SYNCLOG_EVENT, upd);
@@ -78,6 +79,38 @@ export default function ConfiguracoesMobile() {
             <div className="px-1 pt-1 text-[11px] text-slate-400">Dados atualizados {formatRelative(lastTs)}.</div>
           )}
         </Secao>
+
+        {/* Falhas de sincronização (dead-letter da fila offline) */}
+        {mortas.length > 0 && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider text-red-400 font-semibold mb-2">Falhas de sincronização</div>
+            <div className="bg-slate-900 border border-red-500/30 rounded-2xl divide-y divide-slate-800">
+              {mortas.map(op => (
+                <div key={op.id} className="px-3.5 py-3">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
+                    <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">{op.label}</span>
+                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{op.attempts || MAX_ATTEMPTS} tentativas</span>
+                  </div>
+                  {op.lastError && <div className="text-[11px] text-red-300/80 mt-1 ml-6 break-words">{op.lastError}</div>}
+                  <div className="flex gap-2 mt-2 ml-6">
+                    <button
+                      onClick={() => { retryDead(op.id); toast('Reenfileirada — sincronizando…', { icon: '🔁' }); }}
+                      className="flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
+                    ><RotateCcw className="w-3 h-3" /> Tentar de novo</button>
+                    <button
+                      onClick={() => { discardDead(op.id); toast('Ação descartada', { icon: '🗑️' }); }}
+                      className="flex items-center gap-1 text-[11px] font-bold text-slate-300 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
+                    ><Trash2 className="w-3 h-3" /> Descartar</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1.5 px-1">
+              Ações que falharam {MAX_ATTEMPTS}x online (ex.: registro alterado/removido). Confira o dado antes de tentar de novo.
+            </div>
+          </div>
+        )}
 
         {/* Atividade recente (histórico de sincronização) */}
         {historico.length > 0 && (
