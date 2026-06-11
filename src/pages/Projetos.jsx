@@ -9,6 +9,7 @@ import {
   IdentificacaoGargalosRiscos,
   GeracaoResumoStatus
 } from '../components/projetos/ProjetoIAGestao';
+import toast from 'react-hot-toast';
 import {
   Building2,
   Plus,
@@ -22,7 +23,9 @@ import {
   Edit,
   Trash2,
   FileText,
-  Brain
+  Brain,
+  Target,
+  AlertTriangle
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -70,9 +73,97 @@ const statusOptions = [
   { value: 'aprovado', label: 'Aprovado', color: 'bg-emerald-100 text-emerald-700' },
   { value: 'em_fabricacao', label: 'Em Fabricação', color: 'bg-purple-100 text-purple-700' },
   { value: 'em_montagem', label: 'Em Montagem', color: 'bg-orange-100 text-orange-700' },
+  { value: 'pausado', label: 'Pausado', color: 'bg-amber-100 text-amber-700' },
   { value: 'concluido', label: 'Concluído', color: 'bg-green-100 text-green-700' },
   { value: 'cancelado', label: 'Cancelado', color: 'bg-red-100 text-red-700' }
 ];
+
+// ============================================================
+// MAPEAMENTO PÁGINA ↔ TABELA `obras` (schema real do Supabase)
+// A tabela só tem: nome, codigo, cliente, contrato_valor_total,
+// contrato_peso_total, contrato_prazo_meses, data_inicio,
+// data_prevista_fim, status CHECK(ativo|concluido|pausado|cancelado),
+// endereco JSONB. Campos comerciais extras (tipo, área, localização,
+// observações e status detalhado) são persistidos no JSONB `endereco`
+// sob a chave `meta` — sem precisar de migration.
+// ============================================================
+const STATUS_COMERCIAL_TO_DB = {
+  prospeccao: 'ativo',
+  orcamento: 'ativo',
+  negociacao: 'ativo',
+  aprovado: 'ativo',
+  em_fabricacao: 'ativo',
+  em_montagem: 'ativo',
+  pausado: 'pausado',
+  concluido: 'concluido',
+  cancelado: 'cancelado',
+};
+
+const STATUS_DB_TO_COMERCIAL = {
+  ativo: 'em_fabricacao',
+  pausado: 'pausado',
+  concluido: 'concluido',
+  cancelado: 'cancelado',
+};
+
+// Converte linha da tabela `obras` para o formato exibido na página
+function obraToProjeto(row) {
+  const endereco = (row.endereco && typeof row.endereco === 'object') ? row.endereco : {};
+  const meta = (endereco.meta && typeof endereco.meta === 'object') ? endereco.meta : {};
+  return {
+    id: row.id,
+    codigo: row.codigo,
+    nome: row.nome,
+    cliente_nome: meta.cliente_nome || row.cliente || '',
+    tipo: meta.tipo || '',
+    area: meta.area ?? null,
+    peso_estimado: row.contrato_peso_total ?? meta.peso_estimado ?? null,
+    localizacao: meta.localizacao || [endereco.cidade, endereco.estado].filter(Boolean).join(', ') || '',
+    status: meta.status_comercial || STATUS_DB_TO_COMERCIAL[row.status] || 'em_fabricacao',
+    data_inicio: row.data_inicio || '',
+    data_fim_prevista: row.data_prevista_fim || '',
+    valor_contrato: row.contrato_valor_total ?? null,
+    observacoes: meta.observacoes || '',
+    _row: row,
+  };
+}
+
+// Converte formulário da página para colunas reais da tabela `obras`
+function projetoToObraRow(formData, existingRow) {
+  const enderecoAtual = (existingRow?.endereco && typeof existingRow.endereco === 'object') ? existingRow.endereco : {};
+  const metaAtual = (enderecoAtual.meta && typeof enderecoAtual.meta === 'object') ? enderecoAtual.meta : {};
+  return {
+    nome: formData.nome,
+    cliente: formData.cliente_nome || null,
+    contrato_valor_total: formData.valor_contrato ? parseFloat(formData.valor_contrato) : null,
+    contrato_peso_total: formData.peso_estimado ? parseFloat(formData.peso_estimado) : null,
+    data_inicio: formData.data_inicio || null,
+    data_prevista_fim: formData.data_fim_prevista || null,
+    status: STATUS_COMERCIAL_TO_DB[formData.status] || 'ativo',
+    endereco: {
+      ...enderecoAtual,
+      meta: {
+        ...metaAtual,
+        cliente_nome: formData.cliente_nome || '',
+        tipo: formData.tipo || '',
+        area: formData.area ? parseFloat(formData.area) : null,
+        localizacao: formData.localizacao || '',
+        observacoes: formData.observacoes || '',
+        status_comercial: formData.status || 'prospeccao',
+      },
+    },
+  };
+}
+
+// Gera código único para obra nova (coluna NOT NULL UNIQUE)
+function gerarCodigoObra(nome) {
+  const slug = (nome || 'PRJ')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(0, 6)
+    .toUpperCase() || 'PRJ';
+  return `${slug}-${Date.now().toString(36).toUpperCase()}`;
+}
 
 export default function Projetos() {
   const [showModal, setShowModal] = useState(false);
@@ -98,11 +189,22 @@ export default function Projetos() {
     observacoes: ''
   });
 
+  const [projetoParaExcluir, setProjetoParaExcluir] = useState(null);
+
   const queryClient = useQueryClient();
 
-  const { data: projetos = [], isLoading } = useQuery({
+  const { data: obrasRaw = [], isLoading } = useQuery({
     queryKey: ['projetos'],
     queryFn: () => base44.entities.Projeto.list('-created_date', 100)
+  });
+
+  // Linhas da tabela `obras` convertidas para o formato comercial da página
+  const projetos = React.useMemo(() => obrasRaw.map(obraToProjeto), [obrasRaw]);
+
+  // Clientes cadastrados — integração com o módulo Clientes
+  const { data: clientes = [] } = useQuery({
+    queryKey: ['clientes'],
+    queryFn: () => base44.entities.Cliente.list('-created_date', 100)
   });
 
   const { data: relatorios = [] } = useQuery({
@@ -124,7 +226,12 @@ export default function Projetos() {
     mutationFn: (data) => base44.entities.Projeto.create(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projetos'] });
+      toast.success('Projeto criado com sucesso!');
       closeModal();
+    },
+    onError: (e) => {
+      console.error('Erro ao criar projeto:', e);
+      toast.error('Erro ao criar projeto');
     }
   });
 
@@ -132,7 +239,12 @@ export default function Projetos() {
     mutationFn: ({ id, data }) => base44.entities.Projeto.update(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projetos'] });
+      toast.success('Projeto atualizado com sucesso!');
       closeModal();
+    },
+    onError: (e) => {
+      console.error('Erro ao atualizar projeto:', e);
+      toast.error('Erro ao atualizar projeto');
     }
   });
 
@@ -140,6 +252,12 @@ export default function Projetos() {
     mutationFn: (id) => base44.entities.Projeto.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projetos'] });
+      toast.success('Projeto excluído');
+      setProjetoParaExcluir(null);
+    },
+    onError: (e) => {
+      console.error('Erro ao excluir projeto:', e);
+      toast.error('Erro ao excluir projeto');
     }
   });
 
@@ -180,17 +298,19 @@ export default function Projetos() {
   };
 
   const handleSubmit = () => {
-    const data = {
-      ...formData,
-      area: formData.area ? parseFloat(formData.area) : null,
-      peso_estimado: formData.peso_estimado ? parseFloat(formData.peso_estimado) : null,
-      valor_contrato: formData.valor_contrato ? parseFloat(formData.valor_contrato) : null
-    };
+    // Mapear para as colunas reais da tabela `obras` — antes a página gravava
+    // colunas inexistentes (cliente_nome, tipo, area...) e o insert falhava
+    const row = projetoToObraRow(formData, editingProjeto?._row);
 
     if (editingProjeto) {
-      updateMutation.mutate({ id: editingProjeto.id, data });
+      updateMutation.mutate({ id: editingProjeto.id, data: row });
     } else {
-      createMutation.mutate(data);
+      // `obras` exige id (TEXT PK sem default) e codigo (NOT NULL UNIQUE)
+      createMutation.mutate({
+        id: `obra_${Date.now()}`,
+        codigo: gerarCodigoObra(formData.nome),
+        ...row,
+      });
     }
   };
 
@@ -377,6 +497,9 @@ export default function Projetos() {
                       <div className="flex-1 min-w-0">
                         <h3 className="font-semibold text-slate-900 truncate">{projeto.nome}</h3>
                         <p className="text-sm text-slate-500 truncate">{projeto.cliente_nome || 'Cliente não definido'}</p>
+                        {projeto.codigo && (
+                          <p className="text-xs text-slate-400 font-mono mt-0.5">{projeto.codigo}</p>
+                        )}
                       </div>
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -397,9 +520,9 @@ export default function Projetos() {
                             Gerar Documentação
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-red-600"
-                            onClick={() => deleteMutation.mutate(projeto.id)}
+                            onClick={() => setProjetoParaExcluir(projeto)}
                           >
                             <Trash2 className="h-4 w-4 mr-2" />
                             Excluir
@@ -420,13 +543,13 @@ export default function Projetos() {
                       {projeto.area && (
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <Building2 className="h-4 w-4 text-slate-400" />
-                          <span>{projeto.area.toLocaleString('pt-BR')} m²</span>
+                          <span>{Number(projeto.area).toLocaleString('pt-BR')} m²</span>
                         </div>
                       )}
                       {projeto.peso_estimado && (
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <Weight className="h-4 w-4 text-slate-400" />
-                          <span>{(projeto.peso_estimado / 1000).toFixed(1)} ton</span>
+                          <span>{(Number(projeto.peso_estimado) / 1000).toFixed(1)} ton</span>
                         </div>
                       )}
                       {projeto.data_fim_prevista && (
@@ -440,7 +563,7 @@ export default function Projetos() {
                     {projeto.valor_contrato && (
                        <div className="mt-4 pt-4 border-t border-slate-100">
                          <p className="text-lg font-bold text-slate-900">
-                           R$ {projeto.valor_contrato.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                           R$ {Number(projeto.valor_contrato).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
                          </p>
                        </div>
                      )}
@@ -484,11 +607,18 @@ export default function Projetos() {
               </div>
               <div className="space-y-2">
                 <Label>Cliente</Label>
+                {/* Puxa clientes do módulo Clientes; permite digitar livre via datalist */}
                 <Input
                   placeholder="Nome do cliente"
+                  list="clientes-cadastrados"
                   value={formData.cliente_nome}
                   onChange={(e) => setFormData({ ...formData, cliente_nome: e.target.value })}
                 />
+                <datalist id="clientes-cadastrados">
+                  {clientes.map((c) => (
+                    <option key={c.id} value={c.nome} />
+                  ))}
+                </datalist>
               </div>
             </div>
 
@@ -629,6 +759,41 @@ export default function Projetos() {
           projeto={projetoParaDocumento}
         />
       )}
+
+      {/* Modal de Confirmação de Exclusão */}
+      <Dialog open={!!projetoParaExcluir} onOpenChange={() => setProjetoParaExcluir(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-red-500" />
+              Confirmar Exclusão
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-slate-700">
+              Tem certeza que deseja excluir o projeto{' '}
+              <span className="font-bold">{projetoParaExcluir?.nome}</span>?
+            </p>
+            <p className="text-sm text-red-500 mt-2">
+              Esta ação não pode ser desfeita e pode afetar peças, despesas e medições vinculadas à obra.
+            </p>
+          </div>
+          <div className="flex justify-end gap-3">
+            <Button variant="outline" onClick={() => setProjetoParaExcluir(null)}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => deleteMutation.mutate(projetoParaExcluir.id)}
+              disabled={deleteMutation.isPending}
+              className="bg-red-500 hover:bg-red-600 text-white"
+            >
+              {deleteMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              <Trash2 className="h-4 w-4 mr-2" />
+              Excluir
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Estoque Modal */}
       <Dialog open={!!projetoSelecionadoEstoque} onOpenChange={() => setProjetoSelecionadoEstoque(null)}>

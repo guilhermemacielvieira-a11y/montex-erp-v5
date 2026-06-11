@@ -74,11 +74,25 @@ const formatDate = (date) => {
 };
 
 const formatWeight = (peso) => {
-  if (!peso && peso !== 0) return '0 kg';
-  return peso >= 1000
-    ? `${(peso / 1000).toFixed(2)} t`
-    : `${peso.toFixed(1)} kg`;
+  const p = Number(peso) || 0;
+  return p >= 1000
+    ? `${(p / 1000).toFixed(2)} t`
+    : `${p.toFixed(1)} kg`;
 };
+
+// Normaliza registro vindo do ERPContext (camelCase do Supabase) para os
+// campos que esta página usa — evita "R$ 0,00" e probabilidade vazia
+const normalizeOrcamento = (o) => ({
+  ...o,
+  projeto: o.projeto || o.nome || '',
+  cliente: o.cliente || o.clienteNome || o.cliente_nome || '',
+  valor_total: Number(o.valor_total ?? o.valorTotal ?? o.valor ?? 0),
+  peso_estimado: Number(o.peso_estimado ?? o.pesoEstimado ?? 0),
+  probabilidade: Number(o.probabilidade ?? 50),
+  responsavel: o.responsavel || '',
+  validade: o.validade || o.validadeAte || o.dataValidade || '',
+  status: o.status || 'rascunho',
+});
 
 // Configuração de status do pipeline
 const STATUS_DEFAULT = {
@@ -339,7 +353,7 @@ export default function OrcamentosPage() {
 
   // Sincronizar com context (Supabase) quando mudar
   React.useEffect(() => {
-    setOrcamentosLocal([...orcamentosContext]);
+    setOrcamentosLocal(orcamentosContext.map(normalizeOrcamento));
   }, [orcamentosContext]);
 
   // Usar dados locais para exibição (merged)
@@ -403,16 +417,33 @@ export default function OrcamentosPage() {
   const handleDragStart = (item) => setDraggedItem(item);
   const handleDragEnd = () => setDraggedItem(null);
 
-  const handleDrop = (novoStatus) => {
+  const handleDrop = async (novoStatus) => {
     if (draggedItem && draggedItem.status !== novoStatus) {
+      const item = draggedItem;
+      const statusAnterior = item.status;
+      // Atualização otimista na UI
       setOrcamentosLocal(prev =>
         prev.map(o =>
-          o.id === draggedItem.id ? { ...o, status: novoStatus } : o
+          o.id === item.id ? { ...o, status: novoStatus } : o
         )
       );
-      // Se aprovado, usar ação do context
-      if (novoStatus === 'aprovado') {
-        aprovarOrcamento(draggedItem.id, draggedItem.obraId);
+      try {
+        if (novoStatus === 'aprovado') {
+          await aprovarOrcamento(item.id, item.obraId);
+        } else {
+          // Persistir mudança de status no Supabase (antes só mudava localmente)
+          await updateOrcamento(item.id, { status: novoStatus });
+        }
+        toast.success(`${item.numero || 'Orçamento'} movido para ${statusConfig[novoStatus]?.label || novoStatus}`);
+      } catch (e) {
+        console.error('Erro ao mover orçamento:', e);
+        // Rollback em caso de falha
+        setOrcamentosLocal(prev =>
+          prev.map(o =>
+            o.id === item.id ? { ...o, status: statusAnterior } : o
+          )
+        );
+        toast.error('Erro ao atualizar status do orçamento');
       }
     }
     setDraggedItem(null);
@@ -430,7 +461,7 @@ export default function OrcamentosPage() {
       peso_estimado: 0,
       probabilidade: 50,
       responsavel: '',
-      validade: '',
+      validade: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
       status: 'rascunho'
     });
     setShowModal(true);
@@ -445,23 +476,45 @@ export default function OrcamentosPage() {
   const openEditModal = (orcamento) => {
     setSelectedOrcamento(orcamento);
     setModalMode('edit');
-    setFormData(orcamento);
+    const norm = normalizeOrcamento(orcamento);
+    // Input type=date exige yyyy-MM-dd
+    setFormData({ ...norm, validade: (norm.validade || '').slice(0, 10) });
     setShowModal(true);
   };
 
-  const handleDuplicateOrcamento = (orcamento) => {
+  const handleDuplicateOrcamento = async (orcamento) => {
+    // Remover campos de controle do registro original
+    const { id: _id, createdAt: _c, updatedAt: _u, created_at: _c2, updated_at: _u2, dataAprovacao: _da, data_aprovacao: _da2, ...resto } = orcamento;
     const novoOrcamento = {
-      ...orcamento,
-      id: `orc_${Date.now()}`,
+      ...resto,
+      id: `ORC-${Date.now()}`,
       numero: `ORC-${String(Date.now()).slice(-4)}`,
-      status: 'rascunho'
+      status: 'rascunho',
+      projeto: `${orcamento.projeto || 'Orçamento'} (cópia)`,
     };
-    setOrcamentosLocal(prev => [...prev, novoOrcamento]);
-    toast.success('Orçamento duplicado com sucesso!');
+    try {
+      // Persistir no Supabase (antes só duplicava na memória e sumia ao recarregar)
+      await addOrcamento(novoOrcamento);
+      toast.success(`Orçamento duplicado como ${novoOrcamento.numero}!`);
+    } catch (e) {
+      console.error('Erro ao duplicar orçamento:', e);
+      toast.error('Erro ao duplicar orçamento');
+    }
   };
 
-  const handleEnviarCliente = (orcamento) => {
-    toast.success(`Orçamento ${orcamento.numero} enviado ao cliente!`);
+  const handleEnviarCliente = async (orcamento) => {
+    try {
+      // Marca como enviado no pipeline (persistido)
+      if (orcamento.status === 'rascunho') {
+        await updateOrcamento(orcamento.id, { status: 'enviado' });
+        toast.success(`Orçamento ${orcamento.numero} marcado como enviado!`);
+      } else {
+        toast(`Orçamento ${orcamento.numero} já está no status ${statusConfig[orcamento.status]?.label || orcamento.status}.`, { icon: 'ℹ️' });
+      }
+    } catch (e) {
+      console.error('Erro ao enviar orçamento:', e);
+      toast.error('Erro ao atualizar orçamento');
+    }
   };
 
   const handleDeleteOrcamento = (orcamento) => {
@@ -489,15 +542,48 @@ export default function OrcamentosPage() {
   };
 
   const handleExportar = () => {
-    toast.success('Exportação iniciada. O arquivo será baixado em breve.');
+    // Exportação CSV real dos orçamentos filtrados
+    if (orcamentosFiltrados.length === 0) {
+      toast.error('Nenhum orçamento para exportar');
+      return;
+    }
+    const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const header = ['Número', 'Projeto', 'Cliente', 'Status', 'Valor Total (R$)', 'Peso Estimado (kg)', 'Probabilidade (%)', 'Validade', 'Responsável'];
+    const rows = orcamentosFiltrados.map(o => [
+      esc(o.numero), esc(o.projeto), esc(o.cliente),
+      esc(statusConfig[o.status]?.label || o.status),
+      String(o.valor_total || 0).replace('.', ','),
+      String(o.peso_estimado || 0).replace('.', ','),
+      o.probabilidade ?? '',
+      esc(formatDate(o.validade)), esc(o.responsavel),
+    ].join(';'));
+    const csv = '\ufeff' + [header.join(';'), ...rows].join('\n'); // BOM p/ Excel abrir acentos corretamente
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `orcamentos_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`${orcamentosFiltrados.length} orçamento(s) exportado(s) em CSV!`);
   };
 
   const handleSaveOrcamento = async () => {
+    if (!formData.projeto?.trim()) {
+      toast.error('Informe o nome do projeto');
+      return;
+    }
+    if (!formData.cliente?.trim()) {
+      toast.error('Selecione o cliente');
+      return;
+    }
     try {
       if (modalMode === 'create') {
         const novoOrcamento = {
           ...formData,
-          id: `orc_${Date.now()}`,
+          id: `ORC-${Date.now()}`,
           obraId: formData.obraId || null
         };
         await addOrcamento(novoOrcamento);
@@ -567,7 +653,6 @@ export default function OrcamentosPage() {
             subtitle="Aguardando decisão"
             icon={DollarSign}
             color="from-blue-500 to-cyan-500"
-            trend={8}
           />
           <KPICard
             title="Valor Ponderado"
@@ -582,7 +667,6 @@ export default function OrcamentosPage() {
             subtitle={formatCurrency(metricas.valorAprovado) + ' aprovado'}
             icon={TrendingUp}
             color="from-emerald-500 to-green-500"
-            trend={12}
           />
         </div>
 
@@ -956,16 +1040,34 @@ export default function OrcamentosPage() {
                   </div>
                   <div>
                     <label className="text-xs text-slate-400">Cliente</label>
-                    <Select value={formData.cliente} onValueChange={(value) => setFormData({ ...formData, cliente: value })}>
-                      <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-slate-700">
-                        {clientes.map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.nomeFantasia || c.razaoSocial}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    {clientes.length > 0 ? (
+                      <Select
+                        value={formData.cliente}
+                        onValueChange={(value) => {
+                          const cli = clientes.find(c => (c.nome || c.nomeFantasia || c.razaoSocial) === value);
+                          setFormData({ ...formData, cliente: value, clienteId: cli?.id ?? formData.clienteId ?? null });
+                        }}
+                      >
+                        <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                          <SelectValue placeholder="Selecione o cliente" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-slate-800 border-slate-700">
+                          {clientes.map(c => {
+                            const nome = c.nome || c.nomeFantasia || c.razaoSocial || `Cliente ${c.id}`;
+                            return (
+                              <SelectItem key={c.id} value={nome} className="text-white">{nome}</SelectItem>
+                            );
+                          })}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Input
+                        placeholder="Nome do cliente"
+                        value={formData.cliente}
+                        onChange={(e) => setFormData({ ...formData, cliente: e.target.value })}
+                        className="bg-slate-800 border-slate-700 text-white"
+                      />
+                    )}
                   </div>
                   <div>
                     <label className="text-xs text-slate-400">Responsável</label>
@@ -1000,7 +1102,7 @@ export default function OrcamentosPage() {
                       min="0"
                       max="100"
                       value={formData.probabilidade}
-                      onChange={(e) => setFormData({ ...formData, probabilidade: parseInt(e.target.value) || 50 })}
+                      onChange={(e) => setFormData({ ...formData, probabilidade: Math.min(100, Math.max(0, parseInt(e.target.value) || 0)) })}
                       className="bg-slate-800 border-slate-700 text-white"
                     />
                   </div>
