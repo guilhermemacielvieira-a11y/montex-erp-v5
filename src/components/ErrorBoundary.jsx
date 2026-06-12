@@ -4,6 +4,17 @@ import React from 'react';
  * Error Boundary Global - Captura erros de renderização do React
  * Previne tela branca e mostra interface amigável de erro
  */
+// Detecta erro de chunk lazy que sumiu apos novo deploy (hash trocado -> 404 no chunk).
+function ehErroDeChunk(error) {
+  const m = `${error && error.message || ''} ${error && error.name || ''}`;
+  return /dynamically imported module|Importing a module script failed|ChunkLoadError|Loading chunk|Failed to fetch[\\s\\S]*\\.js/i.test(m);
+}
+async function limparCachesERecarregar(destino) {
+  try { if ('serviceWorker' in navigator) { const r = await navigator.serviceWorker.getRegistrations(); await Promise.all(r.map(x => x.unregister())); } } catch (_) {}
+  try { if (window.caches) { const k = await caches.keys(); await Promise.all(k.map(c => caches.delete(c))); } } catch (_) {}
+  if (destino) window.location.href = destino; else window.location.reload();
+}
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -39,10 +50,20 @@ class ErrorBoundary extends React.Component {
       // Manter apenas os últimos 10 erros
       sessionStorage.setItem('montex-error-log', JSON.stringify(storedErrors.slice(-10)));
     } catch (_) {}
+
+    // Auto-recuperacao: erro de chunk lazy apos deploy (index em cache aponta p/ hash antigo
+    // que deu 404). Limpa SW+caches e recarrega 1x (janela de 20s evita loop) -> pega o index novo.
+    if (ehErroDeChunk(error)) {
+      const ultimo = Number(sessionStorage.getItem('__mtx_chunk_recover')) || 0;
+      if (Date.now() - ultimo > 20000) {
+        sessionStorage.setItem('__mtx_chunk_recover', String(Date.now()));
+        limparCachesERecarregar();
+      }
+    }
   }
 
   handleReload = () => {
-    window.location.reload();
+    limparCachesERecarregar();
   };
 
   handleGoHome = () => {
@@ -59,7 +80,7 @@ class ErrorBoundary extends React.Component {
         }
       });
     } catch (_) {}
-    window.location.href = '/login';
+    limparCachesERecarregar('/login');
   };
 
   render() {

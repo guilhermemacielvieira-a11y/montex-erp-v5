@@ -953,6 +953,21 @@ export default function PainelFinanceiroGlobal() {
     setDialogOpen(true);
   };
 
+  // Acao rapida: altera o status do lancamento DIRETO na linha (sem abrir o modal).
+  // Local -> movsLocais; externo -> override em overridesLocais. Ambos persistem no bundle
+  // (localStorage + tabela painel_financeiro_global), igual a edicao completa.
+  const mudarStatusRapido = useCallback((mov, novoStatus) => {
+    if (!mov || !novoStatus) return;
+    if (mov.origem === 'local') {
+      setMovsLocais(prev => prev.map(m => m.id === mov.id ? { ...m, status: novoStatus } : m));
+    } else {
+      const key = mov.ovKey || mov.id;
+      setOverridesLocais(prev => ({ ...prev, [key]: { ...(prev[key] || {}), status: novoStatus } }));
+    }
+    const lbl = novoStatus === 'recebido' ? 'Recebido' : novoStatus === 'pago' ? 'Pago' : novoStatus === 'atrasado' ? 'Atrasado' : 'Pendente';
+    toast.success(`Status alterado para ${lbl}`);
+  }, []);
+
   const handleEditar = (mov) => {
     setEditando(mov);
     setFormData({
@@ -2269,7 +2284,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onDeleteGroup={handleApagarGrupo} />
+              <MovsTable rows={movsTabela} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onDeleteGroup={handleApagarGrupo} onSetStatus={mudarStatusRapido} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2349,7 +2364,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'receita')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onSetStatus={mudarStatusRapido} hideTipo />
             </CardContent>
           </Card>
         </TabsContent>
@@ -2754,7 +2769,7 @@ export default function PainelFinanceiroGlobal() {
               />
             </CardHeader>
             <CardContent>
-              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} hideTipo />
+              <MovsTable rows={movsTabela.filter(m => m.tipo === 'despesa')} onEdit={handleEditar} onDelete={(id) => setDeleteConfirmId(id)} onRestore={handleRestaurarItem} onSetStatus={mudarStatusRapido} hideTipo />
             </CardContent>
           </Card>
         </TabsContent>
@@ -4089,7 +4104,7 @@ function FiltrosMovs({
 // ============================================================
 // SUB-COMPONENTE: Tabela de movimentações reutilizável
 // ============================================================
-function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo = false }) {
+function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, onSetStatus, hideTipo = false }) {
   // FIX M5: seleção é estado PRÓPRIO desta tabela (cada aba independente).
   const [selecionadosIds, setSelecionadosIds] = useState([]);
   // Remove da seleção ids que saíram da lista (filtro mudou) sem zerar tudo.
@@ -4238,8 +4253,12 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo 
                     if (dVenc) dVenc.setHours(0,0,0,0);
                     if (dVenc && dVenc < hoje) ehAtrasado = true;
                   }
+                  const proximo = ehPago ? 'pendente' : (mov.tipo === 'receita' ? 'recebido' : 'pago');
                   return (
-                    <Badge className={cn("border text-xs",
+                    <button type="button" title="Clique para alternar Pago/Recebido x Pendente"
+                      onClick={() => onSetStatus && onSetStatus(mov, proximo)}
+                      className="cursor-pointer hover:opacity-75 transition-opacity">
+                    <Badge className={cn("border text-xs cursor-pointer",
                       ehPago ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
                       ehAtrasado ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse' :
                       'bg-amber-500/20 text-amber-400 border-amber-500/30'
@@ -4247,6 +4266,7 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo 
                       {ehPago ? (mov.tipo === 'receita' ? 'Recebido' : 'Pago') :
                         ehAtrasado ? 'Atrasado' : 'Pendente'}
                     </Badge>
+                    </button>
                   );
                 })()}
               </TableCell>
@@ -4260,6 +4280,15 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, hideTipo 
                   <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
                     <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => onEdit(mov)}>
                       <Edit className="h-4 w-4 mr-2" />Editar (local)
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-emerald-300 focus:text-emerald-200 focus:bg-slate-700" onClick={() => onSetStatus && onSetStatus(mov, mov.tipo === 'receita' ? 'recebido' : 'pago')}>
+                      <span className="mr-2">\u2713</span>Marcar como {mov.tipo === 'receita' ? 'Recebido' : 'Pago'}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-amber-300 focus:text-amber-200 focus:bg-slate-700" onClick={() => onSetStatus && onSetStatus(mov, 'pendente')}>
+                      <RotateCcw className="h-4 w-4 mr-2" />Marcar como Pendente
+                    </DropdownMenuItem>
+                    <DropdownMenuItem className="text-red-300 focus:text-red-200 focus:bg-slate-700" onClick={() => onSetStatus && onSetStatus(mov, 'atrasado')}>
+                      <span className="mr-2">\u26a0</span>Marcar como Atrasado
                     </DropdownMenuItem>
                     {mov.origemModificado && (
                       <DropdownMenuItem className="text-blue-300 focus:text-blue-200 focus:bg-slate-700" onClick={() => onRestore(mov)}>
