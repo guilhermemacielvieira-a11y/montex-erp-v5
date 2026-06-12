@@ -128,6 +128,7 @@ const navigationCategories = [
       { name: 'Detalhamentos', href: 'DetalhamentosPage', icon: ClipboardList },
       { name: 'Estoque', href: 'EstoquePage', icon: Warehouse },
       { name: 'Compras', href: 'ComprasPage', icon: ShoppingCart, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
+      { name: 'Materiais', href: 'MateriaisPage', icon: Package, badge: 'NEW', badgeColor: 'bg-amber-500/20 text-amber-400' },
     ]
   },
   {
