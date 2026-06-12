@@ -352,8 +352,10 @@ export default function MontagemPage() {
       if (target <= 0) {
         delete next[pecaId];
       } else {
+        // Strip do tombstone ao re-marcar (removidoEm não pode vazar p/ payload ativo)
+        const { removidoEm: _rm, ...existingLimpo } = existing || {};
         const payload = {
-          ...(existing || {}),
+          ...existingLimpo,
           montadas: target,
           montadoEm: existing?.montadoEm || now,
           atualizadoEm: now,
@@ -707,9 +709,10 @@ export default function MontagemPage() {
         if (!p) continue;
         const qtd = p._qtd || Math.max(1, parseInt(p.quantidade) || 1);
         if (acao === 'concluir' && (p._status === 'aguardando_montagem' || p._status === 'parcial')) {
-          // Marca todas as unidades como montadas
+          // Marca todas as unidades como montadas (strip de tombstone no spread)
+          const { removidoEm: _rm, ...prevLimpo } = prev[id] || {};
           next[id] = {
-            ...(prev[id] || {}),
+            ...prevLimpo,
             montadas: qtd,
             montadoEm: prev[id]?.montadoEm || now,
             atualizadoEm: now,

@@ -28,7 +28,7 @@ import {
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
-import { loadConcluidasSmart } from '@/utils/montagemSync';
+import { loadConcluidasSmart, isMontada } from '@/utils/montagemSync';
 import {
   isRecebida, valorMedicao, isDespesaPaga, isDespesaAberta, isDespesaAtrasada,
   contratoPesoKg, contratoValor,
@@ -141,7 +141,7 @@ export default function DashboardMobile() {
     let pesoTotal = 0;
     for (const p of pecasF) {
       const w = pesoDe(p); pesoTotal += w;
-      const montada = !!concluidas[String(p.id)];
+      const montada = isMontada(concluidas[String(p.id)]);
       const etapa = montada ? 'montado' : (p.etapa || 'aguardando').toLowerCase();
       const slot = m[etapa] || m.aguardando;
       slot.peso += w; slot.conjuntos += 1;
@@ -225,7 +225,7 @@ export default function DashboardMobile() {
       const pesoContr = contratoPesoKg(o);
       const pesoMont = pecas.reduce((s, p) => {
         if ((p.obraId ?? p.obra_id ?? p.obra?.id) !== o.id) return s;
-        const montada = !!concluidas[String(p.id)] || String(p.etapa || '').toLowerCase() === 'montado';
+        const montada = isMontada(concluidas[String(p.id)]) || String(p.etapa || '').toLowerCase() === 'montado';
         return montada ? s + pesoDe(p) : s;
       }, 0);
       const pctFat = contrato ? Math.min(100, (medido / contrato) * 100) : null;
@@ -274,7 +274,7 @@ export default function DashboardMobile() {
       let total = 0, saiu = 0;
       for (const p of ps) {
         const w = pesoDe(p); total += w;
-        const et = concluidas[String(p.id)] ? 'montado' : (p.etapa || '').toLowerCase();
+        const et = isMontada(concluidas[String(p.id)]) ? 'montado' : (p.etapa || '').toLowerCase();
         if (['expedido', 'enviado', 'entregue', 'montado'].includes(et)) saiu += w;
       }
       return { nome: (o.nome || o.codigo || o.id).slice(0, 14), pct: total ? Math.round((saiu / total) * 100) : 0, total };

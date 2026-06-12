@@ -21,7 +21,7 @@ import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
-import { loadConcluidasSmart, saveConcluidasSmart, subscribeConcluidas, getMontadasCount } from '@/utils/montagemSync';
+import { loadConcluidasSmart, saveConcluidasSmart, subscribeConcluidas, getMontadasCount, isMontada } from '@/utils/montagemSync';
 import { toast } from 'react-hot-toast';
 
 // Normaliza marca p/ matching robusto (maiúsculas, sem espaços) — alinhado ao 3D/ERP.
@@ -73,8 +73,8 @@ export default function MontagemMobile() {
     return qd.trim() ? pecasCampo.filter(p => norm(p.marca).includes(QQ)) : pecasCampo;
   }, [pecasCampo, qd]);
 
-  const aguardando = listaFiltrada.filter(p => !concluidas[String(p.id)]);
-  const montadas = listaFiltrada.filter(p => !!concluidas[String(p.id)]);
+  const aguardando = listaFiltrada.filter(p => !isMontada(concluidas[String(p.id)]));
+  const montadas = listaFiltrada.filter(p => isMontada(concluidas[String(p.id)]));
   const lista = tab === 'aguardando' ? aguardando : montadas;
 
   // Define o estado montado de uma peça (com fotoUrl opcional de evidência).
@@ -91,7 +91,9 @@ export default function MontagemMobile() {
     if (!montada) {
       delete nova[id];
     } else {
-      const prev = nova[id] || {};
+      // Strip do tombstone: re-marcar peça desmarcada não pode arrastar
+      // o removidoEm junto (isMontada voltaria false).
+      const { removidoEm: _rm, ...prev } = nova[id] || {};
       // MESMO formato de MontagemPage/MontexERP3DPage (entity_store) + fotoUrl.
       // PARCIAL: `montadas: N` quando 0 < N < qtd; completa = sem o campo
       // (formato legado/full, compatível com 3D MONTADO_PARCIAL).
@@ -111,19 +113,20 @@ export default function MontagemMobile() {
       nova[id] = payload;
     }
     setConcluidas(nova);
-    try {
-      saveConcluidasSmart(nova);
-      if (montada) {
-        success();
-        const parcial = unidades != null && unidades > 0 && unidades < qtdTotal;
-        toast.success(parcial ? `${peca.marca}: ${unidades}/${qtdTotal} montadas` : `${peca.marca} montada`);
-      } else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
-    } catch (_) {
-      toast.error('Falha ao sincronizar');
-    }
+    // Feedback otimista imediato; o save tem merge+retry e fila offline
+    // (montagemSync) — se a rede falhar, a marcação fica no aparelho e
+    // sobe no próximo foco/load (flag dirty), sem reverter sozinha.
+    if (montada) {
+      success();
+      const parcial = unidades != null && unidades > 0 && unidades < qtdTotal;
+      toast.success(parcial ? `${peca.marca}: ${unidades}/${qtdTotal} montadas` : `${peca.marca} montada`);
+    } else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
+    Promise.resolve(saveConcluidasSmart(nova)).then(ok => {
+      if (ok === false) toast(`${peca.marca}: sem conexão — salvo no aparelho, sincroniza depois`, { icon: '📶' });
+    }).catch(() => toast.error('Falha ao sincronizar'));
   };
   // Quick-toggle (scanner/uso interno) — sem foto.
-  const toggle = (peca) => setMontada(peca, !concluidas[String(peca.id)]);
+  const toggle = (peca) => setMontada(peca, !isMontada(concluidas[String(peca.id)]));
 
   // Resultado do scanner CONTÍNUO: encontra a peça pela marca e MARCA montada
   // direto (sem sheet) — fluxo de bipar peça após peça no canteiro.
@@ -132,7 +135,7 @@ export default function MontagemMobile() {
     const peca = pecasCampo.find(p => norm(p.marca) === alvo)
             || pecasCampo.find(p => norm(p.marca).includes(alvo) && alvo.length >= 3);
     if (peca) {
-      if (concluidas[String(peca.id)]) { toast(`${peca.marca} já montada`, { icon: '✓' }); return; }
+      if (isMontada(concluidas[String(peca.id)])) { toast(`${peca.marca} já montada`, { icon: '✓' }); return; }
       toggle(peca); // marca montada (entity_store) + toast "X montada"
       return;
     }
@@ -169,7 +172,7 @@ export default function MontagemMobile() {
   // Relatório de montagem (CSV): todas as peças montadas da obra (ignora a busca).
   const exportarMontadas = () => {
     const rows = pecasCampo
-      .filter(p => concluidas[String(p.id)])
+      .filter(p => isMontada(concluidas[String(p.id)]))
       .map(p => {
         const c = concluidas[String(p.id)] || {};
         const dt = c.montadoEm ? new Date(c.montadoEm).toLocaleString('pt-BR') : '';
@@ -182,7 +185,7 @@ export default function MontagemMobile() {
     toast.success(`${rows.length} peça(s) exportada(s)`);
   };
 
-  const pecaMontada = pecaSel ? !!concluidas[String(pecaSel.id)] : false;
+  const pecaMontada = pecaSel ? isMontada(concluidas[String(pecaSel.id)]) : false;
   const fotoExistente = pecaSel ? concluidas[String(pecaSel.id)]?.fotoUrl : null;
 
   return (
@@ -222,7 +225,7 @@ export default function MontagemMobile() {
           />
         )}
         {lista.slice(0, limite).map(p => {
-          const isOk = !!concluidas[String(p.id)];
+          const isOk = isMontada(concluidas[String(p.id)]);
           return (
             <motion.button
               key={p.id}
