@@ -86,6 +86,7 @@ const CommandCenterUltra = lazy(() => import('./pages/CommandCenterUltra'));
 
 // ===== COMPRAS & MATERIAIS =====
 const ComprasPage = lazy(() => import('./pages/ComprasPage'));
+const MateriaisPage = lazy(() => import('./pages/MateriaisPage'));
 const ImportRomaneioPage = lazy(() => import('./pages/ImportRomaneioPage'));
 
 // ===== RH & EQUIPES =====
@@ -181,6 +182,7 @@ export const PAGES = {
 
     // Compras & Materiais
     "ComprasPage": ComprasPage,
+    "MateriaisPage": MateriaisPage,
     "ImportRomaneioPage": ImportRomaneioPage,
 
     // RH & Equipes
