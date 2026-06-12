@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
-import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
+import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount, isMontada } from '../utils/montagemSync';
 import { parseIFCFile, IFC_TYPES } from '../utils/ifcParser';
 
 // Ícones SVG inline (evitam dependência de lucide-react sem impactar bundle)
@@ -883,7 +883,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
     // Override: aplicar MONTADO para pecas marcadas no MontagemPage (localStorage)
     // Verificado por id da peca apos o matching
-    const pecaIdsMontadas = new Set(Object.keys(concluidasMontagem || {}));
+    // Exclui tombstones (peças desmarcadas): só payload ativo conta como montada
+    const pecaIdsMontadas = new Set(
+      Object.entries(concluidasMontagem || {})
+        .filter(([, v]) => v && !v.removidoEm)
+        .map(([k]) => k)
+    );
 
     const statusPriority = ['MONTADO', 'MONTADO_PARCIAL', 'EM_OBRA', 'EMBARQUE', 'NAO_INICIADO'];
 
@@ -1962,11 +1967,14 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (!peca) return;
     const pecaId = String(peca.id);
     const next = { ...concluidasMontagem };
-    const wasMontada = !!next[pecaId];
+    // isMontada: tombstone (desmarcada) NÃO conta como montada — sem isto o
+    // toggle invertia (tocar numa peça desmarcada tentava desmarcar de novo).
+    const wasMontada = isMontada(next[pecaId]);
     if (wasMontada) {
       delete next[pecaId];
     } else {
-      const prev = next[pecaId] || {};
+      // Strip do tombstone ao re-marcar
+      const { removidoEm: _rm, ...prev } = next[pecaId] || {};
       next[pecaId] = {
         ...prev,
         montadoEm: new Date().toISOString(),

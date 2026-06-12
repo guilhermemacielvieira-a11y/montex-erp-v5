@@ -12,7 +12,7 @@ import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
-import { loadConcluidasSmart } from '@/utils/montagemSync';
+import { loadConcluidasSmart, isMontada } from '@/utils/montagemSync';
 import { isRecebida, valorMedicao, isDespesaPaga, isDespesaCancelada, isDespesaAtrasada, isEmFabrica, saiuDaFabrica, isEmObra, etapaDe } from '../dados';
 
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
@@ -59,7 +59,7 @@ export default function HomeMobile() {
     // "Obras ativas" reflete o filtro: 1 quando uma obra está selecionada
     const obrasAtivas = isTodas ? obras.filter(o => o.status !== 'concluida' && o.status !== 'cancelada').length : 1;
     // Montadas = entity_store (fonte de verdade da montagem)
-    const pecasMontadas = pecasFiltradas.filter(p => !!concluidas[String(p.id)]).length;
+    const pecasMontadas = pecasFiltradas.filter(p => isMontada(concluidas[String(p.id)])).length;
     const pecasProducao = pecasFiltradas.filter(p => isEmFabrica(p) || saiuDaFabrica(p)).length;
     const desPendentes = aPagar.length;
     const desValor = aPagar.reduce((s, d) => s + (Number(d.valor) || 0), 0);
@@ -76,7 +76,7 @@ export default function HomeMobile() {
     const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
     const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
     // Em obra p/ montar = enviado + entregue (etapa real do banco), menos as já montadas
-    const aMontar = pecasFiltradas.filter(p => isEmObra(p) && !concluidas[String(p.id)]).length;
+    const aMontar = pecasFiltradas.filter(p => isEmObra(p) && !isMontada(concluidas[String(p.id)])).length;
     const prontas = pecasFiltradas.filter(p => etapaDe(p) === 'expedido').length;
     const medPend = podeMed ? receitas.filter(r => ['pendente', 'aguardando'].includes(String(r.status || '').toLowerCase())).length : 0;
     // Orçamento/compra sem obra vinculada aparece sempre (não sumir pendência com filtro)
