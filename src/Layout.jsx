@@ -272,18 +272,20 @@ const navigationCategories = [
 
 // ====== PERMISSÕES POR CATEGORIA ======
 const CATEGORY_PERMISSIONS = {
+  // Uma permissao de ACESSO unica por modulo -> cada modulo pode ser liberado/bloqueado
+  // por usuario de forma independente (catalogo espelhado em GestaoUsuariosPage e AuthContext).
   'dashboard': 'dashboard.view',
-  'comercial': 'orcamentos.view',
-  'suprimentos': 'estoque.view',
+  'comercial': 'comercial.view',
+  'suprimentos': 'suprimentos.view',
   'producao': 'producao.view',
   'expedicao': 'expedicao.view',
-  'obras': 'producao.view',
+  'obras': 'obras.view',
   'medicao': 'medicao.view',
   'financeiro': 'financeiro.view',
   'bi': 'bi.view',
-  'command': 'dashboard.view',
-  'colaboracao': 'dashboard.view',
-  'sistema': null,
+  'command': 'command.view',
+  'colaboracao': 'colaboracao.view',
+  'sistema': 'usuarios.manage',
 };
 
 // ====== SIDEBAR NAV ITEM (COLLAPSED) ======

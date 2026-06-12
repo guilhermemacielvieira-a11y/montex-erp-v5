@@ -41,83 +41,51 @@ export const ROLE_COLORS = {
 const PERMISSIONS = {
   // ADMIN — Acesso total irrestrito
   admin: ['*'],
-
-  // GERENTE — Gerencia produção, equipes, financeiro, comercial
+  // GERENTE — Gerencia praticamente tudo
   gerente: [
-    'dashboard.view', 'dashboard.export',
+    'dashboard.view', 'dashboard.export', 'command.view', 'colaboracao.view',
+    'comercial.view', 'orcamentos.view', 'orcamentos.edit', 'orcamentos.aprovar', 'clientes.view', 'clientes.edit',
     'projetos.view', 'projetos.edit', 'projetos.create',
-    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'producao.aprovar',
-    'estoque.view', 'estoque.edit', 'estoque.movimentar',
-    'compras.view', 'compras.edit', 'compras.aprovar',
+    'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar', 'compras.view', 'compras.edit', 'compras.aprovar', 'materiais.view', 'materiais.edit',
+    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'producao.aprovar', 'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar',
     'expedicao.view', 'expedicao.edit', 'expedicao.aprovar',
+    'obras.view', 'obras.edit',
     'medicao.view', 'medicao.edit', 'medicao.aprovar',
-    'equipes.view', 'equipes.edit', 'equipes.escalar',
-    'kanban.view', 'kanban.edit',
-    'materiais.view', 'materiais.edit',
-    'nfs.view', 'nfs.edit',
     'financeiro.view', 'financeiro.edit',
-    'orcamentos.view', 'orcamentos.edit', 'orcamentos.aprovar',
-    'clientes.view', 'clientes.edit',
-    'relatorios.view', 'relatorios.export',
-    'bi.view',
-    'usuarios.view',
+    'bi.view', 'nfs.view', 'nfs.edit', 'relatorios.view', 'relatorios.export', 'usuarios.view',
   ],
-
-  // SUPERVISOR — Gerencia operações diárias de fábrica
+  // SUPERVISOR — Operacao diaria de fabrica
   supervisor: [
-    'dashboard.view',
-    'projetos.view',
-    'producao.view', 'producao.edit', 'producao.lancar_avanco',
-    'estoque.view', 'estoque.edit', 'estoque.movimentar',
-    'compras.view',
+    'dashboard.view', 'command.view', 'colaboracao.view',
+    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar', 'materiais.view', 'materiais.edit',
+    'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar', 'compras.view',
     'expedicao.view', 'expedicao.edit',
+    'obras.view', 'obras.edit',
     'medicao.view', 'medicao.edit',
-    'equipes.view', 'equipes.edit', 'equipes.escalar',
-    'kanban.view', 'kanban.edit',
-    'materiais.view', 'materiais.edit',
-    'nfs.view',
-    'relatorios.view',
+    'projetos.view', 'nfs.view', 'relatorios.view',
   ],
-
-  // OPERADOR — Input de dados de produção
+  // OPERADOR — Input de producao
   operador: [
-    'dashboard.view',
-    'producao.view', 'producao.lancar_avanco',
-    'estoque.view',
-    'kanban.view', 'kanban.edit',
-    'equipes.view',
-    'materiais.view',
+    'dashboard.view', 'command.view', 'colaboracao.view',
+    'producao.view', 'producao.lancar_avanco', 'kanban.view', 'kanban.edit', 'equipes.view', 'materiais.view',
+    'suprimentos.view', 'estoque.view',
+    'obras.view',
   ],
-
-  // FINANCEIRO — Módulos financeiros e comerciais
+  // FINANCEIRO — Financeiro e comercial
   financeiro: [
-    'dashboard.view', 'dashboard.export',
-    'projetos.view',
-    'financeiro.view', 'financeiro.edit', 'financeiro.aprovar',
-    'compras.view', 'compras.edit',
-    'nfs.view', 'nfs.edit',
-    'orcamentos.view', 'orcamentos.edit',
-    'clientes.view', 'clientes.edit',
+    'dashboard.view', 'dashboard.export', 'command.view', 'colaboracao.view',
+    'comercial.view', 'orcamentos.view', 'orcamentos.edit', 'clientes.view', 'clientes.edit', 'projetos.view',
+    'suprimentos.view', 'compras.view', 'compras.edit',
+    'financeiro.view', 'financeiro.edit', 'financeiro.aprovar', 'nfs.view', 'nfs.edit',
     'medicao.view', 'medicao.edit',
-    'relatorios.view', 'relatorios.export',
-    'bi.view',
+    'bi.view', 'relatorios.view', 'relatorios.export',
   ],
-
-  // VIEWER — Somente visualização
+  // VIEWER — Somente visualizacao
   viewer: [
-    'dashboard.view',
-    'projetos.view',
-    'producao.view',
-    'estoque.view',
-    'compras.view',
-    'expedicao.view',
-    'medicao.view',
-    'equipes.view',
-    'kanban.view',
-    'materiais.view',
-    'nfs.view',
-    'bi.view',
-    'relatorios.view',
+    'dashboard.view', 'command.view', 'colaboracao.view',
+    'producao.view', 'obras.view', 'suprimentos.view', 'estoque.view', 'compras.view',
+    'expedicao.view', 'medicao.view', 'projetos.view', 'nfs.view', 'materiais.view', 'kanban.view',
+    'bi.view', 'relatorios.view',
   ]
 };
 
