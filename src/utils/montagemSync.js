@@ -93,25 +93,83 @@ export async function saveConcluidasRemote(obj) {
 // COMBO: load local + atualizar com remote (background)
 // Retorna IMEDIATO localStorage e dispara fetch remoto
 // ============================================
+// MERGE por peça (anti-reversão): o remoto NUNCA sobrescreve cegamente o
+// local. Sem isto, marcar uma peça e voltar do app de câmera (visibility-
+// change → fetch) revertia a marcação para "Aguardando" com dados remotos
+// velhos; e dois montadores simultâneos se apagavam (last-write-wins do
+// objeto inteiro). Regras:
+//   - chave nos dois lados: vence o payload com atualizadoEm/montadoEm mais novo
+//   - chave só local: PRESERVA (marcação recém-feita ainda não sincronizada)
+//   - chave só remota: entra, EXCETO se foi desmarcada localmente há pouco
+//     (janela anti-ressurreição — a desmarcação ainda não chegou ao remoto)
+const DIRTY_KEY = 'montex_montagem_dirty';
+const removidasRecentes = new Map(); // pecaId -> timestamp da desmarcação local
+const JANELA_REMOCAO_MS = 120000;
+const tsPayload = (p) => Date.parse(p?.atualizadoEm || p?.montadoEm || '') || 0;
+
+export function mergeConcluidas(local, remote) {
+  const out = { ...(remote || {}) };
+  const agora = Date.now();
+  for (const [id, ts] of removidasRecentes) {
+    if (agora - ts < JANELA_REMOCAO_MS) delete out[id];
+    else removidasRecentes.delete(id);
+  }
+  for (const [id, pay] of Object.entries(local || {})) {
+    if (!out[id] || tsPayload(pay) >= tsPayload(out[id])) out[id] = pay;
+  }
+  return out;
+}
+
+const marcarDirty = (v) => { try { v ? localStorage.setItem(DIRTY_KEY, '1') : localStorage.removeItem(DIRTY_KEY); } catch { /* noop */ } };
+const isDirty = () => { try { return localStorage.getItem(DIRTY_KEY) === '1'; } catch { return false; } };
+
 export function loadConcluidasSmart(onRemoteUpdate) {
   const local = loadConcluidasLocal();
+  // Save pendente (falhou offline)? Empurra o local ANTES de aplicar remoto,
+  // senão o fetch "ganha" e a marcação feita sem rede some.
+  if (isDirty()) {
+    saveConcluidasSmart(loadConcluidasLocal()).then(ok => {
+      if (ok) onRemoteUpdate?.(loadConcluidasLocal());
+    });
+    return local;
+  }
   // Fetch remoto em background sem bloquear UI
   loadConcluidasRemote().then(remote => {
-    if (remote && JSON.stringify(remote) !== JSON.stringify(local)) {
-      saveConcluidasLocal(remote);
-      onRemoteUpdate?.(remote);
-    }
+    if (!remote) return;
+    const atual = loadConcluidasLocal(); // re-lê: pode ter mudado após o return
+    const merged = mergeConcluidas(atual, remote);
+    if (JSON.stringify(merged) !== JSON.stringify(atual)) saveConcluidasLocal(merged);
+    if (JSON.stringify(merged) !== JSON.stringify(local)) onRemoteUpdate?.(merged);
   });
   return local;
 }
 
 // ============================================
-// COMBO: save local imediato + remote em background
+// COMBO: save local imediato + remote com MERGE + RETRY
+// Retorna Promise<boolean> (callers fire-and-forget continuam válidos).
 // ============================================
-export function saveConcluidasSmart(obj) {
+export async function saveConcluidasSmart(obj) {
+  // Registra desmarcações p/ não ressuscitarem no merge com remoto velho
+  const prev = loadConcluidasLocal();
+  for (const id of Object.keys(prev || {})) {
+    if (!(id in (obj || {}))) removidasRecentes.set(id, Date.now());
+  }
   saveConcluidasLocal(obj);
-  // Fire-and-forget remote save
-  saveConcluidasRemote(obj);
+  // Remoto: merge com o estado atual do servidor (preserva marcações de
+  // outros dispositivos) + 3 tentativas com backoff (rede de canteiro).
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const remoto = await loadConcluidasRemote();
+    const final = remoto ? mergeConcluidas(loadConcluidasLocal(), remoto) : loadConcluidasLocal();
+    if (await saveConcluidasRemote(final)) {
+      saveConcluidasLocal(final);
+      marcarDirty(false);
+      return true;
+    }
+    await new Promise(r => setTimeout(r, 1500 * (tentativa + 1)));
+  }
+  // Falhou: mantém local e marca pendência — flush no próximo load/foco.
+  marcarDirty(true);
+  return false;
 }
 
 // ============================================
@@ -135,8 +193,11 @@ export function subscribeConcluidas(onUpdate) {
         (payload) => {
           const dados = payload?.new?.data;
           if (dados && typeof dados === 'object') {
-            saveConcluidasLocal(dados);
-            onUpdate?.(dados);
+            // MERGE (não sobrescrever): evento de outro dispositivo não pode
+            // apagar marcação local recém-feita que ainda não subiu.
+            const merged = mergeConcluidas(loadConcluidasLocal(), dados);
+            saveConcluidasLocal(merged);
+            onUpdate?.(merged);
           }
         }
       )

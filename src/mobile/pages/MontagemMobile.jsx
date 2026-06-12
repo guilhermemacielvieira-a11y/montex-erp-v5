@@ -111,16 +111,17 @@ export default function MontagemMobile() {
       nova[id] = payload;
     }
     setConcluidas(nova);
-    try {
-      saveConcluidasSmart(nova);
-      if (montada) {
-        success();
-        const parcial = unidades != null && unidades > 0 && unidades < qtdTotal;
-        toast.success(parcial ? `${peca.marca}: ${unidades}/${qtdTotal} montadas` : `${peca.marca} montada`);
-      } else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
-    } catch (_) {
-      toast.error('Falha ao sincronizar');
-    }
+    // Feedback otimista imediato; o save tem merge+retry e fila offline
+    // (montagemSync) — se a rede falhar, a marcação fica no aparelho e
+    // sobe no próximo foco/load (flag dirty), sem reverter sozinha.
+    if (montada) {
+      success();
+      const parcial = unidades != null && unidades > 0 && unidades < qtdTotal;
+      toast.success(parcial ? `${peca.marca}: ${unidades}/${qtdTotal} montadas` : `${peca.marca} montada`);
+    } else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
+    Promise.resolve(saveConcluidasSmart(nova)).then(ok => {
+      if (ok === false) toast(`${peca.marca}: sem conexão — salvo no aparelho, sincroniza depois`, { icon: '📶' });
+    }).catch(() => toast.error('Falha ao sincronizar'));
   };
   // Quick-toggle (scanner/uso interno) — sem foto.
   const toggle = (peca) => setMontada(peca, !concluidas[String(peca.id)]);
