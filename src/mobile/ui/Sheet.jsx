@@ -17,7 +17,7 @@ export default function Sheet({ open, onClose, title, children, footer }) {
           key="sheet-overlay"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60]"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[75]"
           onClick={onClose}
         />
       )}
@@ -30,8 +30,15 @@ export default function Sheet({ open, onClose, title, children, footer }) {
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.4 }}
           onDragEnd={(_, info) => { if (info.offset.y > 120) onClose?.(); }}
-          className="fixed left-0 right-0 bottom-0 z-[61] bg-slate-900 border-t border-slate-700 rounded-t-3xl flex flex-col max-h-[88vh]"
-          style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
+          className="fixed left-0 right-0 bottom-0 z-[76] bg-slate-900 border-t border-slate-700 rounded-t-3xl flex flex-col max-h-[85vh]"
+          style={{
+            paddingBottom: 'max(env(safe-area-inset-bottom), 12px)',
+            // FIX iOS Safari: `vh` ignora a barra do navegador e cortava o
+            // footer (botão "Marcar como montada" invisível no celular).
+            // dvh = viewport dinâmica real; browsers antigos ignoram e usam
+            // o max-h-[85vh] do className como fallback.
+            maxHeight: 'calc(100dvh - 56px)',
+          }}
         >
           {/* handle */}
           <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">
