@@ -21,7 +21,7 @@ import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
-import { loadConcluidasSmart, saveConcluidasSmart } from '@/utils/montagemSync';
+import { loadConcluidasSmart, saveConcluidasSmart, subscribeConcluidas, getMontadasCount } from '@/utils/montagemSync';
 import { toast } from 'react-hot-toast';
 
 // Normaliza marca p/ matching robusto (maiúsculas, sem espaços) — alinhado ao 3D/ERP.
@@ -46,6 +46,22 @@ export default function MontagemMobile() {
   const qd = useDebounced(q, 250); // busca com debounce
   useEffect(() => { setLimite(40); }, [tab, qd]);
 
+  // TEMPO REAL: outro dispositivo/desktop/3D marcou peça → atualiza na hora.
+  // Fallback: refetch ao voltar o app pro foco (iOS suspende websockets em bg).
+  useEffect(() => {
+    const unsub = subscribeConcluidas(remoto => setConcluidas(remoto || {}));
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') {
+        loadConcluidasSmart(remoto => setConcluidas(remoto || {}));
+      }
+    };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => { unsub(); document.removeEventListener('visibilitychange', onFocus); };
+  }, []);
+
+  // Montagem PARCIAL: unidades montadas escolhidas no sheet (peças com qtd > 1)
+  const [unidadesMont, setUnidadesMont] = useState(1);
+
   // Todas as peças da obra (p/ mensagem útil quando a marca existe mas não está em campo)
   const pecasDaObra = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
   // Peças em montagem — escopo de campo. Etapas reais do banco: 'enviado'
@@ -68,29 +84,40 @@ export default function MontagemMobile() {
   // queira completar a peça parcial vai usar o desktop (MontagemPage) ou o scanner
   // continua válido — toggle aqui só ATUALIZA metadados (montadoEm/origem) sem
   // sobrescrever o montadas existente.
-  const setMontada = (peca, montada, fotoUrl) => {
+  const setMontada = (peca, montada, fotoUrl, unidades = null) => {
     const id = String(peca.id);
+    const qtdTotal = Math.max(1, parseInt(peca.quantidade) || 1);
     const nova = { ...concluidas };
     if (!montada) {
       delete nova[id];
     } else {
       const prev = nova[id] || {};
       // MESMO formato de MontagemPage/MontexERP3DPage (entity_store) + fotoUrl.
-      // Preserva `montadas` (parcial vindo de outro módulo); sem ele = legado/full.
-      nova[id] = {
+      // PARCIAL: `montadas: N` quando 0 < N < qtd; completa = sem o campo
+      // (formato legado/full, compatível com 3D MONTADO_PARCIAL).
+      const payload = {
         ...prev,
-        montadoEm: new Date().toISOString(),
+        montadoEm: prev.montadoEm || new Date().toISOString(),
         atualizadoEm: new Date().toISOString(),
         origem: 'MontagemMobile',
         marca: peca.marca,
         ...(fotoUrl ? { fotoUrl } : {}),
       };
+      if (unidades != null && unidades > 0 && unidades < qtdTotal) {
+        payload.montadas = unidades;
+      } else {
+        delete payload.montadas; // completa
+      }
+      nova[id] = payload;
     }
     setConcluidas(nova);
     try {
       saveConcluidasSmart(nova);
-      if (montada) { success(); toast.success(`${peca.marca} montada`); }
-      else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
+      if (montada) {
+        success();
+        const parcial = unidades != null && unidades > 0 && unidades < qtdTotal;
+        toast.success(parcial ? `${peca.marca}: ${unidades}/${qtdTotal} montadas` : `${peca.marca} montada`);
+      } else { tap('medium'); toast.success(`${peca.marca} desmarcada`); }
     } catch (_) {
       toast.error('Falha ao sincronizar');
     }
@@ -118,23 +145,23 @@ export default function MontagemMobile() {
     toast.error(`Peça "${codigo}" não encontrada nesta obra`);
   };
 
-  const confirmarSheet = async () => {
+  const confirmarSheet = async (desmarcar = false) => {
     if (!pecaSel) return;
     const id = String(pecaSel.id);
-    if (concluidas[id]) {
-      // já montada → desmarca
+    if (desmarcar) {
       setMontada(pecaSel, false);
       setPecaSel(null); setFotoMont(null);
       return;
     }
-    // marcando montada: sobe a foto de evidência (best-effort) e grava
+    // marcando/atualizando: sobe a foto de evidência (best-effort) e grava
     setSalvandoMont(true);
     let url = null;
     if (fotoMont?.file) {
       url = await uploadFoto(fotoMont.file, 'montagem');
       if (!url) toast('Foto não enviada (peça marcada mesmo assim)', { icon: '⚠️' });
     }
-    setMontada(pecaSel, true, url);
+    const qtdTotal = Math.max(1, parseInt(pecaSel.quantidade) || 1);
+    setMontada(pecaSel, true, url, qtdTotal > 1 ? unidadesMont : null);
     setSalvandoMont(false);
     setPecaSel(null); setFotoMont(null);
   };
@@ -199,7 +226,12 @@ export default function MontagemMobile() {
           return (
             <motion.button
               key={p.id}
-              onClick={() => { tap('light'); setPecaSel(p); setFotoMont(null); }}
+              onClick={() => {
+                tap('light'); setPecaSel(p); setFotoMont(null);
+                const qtdT = Math.max(1, parseInt(p.quantidade) || 1);
+                const atual = getMontadasCount(concluidas[String(p.id)], qtdT);
+                setUnidadesMont(atual > 0 ? atual : qtdT); // default: completar tudo
+              }}
               whileTap={{ scale: 0.97 }}
               className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${isOk ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-amber-500/30'}`}
             >
@@ -244,40 +276,95 @@ export default function MontagemMobile() {
         title={pecaSel ? (pecaSel.marca || pecaSel.id) : ''}
         footer={
           pecaSel && (
-            <button
-              onClick={confirmarSheet}
-              disabled={salvandoMont}
-              className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-60 ${pecaMontada ? 'bg-slate-700 text-slate-100' : 'bg-emerald-500 text-slate-950'}`}
-            >
-              {!salvandoMont && (pecaMontada ? <RotateCcw className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />)}
-              {salvandoMont ? 'Salvando…' : (pecaMontada ? 'Desmarcar montagem' : 'Marcar como montada')}
-            </button>
+            <div className="space-y-2">
+              <button
+                onClick={() => confirmarSheet(false)}
+                disabled={salvandoMont}
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-60 bg-emerald-500 text-slate-950"
+              >
+                {!salvandoMont && <CheckCircle2 className="w-5 h-5" />}
+                {salvandoMont
+                  ? 'Salvando…'
+                  : pecaMontada
+                    ? 'Atualizar montagem'
+                    : 'Marcar como montada'}
+              </button>
+              {pecaMontada && (
+                <button
+                  onClick={() => confirmarSheet(true)}
+                  disabled={salvandoMont}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-[.99] transition disabled:opacity-60 bg-slate-800 text-slate-300 border border-slate-700"
+                >
+                  <RotateCcw className="w-4 h-4" /> Desmarcar montagem
+                </button>
+              )}
+            </div>
           )
         }
       >
-        {pecaSel && (
+        {pecaSel && (() => {
+          const qtdTotal = Math.max(1, parseInt(pecaSel.quantidade) || 1);
+          const montadasAtual = getMontadasCount(concluidas[String(pecaSel.id)], qtdTotal);
+          const parcial = pecaMontada && montadasAtual > 0 && montadasAtual < qtdTotal;
+          return (
           <div className="space-y-4">
-            <div className={`rounded-xl px-3 py-2.5 text-sm font-bold flex items-center gap-2 ${pecaMontada ? 'bg-emerald-500/15 text-emerald-300' : 'bg-amber-500/15 text-amber-300'}`}>
+            <div className={`rounded-xl px-3 py-2.5 text-sm font-bold flex items-center gap-2 ${pecaMontada ? (parcial ? 'bg-teal-500/15 text-teal-300' : 'bg-emerald-500/15 text-emerald-300') : 'bg-amber-500/15 text-amber-300'}`}>
               {pecaMontada ? <CheckCircle2 className="w-4 h-4" /> : <Hammer className="w-4 h-4" />}
-              {pecaMontada ? 'Montada' : 'Aguardando montagem'}
+              {pecaMontada
+                ? (parcial ? `Montagem parcial — ${montadasAtual}/${qtdTotal}` : 'Montada')
+                : 'Aguardando montagem'}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Info label="Tipo" value={pecaSel.tipo || '—'} />
-              <Info label="Quantidade" value={String(pecaSel.quantidade || 1)} />
+              <Info label="Quantidade" value={String(qtdTotal)} />
               <Info label="Peso" value={`${(Number(pecaSel.peso) || 0).toFixed(0)} kg`} />
               <Info label="Etapa" value={pecaSel.etapa || '—'} />
             </div>
+            {/* EDIÇÃO: unidades montadas (peças com mais de 1 unidade) */}
+            {qtdTotal > 1 && (
+              <div className="bg-slate-800/60 rounded-xl p-3">
+                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                  Unidades montadas
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => { tap('light'); setUnidadesMont(u => Math.max(1, u - 1)); }}
+                    className="w-12 h-12 rounded-xl bg-slate-700 text-slate-100 font-black text-xl active:scale-95 transition"
+                    aria-label="Diminuir"
+                  >−</button>
+                  <div className="flex-1 text-center">
+                    <span className="text-2xl font-black text-slate-100">{unidadesMont}</span>
+                    <span className="text-sm text-slate-400 font-bold"> / {qtdTotal}</span>
+                  </div>
+                  <button
+                    onClick={() => { tap('light'); setUnidadesMont(u => Math.min(qtdTotal, u + 1)); }}
+                    className="w-12 h-12 rounded-xl bg-slate-700 text-slate-100 font-black text-xl active:scale-95 transition"
+                    aria-label="Aumentar"
+                  >+</button>
+                  <button
+                    onClick={() => { tap('light'); setUnidadesMont(qtdTotal); }}
+                    className="px-3 h-12 rounded-xl bg-emerald-500/20 text-emerald-300 font-bold text-xs active:scale-95 transition"
+                  >Todas</button>
+                </div>
+                {unidadesMont < qtdTotal && (
+                  <div className="text-[11px] text-teal-300 mt-2">
+                    Será gravada como montagem PARCIAL ({unidadesMont}/{qtdTotal}) — aparece em teal no 3D
+                  </div>
+                )}
+              </div>
+            )}
             {/* Foto: evidência existente (se montada) ou anexar nova (ao marcar) */}
             {fotoExistente ? (
               <div>
                 <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Evidência</div>
                 <img src={fotoExistente} alt="evidência da montagem" className="w-full h-40 object-cover rounded-xl border border-slate-700" />
               </div>
-            ) : (!pecaMontada && (
+            ) : (
               <PhotoInput foto={fotoMont} onChange={setFotoMont} label="Foto da peça montada (opcional)" />
-            ))}
+            )}
           </div>
-        )}
+          );
+        })()}
       </Sheet>
     </MobileLayout>
   );

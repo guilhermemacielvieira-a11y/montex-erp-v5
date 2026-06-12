@@ -113,3 +113,37 @@ export function saveConcluidasSmart(obj) {
   // Fire-and-forget remote save
   saveConcluidasRemote(obj);
 }
+
+// ============================================
+// TEMPO REAL: assina mudanças do entity_store (outro dispositivo /
+// desktop / 3D marcou peça) e entrega o estado novo via callback.
+// Retorna função de unsubscribe. Best-effort: se realtime indisponível,
+// o caller continua com o fluxo loadConcluidasSmart (fetch em background).
+// ============================================
+export function subscribeConcluidas(onUpdate) {
+  try {
+    const channel = supabase
+      .channel('montagem-concluidas-rt')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'entity_store',
+          filter: `id=eq.${ENTITY_STORE_KEY}`,
+        },
+        (payload) => {
+          const dados = payload?.new?.data;
+          if (dados && typeof dados === 'object') {
+            saveConcluidasLocal(dados);
+            onUpdate?.(dados);
+          }
+        }
+      )
+      .subscribe();
+    return () => { try { supabase.removeChannel(channel); } catch { /* noop */ } };
+  } catch (e) {
+    console.warn('[montagemSync] realtime indisponível:', e.message);
+    return () => {};
+  }
+}
