@@ -6,11 +6,19 @@
 // Usa o mesmo padrão de AnimatePresence keyed do MobileLayout/ObraSelector.
 // ============================================================
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X } from 'lucide-react';
 
 export default function Sheet({ open, onClose, title, children, footer }) {
-  return (
+  // PORTAL para o body: o Sheet é renderizado dentro do conteúdo de página da
+  // MobileLayout, que vive em um motion.div com `transform` (animação de rota).
+  // Um ancestral com transform vira o CONTAINING BLOCK de filhos `position:fixed`
+  // — então `bottom-0` deixava de ser a base da viewport e passava a ser a base
+  // do conteúdo (rolável, alto), empurrando o FOOTER (botão "Marcar como
+  // montada") para fora da área visível. O portal tira o Sheet dessa árvore e
+  // o ancora na viewport real. Sem isto, nenhum ajuste de `vh/dvh` resolve.
+  const node = (
     <AnimatePresence>
       {open && (
         <motion.div
@@ -30,14 +38,13 @@ export default function Sheet({ open, onClose, title, children, footer }) {
           dragConstraints={{ top: 0, bottom: 0 }}
           dragElastic={{ top: 0, bottom: 0.4 }}
           onDragEnd={(_, info) => { if (info.offset.y > 120) onClose?.(); }}
+          // max-h-[85vh] = fallback CSS real (className) p/ browsers sem `dvh`;
+          // a inline `maxHeight` em dvh sobrepõe onde houver suporte. dvh =
+          // viewport dinâmica real do iOS Safari (desconta a barra do navegador).
           className="fixed left-0 right-0 bottom-0 z-[76] bg-slate-900 border-t border-slate-700 rounded-t-3xl flex flex-col max-h-[85vh]"
           style={{
             paddingBottom: 'max(env(safe-area-inset-bottom), 12px)',
-            // FIX iOS Safari: `vh` ignora a barra do navegador e cortava o
-            // footer (botão "Marcar como montada" invisível no celular).
-            // dvh = viewport dinâmica real; browsers antigos ignoram e usam
-            // o max-h-[85vh] do className como fallback.
-            maxHeight: 'calc(100dvh - 56px)',
+            maxHeight: 'min(85dvh, calc(100dvh - 56px))',
           }}
         >
           {/* handle */}
@@ -62,4 +69,7 @@ export default function Sheet({ open, onClose, title, children, footer }) {
       )}
     </AnimatePresence>
   );
+
+  if (typeof document === 'undefined') return node;
+  return createPortal(node, document.body);
 }
