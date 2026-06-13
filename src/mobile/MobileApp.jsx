@@ -34,6 +34,7 @@ import DashboardMobile from './pages/DashboardMobile';
 import AprovacoesMobile from './pages/AprovacoesMobile';
 import DiarioObraMobile from './pages/DiarioObraMobile';
 import PainelGlobalMobile from './pages/PainelGlobalMobile';
+import UsuariosMobile from './pages/UsuariosMobile';
 import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
@@ -205,6 +206,8 @@ function MobileRoutes() {
       <Route path="dashboard-bi" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
       <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
       <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />
+      {/* Gestão de usuários — funções (roles) e atribuições (permissões) completas */}
+      <Route path="usuarios" element={<Protected perm="usuarios.manage"><UsuariosMobile /></Protected>} />
       <Route path="notificacoes" element={<NotificacoesMobile />} />
       <Route path="perfil" element={<PerfilMobile />} />
       <Route path="config" element={<ConfiguracoesMobile />} />

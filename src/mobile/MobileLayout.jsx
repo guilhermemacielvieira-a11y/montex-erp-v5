@@ -16,7 +16,7 @@ import {
   Bell, Search, LogOut, ChevronRight, X, User,
   BarChart3, Package, Truck, FileText, Settings,
   Box, Scissors, Users, ClipboardList, Building2,
-  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler, Image,
+  Calculator, Receipt, TrendingUp, Activity, PieChart, Ruler, Image, Shield,
 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useAuth } from '@/lib/AuthContext';
@@ -87,6 +87,12 @@ const DRAWER_GROUPS = [
       { path: '/m/dashboard', icon: BarChart3, label: 'Dashboard BI', perm: 'bi.view' },
       { path: '/m/analise-producao', icon: Activity, label: 'Análise Produção', perm: 'producao.view' },
       { path: '/m/diario', icon: ClipboardList, label: 'Diário Produção', perm: 'producao.view' },
+    ],
+  },
+  {
+    title: 'Sistema',
+    items: [
+      { path: '/m/usuarios', icon: Shield, label: 'Usuários', perm: 'usuarios.manage' },
     ],
   },
 ];

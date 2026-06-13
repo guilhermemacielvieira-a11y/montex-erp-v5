@@ -15,6 +15,9 @@ import {
 } from 'lucide-react';
 import { useAuth, ROLE_LABELS, ROLE_COLORS } from '@/lib/AuthContext';
 import { supabase, getAllUserProfiles, updateUserProfile, createNewUser, toggleUserActive, resetUserPassword } from '@/api/supabaseClient';
+// Catálogo de permissões e mapa Função→permissões: FONTE ÚNICA compartilhada
+// com o painel mobile (UsuariosMobile). Não redefinir aqui — ver src/lib/permissions.js.
+import { ALL_PERMISSIONS, ROLE_PERMISSIONS_MAP, ROLE_ORDER, hasRolePerm } from '@/lib/permissions';
 
 // ============================================================
 // HELPERS
@@ -118,62 +121,10 @@ async function logAudit(action, details, currentUser) {
 // ============================================================
 // ROLES & PERMISSIONS DATA
 // ============================================================
+// ALL_PERMISSIONS, ROLE_PERMISSIONS_MAP, ROLE_ORDER e hasRolePerm vêm de
+// src/lib/permissions.js (fonte única, compartilhada com o mobile). Aqui só
+// fica o que é específico do desktop (ROLE_BADGE, EXPIRY_OPTIONS, etc.).
 
-const ALL_PERMISSIONS = [
-  { grupo: 'Dashboard', key: 'dashboard.view', label: 'Acessar o modulo' },
-  { grupo: 'Dashboard', key: 'dashboard.export', label: 'Exportar' },
-  { grupo: 'Comercial', key: 'comercial.view', label: 'Acessar o modulo' },
-  { grupo: 'Comercial', key: 'orcamentos.edit', label: 'Orcamentos — Editar' },
-  { grupo: 'Comercial', key: 'orcamentos.aprovar', label: 'Orcamentos — Aprovar' },
-  { grupo: 'Comercial', key: 'clientes.edit', label: 'Clientes — Editar' },
-  { grupo: 'Comercial', key: 'projetos.edit', label: 'Projetos — Editar' },
-  { grupo: 'Comercial', key: 'projetos.create', label: 'Projetos — Criar' },
-  { grupo: 'Suprimentos', key: 'suprimentos.view', label: 'Acessar o modulo' },
-  { grupo: 'Suprimentos', key: 'estoque.edit', label: 'Estoque — Editar' },
-  { grupo: 'Suprimentos', key: 'estoque.movimentar', label: 'Estoque — Movimentar' },
-  { grupo: 'Suprimentos', key: 'compras.edit', label: 'Compras — Editar' },
-  { grupo: 'Suprimentos', key: 'compras.aprovar', label: 'Compras — Aprovar' },
-  { grupo: 'Producao', key: 'producao.view', label: 'Acessar o modulo' },
-  { grupo: 'Producao', key: 'producao.edit', label: 'Editar' },
-  { grupo: 'Producao', key: 'producao.lancar_avanco', label: 'Lancar Avanco' },
-  { grupo: 'Producao', key: 'producao.aprovar', label: 'Aprovar' },
-  { grupo: 'Producao', key: 'equipes.edit', label: 'Equipes — Editar' },
-  { grupo: 'Producao', key: 'equipes.escalar', label: 'Equipes — Escalar' },
-  { grupo: 'Expedicao', key: 'expedicao.view', label: 'Acessar o modulo' },
-  { grupo: 'Expedicao', key: 'expedicao.edit', label: 'Editar' },
-  { grupo: 'Expedicao', key: 'expedicao.aprovar', label: 'Aprovar' },
-  { grupo: 'Obras', key: 'obras.view', label: 'Acessar o modulo' },
-  { grupo: 'Obras', key: 'obras.edit', label: 'Editar / Montagem' },
-  { grupo: 'Medicao', key: 'medicao.view', label: 'Acessar o modulo' },
-  { grupo: 'Medicao', key: 'medicao.edit', label: 'Editar' },
-  { grupo: 'Medicao', key: 'medicao.aprovar', label: 'Aprovar' },
-  { grupo: 'Financeiro', key: 'financeiro.view', label: 'Acessar o modulo' },
-  { grupo: 'Financeiro', key: 'financeiro.edit', label: 'Editar' },
-  { grupo: 'Financeiro', key: 'financeiro.aprovar', label: 'Aprovar' },
-  { grupo: 'Business Intelligence', key: 'bi.view', label: 'Acessar o modulo' },
-  { grupo: 'Command Center', key: 'command.view', label: 'Acessar o modulo (3D, dashboards 49\")' },
-  { grupo: 'Colaboracao & IA', key: 'colaboracao.view', label: 'Acessar o modulo' },
-  { grupo: 'Colaboracao & IA', key: 'relatorios.view', label: 'Relatorios — Visualizar' },
-  { grupo: 'Colaboracao & IA', key: 'relatorios.export', label: 'Relatorios — Exportar' },
-  { grupo: 'Sistema / Usuarios', key: 'usuarios.view', label: 'Usuarios — Ver lista' },
-  { grupo: 'Sistema / Usuarios', key: 'usuarios.manage', label: 'Usuarios — Gerenciar (acesso ao modulo)' },
-];
-
-const ROLE_PERMISSIONS_MAP = {
-  admin: ['*'],
-  gerente: ['dashboard.view','dashboard.export','command.view','colaboracao.view','comercial.view','orcamentos.edit','orcamentos.aprovar','clientes.edit','projetos.edit','projetos.create','suprimentos.view','estoque.edit','estoque.movimentar','compras.edit','compras.aprovar','producao.view','producao.edit','producao.lancar_avanco','producao.aprovar','equipes.edit','equipes.escalar','expedicao.view','expedicao.edit','expedicao.aprovar','obras.view','obras.edit','medicao.view','medicao.edit','medicao.aprovar','financeiro.view','financeiro.edit','bi.view','relatorios.view','relatorios.export','usuarios.view'],
-  supervisor: ['dashboard.view','command.view','colaboracao.view','producao.view','producao.edit','producao.lancar_avanco','equipes.edit','equipes.escalar','suprimentos.view','estoque.edit','estoque.movimentar','expedicao.view','expedicao.edit','obras.view','obras.edit','medicao.view','medicao.edit','relatorios.view'],
-  operador: ['dashboard.view','command.view','colaboracao.view','producao.view','producao.lancar_avanco','suprimentos.view','obras.view'],
-  financeiro: ['dashboard.view','dashboard.export','command.view','colaboracao.view','comercial.view','orcamentos.edit','clientes.edit','suprimentos.view','compras.edit','financeiro.view','financeiro.edit','financeiro.aprovar','medicao.view','medicao.edit','bi.view','relatorios.view','relatorios.export'],
-  viewer: ['dashboard.view','command.view','colaboracao.view','producao.view','obras.view','suprimentos.view','expedicao.view','medicao.view','bi.view','relatorios.view'],
-};
-
-function hasRolePerm(role, permKey) {
-  const perms = ROLE_PERMISSIONS_MAP[role] || [];
-  return perms.includes('*') || perms.includes(permKey);
-}
-
-const ROLE_ORDER = ['admin', 'gerente', 'supervisor', 'financeiro', 'operador', 'viewer'];
 const ROLE_BADGE = {
   admin: 'bg-orange-500/20 text-orange-400 border border-orange-500/30',
   gerente: 'bg-purple-500/20 text-purple-400 border border-purple-500/30',
