@@ -9,8 +9,9 @@
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
-  UserPlus, Shield, Mail, Search as SearchIcon, RefreshCw, KeyRound,
-  Power, Check, X, Eye, EyeOff, Wand2, Users, CircleSlash,
+  UserPlus, Shield, Mail, KeyRound,
+  Power, Check, Eye, EyeOff, Wand2, Users, CircleSlash,
+  Share2, Copy, Send, CheckCircle2, Link2,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
@@ -53,11 +54,67 @@ function mesmaConta(atual, u) {
     || (atual.email && u.email && atual.email.toLowerCase() === u.email.toLowerCase());
 }
 
+// ============================================================
+// LINK DE ACESSO — onboarding do usuário
+// ============================================================
+// O login (/login) aceita `?email=` e pré-preenche o campo (LoginPage). Não há
+// magic-link/token no app, então usamos o MESMO formato que o desktop já usa:
+// {origin}/login?email=... + mensagem com email e senha. A senha em texto só
+// existe no momento da criação (ou de um reset) — nunca lemos hash do banco.
+function urlAcesso(email) {
+  const origin = (typeof window !== 'undefined' && window.location?.origin) || 'https://montex-erp-v5.vercel.app';
+  return `${origin}/login?email=${encodeURIComponent(String(email || '').trim())}`;
+}
+
+function mensagemAcesso({ nome, email, senha, role }) {
+  const url = urlAcesso(email);
+  const linhas = [
+    `Olá ${nome || ''}! Seu acesso ao MONTEX ERP foi criado.`,
+    '',
+    `🔗 Acessar: ${url}`,
+    `📧 Email: ${email}`,
+  ];
+  if (senha) linhas.push(`🔑 Senha: ${senha}`);
+  if (role) linhas.push(`👤 Função: ${roleLabel(role)}`);
+  linhas.push('', 'Abra o link, entre com o email e a senha acima e comece a usar. Você pode trocar a senha depois, em Perfil → Configurações.');
+  return linhas.join('\n');
+}
+
+// Compartilha via Web Share API (nativo: WhatsApp, email, etc.); se indisponível
+// ou cancelado, copia para a área de transferência. Retorna o canal usado.
+async function compartilharAcesso({ nome, texto }) {
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      await navigator.share({ title: `Acesso MONTEX ERP — ${nome || ''}`.trim(), text: texto });
+      return 'shared';
+    } catch (e) {
+      if (e?.name === 'AbortError') return 'cancel'; // usuário fechou a folha de share
+      // outras falhas → tenta copiar
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(texto);
+    return 'copied';
+  } catch {
+    return 'fail';
+  }
+}
+
 // Permissões agrupadas por módulo (memo estático — vem do catálogo canônico).
 const GRUPOS_PERM = ALL_PERMISSIONS.reduce((acc, p) => {
   (acc[p.grupo] = acc[p.grupo] || []).push(p);
   return acc;
 }, {});
+
+// Botão de compartilhar/copiar acesso reutilizado nos dois sheets.
+async function enviarAcessoUI({ nome, email, senha, role }) {
+  const texto = mensagemAcesso({ nome, email, senha, role });
+  const canal = await compartilharAcesso({ nome, texto });
+  if (canal === 'shared') hapticSuccess();
+  if (canal === 'copied') toast.success('Dados de acesso copiados — cole onde quiser enviar');
+  else if (canal === 'fail') toast.error('Não foi possível compartilhar nem copiar');
+  return canal;
+}
 
 export default function UsuariosMobile() {
   const { user: atual, hasPermission } = useAuth() || {};
@@ -188,7 +245,9 @@ export default function UsuariosMobile() {
       <NovoUsuarioSheet
         open={sheet?.mode === 'novo'}
         onClose={() => setSheet(null)}
-        onCriado={(novo) => { setUsers(prev => [novo, ...prev]); setSheet(null); carregar(); }}
+        // NÃO fecha o sheet aqui: após criar, ele exibe o CARTÃO DE ACESSO
+        // (fase 2). Só atualiza a lista do fundo; o fechamento é via "Concluir".
+        onCriado={(novo) => { setUsers(prev => [novo, ...prev]); carregar(); }}
       />
       <EditarUsuarioSheet
         open={sheet?.mode === 'editar'}
@@ -251,10 +310,12 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
   const [verSenha, setVerSenha] = useState(false);
   const [role, setRole] = useState('operador');
   const [salvando, setSalvando] = useState(false);
+  // Após criar: guarda os dados para o cartão de acesso (fase 2 do sheet).
+  const [criado, setCriado] = useState(null); // { nome, email, senha, role }
 
   // Reseta ao abrir
   useEffect(() => {
-    if (open) { setNome(''); setEmail(''); setCargo(''); setSenha(gerarSenha()); setVerSenha(false); setRole('operador'); }
+    if (open) { setNome(''); setEmail(''); setCargo(''); setSenha(gerarSenha()); setVerSenha(false); setRole('operador'); setCriado(null); }
   }, [open]);
 
   const valido = nome.trim() && emailValido(email) && senha.length >= 6 && role;
@@ -267,6 +328,9 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
       hapticSuccess();
       toast.success(`${nome.trim()} criado como ${roleLabel(role)}`);
       onCriado?.(novo || { id: `tmp-${Date.now()}`, nome: nome.trim(), email: email.trim(), role, ativo: true });
+      // Vai para a fase do cartão de acesso (NÃO fecha) — é o único momento com
+      // a senha em texto para entregar ao usuário.
+      setCriado({ nome: nome.trim(), email: email.trim(), senha, role });
     } catch (e) {
       toast.error(e.message || 'Erro ao criar usuário');
     } finally {
@@ -274,6 +338,36 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
     }
   };
 
+  // FASE 2: cartão de acesso (compartilhar/copiar)
+  if (criado) {
+    return (
+      <Sheet
+        open={open}
+        onClose={onClose}
+        title="Acesso criado"
+        footer={
+          <div className="space-y-2">
+            <button
+              onClick={() => enviarAcessoUI(criado)}
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition bg-emerald-500 text-slate-950"
+            >
+              <Share2 className="w-5 h-5" /> Enviar acesso ao usuário
+            </button>
+            <button
+              onClick={onClose}
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-[.99] transition bg-slate-800 text-slate-300 border border-slate-700"
+            >
+              Concluir
+            </button>
+          </div>
+        }
+      >
+        <CartaoAcesso dados={criado} />
+      </Sheet>
+    );
+  }
+
+  // FASE 1: formulário
   return (
     <Sheet
       open={open}
@@ -392,14 +486,20 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
     }
   };
 
-  const redefinirSenha = async () => {
+  // Redefine a senha. Se `enviar`, compartilha o cartão de acesso com a NOVA
+  // senha em seguida (é o único momento com a senha em texto).
+  const redefinirSenha = async (enviar = false) => {
     if (novaSenha.length < 6) { toast.error('Senha precisa de ao menos 6 caracteres'); return; }
     if (!user.auth_id) { toast.error('Usuário sem auth_id — não é possível redefinir'); return; }
     setResetando(true);
     try {
       await resetUserPassword(user.auth_id, novaSenha);
       hapticSuccess();
-      toast.success('Senha redefinida');
+      if (enviar) {
+        await enviarAcessoUI({ nome: user.nome, email: user.email, senha: novaSenha, role });
+      } else {
+        toast.success('Senha redefinida');
+      }
       setNovaSenha(''); setVerSenha(false);
     } catch (e) {
       toast.error(e.message || 'Erro ao redefinir senha');
@@ -407,6 +507,10 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
       setResetando(false);
     }
   };
+
+  // Compartilha só o link + email + função (sem senha) — quando o usuário já
+  // tem a senha. Para enviar senha, use "Redefinir e enviar".
+  const enviarSoLink = () => enviarAcessoUI({ nome: user.nome, email: user.email, role });
 
   return (
     <Sheet
@@ -506,6 +610,18 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
 
         {podeGerenciar && (
           <>
+            {/* Acesso do usuário — compartilhar link de entrada */}
+            <Campo label="Acesso ao ERP">
+              <button
+                type="button"
+                onClick={enviarSoLink}
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm active:scale-[.99] transition"
+              >
+                <Share2 className="w-4 h-4 text-amber-400" /> Enviar link de acesso
+              </button>
+              <p className="text-[11px] text-slate-500 mt-1.5">Envia o link + email. Para incluir uma nova senha, use “Redefinir e enviar” abaixo.</p>
+            </Campo>
+
             {/* Redefinir senha */}
             <Campo label="Redefinir senha">
               <div className="flex items-center gap-2">
@@ -521,9 +637,15 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
                   className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-amber-400 active:scale-95 transition">
                   <Wand2 className="w-4 h-4" />
                 </button>
-                <button type="button" onClick={redefinirSenha} disabled={resetando || novaSenha.length < 6} aria-label="Aplicar nova senha"
-                  className="px-3 h-11 flex items-center justify-center gap-1.5 rounded-xl bg-amber-500/20 text-amber-300 font-bold text-xs active:scale-95 transition disabled:opacity-40">
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <button type="button" onClick={() => redefinirSenha(false)} disabled={resetando || novaSenha.length < 6}
+                  className="flex-1 h-10 flex items-center justify-center gap-1.5 rounded-xl bg-amber-500/20 text-amber-300 font-bold text-xs active:scale-95 transition disabled:opacity-40">
                   <KeyRound className="w-4 h-4" /> {resetando ? '…' : 'Aplicar'}
+                </button>
+                <button type="button" onClick={() => redefinirSenha(true)} disabled={resetando || novaSenha.length < 6}
+                  className="flex-1 h-10 flex items-center justify-center gap-1.5 rounded-xl bg-emerald-500/20 text-emerald-300 font-bold text-xs active:scale-95 transition disabled:opacity-40">
+                  <Send className="w-4 h-4" /> {resetando ? '…' : 'Redefinir e enviar'}
                 </button>
               </div>
             </Campo>
@@ -541,6 +663,55 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
         )}
       </div>
     </Sheet>
+  );
+}
+
+// ============================================================
+// CARTÃO DE ACESSO (mostrado após criar usuário)
+// ============================================================
+function CartaoAcesso({ dados }) {
+  const url = urlAcesso(dados.email);
+  const copiar = async (txt, label) => {
+    try { await navigator.clipboard.writeText(txt); toast.success(`${label} copiado`); }
+    catch { toast.error('Não foi possível copiar'); }
+  };
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 text-emerald-300">
+        <CheckCircle2 className="w-5 h-5" />
+        <span className="text-sm font-bold">Usuário criado com sucesso</span>
+      </div>
+      <p className="text-[12px] text-slate-400 leading-relaxed">
+        Envie estes dados para o usuário. A senha aparece <strong>só agora</strong> —
+        depois não é mais possível visualizá-la (apenas redefinir).
+      </p>
+      <CopyRow icon={Link2} label="Link de acesso" valor={url} onCopy={() => copiar(url, 'Link')} mono />
+      <CopyRow icon={Mail} label="Email" valor={dados.email} onCopy={() => copiar(dados.email, 'Email')} />
+      <CopyRow icon={KeyRound} label="Senha inicial" valor={dados.senha} onCopy={() => copiar(dados.senha, 'Senha')} mono />
+      <div className="flex items-center gap-2 bg-slate-800/60 rounded-xl px-3 py-2">
+        <Shield className="w-4 h-4 text-amber-400 flex-shrink-0" />
+        <span className="text-[12px] text-slate-300">Função: <strong>{roleLabel(dados.role)}</strong></span>
+      </div>
+    </div>
+  );
+}
+
+function CopyRow({ icon: Icon, label, valor, onCopy, mono }) {
+  return (
+    <div>
+      <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold mb-1 flex items-center gap-1.5">
+        {Icon && <Icon className="w-3 h-3" />} {label}
+      </div>
+      <div className="flex items-center gap-2">
+        <div className={`flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm truncate ${mono ? 'font-mono' : ''}`}>
+          {valor}
+        </div>
+        <button type="button" onClick={onCopy} aria-label={`Copiar ${label}`}
+          className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-amber-400 active:scale-95 transition flex-shrink-0">
+          <Copy className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
   );
 }
 
