@@ -6,9 +6,10 @@ import { Link } from 'react-router-dom';
 import {
   Box, Truck, Package, Scissors, ClipboardList, Building2,
   Users, Calculator, FileText, BarChart3, Activity, PieChart,
-  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2, Landmark,
+  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2, Landmark, Shield,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
+import { useAuth } from '@/lib/AuthContext';
 
 const MODULOS = [
   { group: 'Operação', items: [
@@ -45,6 +46,9 @@ const MODULOS = [
     { to: '/m/relatorios', icon: FileText, label: 'Relatórios', cor: 'blue' },
   ]},
   { group: 'Sistema', items: [
+    // `perm` opcional: itens sensíveis só aparecem p/ quem tem a permissão.
+    // Itens sem `perm` continuam visíveis a todos (comportamento anterior).
+    { to: '/m/usuarios', icon: Shield, label: 'Usuários', cor: 'amber', perm: 'usuarios.manage' },
     { to: '/m/notificacoes', icon: Bell, label: 'Notificações', cor: 'amber' },
     { to: '/m/perfil', icon: User, label: 'Perfil', cor: 'slate' },
     { to: '/m/config', icon: Settings, label: 'Configurações', cor: 'slate' },
@@ -63,9 +67,16 @@ const CORES = {
 };
 
 export default function MaisMobile() {
+  const { hasPermission } = useAuth() || {};
+  // Filtra itens por permissão (item sem `perm` é sempre visível) e remove
+  // grupos que ficaram vazios após o filtro.
+  const grupos = MODULOS
+    .map(grp => ({ ...grp, items: grp.items.filter(it => !it.perm || !hasPermission || hasPermission(it.perm)) }))
+    .filter(grp => grp.items.length > 0);
+
   return (
     <MobileLayout title="Mais">
-      {MODULOS.map(grp => (
+      {grupos.map(grp => (
         <div key={grp.group} className="px-4 pt-4">
           <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{grp.group}</div>
           <div className="grid grid-cols-3 gap-2.5">
