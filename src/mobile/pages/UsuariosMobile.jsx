@@ -25,7 +25,7 @@ import {
 } from '@/api/supabaseClient';
 import {
   ALL_PERMISSIONS, ROLE_ORDER, ROLE_META, ROLE_BADGE,
-  ROLE_PERMISSIONS_MAP, effectivePerms, roleLabel,
+  ROLE_PERMISSIONS_MAP, roleLabel,
 } from '@/lib/permissions';
 import { toast } from 'react-hot-toast';
 
@@ -105,6 +105,40 @@ const GRUPOS_PERM = ALL_PERMISSIONS.reduce((acc, p) => {
   (acc[p.grupo] = acc[p.grupo] || []).push(p);
   return acc;
 }, {});
+
+// Preset de módulos de uma FUNÇÃO (sem o curinga '*'). Serve só para PRÉ-MARCAR
+// a matriz — o que vale para o acesso é a seleção final salva em `permissoes`.
+// Modelo: o usuário vê/edita SOMENTE os módulos marcados; a função não inclui
+// nada além do que está visível/marcado (hasPermission usa só `permissoes`
+// quando ela é não-vazia).
+const presetFuncao = (role) => (ROLE_PERMISSIONS_MAP[role] || []).filter(p => p !== '*');
+
+// Matriz de módulos (checkboxes por grupo) reutilizada em criar e editar.
+function MatrizPermissoes({ perms, onToggle, disabled }) {
+  return (
+    <div className="space-y-3 mt-2">
+      {Object.entries(GRUPOS_PERM).map(([grupo, itens]) => {
+        const marcados = itens.filter(p => perms.includes(p.key)).length;
+        return (
+          <div key={grupo} className="bg-slate-800/40 rounded-xl p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">{grupo}</div>
+              <span className={`text-[10px] font-bold ${marcados ? 'text-amber-400' : 'text-slate-600'}`}>{marcados}/{itens.length}</span>
+            </div>
+            <div className="space-y-1.5">
+              {itens.map(p => (
+                <label key={p.key} className="flex items-center gap-2.5 py-1 active:opacity-70">
+                  <CheckBox checked={perms.includes(p.key)} disabled={disabled} onChange={() => onToggle(p.key)} />
+                  <span className="text-[13px] text-slate-200 flex-1">{p.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 // Botão de compartilhar/copiar acesso reutilizado nos dois sheets.
 async function enviarAcessoUI({ nome, email, senha, role }) {
@@ -309,25 +343,37 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
   const [senha, setSenha] = useState('');
   const [verSenha, setVerSenha] = useState(false);
   const [role, setRole] = useState('operador');
+  // Módulos liberados (array de keys). A função só PRÉ-MARCA; o acesso é o que
+  // estiver marcado aqui — o usuário vê/edita SOMENTE estes módulos.
+  const [perms, setPerms] = useState(() => presetFuncao('operador'));
   const [salvando, setSalvando] = useState(false);
   // Após criar: guarda os dados para o cartão de acesso (fase 2 do sheet).
   const [criado, setCriado] = useState(null); // { nome, email, senha, role }
 
   // Reseta ao abrir
   useEffect(() => {
-    if (open) { setNome(''); setEmail(''); setCargo(''); setSenha(gerarSenha()); setVerSenha(false); setRole('operador'); setCriado(null); }
+    if (open) { setNome(''); setEmail(''); setCargo(''); setSenha(gerarSenha()); setVerSenha(false); setRole('operador'); setPerms(presetFuncao('operador')); setCriado(null); }
   }, [open]);
 
-  const valido = nome.trim() && emailValido(email) && senha.length >= 6 && role;
+  // Trocar a função RE-APLICA o preset dela na matriz (a função é um atalho de
+  // seleção). O admin pode ajustar manualmente depois.
+  const escolherRole = (r) => { setRole(r); setPerms(r === 'admin' ? [] : presetFuncao(r)); };
+  const togglePerm = (key) => setPerms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+
+  const ehAdmin = role === 'admin';
+  // Admin = acesso total (permissoes vazio → herda '*' do role). Demais funções
+  // gravam a SELEÇÃO explícita de módulos (sem '*').
+  const permissoesSalvar = ehAdmin ? [] : perms.filter(p => p !== '*');
+  const valido = nome.trim() && emailValido(email) && senha.length >= 6 && role && (ehAdmin || permissoesSalvar.length > 0);
 
   const criar = async () => {
     if (!valido || salvando) return;
     setSalvando(true);
     try {
-      const novo = await createNewUser({ email: email.trim(), password: senha, nome: nome.trim(), role, cargo: cargo.trim() || null });
+      const novo = await createNewUser({ email: email.trim(), password: senha, nome: nome.trim(), role, cargo: cargo.trim() || null, permissoes: permissoesSalvar });
       hapticSuccess();
-      toast.success(`${nome.trim()} criado como ${roleLabel(role)}`);
-      onCriado?.(novo || { id: `tmp-${Date.now()}`, nome: nome.trim(), email: email.trim(), role, ativo: true });
+      toast.success(`${nome.trim()} criado — ${ehAdmin ? 'acesso total' : `${permissoesSalvar.length} permissõe(s)`}`);
+      onCriado?.(novo || { id: `tmp-${Date.now()}`, nome: nome.trim(), email: email.trim(), role, permissoes: permissoesSalvar, ativo: true });
       // Vai para a fase do cartão de acesso (NÃO fecha) — é o único momento com
       // a senha em texto para entregar ao usuário.
       setCriado({ nome: nome.trim(), email: email.trim(), senha, role });
@@ -413,9 +459,31 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
             </button>
           </div>
         </Campo>
-        <Campo label="Função">
-          <RoleSelector value={role} onChange={setRole} />
+        <Campo label="Função (preset de módulos)">
+          <RoleSelector value={role} onChange={escolherRole} />
         </Campo>
+
+        {/* Módulos liberados — a SELEÇÃO é o que vale para o acesso */}
+        <div>
+          <div className="text-[13px] font-bold text-slate-200 flex items-center gap-1.5 mb-1">
+            <Shield className="w-3.5 h-3.5 text-amber-400" /> Módulos liberados
+          </div>
+          {ehAdmin ? (
+            <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2.5 text-[12px] text-orange-300">
+              Administrador tem acesso total a todos os módulos.
+            </div>
+          ) : (
+            <>
+              <p className="text-[11px] text-slate-400 mb-1">
+                O usuário verá e editará <strong>somente</strong> os módulos marcados. A função acima apenas pré-seleciona — ajuste à vontade.
+              </p>
+              <MatrizPermissoes perms={perms} onToggle={togglePerm} />
+              {permissoesSalvar.length === 0 && (
+                <div className="text-[11px] text-amber-400/90 mt-1">Marque ao menos um módulo para liberar o acesso.</div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </Sheet>
   );
@@ -426,20 +494,19 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
 // ============================================================
 function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatch }) {
   const [role, setRole] = useState('viewer');
-  const [custom, setCustom] = useState(false);     // usar permissões personalizadas?
-  const [perms, setPerms] = useState([]);          // array de keys quando custom
+  const [perms, setPerms] = useState([]);          // módulos liberados (fonte do acesso)
   const [novaSenha, setNovaSenha] = useState('');
   const [verSenha, setVerSenha] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [resetando, setResetando] = useState(false);
 
-  // Hidrata do usuário ao abrir
+  // Hidrata do usuário ao abrir: usa as permissões já gravadas; se não houver
+  // (usuário legado herdando da função), pré-marca pelo preset da função atual.
   useEffect(() => {
     if (open && user) {
       setRole(user.role || 'viewer');
       const temCustom = Array.isArray(user.permissoes) && user.permissoes.length > 0;
-      setCustom(temCustom);
-      setPerms(temCustom ? [...user.permissoes] : [...(ROLE_PERMISSIONS_MAP[user.role] || [])]);
+      setPerms(temCustom ? [...user.permissoes].filter(p => p !== '*') : presetFuncao(user.role));
       setNovaSenha(''); setVerSenha(false);
     }
   }, [open, user]);
@@ -447,18 +514,23 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
   if (!user) return <Sheet open={open} onClose={onClose} title="" />;
 
   const inativo = user.ativo === false;
-  const ehAdminCustom = role === 'admin';
+  const ehAdmin = role === 'admin';
 
+  // Trocar a função re-aplica o preset dela (atalho de seleção); admin = total.
+  const escolherRole = (r) => { setRole(r); setPerms(r === 'admin' ? [] : presetFuncao(r)); };
   const togglePerm = (key) => {
     setPerms(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
+  const permissoesSalvar = ehAdmin ? [] : perms.filter(p => p !== '*');
 
   const salvar = async () => {
     if (salvando) return;
+    if (!ehAdmin && permissoesSalvar.length === 0) { toast.error('Marque ao menos um módulo'); return; }
     setSalvando(true);
     try {
-      // permissoes: [] (vazio) = volta a herdar da função; array = override
-      const permissoes = custom ? perms.filter(p => p !== '*') : [];
+      // Acesso = SELEÇÃO explícita de módulos (não herda da função). Admin fica
+      // com [] e herda o '*' do role admin no hasPermission.
+      const permissoes = permissoesSalvar;
       const updates = { role, permissoes };
       const prof = await updateUserProfile(user.id, updates);
       hapticSuccess();
@@ -549,62 +621,37 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
           </div>
         )}
 
-        {/* Função */}
-        <Campo label="Função">
-          <RoleSelector value={role} onChange={setRole} disabled={!podeGerenciar} />
+        {/* Função (preset de módulos) */}
+        <Campo label="Função (preset de módulos)">
+          <RoleSelector value={role} onChange={escolherRole} disabled={!podeGerenciar} />
         </Campo>
 
-        {/* Permissões personalizadas */}
+        {/* Módulos liberados — SELEÇÃO é o acesso real (não herda da função) */}
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-1.5">
             <div>
-              <div className="text-[13px] font-bold text-slate-200 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-amber-400" /> Permissões</div>
+              <div className="text-[13px] font-bold text-slate-200 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-amber-400" /> Módulos liberados</div>
               <div className="text-[11px] text-slate-400">
-                {custom ? 'Personalizadas (sobrepõem a função)' : `Herdadas da função ${roleLabel(role)}`}
+                {ehAdmin ? 'Acesso total' : `O usuário vê/edita somente o marcado · ${permissoesSalvar.length} ativo(s)`}
               </div>
             </div>
-            <Switch
-              checked={custom}
-              disabled={!podeGerenciar || ehAdminCustom}
-              onChange={(v) => {
-                setCustom(v);
-                if (v) setPerms([...(ROLE_PERMISSIONS_MAP[role] || [])].filter(p => p !== '*'));
-              }}
-            />
+            {!ehAdmin && podeGerenciar && (
+              <button
+                type="button"
+                onClick={() => setPerms(presetFuncao(role))}
+                className="text-[11px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
+              >
+                Preset {roleLabel(role)}
+              </button>
+            )}
           </div>
 
-          {ehAdminCustom && (
+          {ehAdmin ? (
             <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2 text-[11px] text-orange-300">
               Administrador tem acesso total — a matriz de permissões não se aplica.
             </div>
-          )}
-
-          {custom && !ehAdminCustom && (
-            <div className="space-y-3 mt-2">
-              {Object.entries(GRUPOS_PERM).map(([grupo, itens]) => (
-                <div key={grupo} className="bg-slate-800/40 rounded-xl p-3">
-                  <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold mb-2">{grupo}</div>
-                  <div className="space-y-1.5">
-                    {itens.map(p => (
-                      <label key={p.key} className="flex items-center gap-2.5 py-1 active:opacity-70">
-                        <CheckBox checked={perms.includes(p.key)} disabled={!podeGerenciar} onChange={() => togglePerm(p.key)} />
-                        <span className="text-[13px] text-slate-200 flex-1">{p.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {!custom && (
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {(ROLE_PERMISSIONS_MAP[role] || []).slice(0, 40).map(k => (
-                <span key={k} className="text-[10px] font-mono text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
-                  {k === '*' ? 'TODAS' : k}
-                </span>
-              ))}
-            </div>
+          ) : (
+            <MatrizPermissoes perms={perms} onToggle={togglePerm} disabled={!podeGerenciar} />
           )}
         </div>
 
@@ -774,21 +821,6 @@ function RoleSelector({ value, onChange, disabled }) {
         );
       })}
     </div>
-  );
-}
-
-function Switch({ checked, onChange, disabled }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      disabled={disabled}
-      onClick={() => !disabled && onChange(!checked)}
-      className={`relative w-11 h-6 rounded-full transition flex-shrink-0 ${checked ? 'bg-amber-500' : 'bg-slate-700'} ${disabled ? 'opacity-50' : ''}`}
-    >
-      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${checked ? 'translate-x-5' : ''}`} />
-    </button>
   );
 }
 

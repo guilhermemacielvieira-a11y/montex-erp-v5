@@ -352,7 +352,9 @@ function PermissoesUsuarioModal({ user, onClose, onSaved, toast, currentUser }) 
 function NovoUsuarioModal({ open, onClose, onSave, toast }) {
   const [form, setForm] = useState({ nome: '', email: '', senha: '', role: 'operador', cargo: '', permissoes: defaultPermsForRole('operador') });
   const [loading, setLoading] = useState(false);
-  const [showPerms, setShowPerms] = useState(false);
+  // Matriz de módulos ABERTA por padrão: o acesso é definido pela SELEÇÃO de
+  // módulos (a função só pré-marca). Modelo igual ao painel mobile.
+  const [showPerms, setShowPerms] = useState(true);
   const setRole = (r) => setForm(p => ({ ...p, role: r, permissoes: defaultPermsForRole(r) }));
   const [errors, setErrors] = useState({});
 
@@ -396,16 +398,16 @@ function NovoUsuarioModal({ open, onClose, onSave, toast }) {
         </button>
       </div>
       <InputField label="Cargo / Função" value={form.cargo} onChange={setF('cargo')} placeholder="Ex: Operador de Produção"/>
-      <SelectField label="Perfil de Acesso (base)" value={form.role} onChange={setRole} required
+      <SelectField label="Fun\u00e7\u00e3o (preset de m\u00f3dulos)" value={form.role} onChange={setRole} required
         options={ROLE_ORDER.map(r => ({ value: r, label: ROLE_LABELS[r] }))}/>
       <div className="mb-4">
         <button type="button" onClick={() => setShowPerms(v => !v)} className="w-full flex items-center justify-between px-3 py-2.5 rounded-lg border border-slate-600 bg-slate-800/60 text-sm text-slate-200 hover:bg-slate-800 transition-all">
-          <span>Permissoes customizadas</span>
-          <span className="text-xs text-orange-400">{form.role === 'admin' ? 'acesso total' : `${form.permissoes.length} ativas`} {showPerms ? '\u25be' : '\u25b8'}</span>
+          <span>M\u00f3dulos liberados</span>
+          <span className="text-xs text-orange-400">{form.role === 'admin' ? 'acesso total' : `${form.permissoes.filter(p => p !== '*').length} liberados`} {showPerms ? '\u25be' : '\u25b8'}</span>
         </button>
         {showPerms && (
           <div className="mt-2">
-            <p className="text-[11px] text-slate-500 mb-2">Pre-marcadas pelo papel "{ROLE_LABELS[form.role]}". Marque/desmarque o que este usuario pode fazer.</p>
+            <p className="text-[11px] text-slate-500 mb-2">O usu\u00e1rio v\u00ea/edita <b>somente</b> os m\u00f3dulos marcados. A fun\u00e7\u00e3o "{ROLE_LABELS[form.role]}" apenas pr\u00e9-seleciona \u2014 ajuste \u00e0 vontade.</p>
             <PermissoesChecklist value={form.permissoes} onChange={v => setF('permissoes')(v)}/>
           </div>
         )}
@@ -424,19 +426,35 @@ function NovoUsuarioModal({ open, onClose, onSave, toast }) {
 // MODAL: EDITAR USUÁRIO
 // ============================================================
 function EditarUsuarioModal({ open, onClose, user, onSave, toast }) {
-  const [form, setForm] = useState({ nome: '', cargo: '', role: 'operador', obra_padrao: '' });
+  const [form, setForm] = useState({ nome: '', cargo: '', role: 'operador', obra_padrao: '', permissoes: [] });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (user) setForm({ nome: user.nome || '', cargo: user.cargo || '', role: user.role || 'operador', obra_padrao: user.obra_padrao || '' });
+    if (user) {
+      const temCustom = Array.isArray(user.permissoes) && user.permissoes.length > 0;
+      setForm({
+        nome: user.nome || '', cargo: user.cargo || '', role: user.role || 'operador',
+        obra_padrao: user.obra_padrao || '',
+        // Usa a seleção já gravada; usuário legado (sem permissoes) cai no preset
+        // da função, que o admin pode ajustar e salvar explícito.
+        permissoes: temCustom ? user.permissoes.filter(p => p !== '*') : defaultPermsForRole(user.role || 'operador').filter(p => p !== '*'),
+      });
+    }
   }, [user]);
 
   const setF = k => v => setForm(p => ({ ...p, [k]: v }));
+  // Trocar a função RE-APLICA o preset (atalho de seleção); admin = acesso total.
+  const setRole = (r) => setForm(p => ({ ...p, role: r, permissoes: r === 'admin' ? [] : defaultPermsForRole(r).filter(x => x !== '*') }));
+  const ehAdmin = form.role === 'admin';
 
   const handleSave = async () => {
+    if (!ehAdmin && form.permissoes.filter(p => p !== '*').length === 0) { toast('Marque ao menos um módulo', 'error'); return; }
     setLoading(true);
     try {
-      await onSave(user.id, form);
+      // Acesso = SELEÇÃO de módulos (não herda da função). Admin fica [] e herda
+      // o '*' do papel no hasPermission.
+      const permissoes = ehAdmin ? [] : form.permissoes.filter(p => p !== '*');
+      await onSave(user.id, { nome: form.nome, cargo: form.cargo, role: form.role, obra_padrao: form.obra_padrao, permissoes });
       onClose();
     } catch (err) {
       toast(err.message || 'Erro ao salvar', 'error');
@@ -452,8 +470,19 @@ function EditarUsuarioModal({ open, onClose, user, onSave, toast }) {
       </div>
       <InputField label="Nome Completo" value={form.nome} onChange={setF('nome')} placeholder="Nome completo"/>
       <InputField label="Cargo / Função" value={form.cargo} onChange={setF('cargo')} placeholder="Ex: Supervisor de Produção"/>
-      <SelectField label="Perfil de Acesso" value={form.role} onChange={setF('role')}
+      <SelectField label="Função (preset de módulos)" value={form.role} onChange={setRole}
         options={ROLE_ORDER.map(r => ({ value: r, label: ROLE_LABELS[r] }))}/>
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-slate-300 mb-1.5">Módulos liberados</label>
+        {ehAdmin ? (
+          <div className="text-xs text-orange-300 bg-orange-500/10 border border-orange-500/30 rounded-lg p-3">Administrador — acesso total a todos os módulos.</div>
+        ) : (
+          <>
+            <p className="text-[11px] text-slate-500 mb-2">O usuário vê/edita <b>somente</b> os módulos marcados. A função apenas pré-seleciona.</p>
+            <PermissoesChecklist value={form.permissoes} onChange={v => setF('permissoes')(v)}/>
+          </>
+        )}
+      </div>
       <div className="flex gap-3 mt-2">
         <button onClick={onClose} className="flex-1 py-2.5 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-800 text-sm transition-all">Cancelar</button>
         <button onClick={handleSave} disabled={loading} className="flex-1 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-semibold text-sm transition-all disabled:opacity-50">
@@ -484,15 +513,20 @@ function TabUsuarios({ users, loading, onRefresh, toast, currentUser }) {
   });
 
   const handleCreate = async (form) => {
+    // Acesso por MÓDULOS SELECIONADOS: admin = acesso total (permissoes []→'*'
+    // via papel); demais funções gravam a SELEÇÃO explícita de módulos.
     // FIX: a Edge Function espera `password` (o form usa `senha`).
-    const profile = await createNewUser({ email: form.email, password: form.senha, nome: form.nome, role: form.role, cargo: form.cargo });
-    // Permissoes customizadas por usuario (admin = acesso total via papel, nao grava).
-    const perms = Array.isArray(form.permissoes) ? form.permissoes : null;
-    if (perms && !perms.includes('*')) {
-      try { await updateUserProfile(profile.id, { permissoes: perms }); }
-      catch (e) { toast('Usuario criado, mas as permissoes nao salvaram (rode a migracao da coluna permissoes). ' + (e.message || ''), 'error'); }
+    const perms = form.role === 'admin'
+      ? []
+      : (Array.isArray(form.permissoes) ? form.permissoes.filter(p => p !== '*') : []);
+    // createNewUser persiste `permissoes` (insert na Edge Function nova; update
+    // de garantia se a função estiver antiga) — sem depender de redeploy.
+    const profile = await createNewUser({ email: form.email, password: form.senha, nome: form.nome, role: form.role, cargo: form.cargo, permissoes: perms });
+    const okPerms = profile && (form.role === 'admin' || (Array.isArray(profile.permissoes) && profile.permissoes.length === perms.length));
+    if (!okPerms && form.role !== 'admin') {
+      toast('Usuário criado, mas as permissões podem não ter salvado (verifique a coluna permissoes).', 'error');
     }
-    await logAudit('create_user', `Usuario criado: ${form.email} (${form.role}, ${perms && !perms.includes('*') ? perms.length + ' perms' : 'papel'})`, currentUser);
+    await logAudit('create_user', `Usuario criado: ${form.email} (${form.role}, ${form.role === 'admin' ? 'acesso total' : perms.length + ' modulos'})`, currentUser);
     const link = `${window.location.origin}/login?email=${encodeURIComponent(form.email)}`;
     setCriado({ nome: form.nome, email: form.email, senha: form.senha, role: form.role, link });
     toast(`Usuario ${form.nome} criado!`, 'success');
@@ -832,7 +866,7 @@ function TabPermissoes({ users, onRefresh, toast, currentUser }) {
               </tbody>
             </table>
           </div>
-          <p className="text-xs text-slate-600 mt-3 text-center">* Permissões definidas por perfil. Para personalizar, altere o perfil do usuário.</p>
+          <p className="text-xs text-slate-600 mt-3 text-center">* Esta matriz é o <b>preset</b> de cada função. O acesso real de cada usuário são os <b>módulos selecionados</b> no cadastro dele (aba Usuários ou "Permissões" por usuário) — a função não inclui módulos além do marcado.</p>
         </div>
       )}
 

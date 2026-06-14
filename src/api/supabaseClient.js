@@ -362,8 +362,21 @@ export async function updateUserProfile(id, updates) {
   return profile;
 }
 
-export async function createNewUser({ email, password, nome, role, cargo }) {
-  const { profile } = await invokeAdminFunction('create_user', { email, password, nome, role, cargo });
+export async function createNewUser({ email, password, nome, role, cargo, permissoes }) {
+  const { profile } = await invokeAdminFunction('create_user', { email, password, nome, role, cargo, permissoes });
+  // Acesso por MÓDULOS SELECIONADOS: grava `permissoes` explícito. A Edge
+  // Function nova já insere no create_user; se estiver numa versão antiga
+  // (ignora o campo), garantimos via update — sem depender de redeploy.
+  if (profile && Array.isArray(permissoes) && permissoes.length > 0) {
+    const atuais = Array.isArray(profile.permissoes) ? profile.permissoes : [];
+    const igual = atuais.length === permissoes.length && permissoes.every(p => atuais.includes(p));
+    if (!igual) {
+      try {
+        const atualizado = await updateUserProfile(profile.id, { permissoes });
+        return atualizado || profile;
+      } catch (_) { /* mantém o profile base se o update falhar */ }
+    }
+  }
   return profile;
 }
 

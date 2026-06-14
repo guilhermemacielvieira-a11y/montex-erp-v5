@@ -13,41 +13,40 @@ import { useAuth } from '@/lib/AuthContext';
 
 const MODULOS = [
   { group: 'Operação', items: [
-    { to: '/m/diario-obra', icon: ClipboardList, label: 'Diário de Obra', cor: 'emerald' },
-    { to: '/m/3d', icon: Box, label: 'Visualizador 3D', cor: 'amber' },
-    { to: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção', cor: 'blue' },
-    { to: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', cor: 'purple' },
-    { to: '/m/expedicao', icon: Truck, label: 'Expedição', cor: 'green' },
-    { to: '/m/estoque', icon: Package, label: 'Estoque', cor: 'cyan' },
+    { to: '/m/diario-obra', icon: ClipboardList, label: 'Diário de Obra', cor: 'emerald', perm: 'producao.lancar_avanco' },
+    { to: '/m/3d', icon: Box, label: 'Visualizador 3D', cor: 'amber', perm: ['viewer3d.view', 'producao.view'] },
+    { to: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção', cor: 'blue', perm: 'kanban.view' },
+    { to: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', cor: 'purple', perm: 'kanban.view' },
+    { to: '/m/expedicao', icon: Truck, label: 'Expedição', cor: 'green', perm: 'expedicao.view' },
+    { to: '/m/estoque', icon: Package, label: 'Estoque', cor: 'cyan', perm: 'estoque.view' },
   ]},
   { group: 'Gestão', items: [
-    { to: '/m/aprovacoes', icon: CheckCircle2, label: 'Aprovações', cor: 'emerald' },
-    { to: '/m/obras', icon: Building2, label: 'Obras', cor: 'amber' },
-    { to: '/m/clientes', icon: User, label: 'Clientes', cor: 'blue' },
-    { to: '/m/equipes', icon: Users, label: 'Equipes', cor: 'purple' },
-    { to: '/m/orcamentos', icon: Calculator, label: 'Orçamentos', cor: 'green' },
+    // Array de perm = OR: visível se tiver qualquer uma das permissões listadas
+    { to: '/m/aprovacoes', icon: CheckCircle2, label: 'Aprovações', cor: 'emerald', perm: ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'] },
+    { to: '/m/obras', icon: Building2, label: 'Obras', cor: 'amber', perm: ['obras.view', 'projetos.view'] },
+    { to: '/m/clientes', icon: User, label: 'Clientes', cor: 'blue', perm: 'clientes.view' },
+    { to: '/m/equipes', icon: Users, label: 'Equipes', cor: 'purple', perm: 'equipes.view' },
+    { to: '/m/orcamentos', icon: Calculator, label: 'Orçamentos', cor: 'green', perm: 'orcamentos.view' },
   ]},
   // Financeiro GERAL (empresa) ≠ financeiro de OBRA — módulos separados
   { group: 'Financeiro · Empresa', items: [
-    { to: '/m/painel-global', icon: Landmark, label: 'Painel Global', cor: 'emerald' },
-    { to: '/m/dre', icon: PieChart, label: 'DRE', cor: 'amber' },
-    { to: '/m/receitas', icon: TrendingUp, label: 'Receitas', cor: 'emerald' },
-    { to: '/m/despesas', icon: Receipt, label: 'Despesas', cor: 'red' },
+    { to: '/m/painel-global', icon: Landmark, label: 'Painel Global', cor: 'emerald', perm: 'financeiro.view' },
+    { to: '/m/dre', icon: PieChart, label: 'DRE', cor: 'amber', perm: 'financeiro.view' },
+    { to: '/m/receitas', icon: TrendingUp, label: 'Receitas', cor: 'emerald', perm: 'financeiro.view' },
+    { to: '/m/despesas', icon: Receipt, label: 'Despesas', cor: 'red', perm: 'financeiro.view' },
   ]},
   { group: 'Financeiro · Obra', items: [
-    { to: '/m/financeiro', icon: Wallet, label: 'Financeiro da Obra', cor: 'blue' },
-    { to: '/m/obras-gfo', icon: Wallet, label: 'GFO (desktop)', cor: 'blue' },
+    { to: '/m/financeiro', icon: Wallet, label: 'Financeiro da Obra', cor: 'blue', perm: 'financeiro.view' },
+    { to: '/m/obras-gfo', icon: Wallet, label: 'GFO (desktop)', cor: 'blue', perm: 'financeiro.view' },
   ]},
   { group: 'Analytics', items: [
-    { to: '/m/dashboard', icon: BarChart3, label: 'Dashboard', cor: 'purple' },
-    { to: '/m/analise-producao', icon: Activity, label: 'Análise Produção', cor: 'amber' },
-    { to: '/m/diario', icon: ClipboardList, label: 'Diário Produção', cor: 'cyan' },
-    { to: '/m/dashboard-bi', icon: PieChart, label: 'Dashboard BI', cor: 'green' },
-    { to: '/m/relatorios', icon: FileText, label: 'Relatórios', cor: 'blue' },
+    { to: '/m/dashboard', icon: BarChart3, label: 'Dashboard', cor: 'purple', perm: 'bi.view' },
+    { to: '/m/analise-producao', icon: Activity, label: 'Análise Produção', cor: 'amber', perm: 'producao.view' },
+    { to: '/m/diario', icon: ClipboardList, label: 'Diário Produção', cor: 'cyan', perm: 'producao.view' },
+    { to: '/m/dashboard-bi', icon: PieChart, label: 'Dashboard BI', cor: 'green', perm: 'bi.view' },
+    { to: '/m/relatorios', icon: FileText, label: 'Relatórios', cor: 'blue', perm: 'relatorios.view' },
   ]},
   { group: 'Sistema', items: [
-    // `perm` opcional: itens sensíveis só aparecem p/ quem tem a permissão.
-    // Itens sem `perm` continuam visíveis a todos (comportamento anterior).
     { to: '/m/usuarios', icon: Shield, label: 'Usuários', cor: 'amber', perm: 'usuarios.manage' },
     { to: '/m/notificacoes', icon: Bell, label: 'Notificações', cor: 'amber' },
     { to: '/m/perfil', icon: User, label: 'Perfil', cor: 'slate' },
@@ -71,7 +70,15 @@ export default function MaisMobile() {
   // Filtra itens por permissão (item sem `perm` é sempre visível) e remove
   // grupos que ficaram vazios após o filtro.
   const grupos = MODULOS
-    .map(grp => ({ ...grp, items: grp.items.filter(it => !it.perm || !hasPermission || hasPermission(it.perm)) }))
+    .map(grp => ({
+      ...grp,
+      items: grp.items.filter(it => {
+        if (!it.perm) return true;
+        if (!hasPermission) return true;
+        const perms = Array.isArray(it.perm) ? it.perm : [it.perm];
+        return perms.some(p => hasPermission(p));
+      }),
+    }))
     .filter(grp => grp.items.length > 0);
 
   return (

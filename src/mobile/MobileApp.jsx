@@ -170,13 +170,13 @@ function MobileRoutes() {
     <Routes>
       <Route index element={<HomeMobile />} />
       <Route path="producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
-      <Route path="montagem" element={<Protected perm="producao.view"><MontagemMobile /></Protected>} />
+      <Route path="montagem" element={<Protected perm={['montagem.view', 'producao.view']}><MontagemMobile /></Protected>} />
       <Route path="financeiro" element={<Protected perm="financeiro.view"><FinanceiroMobile /></Protected>} />
       <Route path="expedicao" element={<Protected perm="expedicao.view"><ExpedicaoMobile /></Protected>} />
       <Route path="mais" element={<MaisMobile />} />
 
       {/* Páginas desktop em wrapper */}
-      <Route path="3d" element={<Protected perm="producao.view"><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
+      <Route path="3d" element={<Protected perm={['viewer3d.view', 'producao.view']}><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
       <Route path="kanban" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
       <Route path="kanban-corte" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Corte"><KanbanCortePage /></DesktopWrap></Protected>} />
       <Route path="expedicao-desktop" element={<Protected perm="expedicao.view"><DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap></Protected>} />
@@ -195,7 +195,7 @@ function MobileRoutes() {
       <Route path="painel-global" element={<Protected perm="financeiro.view"><PainelGlobalMobile /></Protected>} />
       <Route path="painel-global-desktop" element={<Protected perm="financeiro.view"><DesktopWrap title="Painel Global (edição)"><PainelFinanceiroGlobal /></DesktopWrap></Protected>} />
       <Route path="dre" element={<Protected perm="financeiro.view"><DesktopWrap title="DRE"><DREPage /></DesktopWrap></Protected>} />
-      <Route path="obras" element={<Protected perm="projetos.view"><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
+      <Route path="obras" element={<Protected perm={['obras.view', 'projetos.view']}><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
       <Route path="clientes" element={<Protected perm="clientes.view"><DesktopWrap title="Clientes"><Clientes /></DesktopWrap></Protected>} />
       <Route path="equipes" element={<Protected perm="equipes.view"><DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap></Protected>} />
       <Route path="orcamentos" element={<Protected perm="orcamentos.view"><DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap></Protected>} />
