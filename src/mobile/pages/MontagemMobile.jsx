@@ -36,7 +36,7 @@ export default function MontagemMobile() {
   // Diário de Obra / apontamento). Quem só tem producao.view (viewer/financeiro)
   // entra em modo SOMENTE LEITURA — vê a lista e as montadas, mas não marca/bipa.
   // Sem hasPermission (fallback) libera, igual ao resto do app.
-  const podeMontar = !hasPermission || hasPermission('producao.lancar_avanco');
+  const podeMontar = !hasPermission || hasPermission('montagem.edit') || hasPermission('producao.lancar_avanco');
   const { matchObra, obraSelecionada } = useObraFiltro();
   // Aba persistida (sobrevive a navegação/reload) — o operador volta de onde estava.
   const [tab, setTab] = useState(() => {

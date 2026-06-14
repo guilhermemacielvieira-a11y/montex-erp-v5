@@ -14,7 +14,7 @@ import { useAuth } from '@/lib/AuthContext';
 const MODULOS = [
   { group: 'Operação', items: [
     { to: '/m/diario-obra', icon: ClipboardList, label: 'Diário de Obra', cor: 'emerald', perm: 'producao.lancar_avanco' },
-    { to: '/m/3d', icon: Box, label: 'Visualizador 3D', cor: 'amber', perm: 'producao.view' },
+    { to: '/m/3d', icon: Box, label: 'Visualizador 3D', cor: 'amber', perm: ['viewer3d.view', 'producao.view'] },
     { to: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção', cor: 'blue', perm: 'kanban.view' },
     { to: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', cor: 'purple', perm: 'kanban.view' },
     { to: '/m/expedicao', icon: Truck, label: 'Expedição', cor: 'green', perm: 'expedicao.view' },

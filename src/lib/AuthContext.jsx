@@ -47,7 +47,7 @@ const PERMISSIONS = {
     'comercial.view', 'orcamentos.view', 'orcamentos.edit', 'orcamentos.aprovar', 'clientes.view', 'clientes.edit',
     'projetos.view', 'projetos.edit', 'projetos.create',
     'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar', 'compras.view', 'compras.edit', 'compras.aprovar', 'materiais.view', 'materiais.edit',
-    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'producao.aprovar', 'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar',
+    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'producao.aprovar', 'montagem.view', 'montagem.edit', 'viewer3d.view', 'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar',
     'expedicao.view', 'expedicao.edit', 'expedicao.aprovar',
     'obras.view', 'obras.edit',
     'medicao.view', 'medicao.edit', 'medicao.aprovar',
@@ -57,7 +57,7 @@ const PERMISSIONS = {
   // SUPERVISOR — Operacao diaria de fabrica
   supervisor: [
     'dashboard.view', 'command.view', 'colaboracao.view',
-    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar', 'materiais.view', 'materiais.edit',
+    'producao.view', 'producao.edit', 'producao.lancar_avanco', 'montagem.view', 'montagem.edit', 'viewer3d.view', 'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar', 'materiais.view', 'materiais.edit',
     'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar', 'compras.view',
     'expedicao.view', 'expedicao.edit',
     'obras.view', 'obras.edit',
@@ -67,7 +67,7 @@ const PERMISSIONS = {
   // OPERADOR — Input de producao
   operador: [
     'dashboard.view', 'command.view', 'colaboracao.view',
-    'producao.view', 'producao.lancar_avanco', 'kanban.view', 'kanban.edit', 'equipes.view', 'materiais.view',
+    'producao.view', 'producao.lancar_avanco', 'montagem.view', 'montagem.edit', 'viewer3d.view', 'kanban.view', 'kanban.edit', 'equipes.view', 'materiais.view',
     'suprimentos.view', 'estoque.view',
     'obras.view',
   ],
@@ -83,7 +83,7 @@ const PERMISSIONS = {
   // VIEWER — Somente visualizacao
   viewer: [
     'dashboard.view', 'command.view', 'colaboracao.view',
-    'producao.view', 'obras.view', 'suprimentos.view', 'estoque.view', 'compras.view',
+    'producao.view', 'montagem.view', 'viewer3d.view', 'obras.view', 'suprimentos.view', 'estoque.view', 'compras.view',
     'expedicao.view', 'medicao.view', 'projetos.view', 'nfs.view', 'materiais.view', 'kanban.view',
     'bi.view', 'relatorios.view',
   ]

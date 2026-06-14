@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
+import { useAuth } from '../lib/AuthContext';
 import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount, isMontada } from '../utils/montagemSync';
 import { parseIFCFile, IFC_TYPES } from '../utils/ifcParser';
 
@@ -687,6 +688,11 @@ function parseViaWorker(buffer, onProgress, onStage) {
 export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   const { obraAtual, obraAtualData: obraAtualDataCtx } = useObras();
   const obraAtualData = obraAtualDataProp || obraAtualDataCtx;
+  const { hasPermission } = useAuth() || {};
+  // Registrar montagem pelo painel 3D é EDIÇÃO: exige montagem.edit (ou o legado
+  // producao.lancar_avanco). Sem isso, o 3D fica em modo só leitura — o usuário
+  // com viewer3d.view explora o modelo, mas não marca/desmarca peças.
+  const podeMontar3D = !hasPermission || hasPermission('montagem.edit') || hasPermission('producao.lancar_avanco');
   const containerRef = useRef(null);
   const sceneManagerRef = useRef(null);
   const hoveredRef = useRef(null);
@@ -1965,6 +1971,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   // a peça inteira pelo painel 3D.
   const toggleMontagem = useCallback((peca) => {
     if (!peca) return;
+    if (!podeMontar3D) return; // trava de edição (defesa real além de esconder o botão)
     const pecaId = String(peca.id);
     const next = { ...concluidasMontagem };
     // isMontada: tombstone (desmarcada) NÃO conta como montada — sem isto o
@@ -1992,7 +1999,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         : 'MONTADO';
       setSelectedElement({ ...selectedElement, erpStatus: novoStatus });
     }
-  }, [concluidasMontagem, selectedElement]);
+  }, [concluidasMontagem, selectedElement, podeMontar3D]);
 
   // ==============================================
   // STATISTICS
@@ -2555,6 +2562,14 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                         return (
                           <div className="text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded p-2">
                             ⚠️ Peça ainda em produção (etapa={peca.etapa}). Só pode marcar como montada após chegar em obra (etapa=enviado).
+                          </div>
+                        );
+                      }
+                      if (!podeMontar3D) {
+                        // Só leitura: viewer3d.view sem permissão de registrar montagem.
+                        return (
+                          <div className="text-[10px] text-slate-400 bg-slate-800/60 border border-slate-700 rounded p-2 text-center">
+                            Somente visualização — sem permissão para registrar montagem
                           </div>
                         );
                       }

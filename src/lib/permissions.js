@@ -42,6 +42,9 @@ export const ALL_PERMISSIONS = [
   { grupo: 'Produção', key: 'producao.edit', label: 'Editar' },
   { grupo: 'Produção', key: 'producao.lancar_avanco', label: 'Lançar Avanço' },
   { grupo: 'Produção', key: 'producao.aprovar', label: 'Aprovar' },
+  { grupo: 'Montagem & 3D', key: 'montagem.view', label: 'Montagem — Acessar' },
+  { grupo: 'Montagem & 3D', key: 'montagem.edit', label: 'Montagem — Registrar (vale no 3D)' },
+  { grupo: 'Montagem & 3D', key: 'viewer3d.view', label: 'Visualizador 3D — Acessar' },
   { grupo: 'Produção', key: 'kanban.view', label: 'Kanban — Visualizar' },
   { grupo: 'Produção', key: 'kanban.edit', label: 'Kanban — Editar' },
   { grupo: 'Produção', key: 'equipes.view', label: 'Equipes — Visualizar' },
@@ -82,6 +85,7 @@ export const ROLE_PERMISSIONS_MAP = {
     'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar',
     'compras.view', 'compras.edit', 'compras.aprovar', 'materiais.view', 'materiais.edit',
     'producao.view', 'producao.edit', 'producao.lancar_avanco', 'producao.aprovar',
+    'montagem.view', 'montagem.edit', 'viewer3d.view',
     'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar',
     'expedicao.view', 'expedicao.edit', 'expedicao.aprovar',
     'obras.view', 'obras.edit',
@@ -92,6 +96,7 @@ export const ROLE_PERMISSIONS_MAP = {
   supervisor: [
     'dashboard.view', 'command.view', 'colaboracao.view',
     'producao.view', 'producao.edit', 'producao.lancar_avanco',
+    'montagem.view', 'montagem.edit', 'viewer3d.view',
     'kanban.view', 'kanban.edit', 'equipes.view', 'equipes.edit', 'equipes.escalar',
     'materiais.view', 'materiais.edit',
     'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar', 'compras.view',
@@ -103,6 +108,7 @@ export const ROLE_PERMISSIONS_MAP = {
   operador: [
     'dashboard.view', 'command.view', 'colaboracao.view',
     'producao.view', 'producao.lancar_avanco',
+    'montagem.view', 'montagem.edit', 'viewer3d.view',
     'kanban.view', 'kanban.edit', 'equipes.view', 'materiais.view',
     'suprimentos.view', 'estoque.view',
     'obras.view',
@@ -119,7 +125,7 @@ export const ROLE_PERMISSIONS_MAP = {
   ],
   viewer: [
     'dashboard.view', 'command.view', 'colaboracao.view',
-    'producao.view', 'obras.view', 'suprimentos.view',
+    'producao.view', 'montagem.view', 'viewer3d.view', 'obras.view', 'suprimentos.view',
     'estoque.view', 'compras.view', 'expedicao.view', 'medicao.view',
     'projetos.view', 'nfs.view', 'materiais.view', 'kanban.view',
     'bi.view', 'relatorios.view',

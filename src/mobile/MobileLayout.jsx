@@ -34,7 +34,7 @@ import { useAlertas } from './useAlertas';
 const BOTTOM_TABS = [
   { path: '/m', icon: Home, label: 'Início' },
   { path: '/m/producao', icon: Factory, label: 'Produção', perm: 'producao.view' },
-  { path: '/m/montagem', icon: Hammer, label: 'Montagem', perm: 'producao.view' },
+  { path: '/m/montagem', icon: Hammer, label: 'Montagem', perm: ['montagem.view', 'producao.view'] },
   { path: '/m/expedicao', icon: Truck, label: 'Expedição', perm: 'expedicao.view' },
   { path: '/m/mais', icon: MoreHorizontal, label: 'Mais' },
 ];
@@ -57,7 +57,7 @@ const DRAWER_GROUPS = [
       { path: '/m/expedicao', icon: Truck, label: 'Expedição', perm: 'expedicao.view' },
       { path: '/m/medicao', icon: Ruler, label: 'Medição', perm: 'medicao.view' },
       { path: '/m/evidencias', icon: Image, label: 'Evidências', perm: 'producao.view' },
-      { path: '/m/3d', icon: Box, label: 'Visualizador 3D', perm: 'producao.view' },
+      { path: '/m/3d', icon: Box, label: 'Visualizador 3D', perm: ['viewer3d.view', 'producao.view'] },
       { path: '/m/estoque', icon: Package, label: 'Estoque', perm: 'estoque.view' },
     ],
   },

@@ -102,7 +102,7 @@ export default function HomeMobile() {
   // KPIs filtrados por permissão do usuário logado
   const kpiCards = [
     (perm('obras.view') || perm('projetos.view')) && { icon: Building2, label: 'Obras ativas', value: stats.obrasAtivas, color: 'amber', to: '/m/obras' },
-    perm('producao.view') && { icon: Hammer, label: 'Peças montadas', value: fmtBR(stats.pecasMontadas), color: 'green', to: '/m/montagem' },
+    (perm('montagem.view') || perm('producao.view')) && { icon: Hammer, label: 'Peças montadas', value: fmtBR(stats.pecasMontadas), color: 'green', to: '/m/montagem' },
     perm('producao.view') && { icon: Factory, label: 'Em produção', value: fmtBR(stats.pecasProducao), color: 'blue', to: '/m/producao' },
     perm('financeiro.view') && { icon: Wallet, label: 'A pagar', value: fmtMoney(stats.desValor), sub: `${stats.desPendentes} título(s)`, color: 'red', to: '/m/despesas' },
   ].filter(Boolean);
@@ -112,8 +112,8 @@ export default function HomeMobile() {
     { to: '/m/expedicao', icon: Truck, label: 'Expedição', p: 'expedicao.view' },
     { to: '/m/estoque', icon: Package, label: 'Estoque', p: 'estoque.view' },
     { to: '/m/medicao', icon: Ruler, label: 'Medição', p: 'medicao.view' },
-    { to: '/m/3d', icon: Box, label: '3D', p: 'producao.view' },
-  ].filter(s => perm(s.p));
+    { to: '/m/3d', icon: Box, label: '3D', p: ['viewer3d.view', 'producao.view'] },
+  ].filter(s => (Array.isArray(s.p) ? s.p.some(perm) : perm(s.p)));
 
   return (
     <MobileLayout title="Início" obraFilter>

@@ -39,11 +39,11 @@ function can(role, spec) {
 const ROTAS = {
   '/m': null,
   '/m/producao': 'producao.view',
-  '/m/montagem': 'producao.view',
+  '/m/montagem': ['montagem.view', 'producao.view'],
   '/m/financeiro': 'financeiro.view',
   '/m/expedicao': 'expedicao.view',
   '/m/mais': null,
-  '/m/3d': 'producao.view',
+  '/m/3d': ['viewer3d.view', 'producao.view'],
   '/m/kanban': 'kanban.view',
   '/m/kanban-corte': 'kanban.view',
   '/m/expedicao-desktop': 'expedicao.view',
@@ -78,7 +78,7 @@ const ROTAS = {
 const TABS = [
   { to: '/m', label: 'Início' },
   { to: '/m/producao', label: 'Produção', perm: 'producao.view' },
-  { to: '/m/montagem', label: 'Montagem', perm: 'producao.view' },
+  { to: '/m/montagem', label: 'Montagem', perm: ['montagem.view', 'producao.view'] },
   { to: '/m/expedicao', label: 'Expedição', perm: 'expedicao.view' },
   { to: '/m/mais', label: 'Mais' },
 ];
@@ -86,7 +86,7 @@ const TABS = [
 // ---- Cards do hub "Mais" (espelha MaisMobile MODULOS) ----
 const MAIS = [
   { to: '/m/diario-obra', label: 'Diário de Obra', perm: 'producao.lancar_avanco' },
-  { to: '/m/3d', label: 'Visualizador 3D', perm: 'producao.view' },
+  { to: '/m/3d', label: 'Visualizador 3D', perm: ['viewer3d.view', 'producao.view'] },
   { to: '/m/kanban', label: 'Kanban Produção', perm: 'kanban.view' },
   { to: '/m/kanban-corte', label: 'Kanban Corte', perm: 'kanban.view' },
   { to: '/m/expedicao', label: 'Expedição', perm: 'expedicao.view' },
@@ -116,14 +116,14 @@ const MAIS = [
 // ---- Cards/seções da tela Início (espelha HomeMobile) ----
 const HOME = [
   { to: '/m/obras', label: 'KPI Obras ativas', perm: ['obras.view', 'projetos.view'] },
-  { to: '/m/montagem', label: 'KPI Peças montadas', perm: 'producao.view' },
+  { to: '/m/montagem', label: 'KPI Peças montadas', perm: ['montagem.view', 'producao.view'] },
   { to: '/m/producao', label: 'KPI Em produção', perm: 'producao.view' },
   { to: '/m/despesas', label: 'KPI A pagar', perm: 'financeiro.view' },
   { to: '/m/dashboard', label: 'Análise Estratégica', perm: 'bi.view' },
   { to: '/m/expedicao', label: 'Atalho Expedição', perm: 'expedicao.view' },
   { to: '/m/estoque', label: 'Atalho Estoque', perm: 'estoque.view' },
   { to: '/m/medicao', label: 'Atalho Medição', perm: 'medicao.view' },
-  { to: '/m/3d', label: 'Atalho 3D', perm: 'producao.view' },
+  { to: '/m/3d', label: 'Atalho 3D', perm: ['viewer3d.view', 'producao.view'] },
   { to: '/m/financeiro', label: 'Seção Financeiro', perm: 'financeiro.view' },
 ];
 
@@ -131,7 +131,8 @@ const HOME = [
 const ACOES = [
   { modulo: 'Produção', label: 'Avançar etapa da peça', perm: 'producao.lancar_avanco' },
   { modulo: 'Produção', label: 'Apontar por bipagem', perm: 'producao.lancar_avanco' },
-  { modulo: 'Montagem', label: 'Marcar/desmarcar montada', perm: 'producao.lancar_avanco' },
+  { modulo: 'Montagem', label: 'Marcar/desmarcar montada', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+  { modulo: '3D', label: 'Registrar montagem pelo painel 3D', perm: ['montagem.edit', 'producao.lancar_avanco'] },
   { modulo: 'Expedição', label: 'Confirmar despacho / bipar carga', perm: 'expedicao.edit' },
   { modulo: 'Medição', label: 'Lançar nova medição', perm: 'medicao.edit' },
   { modulo: 'Medição', label: 'Aprovar medição', perm: 'medicao.aprovar' },
