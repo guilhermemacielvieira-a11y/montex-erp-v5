@@ -20,6 +20,7 @@ import { downloadCsv } from '../ui/exportCsv';
 import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { useERP } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart, saveConcluidasSmart, subscribeConcluidas, getMontadasCount, isMontada } from '@/utils/montagemSync';
 import { toast } from 'react-hot-toast';
@@ -30,6 +31,12 @@ const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 export default function MontagemMobile() {
   const erp = useERP?.() || {};
   const { pecas = [] } = erp;
+  const { hasPermission } = useAuth() || {};
+  // Montar é EDIÇÃO de campo: exige producao.lancar_avanco (mesmo critério do
+  // Diário de Obra / apontamento). Quem só tem producao.view (viewer/financeiro)
+  // entra em modo SOMENTE LEITURA — vê a lista e as montadas, mas não marca/bipa.
+  // Sem hasPermission (fallback) libera, igual ao resto do app.
+  const podeMontar = !hasPermission || hasPermission('producao.lancar_avanco');
   const { matchObra, obraSelecionada } = useObraFiltro();
   // Aba persistida (sobrevive a navegação/reload) — o operador volta de onde estava.
   const [tab, setTab] = useState(() => {
@@ -85,6 +92,9 @@ export default function MontagemMobile() {
   // continua válido — toggle aqui só ATUALIZA metadados (montadoEm/origem) sem
   // sobrescrever o montadas existente.
   const setMontada = (peca, montada, fotoUrl, unidades = null) => {
+    // Trava de edição: sem producao.lancar_avanco não grava nada (defesa real,
+    // não só visual — a UI já esconde os botões, isto fecha o atalho via scanner).
+    if (!podeMontar) { toast.error('Sem permissão para registrar montagem'); return; }
     const id = String(peca.id);
     const qtdTotal = Math.max(1, parseInt(peca.quantidade) || 1);
     const nova = { ...concluidas };
@@ -260,14 +270,16 @@ export default function MontagemMobile() {
         <LoadMore total={lista.length} shown={limite} onMore={() => setLimite(l => l + 40)} />
       </div>
 
-      {/* FAB Escanear */}
-      <button
-        onClick={() => { tap('light'); setScanOpen(true); }}
-        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
-      >
-        <ScanLine className="w-5 h-5" /> Escanear
-      </button>
+      {/* FAB Escanear — só p/ quem pode registrar montagem */}
+      {podeMontar && (
+        <button
+          onClick={() => { tap('light'); setScanOpen(true); }}
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
+        >
+          <ScanLine className="w-5 h-5" /> Escanear
+        </button>
+      )}
 
       {/* Scanner */}
       <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças montadas" continuous />
@@ -279,6 +291,9 @@ export default function MontagemMobile() {
         title={pecaSel ? (pecaSel.marca || pecaSel.id) : ''}
         footer={
           pecaSel && (
+            !podeMontar ? (
+              <div className="w-full text-center py-3 text-xs text-slate-400 font-semibold">Somente visualização — você não tem permissão para registrar montagem</div>
+            ) : (
             <div className="space-y-2">
               <button
                 onClick={() => confirmarSheet(false)}
@@ -302,6 +317,7 @@ export default function MontagemMobile() {
                 </button>
               )}
             </div>
+            )
           )
         }
       >

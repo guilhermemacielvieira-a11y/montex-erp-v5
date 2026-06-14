@@ -22,6 +22,7 @@ import { tap, success } from '../ui/haptics';
 import { isOnline } from '../ui/online';
 import { enqueue } from '../ui/offlineQueue';
 import { useERP, useExpedicao } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
@@ -47,6 +48,11 @@ const idsDoRomaneio = (rom) => {
 export default function ExpedicaoMobile() {
   const { pecas = [] } = useERP?.() || {};
   const { expedicoes = [], updateExpedicao } = useExpedicao?.() || {};
+  const { hasPermission } = useAuth() || {};
+  // Conferir/despachar é EDIÇÃO de expedição: exige expedicao.edit. Quem só tem
+  // expedicao.view (viewer) acompanha os romaneios em modo leitura, sem bipar
+  // nem despachar. Sem hasPermission (fallback) libera.
+  const podeDespacharExp = !hasPermission || hasPermission('expedicao.edit');
   const { matchObra } = useObraFiltro();
 
   const [selId, setSelId] = useState(null);     // romaneio aberto
@@ -124,6 +130,7 @@ export default function ExpedicaoMobile() {
 
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
+    if (!podeDespacharExp) { toast.error('Sem permissão para despachar romaneio'); return; }
     if (!isOnline()) {
       // Offline: aplica otimisticamente + enfileira (updateExpedicao é idempotente).
       updateExpedicao(romaneio.id, { status: 'em_transito' })?.catch(() => {});
@@ -209,8 +216,8 @@ export default function ExpedicaoMobile() {
           })}
         </div>
 
-        {/* FAB Bipar */}
-        {total > 0 && (
+        {/* FAB Bipar — só p/ quem pode conferir/despachar */}
+        {podeDespacharExp && total > 0 && (
           <button
             onClick={() => { tap('light'); setScanOpen(true); }}
             className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
@@ -221,7 +228,7 @@ export default function ExpedicaoMobile() {
         )}
 
         {/* Confirmar despacho */}
-        {podeEnviar && total > 0 && (
+        {podeDespacharExp && podeEnviar && total > 0 && (
           <div className="px-4 mt-5 mb-2">
             <button
               onClick={() => { tap('medium'); setDespachar(true); }}

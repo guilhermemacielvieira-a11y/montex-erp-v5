@@ -48,6 +48,9 @@ export default function MedicaoMobile() {
   const { matchObra, obraSelecionada, isTodas } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   const podeAprovar = !!hasPermission && hasPermission('medicao.aprovar');
+  // Lançar medição é EDIÇÃO: exige medicao.edit. Viewer (só medicao.view)
+  // acompanha a lista sem o botão de nova medição. Fallback libera.
+  const podeLancar = !hasPermission || hasPermission('medicao.edit');
 
   const [formOpen, setFormOpen] = useState(false);
   const [aprovando, setAprovando] = useState(null); // id da medição em aprovação
@@ -91,6 +94,7 @@ export default function MedicaoMobile() {
   };
 
   const registrar = async () => {
+    if (!podeLancar) { toast.error('Sem permissão para lançar medição'); return; }
     if (!obraId) { toast.error('Selecione a obra'); return; }
     if (!(parseFloat(peso) > 0)) { toast.error('Informe o peso medido'); return; }
     if (!ensureOnline()) return;
@@ -202,14 +206,16 @@ export default function MedicaoMobile() {
         })}
       </div>
 
-      {/* FAB Nova medição */}
-      <button
-        onClick={abrirForm}
-        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
-      >
-        <Plus className="w-5 h-5" /> Nova medição
-      </button>
+      {/* FAB Nova medição — só p/ quem pode lançar (medicao.edit) */}
+      {podeLancar && (
+        <button
+          onClick={abrirForm}
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
+        >
+          <Plus className="w-5 h-5" /> Nova medição
+        </button>
+      )}
 
       {/* Form */}
       <Sheet

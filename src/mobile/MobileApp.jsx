@@ -195,7 +195,7 @@ function MobileRoutes() {
       <Route path="painel-global" element={<Protected perm="financeiro.view"><PainelGlobalMobile /></Protected>} />
       <Route path="painel-global-desktop" element={<Protected perm="financeiro.view"><DesktopWrap title="Painel Global (edição)"><PainelFinanceiroGlobal /></DesktopWrap></Protected>} />
       <Route path="dre" element={<Protected perm="financeiro.view"><DesktopWrap title="DRE"><DREPage /></DesktopWrap></Protected>} />
-      <Route path="obras" element={<Protected perm="projetos.view"><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
+      <Route path="obras" element={<Protected perm={['obras.view', 'projetos.view']}><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
       <Route path="clientes" element={<Protected perm="clientes.view"><DesktopWrap title="Clientes"><Clientes /></DesktopWrap></Protected>} />
       <Route path="equipes" element={<Protected perm="equipes.view"><DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap></Protected>} />
       <Route path="orcamentos" element={<Protected perm="orcamentos.view"><DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap></Protected>} />

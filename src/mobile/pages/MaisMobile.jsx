@@ -23,7 +23,7 @@ const MODULOS = [
   { group: 'Gestão', items: [
     // Array de perm = OR: visível se tiver qualquer uma das permissões listadas
     { to: '/m/aprovacoes', icon: CheckCircle2, label: 'Aprovações', cor: 'emerald', perm: ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'] },
-    { to: '/m/obras', icon: Building2, label: 'Obras', cor: 'amber', perm: 'obras.view' },
+    { to: '/m/obras', icon: Building2, label: 'Obras', cor: 'amber', perm: ['obras.view', 'projetos.view'] },
     { to: '/m/clientes', icon: User, label: 'Clientes', cor: 'blue', perm: 'clientes.view' },
     { to: '/m/equipes', icon: Users, label: 'Equipes', cor: 'purple', perm: 'equipes.view' },
     { to: '/m/orcamentos', icon: Calculator, label: 'Orçamentos', cor: 'green', perm: 'orcamentos.view' },

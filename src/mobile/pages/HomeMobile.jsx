@@ -101,7 +101,7 @@ export default function HomeMobile() {
 
   // KPIs filtrados por permissão do usuário logado
   const kpiCards = [
-    perm('obras.view') && { icon: Building2, label: 'Obras ativas', value: stats.obrasAtivas, color: 'amber', to: '/m/obras' },
+    (perm('obras.view') || perm('projetos.view')) && { icon: Building2, label: 'Obras ativas', value: stats.obrasAtivas, color: 'amber', to: '/m/obras' },
     perm('producao.view') && { icon: Hammer, label: 'Peças montadas', value: fmtBR(stats.pecasMontadas), color: 'green', to: '/m/montagem' },
     perm('producao.view') && { icon: Factory, label: 'Em produção', value: fmtBR(stats.pecasProducao), color: 'blue', to: '/m/producao' },
     perm('financeiro.view') && { icon: Wallet, label: 'A pagar', value: fmtMoney(stats.desValor), sub: `${stats.desPendentes} título(s)`, color: 'red', to: '/m/despesas' },

@@ -74,7 +74,7 @@ const DRAWER_GROUPS = [
   {
     title: 'Gestão',
     items: [
-      { path: '/m/obras', icon: Building2, label: 'Obras', perm: 'projetos.view' },
+      { path: '/m/obras', icon: Building2, label: 'Obras', perm: ['obras.view', 'projetos.view'] },
       { path: '/m/clientes', icon: User, label: 'Clientes', perm: 'clientes.view' },
       { path: '/m/equipes', icon: Users, label: 'Equipes', perm: 'equipes.view' },
       { path: '/m/orcamentos', icon: Calculator, label: 'Orçamentos', perm: 'orcamentos.view' },
@@ -106,13 +106,20 @@ export default function MobileLayout({ children, title = 'Montex Mobile', back =
 
   // Menu por ROLE: esconde tabs/itens cuja permissão o usuário não tem (operador
   // não vê Financeiro/BI/Expedição etc.). Sem hasPermission (fallback) mostra tudo.
+  // `perm` aceita string OU array (OR — basta ter qualquer uma; igual ao Protected).
+  const podeVer = (perm) => {
+    if (!perm) return true;
+    if (!hasPermission) return true;
+    const perms = Array.isArray(perm) ? perm : [perm];
+    return perms.some(p => hasPermission(p));
+  };
   const visibleTabs = useMemo(
-    () => BOTTOM_TABS.filter(t => !t.perm || !hasPermission || hasPermission(t.perm)),
+    () => BOTTOM_TABS.filter(t => podeVer(t.perm)),
     [hasPermission]
   );
   const visibleGroups = useMemo(
     () => DRAWER_GROUPS
-      .map(g => ({ ...g, items: g.items.filter(i => !i.perm || !hasPermission || hasPermission(i.perm)) }))
+      .map(g => ({ ...g, items: g.items.filter(i => podeVer(i.perm)) }))
       .filter(g => g.items.length > 0),
     [hasPermission]
   );

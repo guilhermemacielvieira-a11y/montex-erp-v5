@@ -397,7 +397,10 @@ export default function ProducaoMobile() {
         title={pecaSel ? (pecaSel.marca || pecaSel.id) : ''}
         footer={
           pecaSel && (
-            prox ? (
+            !podeApontar ? (
+              // Sem permissão de lançar avanço: somente visualização (viewer/financeiro).
+              <div className="w-full text-center py-3 text-xs text-slate-400 font-semibold">Somente visualização — você não tem permissão para avançar etapas</div>
+            ) : prox ? (
               <button
                 onClick={avancar}
                 disabled={saving}
