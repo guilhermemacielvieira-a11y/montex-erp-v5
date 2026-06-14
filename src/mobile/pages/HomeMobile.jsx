@@ -95,6 +95,26 @@ export default function HomeMobile() {
     return t;
   }, [pecasFiltradas, receitas, orcamentos, compras, hasPermission, matchObra, concluidas]);
 
+  // Sem hasPermission (auth ainda carregando) → fallback permissivo (mostra tudo).
+  // Mesmo padrão usado no Protected e MaisMobile.
+  const perm = (p) => !hasPermission || hasPermission(p);
+
+  // KPIs filtrados por permissão do usuário logado
+  const kpiCards = [
+    perm('obras.view') && { icon: Building2, label: 'Obras ativas', value: stats.obrasAtivas, color: 'amber', to: '/m/obras' },
+    perm('producao.view') && { icon: Hammer, label: 'Peças montadas', value: fmtBR(stats.pecasMontadas), color: 'green', to: '/m/montagem' },
+    perm('producao.view') && { icon: Factory, label: 'Em produção', value: fmtBR(stats.pecasProducao), color: 'blue', to: '/m/producao' },
+    perm('financeiro.view') && { icon: Wallet, label: 'A pagar', value: fmtMoney(stats.desValor), sub: `${stats.desPendentes} título(s)`, color: 'red', to: '/m/despesas' },
+  ].filter(Boolean);
+
+  // Atalhos filtrados por permissão
+  const atalhos = [
+    { to: '/m/expedicao', icon: Truck, label: 'Expedição', p: 'expedicao.view' },
+    { to: '/m/estoque', icon: Package, label: 'Estoque', p: 'estoque.view' },
+    { to: '/m/medicao', icon: Ruler, label: 'Medição', p: 'medicao.view' },
+    { to: '/m/3d', icon: Box, label: '3D', p: 'producao.view' },
+  ].filter(s => perm(s.p));
+
   return (
     <MobileLayout title="Início" obraFilter>
       {/* Saudação */}
@@ -103,8 +123,8 @@ export default function HomeMobile() {
         <div className="text-xl font-bold mt-0.5">{isTodas ? 'Painel Geral' : (obraSelecionada?.nome || 'Painel da Obra')}</div>
       </div>
 
-      {/* Alerta crítico */}
-      {stats.desAtrasadas > 0 && (
+      {/* Alerta crítico de despesas — só visível para quem tem acesso a financeiro */}
+      {perm('financeiro.view') && stats.desAtrasadas > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
           className="mx-4 mb-4 bg-red-500/10 border border-red-500/30 rounded-xl p-3 flex items-center gap-3"
@@ -137,78 +157,78 @@ export default function HomeMobile() {
         </div>
       )}
 
-      {/* KPIs Grid 2x2 */}
-      <div className="px-4 grid grid-cols-2 gap-3 mb-5">
-        <KpiCard icon={Building2} label="Obras ativas" value={stats.obrasAtivas} color="amber" to="/m/obras" />
-        <KpiCard icon={Hammer} label="Peças montadas" value={fmtBR(stats.pecasMontadas)} color="green" to="/m/montagem" />
-        <KpiCard icon={Factory} label="Em produção" value={fmtBR(stats.pecasProducao)} color="blue" to="/m/producao" />
-        <KpiCard icon={Wallet} label="A pagar" value={fmtMoney(stats.desValor)} sub={`${stats.desPendentes} título(s)`} color="red" to="/m/despesas" />
-      </div>
-
-      {/* Análise estratégica (dashboard com gráficos/KPIs) */}
-      <div className="px-4 mb-5">
-        <Link to="/m/dashboard" className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-br from-violet-500/15 to-blue-600/5 border border-violet-500/25 active:scale-[.99] transition">
-          <div className="w-11 h-11 rounded-xl bg-violet-500/20 flex items-center justify-center">
-            <BarChart3 className="w-5 h-5 text-violet-300" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-bold">Análise Estratégica</div>
-            <div className="text-[11px] text-slate-400">Dashboard com gráficos, avanço físico e financeiro</div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-violet-300" />
-        </Link>
-      </div>
-
-      {/* Atalhos rápidos */}
-      <div className="px-4 mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Atalhos</div>
-        <div className="grid grid-cols-4 gap-2">
-          {[
-            { to: '/m/expedicao', icon: Truck, label: 'Expedição' },
-            { to: '/m/estoque', icon: Package, label: 'Estoque' },
-            { to: '/m/medicao', icon: Ruler, label: 'Medição' },
-            { to: '/m/3d', icon: Box, label: '3D' },
-          ].map(s => {
-            const Icon = s.icon;
-            return (
-              <Link key={s.to} to={s.to} className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-slate-900/80 border border-slate-800 active:scale-95 transition">
-                <Icon className="w-5 h-5 text-amber-400" />
-                <span className="text-[10px] text-slate-300 font-medium text-center leading-tight">{s.label}</span>
-              </Link>
-            );
-          })}
+      {/* KPIs — apenas módulos autorizados */}
+      {kpiCards.length > 0 && (
+        <div className="px-4 grid grid-cols-2 gap-3 mb-5">
+          {kpiCards.map((k, i) => <KpiCard key={i} {...k} />)}
         </div>
-      </div>
+      )}
 
-      {/* Resumo Financeiro */}
-      <div className="px-4 mb-5">
-        <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Financeiro</div>
-        <Link to="/m/financeiro" className="block bg-slate-900/80 border border-slate-800 rounded-2xl p-4 active:scale-[.99] transition">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-[11px] text-slate-400">Saldo previsto (30d)</div>
-              <div className={`text-2xl font-black ${(stats.recPendentes - stats.desValor) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {(stats.recPendentes - stats.desValor) >= 0 ? '+' : ''}{fmtMoney(stats.recPendentes - stats.desValor)}
-              </div>
+      {/* Análise estratégica — visível só para quem tem bi.view */}
+      {perm('bi.view') && (
+        <div className="px-4 mb-5">
+          <Link to="/m/dashboard" className="flex items-center gap-3 p-4 rounded-2xl bg-gradient-to-br from-violet-500/15 to-blue-600/5 border border-violet-500/25 active:scale-[.99] transition">
+            <div className="w-11 h-11 rounded-xl bg-violet-500/20 flex items-center justify-center">
+              <BarChart3 className="w-5 h-5 text-violet-300" />
             </div>
-            <ChevronRight className="w-5 h-5 text-slate-500" />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-bold">Análise Estratégica</div>
+              <div className="text-[11px] text-slate-400">Dashboard com gráficos, avanço físico e financeiro</div>
+            </div>
+            <ChevronRight className="w-5 h-5 text-violet-300" />
+          </Link>
+        </div>
+      )}
+
+      {/* Atalhos rápidos — apenas módulos autorizados */}
+      {atalhos.length > 0 && (
+        <div className="px-4 mb-5">
+          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Atalhos</div>
+          <div className="grid grid-cols-4 gap-2">
+            {atalhos.map(s => {
+              const Icon = s.icon;
+              return (
+                <Link key={s.to} to={s.to} className="flex flex-col items-center gap-1.5 p-3 rounded-xl bg-slate-900/80 border border-slate-800 active:scale-95 transition">
+                  <Icon className="w-5 h-5 text-amber-400" />
+                  <span className="text-[10px] text-slate-300 font-medium text-center leading-tight">{s.label}</span>
+                </Link>
+              );
+            })}
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-emerald-500/10 rounded-lg p-2.5">
-              <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
-                <TrendingUp className="w-3 h-3" /> A RECEBER
+        </div>
+      )}
+
+      {/* Resumo Financeiro — visível só para quem tem financeiro.view */}
+      {perm('financeiro.view') && (
+        <div className="px-4 mb-5">
+          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Financeiro</div>
+          <Link to="/m/financeiro" className="block bg-slate-900/80 border border-slate-800 rounded-2xl p-4 active:scale-[.99] transition">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-[11px] text-slate-400">Saldo previsto (30d)</div>
+                <div className={`text-2xl font-black ${(stats.recPendentes - stats.desValor) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {(stats.recPendentes - stats.desValor) >= 0 ? '+' : ''}{fmtMoney(stats.recPendentes - stats.desValor)}
+                </div>
               </div>
-              <div className="text-sm font-bold text-emerald-300 mt-0.5">{fmtMoney(stats.recPendentes)}</div>
+              <ChevronRight className="w-5 h-5 text-slate-500" />
             </div>
-            <div className="bg-red-500/10 rounded-lg p-2.5">
-              <div className="flex items-center gap-1 text-[10px] text-red-400 font-semibold">
-                <TrendingDown className="w-3 h-3" /> A PAGAR
+            <div className="grid grid-cols-2 gap-2">
+              <div className="bg-emerald-500/10 rounded-lg p-2.5">
+                <div className="flex items-center gap-1 text-[10px] text-emerald-400 font-semibold">
+                  <TrendingUp className="w-3 h-3" /> A RECEBER
+                </div>
+                <div className="text-sm font-bold text-emerald-300 mt-0.5">{fmtMoney(stats.recPendentes)}</div>
               </div>
-              <div className="text-sm font-bold text-red-300 mt-0.5">{fmtMoney(stats.desValor)}</div>
+              <div className="bg-red-500/10 rounded-lg p-2.5">
+                <div className="flex items-center gap-1 text-[10px] text-red-400 font-semibold">
+                  <TrendingDown className="w-3 h-3" /> A PAGAR
+                </div>
+                <div className="text-sm font-bold text-red-300 mt-0.5">{fmtMoney(stats.desValor)}</div>
+              </div>
             </div>
-          </div>
-        </Link>
-      </div>
+          </Link>
+        </div>
+      )}
     </MobileLayout>
   );
 }
