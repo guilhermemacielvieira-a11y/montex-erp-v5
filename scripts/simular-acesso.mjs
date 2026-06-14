@@ -18,7 +18,11 @@
 // / HomeMobile.jsx. O bloco de AUDITORIA quebra (exit 1) se houver divergência
 // entre o que é mostrado e o que a rota permite — use no CI/pré-deploy.
 // ============================================================
-import { ROLE_PERMISSIONS_MAP, ROLE_ORDER, roleLabel } from '../src/lib/permissions.js';
+import { ROLE_PERMISSIONS_MAP, ROLE_ORDER, roleLabel, ALL_PERMISSIONS } from '../src/lib/permissions.js';
+
+// Conjunto de chaves de permissão válidas (catálogo canônico) — usado p/ avisar
+// quando uma seleção customizada contém uma chave que o app não reconhece.
+const ALL_KEYS = new Set(ALL_PERMISSIONS.map(p => p.key));
 
 // permSpec: null/undefined = livre (todos veem) · string = exige a permissão ·
 // array = OR (basta ter qualquer uma).
@@ -157,8 +161,9 @@ function auditar() {
   return problemas;
 }
 
-function detalhe(role, permsCustom) {
-  const perms = permsCustom || ROLE_PERMISSIONS_MAP[role] || [];
+// Relatório de acesso para uma lista de permissões qualquer (papel OU seleção
+// customizada de módulos). `titulo` rotula o bloco.
+function relatorio(titulo, perms) {
   const canc = (spec) => {
     if (perms.includes('*')) return true;
     if (spec == null) return true;
@@ -167,8 +172,9 @@ function detalhe(role, permsCustom) {
   };
   const linha = (arr) => arr.filter(x => canc(x.perm)).map(x => x.label).join(', ') || '— (nada)';
   console.log(`\n╔══════════════════════════════════════════════════════════`);
-  console.log(`║  FUNÇÃO: ${roleLabel(role)} (${role})${permsCustom ? ' [permissões customizadas]' : ''}`);
+  console.log(`║  ${titulo}`);
   console.log(`╚══════════════════════════════════════════════════════════`);
+  console.log(`  Permissões: ${perms.includes('*') ? 'TODAS (*)' : `${perms.length} chave(s)`}`);
   console.log(`\n  ABAS INFERIORES:\n    ${linha(TABS)}`);
   console.log(`\n  TELA INÍCIO (cards/seções):\n    ${linha(HOME)}`);
   console.log(`\n  HUB "MAIS" (módulos):\n    ${linha(MAIS)}`);
@@ -196,6 +202,11 @@ function tabelaResumo() {
 }
 
 // ---- main ----
+// arg pode ser:
+//   • um ou mais PAPÉIS:           operador,viewer
+//   • uma SELEÇÃO de módulos:      financeiro.view,bi.view,dashboard.view
+//     (detectada quando contém '.') — simula um usuário com `permissoes` custom
+//     opcionalmente prefixada por "Rótulo=" → "João=producao.view,kanban.view"
 const arg = process.argv[2];
 console.log('================================================================');
 console.log(' SIMULADOR DE ACESSO POR FUNÇÃO — MONTEX ERP MOBILE');
@@ -204,9 +215,21 @@ console.log('================================================================');
 tabelaResumo();
 
 if (arg) {
-  for (const role of arg.split(',').map(s => s.trim()).filter(Boolean)) {
-    if (!(role in ROLE_PERMISSIONS_MAP)) { console.log(`\n  ⚠️ Função desconhecida: "${role}" (use: ${ROLE_ORDER.join(', ')})`); continue; }
-    detalhe(role);
+  const ehSelecao = /\./.test(arg); // permissões têm ponto (ex.: producao.view)
+  if (ehSelecao) {
+    let titulo = 'SELEÇÃO CUSTOMIZADA DE MÓDULOS';
+    let corpo = arg;
+    const eq = arg.indexOf('=');
+    if (eq > 0 && !arg.slice(0, eq).includes('.')) { titulo = `USUÁRIO: ${arg.slice(0, eq).trim()} [seleção customizada]`; corpo = arg.slice(eq + 1); }
+    const perms = corpo.split(',').map(s => s.trim()).filter(Boolean);
+    const invalidas = perms.filter(p => !ALL_KEYS.has(p));
+    relatorio(titulo, perms);
+    if (invalidas.length) console.log(`\n  ⚠️ Chaves não reconhecidas (ignoradas pelo app): ${invalidas.join(', ')}`);
+  } else {
+    for (const role of arg.split(',').map(s => s.trim()).filter(Boolean)) {
+      if (!(role in ROLE_PERMISSIONS_MAP)) { console.log(`\n  ⚠️ Função desconhecida: "${role}" (use: ${ROLE_ORDER.join(', ')})`); continue; }
+      relatorio(`FUNÇÃO: ${roleLabel(role)} (${role})`, ROLE_PERMISSIONS_MAP[role] || []);
+    }
   }
 }
 
