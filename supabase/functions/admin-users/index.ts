@@ -80,8 +80,8 @@ Deno.serve(async (req: Request) => {
       }
 
       case "create_user": {
-        const { email, password, nome, role, cargo } = payload as {
-          email?: string; password?: string; nome?: string; role?: string; cargo?: string;
+        const { email, password, nome, role, cargo, permissoes } = payload as {
+          email?: string; password?: string; nome?: string; role?: string; cargo?: string; permissoes?: string[];
         };
         if (!email || !password) return json(400, { error: "email e password obrigatórios" });
 
@@ -93,9 +93,14 @@ Deno.serve(async (req: Request) => {
         });
         if (authError) throw authError;
 
+        // Acesso por MÓDULOS SELECIONADOS: grava `permissoes` explícito quando
+        // enviado (não-vazio). Vazio/ausente = herda a função (admin = total).
+        const row: Record<string, unknown> = { auth_id: authData.user.id, email, nome, role, cargo, ativo: true };
+        if (Array.isArray(permissoes) && permissoes.length > 0) row.permissoes = permissoes;
+
         const { data: profile, error: profileError } = await admin
           .from("user_profiles")
-          .insert([{ auth_id: authData.user.id, email, nome, role, cargo, ativo: true }])
+          .insert([row])
           .select()
           .single();
         if (profileError) throw profileError;
