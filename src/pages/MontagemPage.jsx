@@ -51,6 +51,21 @@ const fmtData = (d) => {
 const carregarConcluidas = loadConcluidasLocal;
 const salvarConcluidas = saveConcluidasSmart;
 
+// ============================================
+// AGRUPAMENTO POR MARCA — chave canônica
+// ============================================
+// Unifica registros desmembrados da mesma marca (ex.: TS59A em vários itens)
+// numa única linha "X/N montadas". Normaliza a marca (igual ao import) e usa
+// código/ id como fallback para não fundir peças sem marca.
+function grupoKeyDe(peca) {
+  let m = String(peca?.marca || '').toUpperCase().trim().replace(/\s+/g, '').replace(/\//g, '');
+  m = m.replace(/^WM/, 'VM'); // typo comum WM → VM
+  if (m && m.length >= 2) return `MARCA:${m}`;
+  const cod = String(peca?.codigo || '').toUpperCase().trim();
+  if (cod) return `COD:${cod}`;
+  return `ID:${peca?.id}`;
+}
+
 // MARCAÇÃO PARCIAL: getMontadasCount é a fonte ÚNICA do cálculo de unidades
 // montadas (0..qtd), importada de utils/montagemSync e compartilhada com
 // MontexERP3DPage e MontagemMobile (sem cópias divergentes).
@@ -152,7 +167,7 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelecte
       onClick={(e) => {
         // Click on body toggles selection (but not when clicking buttons)
         if (e.target.closest('button')) return;
-        onToggleSelect?.(peca.id);
+        onToggleSelect?.(peca);
       }}
     >
       {/* Top accent */}
@@ -164,7 +179,7 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelecte
           <input
             type="checkbox"
             checked={isSelected}
-            onChange={() => onToggleSelect?.(peca.id)}
+            onChange={() => onToggleSelect?.(peca)}
             onClick={(e) => e.stopPropagation()}
             className="rounded border-slate-600 bg-slate-800 text-orange-500 focus:ring-orange-500"
           />
@@ -576,27 +591,119 @@ export default function MontagemPage() {
     return arr;
   }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
 
-  // ===== Agrupamento Kanban =====
-  // Peças PARCIAIS são DIVIDIDAS por quantidade entre as colunas (conformidade com
-  // o 3D e com os KPIs): a porção montada (N un) vai para MONTADO e a porção
-  // pendente (qtd-N un) permanece em AGUARDANDO. Cada porção é um card próprio com
-  // _portion / _portionQtd / _displayStatus.
+  // ===== Agrupamento por MARCA + OBRA =====
+  // Unifica registros desmembrados da mesma marca (ex.: TS59A em 7 linhas) numa
+  // única linha-grupo com contador agregado "X/N montadas". Filtros de obra/busca
+  // são aplicados em nível de peça (não distorcem o total do grupo); o filtro de
+  // status e a ordenação atuam no nível do grupo. Peça única → passa sem agrupar.
+  const gruposFiltrados = useMemo(() => {
+    let base = pecasMontagem;
+    if (obraFiltro !== 'todas') {
+      base = base.filter(p => p.obraId === obraFiltro || p.obra_id === obraFiltro);
+    }
+    if (busca.trim()) {
+      const q = busca.toLowerCase().trim();
+      base = base.filter(p =>
+        (p.codigo || '').toLowerCase().includes(q) ||
+        (p.nome || '').toLowerCase().includes(q) ||
+        (p.marca || '').toLowerCase().includes(q) ||
+        (p.tipo || '').toLowerCase().includes(q)
+      );
+    }
+
+    // Agrupar por obra + marca normalizada
+    const map = new Map();
+    for (const p of base) {
+      const obraKey = String(p.obraId || p.obra_id || '');
+      const key = `${obraKey}::${grupoKeyDe(p)}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(p);
+    }
+
+    let grupos = [];
+    for (const [key, membros] of map) {
+      if (membros.length === 1) {
+        grupos.push({ ...membros[0], _isGroup: false, _members: membros, _memberIds: [membros[0].id] });
+        continue;
+      }
+      const ord = membros.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      const _qtd = ord.reduce((s, m) => s + (m._qtd || Math.max(1, parseInt(m.quantidade) || 1)), 0);
+      const _montadas = ord.reduce((s, m) => s + (m._montadas || 0), 0);
+      const pesoTotal = ord.reduce((s, m) => s + (m.pesoTotal || m.peso || 0), 0);
+      const _status = _montadas >= _qtd ? 'montado' : _montadas > 0 ? 'parcial' : 'aguardando_montagem';
+      const updatedMs = ord.reduce((mx, m) => {
+        const t = new Date(m.updated_at || 0).getTime();
+        return t > mx ? t : mx;
+      }, 0);
+      const first = ord[0];
+      grupos.push({
+        ...first,
+        id: `grp::${key}`,
+        _isGroup: true,
+        _members: ord,
+        _memberIds: ord.map(m => m.id),
+        _qtd,
+        _montadas,
+        _status,
+        quantidade: _qtd,
+        pesoTotal,
+        updated_at: updatedMs ? new Date(updatedMs).toISOString() : first.updated_at,
+        nome: first.nome || first.tipo || first.marca,
+      });
+    }
+
+    if (statusFiltro !== 'todos') {
+      grupos = grupos.filter(g => g._status === statusFiltro);
+    }
+    if (ordenacao === 'recente') {
+      grupos.sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+    } else if (ordenacao === 'peso_desc') {
+      grupos.sort((a, b) => (b.pesoTotal || b.peso || 0) - (a.pesoTotal || a.peso || 0));
+    } else if (ordenacao === 'obra') {
+      grupos.sort((a, b) => String(a.obraId || '').localeCompare(String(b.obraId || '')));
+    }
+    return grupos;
+  }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
+
+  // ===== Agrupamento Kanban (sobre grupos) =====
+  // Grupos/peças PARCIAIS são DIVIDIDOS por quantidade entre as colunas
+  // (conformidade com o 3D e KPIs): a porção montada (N un) vai para MONTADO e a
+  // porção pendente (qtd-N un) permanece em AGUARDANDO. Cada porção é um card
+  // próprio com _portion / _portionQtd / _displayStatus.
   const kanban = useMemo(() => {
     const aguardando = [];
     const montado = [];
-    for (const p of pecasFiltradas) {
-      if (p._status === 'montado') { montado.push(p); continue; }
-      if (p._status === 'aguardando_montagem') { aguardando.push(p); continue; }
-      if (p._status === 'parcial') {
-        const qtd = p._qtd || Math.max(1, parseInt(p.quantidade) || 1);
-        const mont = Math.max(0, p._montadas || 0);
+    for (const g of gruposFiltrados) {
+      if (g._status === 'montado') { montado.push(g); continue; }
+      if (g._status === 'aguardando_montagem') { aguardando.push(g); continue; }
+      if (g._status === 'parcial') {
+        const qtd = g._qtd || Math.max(1, parseInt(g.quantidade) || 1);
+        const mont = Math.max(0, g._montadas || 0);
         const pend = Math.max(0, qtd - mont);
-        if (mont > 0) montado.push({ ...p, _portion: 'montada', _portionQtd: mont, _displayStatus: 'montado' });
-        if (pend > 0) aguardando.push({ ...p, _portion: 'aguardando', _portionQtd: pend, _displayStatus: 'aguardando_montagem' });
+        if (mont > 0) montado.push({ ...g, _portion: 'montada', _portionQtd: mont, _displayStatus: 'montado' });
+        if (pend > 0) aguardando.push({ ...g, _portion: 'aguardando', _portionQtd: pend, _displayStatus: 'aguardando_montagem' });
       }
     }
     return { aguardando_montagem: aguardando, montado };
-  }, [pecasFiltradas]);
+  }, [gruposFiltrados]);
+
+  // ===== Seleção group-aware =====
+  // Um grupo seleciona/deseleciona TODOS os ids reais internos (lote opera por id real).
+  const itemMemberIds = (item) => (item._isGroup ? (item._memberIds || []) : [item.id]);
+  const isItemSelected = (item) => {
+    const ids = itemMemberIds(item);
+    return ids.length > 0 && ids.every(id => pecasSelecionadas.has(id));
+  };
+  const toggleSelecaoItem = (item) => {
+    const ids = itemMemberIds(item);
+    setPecasSelecionadas(prev => {
+      const next = new Set(prev);
+      const allSel = ids.every(id => next.has(id));
+      if (allSel) ids.forEach(id => next.delete(id));
+      else ids.forEach(id => next.add(id));
+      return next;
+    });
+  };
 
   // ===== KPIs (em UNIDADES físicas; respeitam filtro de obra) =====
   const kpis = useMemo(() => {
@@ -669,27 +776,87 @@ export default function MontagemPage() {
   }, [pecasFiltradas, equipesMontagem, obras, obraFiltro]);
 
   // ===== Ações (apenas localStorage — NÃO altera o banco) =====
-  // Concluir Montagem: marca peça como totalmente montada (qtd unidades)
+
+  // Distribui N unidades montadas entre os registros internos de um grupo.
+  // Preenche membro a membro (ordem por id): o 1º registro recebe até sua qtd,
+  // depois o 2º, etc. "X/N montadas" do grupo mapeia para os ids REAIS que a
+  // MontagemMobile/3D também consomem. Desmarcação (da=0) vira tombstone via
+  // saveConcluidasSmart (preserva strip de tombstone ao re-marcar).
+  const setGrupoMontadas = (grupo, N) => {
+    const membros = grupo._members || [grupo];
+    const totalQtd = membros.reduce((s, m) => s + (m._qtd || Math.max(1, parseInt(m.quantidade) || 1)), 0);
+    let restante = Math.max(0, Math.min(totalQtd, parseInt(N) || 0));
+    const now = new Date().toISOString();
+    setConcluidas(prev => {
+      const next = { ...prev };
+      for (const m of membros) {
+        const mq = m._qtd || Math.max(1, parseInt(m.quantidade) || 1);
+        const da = Math.max(0, Math.min(mq, restante));
+        restante -= da;
+        if (da <= 0) {
+          delete next[m.id];
+        } else {
+          const { removidoEm: _rm, ...prevLimpo } = prev[m.id] || {};
+          next[m.id] = {
+            ...prevLimpo,
+            montadas: da,
+            montadoEm: prev[m.id]?.montadoEm || now,
+            atualizadoEm: now,
+            origem: 'MontagemPage (grupo)',
+          };
+        }
+      }
+      salvarConcluidas(next);
+      return next;
+    });
+  };
+
+  // Concluir Montagem: marca peça/grupo como totalmente montado (qtd unidades)
   const handleAvancar = (peca) => {
-    const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
-    setConcluida(peca.id, qtd, qtd);
-    toast.success(`✅ Montada (${qtd}/${qtd}): ${peca.codigo || peca.marca}`);
+    const qtd = peca._qtd || Math.max(1, parseInt(peca.quantidade) || 1);
+    if (peca._isGroup) setGrupoMontadas(peca, qtd);
+    else setConcluida(peca.id, qtd, qtd);
+    toast.success(`✅ Montada (${qtd}/${qtd}): ${peca.marca || peca.codigo}`);
   };
 
   // Retornar para Aguardando: desmarca no módulo (zera unidades)
   const handleRetornar = (peca) => {
-    setConcluida(peca.id, 0);
-    toast.success(`↩️ Retornada para Aguardando: ${peca.codigo || peca.marca}`);
+    if (peca._isGroup) setGrupoMontadas(peca, 0);
+    else setConcluida(peca.id, 0);
+    toast.success(`↩️ Retornada para Aguardando: ${peca.marca || peca.codigo}`);
   };
 
-  // Marcar montagem parcial: N unidades de qtd total
+  // Marcar montagem parcial: N unidades de qtd total (peça ou grupo)
   const handleSetMontadas = (peca, novasUnidadesMontadas) => {
-    const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
+    const qtd = peca._qtd || Math.max(1, parseInt(peca.quantidade) || 1);
     const n = Math.max(0, Math.min(qtd, parseInt(novasUnidadesMontadas) || 0));
-    setConcluida(peca.id, n, qtd);
-    if (n === 0) toast.success(`↩️ ${peca.codigo || peca.marca} → Aguardando (0/${qtd})`);
-    else if (n >= qtd) toast.success(`✅ ${peca.codigo || peca.marca} → Montada (${qtd}/${qtd})`);
-    else toast.success(`◐ ${peca.codigo || peca.marca} → Parcial (${n}/${qtd})`);
+    if (peca._isGroup) setGrupoMontadas(peca, n);
+    else setConcluida(peca.id, n, qtd);
+    const label = peca.marca || peca.codigo;
+    if (n === 0) toast.success(`↩️ ${label} → Aguardando (0/${qtd})`);
+    else if (n >= qtd) toast.success(`✅ ${label} → Montada (${qtd}/${qtd})`);
+    else toast.success(`◐ ${label} → Parcial (${n}/${qtd})`);
+  };
+
+  // Derivações LIVE do item aberto no modal (peça ou grupo), reativas a `concluidas`.
+  // Mantêm o slider/contador em sincronia mesmo após editar dentro do modal.
+  const qtdDoItem = (item) => {
+    if (!item) return 1;
+    const membros = item._members || [item];
+    return membros.reduce((s, m) => s + (m._qtd || Math.max(1, parseInt(m.quantidade) || 1)), 0);
+  };
+  const montadasDoItemLive = (item) => {
+    if (!item) return 0;
+    const membros = item._members || [item];
+    return membros.reduce((s, m) => {
+      const mq = m._qtd || Math.max(1, parseInt(m.quantidade) || 1);
+      return s + getMontadasCount(concluidas?.[m.id], mq);
+    }, 0);
+  };
+  const statusDoItemLive = (item) => {
+    const q = qtdDoItem(item);
+    const n = montadasDoItemLive(item);
+    return n >= q ? 'montado' : n > 0 ? 'parcial' : 'aguardando_montagem';
   };
 
   // Lote: aplica para todas as selecionadas — parcial-aware
@@ -730,13 +897,6 @@ export default function MontagemPage() {
     setPecasSelecionadas(new Set());
   };
 
-  const toggleSelecao = (id) => {
-    setPecasSelecionadas(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id); else next.add(id);
-      return next;
-    });
-  };
 
   const limparSelecao = () => setPecasSelecionadas(new Set());
 
@@ -1041,8 +1201,8 @@ export default function MontagemPage() {
                         onAvancar={handleAvancar}
                         onRetornar={handleRetornar}
                         onAbrirDetalhe={setPecaDetalhe}
-                        isSelected={pecasSelecionadas.has(peca.id)}
-                        onToggleSelect={toggleSelecao}
+                        isSelected={isItemSelected(peca)}
+                        onToggleSelect={toggleSelecaoItem}
                       />
                     ))}
                   </AnimatePresence>
@@ -1061,9 +1221,9 @@ export default function MontagemPage() {
                   <th className="px-3 py-2 text-left w-8">
                     <input
                       type="checkbox"
-                      checked={pecasFiltradas.length > 0 && pecasFiltradas.every(p => pecasSelecionadas.has(p.id))}
+                      checked={gruposFiltrados.length > 0 && gruposFiltrados.every(g => isItemSelected(g))}
                       onChange={(e) => {
-                        if (e.target.checked) setPecasSelecionadas(new Set(pecasFiltradas.map(p => p.id)));
+                        if (e.target.checked) setPecasSelecionadas(new Set(gruposFiltrados.flatMap(g => itemMemberIds(g))));
                         else setPecasSelecionadas(new Set());
                       }}
                       className="rounded border-slate-600 bg-slate-800 text-orange-500"
@@ -1080,17 +1240,17 @@ export default function MontagemPage() {
                 </tr>
               </thead>
               <tbody>
-                {pecasFiltradas.length === 0 ? (
+                {gruposFiltrados.length === 0 ? (
                   <tr>
                     <td colSpan={9} className="text-center py-8 text-slate-500 italic text-xs">
                       Nenhuma peça encontrada com os filtros atuais.
                     </td>
                   </tr>
-                ) : pecasFiltradas.map(peca => {
+                ) : gruposFiltrados.map(peca => {
                   const s = STATUS_CONFIG[peca._status];
                   const Icon = s.icon;
                   const obra = obras.find(o => o.id === (peca.obraId || peca.obra_id));
-                  const isSelected = pecasSelecionadas.has(peca.id);
+                  const isSelected = isItemSelected(peca);
                   return (
                     <tr
                       key={peca.id}
@@ -1103,7 +1263,7 @@ export default function MontagemPage() {
                         <input
                           type="checkbox"
                           checked={isSelected}
-                          onChange={() => toggleSelecao(peca.id)}
+                          onChange={() => toggleSelecaoItem(peca)}
                           className="rounded border-slate-600 bg-slate-800 text-orange-500"
                         />
                       </td>
@@ -1113,7 +1273,16 @@ export default function MontagemPage() {
                           {s.short}
                         </span>
                       </td>
-                      <td className="px-3 py-2 font-mono text-orange-300 text-xs">{peca.codigo || peca.marca}</td>
+                      <td className="px-3 py-2 font-mono text-orange-300 text-xs">
+                        <div className="flex items-center gap-1.5">
+                          {peca._isGroup ? (peca.marca || peca.codigo) : (peca.codigo || peca.marca)}
+                          {peca._isGroup && (
+                            <span className="text-[9px] font-sans font-bold px-1 py-0.5 rounded bg-orange-500/15 text-orange-300/90 border border-orange-500/20" title={`${peca._members.length} registros unificados`}>
+                              {peca._members.length} itens
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-2 text-slate-300 truncate max-w-xs" title={peca.nome}>{peca.nome || peca.tipo || '—'}</td>
                       <td className="px-3 py-2 text-slate-400 text-xs">
                         <div className="flex items-center gap-1">
@@ -1179,8 +1348,8 @@ export default function MontagemPage() {
             </table>
           </div>
           <div className="px-4 py-2 border-t border-slate-800 text-[10px] text-slate-500 flex items-center justify-between">
-            <span>Mostrando {pecasFiltradas.length} de {pecasMontagem.length} peças no módulo de Montagem</span>
-            <span className="font-mono">Soma: {fmtPeso(pecasFiltradas.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0))}</span>
+            <span>Mostrando {gruposFiltrados.length} marca(s) · {gruposFiltrados.reduce((s, g) => s + (g._qtd || parseInt(g.quantidade) || 1), 0)} un de {pecasMontagem.length} peças no módulo de Montagem</span>
+            <span className="font-mono">Soma: {fmtPeso(gruposFiltrados.reduce((s, p) => s + (p.pesoTotal || p.peso || 0), 0))}</span>
           </div>
         </div>
       )}
@@ -1409,14 +1578,15 @@ export default function MontagemPage() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between border-b border-slate-800 py-1.5">
                   <span className="text-slate-500">Status</span>
-                  <span className={`font-bold ${STATUS_CONFIG[pecaDetalhe._status]?.text || 'text-orange-300'}`}>
-                    {STATUS_CONFIG[pecaDetalhe._status]?.label}
+                  <span className={`font-bold ${STATUS_CONFIG[statusDoItemLive(pecaDetalhe)]?.text || 'text-orange-300'}`}>
+                    {STATUS_CONFIG[statusDoItemLive(pecaDetalhe)]?.label}
+                    {pecaDetalhe._isGroup && <span className="text-[10px] text-slate-500 font-normal ml-1">({pecaDetalhe._members.length} itens)</span>}
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-slate-800 py-1.5">
                   <span className="text-slate-500">Montadas</span>
                   <span className="font-bold text-white tabular-nums">
-                    {pecaDetalhe._montadas || 0} / {pecaDetalhe._qtd || pecaDetalhe.quantidade || 1} pcs
+                    {montadasDoItemLive(pecaDetalhe)} / {qtdDoItem(pecaDetalhe)} pcs
                   </span>
                 </div>
                 <div className="flex justify-between border-b border-slate-800 py-1.5">
@@ -1444,13 +1614,13 @@ export default function MontagemPage() {
               </div>
               {/* AÇÕES DE MONTAGEM — suporta marcação parcial 1..N ou total */}
               {(() => {
-                const qtd = pecaDetalhe._qtd || Math.max(1, parseInt(pecaDetalhe.quantidade) || 1);
-                const montadas = pecaDetalhe._montadas || 0;
+                const qtd = qtdDoItem(pecaDetalhe);
+                const montadas = montadasDoItemLive(pecaDetalhe);
                 // Slider só para qtd > 1; senão volta ao binário (montar / retornar)
                 if (qtd <= 1) {
                   return (
                     <div className="flex gap-2 mt-4">
-                      {pecaDetalhe._status !== 'montado' ? (
+                      {statusDoItemLive(pecaDetalhe) !== 'montado' ? (
                         <button
                           onClick={() => { handleAvancar(pecaDetalhe); setPecaDetalhe(null); }}
                           className="flex-1 px-4 py-2 rounded-lg font-bold text-sm transition-all"

@@ -9,7 +9,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
 import { useAuth } from '../lib/AuthContext';
-import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount, isMontada } from '../utils/montagemSync';
+import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
 import { parseIFCFile, IFC_TYPES } from '../utils/ifcParser';
 
 // Ícones SVG inline (evitam dependência de lucide-react sem impactar bundle)
@@ -1963,40 +1963,45 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     }
   }, [statusMap, pecaMap]);
 
-  // Toggle Marcar/Desmarcar peça como Montada (sincroniza com MontagemPage)
-  // Marcação parcial: o 3D não tem UI de parcial — toggle ON marca "todas".
-  // Mas se a peça já estava parcial (ex.: montadas=2/3 vindo do MontagemPage),
-  // PRESERVAMOS o campo `montadas` para não regredir silenciosamente. Operador
-  // que queira completar usa o desktop (MontagemPage modal qtd) ou desmarcar
-  // a peça inteira pelo painel 3D.
+  // Toggle Marcar/Desmarcar UMA unidade como Montada (sincroniza com MontagemPage).
+  // Marcação POR UNIDADE (parcial-aware): clicar uma peça com várias unidades
+  // marca/desmarca SOMENTE a unidade clicada — NÃO puxa as unidades restantes.
+  //   - unidade clicada ainda NÃO montada → montadas + 1
+  //   - unidade clicada JÁ montada        → montadas − 1 (tombstone ao chegar a 0)
+  // A direção vem do status pintado do elemento (erpStatus: MONTADO / MONTADO_PARCIAL
+  // = esta unidade conta como montada). Preserva tombstone-strip e podeMontar3D.
   const toggleMontagem = useCallback((peca) => {
     if (!peca) return;
     if (!podeMontar3D) return; // trava de edição (defesa real além de esconder o botão)
     const pecaId = String(peca.id);
+    const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
     const next = { ...concluidasMontagem };
-    // isMontada: tombstone (desmarcada) NÃO conta como montada — sem isto o
-    // toggle invertia (tocar numa peça desmarcada tentava desmarcar de novo).
-    const wasMontada = isMontada(next[pecaId]);
-    if (wasMontada) {
-      delete next[pecaId];
+    const atual = getMontadasCount(next[pecaId], qtd);
+    const unidadeJaMontada = selectedElement?.erpStatus === 'MONTADO' || selectedElement?.erpStatus === 'MONTADO_PARCIAL';
+    let novo = unidadeJaMontada ? atual - 1 : atual + 1;
+    novo = Math.max(0, Math.min(qtd, novo));
+    const now = new Date().toISOString();
+    if (novo <= 0) {
+      delete next[pecaId]; // saveConcluidasSmart converte em tombstone
     } else {
-      // Strip do tombstone ao re-marcar
+      // Strip do tombstone ao (re)marcar
       const { removidoEm: _rm, ...prev } = next[pecaId] || {};
       next[pecaId] = {
         ...prev,
-        montadoEm: new Date().toISOString(),
-        atualizadoEm: new Date().toISOString(),
+        montadas: novo,                 // grava parcial — só N unidades, não todas
+        montadoEm: prev.montadoEm || now,
+        atualizadoEm: now,
         origem: 'MontexERP3DPage',
         marca: peca.marca,
       };
     }
     setConcluidasMontagem(next);
     saveConcluidasSmart(next);
-    // Refletir mudança imediata no painel selecionado
+    // Refletir mudança imediata no painel: a unidade clicada inverte de estado
     if (selectedElement) {
-      const novoStatus = wasMontada
+      const novoStatus = unidadeJaMontada
         ? (peca.status || 'NAO_INICIADO')
-        : 'MONTADO';
+        : (novo >= qtd ? 'MONTADO' : 'MONTADO_PARCIAL');
       setSelectedElement({ ...selectedElement, erpStatus: novoStatus });
     }
   }, [concluidasMontagem, selectedElement, podeMontar3D]);
@@ -2553,11 +2558,14 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                       </div>
                     </div>
 
-                    {/* Acao: Marcar / Desmarcar como Montada */}
+                    {/* Acao: Marcar / Desmarcar SOMENTE a unidade clicada */}
                     {(() => {
                       const peca = selectedElement.erpPeca;
-                      const isMontada = !!concluidasMontagem[String(peca.id)];
-                      const podeMontar = ['enviado','entregue','montagem'].includes(peca.etapa) || isMontada;
+                      const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
+                      const montadasN = getMontadasCount(concluidasMontagem[String(peca.id)], qtd);
+                      // Esta unidade específica está montada? (status pintado do elemento clicado)
+                      const unidadeMontada = selectedElement.erpStatus === 'MONTADO' || selectedElement.erpStatus === 'MONTADO_PARCIAL';
+                      const podeMontar = ['enviado','entregue','montagem'].includes(peca.etapa) || montadasN > 0;
                       if (!podeMontar) {
                         return (
                           <div className="text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded p-2">
@@ -2573,13 +2581,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                           </div>
                         );
                       }
-                      if (isMontada) {
+                      if (unidadeMontada) {
                         return (
                           <button
                             onClick={() => toggleMontagem(peca)}
                             className="w-full px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold transition-all flex items-center justify-center gap-2"
                           >
-                            ↩ Desmarcar Montagem
+                            ↩ Desmarcar esta unidade{qtd > 1 ? ` (${montadasN}/${qtd})` : ''}
                           </button>
                         );
                       }
@@ -2588,11 +2596,15 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                           onClick={() => toggleMontagem(peca)}
                           className="w-full px-3 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold transition-all flex items-center justify-center gap-2 shadow-lg shadow-emerald-500/30"
                         >
-                          ✓ Marcar como Montada
+                          ✓ Marcar esta unidade{qtd > 1 ? ` (${montadasN + 1}/${qtd})` : ''}
                         </button>
                       );
                     })()}
-                    <p className="text-[9px] text-slate-500 mt-2 text-center">Sincroniza automaticamente com a MontagemPage</p>
+                    <p className="text-[9px] text-slate-500 mt-2 text-center">
+                      {(parseInt(selectedElement.erpPeca.quantidade) || 1) > 1
+                        ? 'Marca só a unidade clicada · sincroniza com a MontagemPage'
+                        : 'Sincroniza automaticamente com a MontagemPage'}
+                    </p>
                   </div>
                 )}
 
