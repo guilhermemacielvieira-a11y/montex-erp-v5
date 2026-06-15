@@ -1306,14 +1306,26 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       for (const p of pecasOrd) {
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
         // Quantidade EFETIVAMENTE montada (parcial: 0..qtd; padrão legado = qtd)
-        const montadasN = getMontadasCount(concluidasMontagem?.[p.id], qtd);
+        const payloadP = concluidasMontagem?.[p.id];
+        const montadasN = getMontadasCount(payloadP, qtd);
+        const montadoFull = montadasN >= qtd;
+        // `slots`: assemblies marcados EXPLICITAMENTE no 3D (correção manual por
+        // unidade). Esses pintam MONTADO primeiro — garante que o elemento clicado
+        // pelo operador fique verde, mesmo numa peça com qtd>1. O restante até
+        // `montadasN` é preenchido por ordem (marcações por contagem da MontagemPage).
+        const slotsP = payloadP?.slots;
+        // Fatia de assemblies desta peça (ai..ai+qtd)
+        const fatia = [];
+        for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) fatia.push(asmsOrd[ai]);
+        const explicitos = new Set(slotsP ? fatia.filter(a => slotsP[a]) : []);
+        let restantes = Math.max(0, montadasN - explicitos.size);
         let consumido = 0;
-        for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
-          asmRedistribuidos.add(asmsOrd[ai]);
-          const elems = elemsByAsmReal.get(asmsOrd[ai]) || [];
-          // Primeiras `montadasN` unidades pintam MONTADO; restante = status produção
-          const novoStatus = (q < montadasN) ? ((montadasN < qtd) ? 'MONTADO_PARCIAL' : 'MONTADO') : (p.status || 'NAO_INICIADO');
-          for (const eid of elems) { map.set(eid, novoStatus); eidsTratados.add(eid); }
+        for (const asmId of fatia) {
+          asmRedistribuidos.add(asmId);
+          let isMont = explicitos.has(asmId);
+          if (!isMont && restantes > 0) { isMont = true; restantes--; }
+          const novoStatus = isMont ? (montadoFull ? 'MONTADO' : 'MONTADO_PARCIAL') : (p.status || 'NAO_INICIADO');
+          for (const eid of (elemsByAsmReal.get(asmId) || [])) { map.set(eid, novoStatus); eidsTratados.add(eid); }
           consumido++;
         }
         if (consumido > 0) {
@@ -1515,6 +1527,55 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       }
     }
 
+    // ===== Atribuição POSICIONAL assembly→peça (espelha o statusMap) =====
+    // CRÍTICO p/ marcas com VÁRIAS unidades (TS59A): o clique tem de selecionar a
+    // EXATA peça cujo slot de pintura é aquele assembly. Sem isto, o clique caía
+    // sempre na 1ª peça da marca (marcaIndex é 1:1), enquanto a pintura distribuía
+    // os assemblies por TODAS as peças da marca → marcar "1/1" pintava OUTRO
+    // assembly e o elemento clicado NÃO ficava verde. Aqui replicamos a MESMA
+    // atribuição ordenada do statusMap (asm por assemblyId, peças por id, consome qtd).
+    const _normMarca = (s) => (s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const marcaIndexAllCanon = new Map(); // marcaNorm -> [peças] (cada peça 1x)
+    for (const peca of erpPecas) {
+      const k = _normMarca(peca.marca);
+      if (k.length < 2) continue;
+      if (!marcaIndexAllCanon.has(k)) marcaIndexAllCanon.set(k, []);
+      marcaIndexAllCanon.get(k).push(peca);
+    }
+    const asmByMarca = new Map();   // marcaNorm -> [assemblyId] (únicos)
+    const elemsByAsm = new Map();   // assemblyId -> [expressID]
+    const marcaByAsm = new Map();   // assemblyId -> marcaNorm (1ª vence)
+    for (const el of ifcElements) {
+      if (el.assemblyId == null) continue;
+      if (!elemsByAsm.has(el.assemblyId)) elemsByAsm.set(el.assemblyId, []);
+      elemsByAsm.get(el.assemblyId).push(el.expressID);
+      const k = _normMarca(el.marcaFromIfc);
+      if (k.length >= 2 && marcaIndexAllCanon.has(k) && !marcaByAsm.has(el.assemblyId)) {
+        marcaByAsm.set(el.assemblyId, k);
+        if (!asmByMarca.has(k)) asmByMarca.set(k, []);
+        asmByMarca.get(k).push(el.assemblyId);
+      }
+    }
+    const asmPecaByEid = new Map(); // expressID -> peça (atribuição posicional)
+    for (const [marca, asms] of asmByMarca) {
+      const pecas = marcaIndexAllCanon.get(marca);
+      if (!pecas || !pecas.length) continue;
+      const asmsOrd = asms.slice().sort((a, b) => a - b);
+      const pecasOrd = pecas.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+      let ai = 0;
+      for (const p of pecasOrd) {
+        const qtd = Math.max(1, parseInt(p.quantidade) || 1);
+        for (let q = 0; q < qtd && ai < asmsOrd.length; q++, ai++) {
+          for (const eid of (elemsByAsm.get(asmsOrd[ai]) || [])) asmPecaByEid.set(eid, p);
+        }
+      }
+      // Excedente de assemblies (IFC > banco) → última peça da marca
+      const ultima = pecasOrd[pecasOrd.length - 1];
+      for (; ai < asmsOrd.length && ultima; ai++) {
+        for (const eid of (elemsByAsm.get(asmsOrd[ai]) || [])) asmPecaByEid.set(eid, ultima);
+      }
+    }
+
     // Construir mesmo position-to-peca mapping
     const IFC_T = {
       'COLUNA':'COLUNA','TESOURA':'TESOURA','VIGA':'VIGA','VIGA-MESTRA':'VIGA-MESTRA','VIGAMESTRA':'VIGA-MESTRA',
@@ -1554,6 +1615,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const elTag = (el.tag || el.objectType || '').toUpperCase().trim();
       const elPos = el.props?.['Assembly/Cast unit position code'];
       const elTipoAssembly = (el.props?.['Assembly/Cast unit name'] || elName).toUpperCase().trim();
+      // Strategy -2: atribuição posicional assembly→peça (consistente com a pintura)
+      if (asmPecaByEid.has(el.expressID)) { map.set(el.expressID, asmPecaByEid.get(el.expressID)); continue; }
       // Strategy -1: marca real do IFC (Tekla 100% com marcas)
       const elMarcaIfc = (el.marcaFromIfc || '').toUpperCase().trim();
       const hitMarcaIfc = elMarcaIfc
@@ -1975,6 +2038,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (!podeMontar3D) return; // trava de edição (defesa real além de esconder o botão)
     const pecaId = String(peca.id);
     const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
+    const asmId = selectedElement?.assemblyId; // assembly da unidade clicada (p/ slot exato)
     const next = { ...concluidasMontagem };
     const atual = getMontadasCount(next[pecaId], qtd);
     const unidadeJaMontada = selectedElement?.erpStatus === 'MONTADO' || selectedElement?.erpStatus === 'MONTADO_PARCIAL';
@@ -1982,13 +2046,20 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     novo = Math.max(0, Math.min(qtd, novo));
     const now = new Date().toISOString();
     if (novo <= 0) {
-      delete next[pecaId]; // saveConcluidasSmart converte em tombstone
+      delete next[pecaId]; // saveConcluidasSmart converte em tombstone (slots vão junto)
     } else {
-      // Strip do tombstone ao (re)marcar
-      const { removidoEm: _rm, ...prev } = next[pecaId] || {};
+      // Strip do tombstone ao (re)marcar; `slots` registra o assembly EXATO clicado
+      // para a pintura refletir a unidade certa (peças com qtd>1).
+      const { removidoEm: _rm, slots: prevSlots, ...prev } = next[pecaId] || {};
+      const slots = { ...(prevSlots || {}) };
+      if (asmId != null) {
+        if (unidadeJaMontada) delete slots[asmId];
+        else slots[asmId] = now;
+      }
       next[pecaId] = {
         ...prev,
         montadas: novo,                 // grava parcial — só N unidades, não todas
+        ...(Object.keys(slots).length ? { slots } : {}),
         montadoEm: prev.montadoEm || now,
         atualizadoEm: now,
         origem: 'MontexERP3DPage',
