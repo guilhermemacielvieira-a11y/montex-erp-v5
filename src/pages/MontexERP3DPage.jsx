@@ -1435,22 +1435,37 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       const pecas = marcaIndexAll.get(marca);
       if (!pecas || !pecas.length) continue;
       let totMont = 0, totQtd = 0;
+      const slotEids = new Set(); // beams marcados EXPLICITAMENTE no 3D (slot 'eid:<id>')
       for (const p of pecas) {
         const qtd = Math.max(1, parseInt(p.quantidade) || 1);
         totQtd += qtd;
-        const mont = getMontadasCount(concluidasMontagem?.[p.id], qtd);
+        const payload = concluidasMontagem?.[p.id];
+        const mont = getMontadasCount(payload, qtd);
         totMont += mont;
         // Marca representada por inteiro nesta camada (proporção sobre o grupo)
         addRepr(p.id, qtd, mont);
+        // Coleta slots explícitos por expressID (correção manual da unidade clicada)
+        if (payload?.slots) {
+          for (const k of Object.keys(payload.slots)) {
+            if (k.startsWith('eid:')) { const e = parseInt(k.slice(4), 10); if (!Number.isNaN(e)) slotEids.add(e); }
+          }
+        }
       }
       if (totQtd <= 0) continue;
       const statusProd = getRepresentativeStatus(pecas); // produção (nunca montado)
+      const montFull = totMont >= totQtd;
       // nº de elementos a pintar MONTADO, proporcional à fração montada da marca
       const nMont = Math.round(eids.length * (totMont / totQtd));
       const eidsOrd = eids.slice().sort((a, b) => a - b);
-      for (let i = 0; i < eidsOrd.length; i++) {
-        map.set(eidsOrd[i], i < nMont ? (totMont < totQtd ? 'MONTADO_PARCIAL' : 'MONTADO') : statusProd);
-        eidsTratados.add(eidsOrd[i]);
+      // Slots explícitos pintam MONTADO PRIMEIRO (garante que o beam clicado pelo
+      // operador fique verde); o restante até nMont é preenchido por ordem.
+      const explicitNoGrupo = eidsOrd.filter(e => slotEids.has(e));
+      let restantes = Math.max(0, nMont - explicitNoGrupo.length);
+      for (const e of eidsOrd) {
+        let isMont = slotEids.has(e);
+        if (!isMont && restantes > 0) { isMont = true; restantes--; }
+        map.set(e, isMont ? (montFull ? 'MONTADO' : 'MONTADO_PARCIAL') : statusProd);
+        eidsTratados.add(e);
       }
     }
 
@@ -2038,7 +2053,12 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (!podeMontar3D) return; // trava de edição (defesa real além de esconder o botão)
     const pecaId = String(peca.id);
     const qtd = Math.max(1, parseInt(peca.quantidade) || 1);
-    const asmId = selectedElement?.assemblyId; // assembly da unidade clicada (p/ slot exato)
+    // Chave de slot da unidade clicada: assemblyId quando há assembly; senão o
+    // expressID do elemento (terças/beams SOLTOS — ex.: TC164A/B — não têm
+    // assemblyId, mas cada IFCBEAM já é 1 unidade física). Prefixo 'eid:' separa.
+    const slotKey = selectedElement?.assemblyId != null
+      ? String(selectedElement.assemblyId)
+      : (selectedElement?.expressID != null ? `eid:${selectedElement.expressID}` : null);
     const next = { ...concluidasMontagem };
     const atual = getMontadasCount(next[pecaId], qtd);
     const unidadeJaMontada = selectedElement?.erpStatus === 'MONTADO' || selectedElement?.erpStatus === 'MONTADO_PARCIAL';
@@ -2048,13 +2068,13 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     if (novo <= 0) {
       delete next[pecaId]; // saveConcluidasSmart converte em tombstone (slots vão junto)
     } else {
-      // Strip do tombstone ao (re)marcar; `slots` registra o assembly EXATO clicado
-      // para a pintura refletir a unidade certa (peças com qtd>1).
+      // Strip do tombstone ao (re)marcar; `slots` registra a unidade EXATA clicada
+      // (assembly OU beam solto) para a pintura refletir a unidade certa.
       const { removidoEm: _rm, slots: prevSlots, ...prev } = next[pecaId] || {};
       const slots = { ...(prevSlots || {}) };
-      if (asmId != null) {
-        if (unidadeJaMontada) delete slots[asmId];
-        else slots[asmId] = now;
+      if (slotKey != null) {
+        if (unidadeJaMontada) delete slots[slotKey];
+        else slots[slotKey] = now;
       }
       next[pecaId] = {
         ...prev,
