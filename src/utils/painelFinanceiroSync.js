@@ -85,9 +85,14 @@ export function mergeBundles(a, b) {
   // lancamento (a UNIAO de movs sozinha nao expressa exclusao).
   const deletados = Array.from(new Set([...(a.deletados || []), ...(b.deletados || [])]));
   const delSet = new Set(deletados.map(String));
+  // Last-write-wins por mov: mantem a versao com updatedAt/createdAt MAIS RECENTE.
+  // Sem isso o remoto (b) sobrescrevia uma edicao local recente (ex.: marcar pago)
+  // antes do save debounced (800ms) propagar -> revertia ao recarregar/realtime.
+  const _ts = (m) => Date.parse((m && (m.updatedAt || m.updated_at || m.createdAt || m.created_at)) || '') || 0;
   const byId = new Map();
-  (a.movs || []).forEach((m) => { if (m && m.id != null && !delSet.has(String(m.id))) byId.set(m.id, m); });
-  (b.movs || []).forEach((m) => { if (m && m.id != null && !delSet.has(String(m.id))) byId.set(m.id, m); });
+  const _put = (m) => { if (!m || m.id == null || delSet.has(String(m.id))) return; const ex = byId.get(m.id); if (!ex || _ts(m) >= _ts(ex)) byId.set(m.id, m); };
+  (a.movs || []).forEach(_put);
+  (b.movs || []).forEach(_put);
   return {
     movs: Array.from(byId.values()),
     overrides: { ...(a.overrides || {}), ...(b.overrides || {}) },

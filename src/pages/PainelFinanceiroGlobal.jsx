@@ -959,7 +959,7 @@ export default function PainelFinanceiroGlobal() {
   const mudarStatusRapido = useCallback((mov, novoStatus) => {
     if (!mov || !novoStatus) return;
     if (mov.origem === 'local') {
-      setMovsLocais(prev => prev.map(m => m.id === mov.id ? { ...m, status: novoStatus } : m));
+      setMovsLocais(prev => prev.map(m => m.id === mov.id ? { ...m, status: novoStatus, updatedAt: new Date().toISOString() } : m));
     } else {
       const key = mov.ovKey || mov.id;
       setOverridesLocais(prev => ({ ...prev, [key]: { ...(prev[key] || {}), status: novoStatus } }));
@@ -1083,6 +1083,7 @@ export default function PainelFinanceiroGlobal() {
           vencimento: formData.vencimento || '',
           data: formData.vencimento || m.data,
           status: formData.status || 'pendente', obraId: formData.obraId || null,
+          updatedAt: new Date().toISOString(),
         } : m));
         toast.success('Lançamento local atualizado');
       } else {
