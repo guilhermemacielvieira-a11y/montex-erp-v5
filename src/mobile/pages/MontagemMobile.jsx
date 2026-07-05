@@ -5,6 +5,7 @@
 // — regra #6 do CLAUDE.md). Operação de campo: ESCANEAR a etiqueta/QR da
 // peça → encontra a marca na obra → sheet de confirmação → marca montada.
 // ============================================================
+import { Link } from 'react-router-dom';
 import React, { useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Hammer, CheckCircle2, Box, ScanLine, RotateCcw, Download } from 'lucide-react';
@@ -200,6 +201,10 @@ export default function MontagemMobile() {
 
   return (
     <MobileLayout title="Montagem" obraFilter>
+      <Link to="/m/parede-pronta" className="mx-4 mt-2 mb-1 flex items-center justify-between rounded-xl border border-teal-500/30 bg-teal-500/10 px-4 py-3 active:scale-[.98] transition">
+        <span className="text-sm font-semibold text-teal-300">🧱 Parede-Pronta R5 · Bicas 70</span>
+        <span className="text-[10px] font-bold text-teal-400 border border-teal-500/40 rounded px-1.5 py-0.5">QR</span>
+      </Link>
       {/* Tabs + busca */}
       <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
         <div className="flex gap-2">

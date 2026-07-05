@@ -14,6 +14,7 @@ import { useAuth } from '@/lib/AuthContext';
 const MODULOS = [
   { group: 'Operação', items: [
     { to: '/m/diario-obra', icon: ClipboardList, label: 'Diário de Obra', cor: 'emerald', perm: 'producao.lancar_avanco' },
+    { to: '/m/parede-pronta', icon: Box, label: 'Parede-Pronta R5', cor: 'teal', perm: ['montagem.view', 'producao.view'] },
     { to: '/m/3d', icon: Box, label: 'Visualizador 3D', cor: 'amber', perm: ['viewer3d.view', 'producao.view'] },
     { to: '/m/kanban', icon: ClipboardList, label: 'Kanban Produção', cor: 'blue', perm: 'kanban.view' },
     { to: '/m/kanban-corte', icon: Scissors, label: 'Kanban Corte', cor: 'purple', perm: 'kanban.view' },
@@ -55,6 +56,7 @@ const MODULOS = [
 ];
 
 const CORES = {
+  teal: 'from-teal-500/20 to-teal-600/10 text-teal-400 border-teal-500/20',
   amber: 'from-amber-500/20 to-orange-600/10 text-amber-400 border-amber-500/20',
   blue: 'from-blue-500/20 to-blue-600/10 text-blue-400 border-blue-500/20',
   purple: 'from-violet-500/20 to-violet-600/10 text-violet-400 border-violet-500/20',

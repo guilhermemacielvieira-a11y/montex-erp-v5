@@ -39,6 +39,7 @@ import MaisMobile from './pages/MaisMobile';
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
+const ParedeProntaPage = lazy(() => import('../pages/ParedeProntaPage'));
 const KanbanProducaoIntegrado = lazy(() => import('../pages/KanbanProducaoIntegrado'));
 const KanbanCortePage = lazy(() => import('../pages/KanbanCortePage'));
 const EnviosExpedicaoPage = lazy(() => import('../pages/EnviosExpedicaoPage'));
@@ -171,6 +172,7 @@ function MobileRoutes() {
       <Route index element={<HomeMobile />} />
       <Route path="producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
       <Route path="montagem" element={<Protected perm={['montagem.view', 'producao.view']}><MontagemMobile /></Protected>} />
+      <Route path="parede-pronta" element={<Protected perm={['montagem.view', 'producao.view']}><ParedeProntaPage /></Protected>} />
       <Route path="financeiro" element={<Protected perm="financeiro.view"><FinanceiroMobile /></Protected>} />
       <Route path="expedicao" element={<Protected perm="expedicao.view"><ExpedicaoMobile /></Protected>} />
       <Route path="mais" element={<MaisMobile />} />
