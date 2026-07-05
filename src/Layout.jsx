@@ -174,6 +174,7 @@ const navigationCategories = [
       { name: 'Multi-Obras', href: 'MultiObrasPage', icon: Building },
       { name: 'Gestão Obras', href: 'GestaoObrasPage', icon: Building2, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
       { name: 'Montagem', href: 'MontagemPage', icon: HardHat },
+      { name: 'Parede-Pronta R5', href: 'ParedeProntaPage', icon: HardHat, badge: 'QR', badgeColor: 'bg-teal-500/20 text-teal-400' },
     ]
   },
   {
