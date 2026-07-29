@@ -525,6 +525,8 @@ export default function GestaoFinanceiraObra() {
     const valorContrato = obra.contrato?.valorTotal || 2700000;
     // 🔧 FIX: filtrar medições pela obra atual (antes somava TODAS, incluindo Belo Vale estático)
     const medicoesDaObra = medicoes.filter(m => {
+      // 🔧 FIX P0 (auditoria 2026-07-28): medições PREVISTAS/REJEITADAS não abatem saldo de contrato
+      if (m.status === 'prevista' || m.status === 'rejeitada') return false;
       const mObraId = m.obraId || m.obra_id;
       // Se medição tem obraId, deve ser igual à obra atual.
       // Se não tem, considera como "da obra Belo Vale" (modelo estático).
@@ -593,7 +595,7 @@ export default function GestaoFinanceiraObra() {
 
   // Calcular DRE da obra (usando medições reais como receitas)
   const dreObra = useMemo(() => {
-    const totalReceitas = medicoes.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
+    const totalReceitas = medicoes.filter(m => m.status !== 'prevista' && m.status !== 'rejeitada').reduce((sum, m) => sum + (m.valorBruto || 0), 0); // 🔧 FIX P0: DRE só com medições reais
     const totalDespesas = lancamentos
       .filter(l => l.obraId === obra.id)
       .reduce((sum, l) => sum + l.valor, 0);

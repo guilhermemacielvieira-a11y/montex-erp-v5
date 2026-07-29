@@ -40,7 +40,7 @@ export default function Tarefas() {
 
   const { data: tarefas = [], isLoading } = useQuery({
     queryKey: ['tarefas'],
-    queryFn: () => base44.entities.Tarefa.list('-created_date', 200)
+    queryFn: () => base44.entities.Tarefa.list('-created_date', 500)
   });
 
   const { data: projetos = [] } = useQuery({
@@ -119,7 +119,7 @@ export default function Tarefas() {
   };
 
   const tarefasFiltradas = tarefas.filter(tarefa => {
-    if (filtros.projeto !== 'todos' && tarefa.projeto_id !== filtros.projeto) return false;
+    if (filtros.projeto !== 'todos' && (tarefa.obra_id || tarefa.projeto_id) !== filtros.projeto) return false;
     if (filtros.responsavel !== 'todos' && tarefa.responsavel !== filtros.responsavel) return false;
     if (filtros.status !== 'todos' && tarefa.status !== filtros.status) return false;
     if (filtros.busca && !tarefa.titulo.toLowerCase().includes(filtros.busca.toLowerCase())) return false;
