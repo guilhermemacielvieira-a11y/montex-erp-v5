@@ -274,7 +274,7 @@ export default function VisaoGeralPage() {
 
   // ===== Obras ativas =====
   const obrasAtivas = useMemo(() => {
-    return (obras || []).filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
+    return (obras || []).filter(o => !['cancelada','cancelado','concluida','concluido','pausado','pausada','orcamento'].includes(o.status));
   }, [obras]);
 
   // ===== Cash flow 6 meses =====

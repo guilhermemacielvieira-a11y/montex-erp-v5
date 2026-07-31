@@ -444,7 +444,7 @@ export async function getDashboardStats() {
     equipesApi.getAll()
   ]);
 
-  const obrasAtivas = obrasData.filter(o => !['concluida', 'cancelada', 'orcamento'].includes(o.status));
+  const obrasAtivas = obrasData.filter(o => !['concluida', 'concluido', 'cancelada', 'cancelado', 'pausado', 'pausada', 'orcamento'].includes(o.status));
 
   return {
     totalObras: obrasData.length,
