@@ -45,12 +45,18 @@ function openIFCDB() {
   });
 }
 
-async function saveIFCToLocal(fileName, buffer) {
+// Chave do cache local POR OBRA. A obra-001 (Super Luna Belo Vale) mantém a
+// chave legada 'current' para não invalidar o cache já existente nos devices.
+function ifcLocalKey(obraId) {
+  return (!obraId || obraId === 'obra-001') ? 'current' : `current:${obraId}`;
+}
+
+async function saveIFCToLocal(fileName, buffer, obraId) {
   try {
     const db = await openIFCDB();
     const tx = db.transaction(IFC_STORE, 'readwrite');
     tx.objectStore(IFC_STORE).put({
-      id: 'current',
+      id: ifcLocalKey(obraId),
       fileName,
       buffer,
       savedAt: Date.now(),
@@ -66,11 +72,11 @@ async function saveIFCToLocal(fileName, buffer) {
   }
 }
 
-async function loadIFCFromLocal() {
+async function loadIFCFromLocal(obraId) {
   try {
     const db = await openIFCDB();
     const tx = db.transaction(IFC_STORE, 'readonly');
-    const req = tx.objectStore(IFC_STORE).get('current');
+    const req = tx.objectStore(IFC_STORE).get(ifcLocalKey(obraId));
     const result = await new Promise((resolve, reject) => {
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
@@ -87,14 +93,57 @@ async function loadIFCFromLocal() {
 // SUPABASE STORAGE - Persistencia online do IFC
 // ==============================================
 const SUPABASE_STORAGE_BUCKET = 'ifc-models';
-const SUPABASE_IFC_PATH = 'current-model.ifc';
+const SUPABASE_IFC_PATH = 'current-model.ifc'; // legado: modelo da obra-001 (Super Luna Belo Vale)
+
+// Caminhos do IFC no Storage POR OBRA, em ordem de preferência. obra-001
+// mantém 'current-model.ifc' (legado, já publicado); demais obras usam
+// '<obra_id>.ifc.gz' (comprimido — contorna o limite de 100 MB do Storage e
+// baixa ~7x mais rápido) com fallback '<obra_id>.ifc' bruto.
+function ifcStorageCandidates(obraId) {
+  if (!obraId || obraId === 'obra-001') return [SUPABASE_IFC_PATH];
+  return [`${obraId}.ifc.gz`, `${obraId}.ifc`];
+}
+
+// gzip/gunzip nativos do browser (Chrome 80+, Safari 16.4+). Retornam null
+// quando indisponíveis — os chamadores caem no caminho sem compressão.
+async function gzipBuffer(buffer) {
+  if (typeof CompressionStream === 'undefined') return null;
+  try {
+    const stream = new Blob([buffer]).stream().pipeThrough(new CompressionStream('gzip'));
+    return await new Response(stream).arrayBuffer();
+  } catch (e) {
+    console.warn('[Storage] gzip indisponível:', e?.message || e);
+    return null;
+  }
+}
+
+async function gunzipBuffer(buffer) {
+  if (typeof DecompressionStream === 'undefined') return null;
+  try {
+    const stream = new Blob([buffer]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return await new Response(stream).arrayBuffer();
+  } catch (e) {
+    console.warn('[Storage] gunzip falhou:', e?.message || e);
+    return null;
+  }
+}
 
 // Upload IFC com fetch direto (mais confiavel para arquivos grandes 50+ MB)
 // Substitui supabase-js que tinha timeout/falhas silenciosas em uploads longos.
 // Inclui retry (3 tentativas) e diagnostico detalhado em caso de erro.
-async function uploadIFCToSupabase(buffer, onProgress) {
-  const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
-  const url = `${supabase.supabaseUrl}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${SUPABASE_IFC_PATH}`;
+async function uploadIFCToSupabase(buffer, onProgress, obraId) {
+  // Comprime quando suportado e a obra usa caminho .gz; obra-001 mantém o
+  // raw legado (current-model.ifc). Sem CompressionStream, sobe bruto .ifc
+  // (sujeito ao limite de tamanho do Storage).
+  let body = buffer;
+  let ifcPath = ifcStorageCandidates(obraId)[0];
+  if (ifcPath.endsWith('.gz')) {
+    const gz = await gzipBuffer(buffer);
+    if (gz) body = gz;
+    else ifcPath = `${obraId}.ifc`;
+  }
+  const sizeMB = (body.byteLength / 1024 / 1024).toFixed(1);
+  const url = `${supabase.supabaseUrl}/storage/v1/object/${SUPABASE_STORAGE_BUCKET}/${ifcPath}`;
   const apiKey = supabase.supabaseKey;
   const headers = {
     'apikey': apiKey,
@@ -115,7 +164,7 @@ async function uploadIFCToSupabase(buffer, onProgress) {
       const res = await fetch(url, {
         method: 'POST',
         headers,
-        body: buffer,
+        body,
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -153,32 +202,43 @@ async function uploadIFCToSupabase(buffer, onProgress) {
   return false;
 }
 
-async function downloadIFCFromSupabase() {
-  try {
-    console.log(`[Storage] Tentando baixar IFC do bucket '${SUPABASE_STORAGE_BUCKET}'...`);
-    const { data, error } = await supabase.storage
-      .from(SUPABASE_STORAGE_BUCKET)
-      .download(SUPABASE_IFC_PATH);
-    if (error) {
-      // 404 = arquivo nao existe ainda
-      if (error.statusCode === '404' || error.message?.includes('not found')) {
-        console.log('[Storage] Nenhum IFC no Supabase ainda. Faça upload via UI Importar IFC.');
-        return null;
+async function downloadIFCFromSupabase(obraId) {
+  for (const ifcPath of ifcStorageCandidates(obraId)) {
+    try {
+      console.log(`[Storage] Tentando baixar IFC '${ifcPath}' do bucket '${SUPABASE_STORAGE_BUCKET}'...`);
+      const { data, error } = await supabase.storage
+        .from(SUPABASE_STORAGE_BUCKET)
+        .download(ifcPath);
+      if (error) {
+        // 404 = arquivo nao existe (tenta o próximo candidato)
+        if (error.statusCode === '404' || error.message?.includes('not found')) {
+          console.log(`[Storage] '${ifcPath}' não existe no Supabase.`);
+          continue;
+        }
+        throw error;
       }
-      throw error;
+      if (!data) {
+        console.warn('[Storage] Download retornou vazio (sem erro)');
+        continue;
+      }
+      let buffer = await data.arrayBuffer();
+      if (ifcPath.endsWith('.gz')) {
+        const un = await gunzipBuffer(buffer);
+        if (!un) {
+          console.warn('[Storage] Browser sem DecompressionStream — tentando IFC bruto...');
+          continue;
+        }
+        buffer = un;
+      }
+      const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
+      console.log(`[Storage] ✅ IFC baixado de '${ifcPath}' (${sizeMB} MB descomprimido)`);
+      return buffer;
+    } catch (e) {
+      console.warn(`[Storage] Erro ao baixar '${ifcPath}':`, e?.message || e);
     }
-    if (!data) {
-      console.warn('[Storage] Download retornou vazio (sem erro)');
-      return null;
-    }
-    const buffer = await data.arrayBuffer();
-    const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(1);
-    console.log(`[Storage] ✅ IFC baixado (${sizeMB} MB)`);
-    return buffer;
-  } catch (e) {
-    console.warn('[Storage] Erro ao baixar:', e?.message || e);
-    return null;
   }
+  console.log('[Storage] Nenhum IFC no Supabase para esta obra. Faça upload via UI Importar IFC.');
+  return null;
 }
 
 // ==============================================
@@ -1961,7 +2021,8 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       setLoadingStage('');
 
       // Persistir: IndexedDB (cache local imediato) + Supabase Storage (sync online).
-      saveIFCToLocal(file.name, buffer);
+      // Ambos POR OBRA: obra-001 mantém as chaves legadas; demais usam obra_id.
+      saveIFCToLocal(file.name, buffer, obraAtual);
       if (!skipUpload) {
         // Upload AGUARDADO com feedback visível (overlay não-bloqueante). Antes era
         // fire-and-forget: o usuário via o modelo e saía ANTES de o upload de ~66 MB
@@ -1969,7 +2030,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
         const sizeMB = (buffer.byteLength / 1024 / 1024).toFixed(0);
         setLoadingStage('primary');
         setProgressText(`☁️ Sincronizando com a nuvem (${sizeMB} MB)… não feche a aba`);
-        const ok = await uploadIFCToSupabase(buffer);
+        const ok = await uploadIFCToSupabase(buffer, null, obraAtual);
         setProgressText(ok
           ? '✅ IFC sincronizado na nuvem — disponível em todos os dispositivos'
           : '⚠️ Falha ao sincronizar na nuvem — modelo salvo localmente (ver Console)');
@@ -1982,43 +2043,62 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
       setProgressText('Erro: ' + err.message);
     }
     setLoading(false);
-  }, [erpPecas, colorMode, applyColorsToScene]);
+  }, [erpPecas, colorMode, applyColorsToScene, obraAtual]);
 
   // ==============================================
-  // AUTO-LOAD IFC: IndexedDB cache -> Supabase Storage fallback
+  // AUTO-LOAD IFC POR OBRA: IndexedDB cache -> Supabase Storage fallback.
+  // Roda no mount E quando obraAtual muda (troca de obra limpa a cena e
+  // carrega o modelo da nova obra, se existir).
   // ==============================================
-  const autoLoadTriedRef = useRef(false);
+  const autoLoadObraRef = useRef(null);
   useEffect(() => {
-    if (autoLoadTriedRef.current || modelLoaded || loading) return;
-    autoLoadTriedRef.current = true;
+    if (!obraAtual || loading) return;
+    if (autoLoadObraRef.current === obraAtual) return;
+    const trocouDeObra = autoLoadObraRef.current !== null;
+    // Primeira passada com modelo já carregado (ex.: upload manual antes do
+    // effect): só registra a obra corrente, sem recarregar.
+    if (!trocouDeObra && modelLoaded) {
+      autoLoadObraRef.current = obraAtual;
+      return;
+    }
+    autoLoadObraRef.current = obraAtual;
+    const obraAlvo = obraAtual;
 
     async function autoLoad() {
-      // 1. Tentar IndexedDB (cache local rapido)
-      const local = await loadIFCFromLocal();
+      if (trocouDeObra) {
+        // Limpa o modelo da obra anterior antes de carregar o da nova.
+        const sm = sceneManagerRef.current;
+        if (sm) sm.loadElements([]);
+        setIfcElements([]);
+        setModelLoaded(false);
+      }
+
+      // 1. Tentar IndexedDB (cache local rapido, por obra)
+      const local = await loadIFCFromLocal(obraAlvo);
       if (local && local.buffer) {
-        console.log('Auto-load: IFC encontrado no IndexedDB:', local.fileName);
+        console.log(`Auto-load [${obraAlvo}]: IFC encontrado no IndexedDB:`, local.fileName);
         const fakeFile = new File([local.buffer], local.fileName || 'model.ifc');
         handleFile(fakeFile, { skipUpload: true });
         return;
       }
 
-      // 2. Fallback: Supabase Storage (online)
-      console.log('Auto-load: Tentando Supabase Storage...');
-      const buffer = await downloadIFCFromSupabase();
+      // 2. Fallback: Supabase Storage (online, por obra)
+      console.log(`Auto-load [${obraAlvo}]: Tentando Supabase Storage...`);
+      const buffer = await downloadIFCFromSupabase(obraAlvo);
       if (buffer) {
-        console.log('Auto-load: IFC baixado do Supabase Storage');
-        saveIFCToLocal('model.ifc', buffer);
+        console.log(`Auto-load [${obraAlvo}]: IFC baixado do Supabase Storage`);
+        saveIFCToLocal('model.ifc', buffer, obraAlvo);
         const fakeFile = new File([buffer], 'model.ifc');
         handleFile(fakeFile, { skipUpload: true });
         return;
       }
 
-      console.log('Auto-load: Nenhum IFC persistido encontrado');
+      console.log(`Auto-load [${obraAlvo}]: Nenhum IFC persistido encontrado`);
     }
 
     setTimeout(autoLoad, 500);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [obraAtual, loading, modelLoaded]);
 
   // ==============================================
   // MOUSE INTERACTION
