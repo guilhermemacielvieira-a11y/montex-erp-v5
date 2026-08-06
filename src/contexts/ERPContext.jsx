@@ -1979,6 +1979,7 @@ export function useEstoque() {
     consumirEstoque: context.consumirEstoque,
     adicionarEstoque: context.adicionarEstoque,
     reservarEstoque: context.reservarEstoque,
+    reloadEstoque: context.reloadEstoque,
     movimentacoesEstoque: context.movimentacoesEstoque
   };
 }
