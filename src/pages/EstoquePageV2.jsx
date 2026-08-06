@@ -27,6 +27,10 @@ import {
 // Importa o contexto ERP
 import { useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
+import * as XLSX from 'xlsx';
+import { toast } from 'sonner';
+import EstoqueEditModal from '@/components/estoque/EstoqueEditModal';
+import ImportarChegadaModal from '@/components/estoque/ImportarChegadaModal';
 // Importar hook de paginação inteligente
 // Importar controles de paginação
 import PaginationControls from '@/components/ui/PaginationControls';
@@ -176,7 +180,7 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
 
 export default function EstoquePageV2() {
   // Contexto ERP
-  const { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, addNotificacao, movimentacoesEstoque } = useEstoque();
+  const { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, addNotificacao, movimentacoesEstoque, reloadEstoque } = useEstoque();
   const { obras, obraAtual, obraAtualData } = useObras();
   const { pecasObraAtual } = useProducao();
 
@@ -471,13 +475,40 @@ export default function EstoquePageV2() {
     };
   }, [movimentacoesEstoque]);
 
-  const handleEdit = (item) => {
-    setItemSelecionado(item);
-    setModalAberto(true);
-  };
+  // ── Edição direta + importação de chegada ──────────────────────────────
+  const [editItem, setEditItem] = useState(null);   // item em edição (null = novo)
+  const [editOpen, setEditOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+
+  const handleEdit = (item) => { setEditItem(item); setEditOpen(true); };
+  const handleNovo = () => { setEditItem(null); setEditOpen(true); };
 
   const handleVerMais = (item) => {
     setItemSelecionado(item);
+  };
+
+  // Exporta o estoque JÁ FILTRADO para XLSX (respeita filtros globais).
+  const exportarEstoque = () => {
+    const dados = estoqueFiltrado.map((i) => ({
+      Codigo: i.codigo || '',
+      Descricao: i.descricao || i.nome || '',
+      Categoria: i.categoria || i.tipo || '',
+      Quantidade: Number(i.quantidade) || 0,
+      Unidade: i.unidade || '',
+      Minimo: Number(i.minimo) || 0,
+      Preco: Number(i.preco) || 0,
+      Fornecedor: i.fornecedor || '',
+      Localizacao: i.localizacao || '',
+      Obra: i.obra_id || i.obraId || '',
+    }));
+    if (!dados.length) { toast.info('Nenhum item para exportar com os filtros atuais'); return; }
+    const ws = XLSX.utils.json_to_sheet(dados);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Estoque');
+    const d = new Date();
+    const hoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    XLSX.writeFile(wb, `estoque_${hoje}.xlsx`);
+    toast.success(`${dados.length} item(ns) exportado(s)`);
   };
 
   return (
@@ -502,15 +533,15 @@ export default function EstoquePageV2() {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+          <Button onClick={() => setImportOpen(true)} variant="outline" className="border-emerald-700/60 text-emerald-300 hover:bg-emerald-800/20">
             <Upload className="w-4 h-4 mr-2" />
-            Importar Excel
+            Importar Chegada
           </Button>
-          <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+          <Button onClick={exportarEstoque} variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
             <Download className="w-4 h-4 mr-2" />
             Exportar
           </Button>
-          <Button className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600">
+          <Button onClick={handleNovo} className="bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600">
             <Plus className="w-4 h-4 mr-2" />
             Novo Item
           </Button>
@@ -1221,6 +1252,26 @@ export default function EstoquePageV2() {
           </Tabs.Content>
         </div>
       </Tabs.Root>
+
+      {/* Edição direta / novo item */}
+      <EstoqueEditModal
+        open={editOpen}
+        item={editItem}
+        obras={obras}
+        obraAtual={obraAtual}
+        onClose={() => setEditOpen(false)}
+        onSaved={() => reloadEstoque?.()}
+      />
+
+      {/* Importação da chegada de materiais (planilha / foto / PDF) */}
+      <ImportarChegadaModal
+        open={importOpen}
+        estoque={estoque}
+        obras={obras}
+        obraAtual={obraAtual}
+        onClose={() => setImportOpen(false)}
+        onImported={() => reloadEstoque?.()}
+      />
     </div>
   );
 }
