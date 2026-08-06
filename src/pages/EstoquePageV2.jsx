@@ -31,6 +31,7 @@ import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import EstoqueEditModal from '@/components/estoque/EstoqueEditModal';
 import ImportarChegadaModal from '@/components/estoque/ImportarChegadaModal';
+import MovimentacaoModal from '@/components/estoque/MovimentacaoModal';
 // Importar hook de paginação inteligente
 // Importar controles de paginação
 import PaginationControls from '@/components/ui/PaginationControls';
@@ -92,7 +93,7 @@ function KPICard({ title, value, subtitle, icon: Icon, trend, color = 'blue' }) 
 }
 
 // Componente de Item de Estoque
-function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
+function ItemEstoque({ item, onEdit, onVerMais, obraAtual, onEntrada, onSaida }) {
   const status = getStatusEstoque(item);
   const StatusIcon = status.icon;
   const porcentagemUsada = Math.min(100, (item.quantidade / (item.minimo * 2)) * 100);
@@ -167,10 +168,10 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual }) {
         <Button variant="ghost" size="sm" className="flex-1 text-slate-400 hover:text-white" onClick={() => onEdit(item)}>
           <Edit className="w-4 h-4 mr-1" /> Editar
         </Button>
-        <Button variant="ghost" size="sm" className="text-emerald-400 hover:text-emerald-300">
+        <Button variant="ghost" size="sm" title="Registrar entrada" className="text-emerald-400 hover:text-emerald-300" onClick={() => onEntrada?.(item)}>
           <Plus className="w-4 h-4" />
         </Button>
-        <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300">
+        <Button variant="ghost" size="sm" title="Registrar saída" className="text-red-400 hover:text-red-300" onClick={() => onSaida?.(item)}>
           <ArrowDown className="w-4 h-4" />
         </Button>
       </div>
@@ -479,9 +480,12 @@ export default function EstoquePageV2() {
   const [editItem, setEditItem] = useState(null);   // item em edição (null = novo)
   const [editOpen, setEditOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [mov, setMov] = useState(null);             // { item, tipo } — entrada/saída
 
   const handleEdit = (item) => { setEditItem(item); setEditOpen(true); };
   const handleNovo = () => { setEditItem(null); setEditOpen(true); };
+  const handleEntrada = (item) => setMov({ item, tipo: 'entrada' });
+  const handleSaida = (item) => setMov({ item, tipo: 'saida' });
 
   const handleVerMais = (item) => {
     setItemSelecionado(item);
@@ -820,6 +824,8 @@ export default function EstoquePageV2() {
                     item={item}
                     onEdit={handleEdit}
                     onVerMais={handleVerMais}
+                    onEntrada={handleEntrada}
+                    onSaida={handleSaida}
                     obraAtual={obraAtualData}
                   />
                 ))}
@@ -1232,6 +1238,8 @@ export default function EstoquePageV2() {
                         item={item}
                         onEdit={handleEdit}
                         onVerMais={handleVerMais}
+                        onEntrada={handleEntrada}
+                        onSaida={handleSaida}
                         obraAtual={(obras || []).find(o => o.id === obraFiltrada) || obraAtualData}
                       />
                     ))}
@@ -1271,6 +1279,16 @@ export default function EstoquePageV2() {
         obraAtual={obraAtual}
         onClose={() => setImportOpen(false)}
         onImported={() => reloadEstoque?.()}
+      />
+
+      {/* Entrada / Saída manual com anexo (foto/PDF) */}
+      <MovimentacaoModal
+        open={!!mov}
+        item={mov?.item}
+        tipo={mov?.tipo}
+        obraAtual={obraAtual}
+        onClose={() => setMov(null)}
+        onSaved={() => reloadEstoque?.()}
       />
     </div>
   );

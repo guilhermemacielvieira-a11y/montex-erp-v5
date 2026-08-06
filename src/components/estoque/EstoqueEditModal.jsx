@@ -13,6 +13,7 @@ import { X, Save, Loader2, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import { estoqueApi } from '@/api/supabaseClient';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
+import AnexoDocumento from '@/components/ui/AnexoDocumento';
 
 const N = (v) => { const n = parseFloat(String(v).replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 
@@ -39,6 +40,7 @@ export default function EstoqueEditModal({ open, item, obras = [], obraAtual = n
       peso_kg: item?.peso_kg ?? 0,
       obra_id: item?.obra_id || item?.obraId || (obraAtual || ''),
       observacoes: item?.observacoes || '',
+      anexo_url: item?.anexo_url || '',
     });
   }, [open, item, obraAtual]);
 
@@ -67,10 +69,21 @@ export default function EstoqueEditModal({ open, item, obras = [], obraAtual = n
         peso_kg: N(f.peso_kg),
         obra_id: f.obra_id || null,
         observacoes: f.observacoes || null,
+        anexo_url: f.anexo_url || null,
         updated_at: new Date().toISOString(),
       };
-      if (ehNovo) await estoqueApi.create(payload);
-      else await estoqueApi.update(item.id, payload);
+      // Salvamento defensivo: se a coluna `anexo_url` ainda não existir no banco
+      // (migration 20260806 não aplicada), grava o item SEM o anexo e avisa.
+      const gravar = async (p) => (ehNovo ? estoqueApi.create(p) : estoqueApi.update(item.id, p));
+      try {
+        await gravar(payload);
+      } catch (err) {
+        if (/anexo_url/i.test(String(err?.message || err))) {
+          const { anexo_url: _drop, ...semAnexo } = payload;
+          await gravar(semAnexo);
+          toast('Item salvo — o anexo precisa da migration (coluna anexo_url).', { icon: '⚠️' });
+        } else { throw err; }
+      }
       toast.success(ehNovo ? 'Item criado no estoque' : 'Item atualizado');
       onSaved?.();
       onClose?.();
@@ -121,6 +134,9 @@ export default function EstoqueEditModal({ open, item, obras = [], obraAtual = n
             </select>
           </Campo>
           <Campo label="Observações" full><textarea value={f.observacoes} onChange={set('observacoes')} rows={2} className={inp + ' resize-none'} /></Campo>
+          <Campo label="Anexo (foto do material / certificado / ficha técnica)" full>
+            <AnexoDocumento valor={f.anexo_url} onChange={(url) => setF((p) => ({ ...p, anexo_url: url }))} label={null} />
+          </Campo>
         </div>
 
         <div className="flex justify-end gap-3 p-5 border-t border-slate-700 sticky bottom-0 bg-slate-900">
