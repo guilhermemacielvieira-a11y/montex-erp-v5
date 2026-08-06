@@ -15,7 +15,7 @@
 // no mesmo preview — o documento já fica arquivado (documento_url).
 // ============================================================
 import React, { useState } from 'react';
-import { X, FileSpreadsheet, Image as ImageIcon, FileText, Upload, Plus, Trash2, Check, Loader2, AlertCircle } from 'lucide-react';
+import { X, FileSpreadsheet, Image as ImageIcon, FileText, Upload, Plus, Trash2, Check, Loader2, AlertCircle, Sparkles } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { estoqueApi, movEstoqueApi, supabase } from '@/api/supabaseClient';
@@ -45,13 +45,15 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
   const [erro, setErro] = useState('');
   const [docUrl, setDocUrl] = useState('');
   const [docNome, setDocNome] = useState('');
+  const [docFile, setDocFile] = useState(null);   // arquivo p/ reprocessar com IA
   const [subindoDoc, setSubindoDoc] = useState(false);
+  const [extraindo, setExtraindo] = useState(false); // IA lendo a nota
   const [nf, setNf] = useState('');
   const [fornecedor, setFornecedor] = useState('');
   const [obra, setObra] = useState(obraAtual || '');
   const [resultado, setResultado] = useState({ ok: 0, novos: 0, atualizados: 0 });
 
-  const reset = () => { setFonte(null); setEtapa('fonte'); setRows([]); setErro(''); setDocUrl(''); setDocNome(''); setNf(''); setFornecedor(''); setResultado({ ok: 0, novos: 0, atualizados: 0 }); };
+  const reset = () => { setFonte(null); setEtapa('fonte'); setRows([]); setErro(''); setDocUrl(''); setDocNome(''); setDocFile(null); setExtraindo(false); setNf(''); setFornecedor(''); setResultado({ ok: 0, novos: 0, atualizados: 0 }); };
   const fechar = () => { reset(); onClose?.(); };
 
   // ---------- PLANILHA ----------
@@ -85,23 +87,67 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
     }
   };
 
-  // ---------- FOTO / PDF ----------
-  const lerDocumento = async (e, tipo) => {
+  // ---------- FOTO / PDF (upload + extração por IA) ----------
+  const fileToBase64 = (file) => new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(String(r.result).split(',')[1] || '');
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+
+  // Chama a Edge Function `extrair-nota` (Claude vision) e preenche as linhas.
+  // Degrada com elegância: sem chave/erro → mantém lançamento manual.
+  const extrairComIA = async (file) => {
+    setExtraindo(true);
+    try {
+      const b64 = await fileToBase64(file);
+      const { data, error } = await supabase.functions.invoke('extrair-nota', {
+        body: { fileBase64: b64, mimeType: file.type || 'image/jpeg' },
+      });
+      if (error) throw error;
+      const itens = Array.isArray(data?.itens) ? data.itens : [];
+      if (itens.length) {
+        setRows(itens.map((it) => ({
+          descricao: String(it.descricao || '').trim(),
+          codigo: it.codigo ? String(it.codigo).trim() : '',
+          quantidade: it.quantidade ?? '',
+          unidade: String(it.unidade || 'UN').toUpperCase(),
+          preco: it.preco ?? '',
+        })));
+        if (data.fornecedor) setFornecedor(String(data.fornecedor));
+        if (data.nota_fiscal) setNf(String(data.nota_fiscal));
+        toast.success(`IA extraiu ${itens.length} item(ns) da nota — confira e ajuste`);
+      } else {
+        setRows((p) => (p.length ? p : [linhaVazia()]));
+        toast(data?.erro ? `IA: ${data.erro}` : 'Não li itens automaticamente — lance manualmente', { icon: 'ℹ️' });
+      }
+    } catch (err) {
+      setRows((p) => (p.length ? p : [linhaVazia()]));
+      toast('Extração automática indisponível — lance os itens manualmente', { icon: 'ℹ️' });
+      console.error('[extrair-nota]', err);
+    } finally {
+      setExtraindo(false);
+    }
+  };
+
+  const lerDocumento = async (e) => {
     const file = e.target.files?.[0]; if (!file) return;
     setErro(''); setSubindoDoc(true);
     try {
-      const ext = (file.name.split('.').pop() || (tipo === 'pdf' ? 'pdf' : 'jpg')).toLowerCase();
+      const ext = (file.name.split('.').pop() || 'bin').toLowerCase();
       const path = `notas/${hojeLocal()}_${Date.now()}.${ext}`;
       const { error } = await supabase.storage.from('uploads').upload(path, file, { upsert: false });
       if (error) throw error;
       const { data } = supabase.storage.from('uploads').getPublicUrl(path);
       setDocUrl(data?.publicUrl || '');
       setDocNome(file.name);
+      setDocFile(file);
       setRows([linhaVazia()]);
       setEtapa('preview');
-      toast.success('Nota anexada — adicione os itens conforme o documento');
+      await extrairComIA(file);   // tenta ler os itens automaticamente
     } catch (err) {
       setErro('Falha ao enviar o documento: ' + (err.message || err));
+      setEtapa('fonte');
     } finally {
       setSubindoDoc(false);
     }
@@ -208,8 +254,8 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
         {etapa === 'fonte' && (
           <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <FonteCard icon={FileSpreadsheet} cor="emerald" titulo="Planilha" sub="Excel/CSV — leitura automática das linhas" accept=".xlsx,.xls,.csv" onFile={(e) => { setFonte('planilha'); lerPlanilha(e); }} />
-            <FonteCard icon={ImageIcon} cor="blue" titulo="Foto da nota" sub="Anexa a imagem e você lança os itens" accept="image/*" capture="environment" loading={subindoDoc} onFile={(e) => { setFonte('foto'); lerDocumento(e, 'foto'); }} />
-            <FonteCard icon={FileText} cor="orange" titulo="PDF da nota" sub="Anexa o PDF e você lança os itens" accept="application/pdf,.pdf" loading={subindoDoc} onFile={(e) => { setFonte('pdf'); lerDocumento(e, 'pdf'); }} />
+            <FonteCard icon={ImageIcon} cor="blue" titulo="Foto da nota" sub="IA lê os itens da imagem automaticamente" accept="image/*" capture="environment" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('foto'); lerDocumento(e); }} />
+            <FonteCard icon={FileText} cor="orange" titulo="PDF da nota" sub="IA lê os itens do PDF automaticamente" accept="application/pdf,.pdf" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('pdf'); lerDocumento(e); }} />
           </div>
         )}
 
@@ -218,8 +264,15 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
           <div className="p-5 space-y-4">
             {docUrl && (
               <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300">
-                <FileText className="w-4 h-4 text-emerald-400" />
-                Nota anexada: <a href={docUrl} target="_blank" rel="noreferrer" className="text-emerald-400 underline truncate">{docNome || 'documento'}</a>
+                <FileText className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+                <span className="flex-1 min-w-0 truncate">Nota anexada: <a href={docUrl} target="_blank" rel="noreferrer" className="text-emerald-400 underline">{docNome || 'documento'}</a></span>
+                {extraindo ? (
+                  <span className="flex items-center gap-1.5 text-xs text-blue-300 flex-shrink-0"><Loader2 className="w-3.5 h-3.5 animate-spin" /> IA lendo a nota…</span>
+                ) : docFile && (
+                  <button onClick={() => extrairComIA(docFile)} className="flex items-center gap-1.5 text-xs text-blue-300 hover:text-blue-200 font-medium flex-shrink-0">
+                    <Sparkles className="w-3.5 h-3.5" /> Reprocessar com IA
+                  </button>
+                )}
               </div>
             )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
