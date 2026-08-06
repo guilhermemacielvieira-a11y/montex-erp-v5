@@ -15,7 +15,7 @@
 // no mesmo preview — o documento já fica arquivado (documento_url).
 // ============================================================
 import React, { useState } from 'react';
-import { X, FileSpreadsheet, Image as ImageIcon, FileText, Upload, Plus, Trash2, Check, Loader2, AlertCircle, Sparkles } from 'lucide-react';
+import { X, FileSpreadsheet, FileText, Upload, Plus, Trash2, Check, Loader2, AlertCircle, Sparkles, Camera, Images } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { estoqueApi, movEstoqueApi, supabase } from '@/api/supabaseClient';
@@ -252,10 +252,11 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
 
         {/* ETAPA: escolha da fonte */}
         {etapa === 'fonte' && (
-          <div className="p-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <FonteCard icon={FileSpreadsheet} cor="emerald" titulo="Planilha" sub="Excel/CSV — leitura automática das linhas" accept=".xlsx,.xls,.csv" onFile={(e) => { setFonte('planilha'); lerPlanilha(e); }} />
-            <FonteCard icon={ImageIcon} cor="blue" titulo="Foto da nota" sub="IA lê os itens da imagem automaticamente" accept="image/*" capture="environment" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('foto'); lerDocumento(e); }} />
-            <FonteCard icon={FileText} cor="orange" titulo="PDF da nota" sub="IA lê os itens do PDF automaticamente" accept="application/pdf,.pdf" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('pdf'); lerDocumento(e); }} />
+          <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <FonteCard icon={FileSpreadsheet} cor="emerald" titulo="Planilha" sub="Excel/CSV — leitura das linhas" accept=".xlsx,.xls,.csv" onFile={(e) => { setFonte('planilha'); lerPlanilha(e); }} />
+            <FonteCard icon={Camera} cor="blue" titulo="Tirar foto" sub="Câmera — IA lê a nota" accept="image/*" capture="environment" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('foto'); lerDocumento(e); }} />
+            <FonteCard icon={Images} cor="cyan" titulo="Álbum" sub="Escolher da galeria — IA lê a nota" accept="image/*" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('foto'); lerDocumento(e); }} />
+            <FonteCard icon={FileText} cor="orange" titulo="PDF da nota" sub="IA lê os itens do PDF" accept="application/pdf,.pdf" loading={subindoDoc || extraindo} onFile={(e) => { setFonte('pdf'); lerDocumento(e); }} />
           </div>
         )}
 
@@ -358,7 +359,7 @@ function L({ label, children }) {
   return <div><label className="block text-xs font-medium text-slate-400 mb-1.5">{label}</label>{children}</div>;
 }
 
-const CORES = { emerald: 'text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10', blue: 'text-blue-400 border-blue-500/40 hover:bg-blue-500/10', orange: 'text-orange-400 border-orange-500/40 hover:bg-orange-500/10' };
+const CORES = { emerald: 'text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/10', blue: 'text-blue-400 border-blue-500/40 hover:bg-blue-500/10', cyan: 'text-cyan-400 border-cyan-500/40 hover:bg-cyan-500/10', orange: 'text-orange-400 border-orange-500/40 hover:bg-orange-500/10' };
 function FonteCard({ icon: Icon, cor, titulo, sub, accept, capture, loading, onFile }) {
   const id = `fonte-${titulo}`;
   return (
