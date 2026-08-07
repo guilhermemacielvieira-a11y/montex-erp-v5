@@ -45,6 +45,7 @@ import {
 
 import { useCompras, useMateriais, useERP, useObras, useLancamentos } from '@/contexts/ERPContext';
 import { fornecedoresApi } from '@/api/supabaseClient';
+import AbastecimentoAutomatico from '@/components/compras/AbastecimentoAutomatico';
 import {
   processarNF,
   categorizarNF,
@@ -1064,7 +1065,11 @@ export default function ComprasPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-5 lg:w-[650px]">
+        <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 lg:w-[820px]">
+          <TabsTrigger value="abastecimento" className="gap-2">
+            <Sparkles className="h-4 w-4" />
+            Abastecimento
+          </TabsTrigger>
           <TabsTrigger value="pedidos" className="gap-2">
             <ShoppingCart className="h-4 w-4" />
             Pedidos
@@ -1086,6 +1091,17 @@ export default function ComprasPage() {
             Fornecedores
           </TabsTrigger>
         </TabsList>
+
+        {/* Abastecimento automático (pedido futuro) */}
+        <TabsContent value="abastecimento" className="space-y-4">
+          <AbastecimentoAutomatico
+            obras={obras}
+            obraAtual={obraAtual}
+            notasFiscais={notasFiscais}
+            addCompra={addCompra}
+            onGerado={() => setActiveTab('pedidos')}
+          />
+        </TabsContent>
 
         {/* Pedidos de Compra */}
         <TabsContent value="pedidos" className="space-y-4">

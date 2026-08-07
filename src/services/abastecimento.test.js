@@ -1,0 +1,80 @@
+// ============================================================
+// Testes do abastecimento automático — ancorados em DADOS REAIS
+// (perfis e preços extraídos da obra-009 / SPASSO NOVAAGRO 040)
+// ============================================================
+import { describe, it, expect } from 'vitest';
+import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, normalizar } from './abastecimento';
+
+// Amostra fiel do estoque real (base de preços R$/kg de aço)
+const estoque = [
+  { perfil: 'L64X64X6.4', material: 'A36', descricao: 'CANTONEIRA 2.1/2X1/4 - 6.000 MM', codigo: 'L64X64X6.4', preco: 7.6, peso_kg: 5124 },
+  { perfil: 'W200X19.3-12M', material: 'A572', descricao: 'Perfil W200X19.3 12M - A572', codigo: 'W200X19.3-12M', preco: 7.69, peso_kg: 0 },
+  { perfil: 'HP250X62', material: 'A572-GR.50', descricao: 'VIGA HP A572 W250X62 - 12.000 MM', codigo: 'HP250X62', preco: 8.45, peso_kg: 1488 },
+  { perfil: 'CH-8X1500X6000', material: 'A36', descricao: 'Chapa A36 8mm 1500x6000', codigo: 'CH-8X1500X6000', preco: 5.25, peso_kg: 0 },
+];
+
+// Amostra fiel do BOM real (materiais_corte agregado)
+const bom = [
+  { perfil: 'L64X64X6.4', material: 'A36', quantidade: 936, peso_teorico: 11329.3 },
+  { perfil: 'W200X19.3', material: 'A572-GR.50', quantidade: 102, peso_teorico: 15738.3 },
+  { perfil: 'HP250X62', material: 'A572-GR.50', quantidade: 34, peso_teorico: 2881.1 },
+  { perfil: 'UE200X75X25X4.25', material: 'CIVIL 300', quantidade: 408, peso_teorico: 35197 },
+];
+
+const historico = construirHistoricoPrecos({ estoque });
+const linha = (r, perfil) => r.linhas.find((l) => l.perfil === perfil);
+
+describe('estimarPreco — match ponderado por perfil (anti cross-match)', () => {
+  it('W200X19.3 casa com o perfil W (7,69) e NÃO com a viga HP (8,45)', () => {
+    const e = estimarPreco(historico, 'W200X19.3 A572-GR.50');
+    expect(e).toBeTruthy();
+    expect(e.valorUnit).toBe(7.69);
+  });
+  it('HP250X62 casa com a viga HP (8,45)', () => {
+    expect(estimarPreco(historico, 'HP250X62 A572-GR.50').valorUnit).toBe(8.45);
+  });
+  it('L64X64X6.4 casa com a cantoneira (7,60)', () => {
+    expect(estimarPreco(historico, 'L64X64X6.4 A36').valorUnit).toBe(7.6);
+  });
+  it('perfil sem base retorna null (cai no fallback depois)', () => {
+    expect(estimarPreco(historico, 'UE200X75X25X4.25 CIVIL 300')).toBeNull();
+  });
+});
+
+describe('precoReferencia — média por material e geral (só estoque, sem NF)', () => {
+  const ref = precoReferencia({ estoque });
+  it('média geral do aço ~7,25 R$/kg', () => expect(ref.geral).toBeCloseTo(7.25, 2));
+  it('média por família A36', () => expect(ref.mediasMaterial.get(normalizar('A36'))).toBeCloseTo(6.43, 2));
+});
+
+describe('montarAbastecimento — cruza BOM × estoque e estima', () => {
+  const r = montarAbastecimento({ bom, estoque, historico });
+
+  it('desconta o estoque disponível (L64: 11329,3 − 5124 = 6205,3)', () => {
+    expect(linha(r, 'L64X64X6.4').pesoFalta).toBeCloseTo(6205.3, 1);
+  });
+  it('HP250X62: falta = 2881,1 − 1488 = 1393,1 a 8,45', () => {
+    const l = linha(r, 'HP250X62');
+    expect(l.pesoFalta).toBeCloseTo(1393.1, 1);
+    expect(l.precoKg).toBe(8.45);
+  });
+  it('W200X19.3: sem estoque → falta cheia a 7,69', () => {
+    const l = linha(r, 'W200X19.3');
+    expect(l.pesoFalta).toBeCloseTo(15738.3, 1);
+    expect(l.precoKg).toBe(7.69);
+    expect(l.valorEstimado).toBeCloseTo(121027.53, 0);
+  });
+  it('UE (sem match) usa média geral do estoque como fallback', () => {
+    const l = linha(r, 'UE200X75X25X4.25');
+    expect(l.fonte).toBe('media_geral');
+    expect(l.precoKg).toBeCloseTo(7.25, 2);
+  });
+  it('nenhum item fica SEM preço (fallback cobre tudo)', () => {
+    expect(r.semPreco).toBe(0);
+  });
+  it('total estimado é positivo e coerente com o peso a comprar', () => {
+    expect(r.itensAComprar).toBe(4);
+    expect(r.totalValor).toBeGreaterThan(400000);
+    expect(r.totalPesoFalta).toBeCloseTo(6205.3 + 15738.3 + 1393.1 + 35197, 0);
+  });
+});
