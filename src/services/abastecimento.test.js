@@ -3,14 +3,14 @@
 // (perfis e preços extraídos da obra-009 / SPASSO NOVAAGRO 040)
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, normalizar } from './abastecimento';
+import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, agruparPorFornecedor, normalizar } from './abastecimento';
 
-// Amostra fiel do estoque real (base de preços R$/kg de aço)
+// Amostra fiel do estoque real (base de preços R$/kg de aço) + fornecedor
 const estoque = [
-  { perfil: 'L64X64X6.4', material: 'A36', descricao: 'CANTONEIRA 2.1/2X1/4 - 6.000 MM', codigo: 'L64X64X6.4', preco: 7.6, peso_kg: 5124 },
-  { perfil: 'W200X19.3-12M', material: 'A572', descricao: 'Perfil W200X19.3 12M - A572', codigo: 'W200X19.3-12M', preco: 7.69, peso_kg: 0 },
-  { perfil: 'HP250X62', material: 'A572-GR.50', descricao: 'VIGA HP A572 W250X62 - 12.000 MM', codigo: 'HP250X62', preco: 8.45, peso_kg: 1488 },
-  { perfil: 'CH-8X1500X6000', material: 'A36', descricao: 'Chapa A36 8mm 1500x6000', codigo: 'CH-8X1500X6000', preco: 5.25, peso_kg: 0 },
+  { perfil: 'L64X64X6.4', material: 'A36', descricao: 'CANTONEIRA 2.1/2X1/4 - 6.000 MM', codigo: 'L64X64X6.4', preco: 7.6, peso_kg: 5124, fornecedor: 'GERDAU' },
+  { perfil: 'W200X19.3-12M', material: 'A572', descricao: 'Perfil W200X19.3 12M - A572', codigo: 'W200X19.3-12M', preco: 7.69, peso_kg: 0, fornecedor: 'ACOFORTE' },
+  { perfil: 'HP250X62', material: 'A572-GR.50', descricao: 'VIGA HP A572 W250X62 - 12.000 MM', codigo: 'HP250X62', preco: 8.45, peso_kg: 1488, fornecedor: 'WB' },
+  { perfil: 'CH-8X1500X6000', material: 'A36', descricao: 'Chapa A36 8mm 1500x6000', codigo: 'CH-8X1500X6000', preco: 5.25, peso_kg: 0, fornecedor: null },
 ];
 
 // Amostra fiel do BOM real (materiais_corte agregado)
@@ -76,5 +76,39 @@ describe('montarAbastecimento — cruza BOM × estoque e estima', () => {
     expect(r.itensAComprar).toBe(4);
     expect(r.totalValor).toBeGreaterThan(400000);
     expect(r.totalPesoFalta).toBeCloseTo(6205.3 + 15738.3 + 1393.1 + 35197, 0);
+  });
+});
+
+describe('estratégia de preço: último × média × menor', () => {
+  // L64 com 2 preços: estoque 7,60 e uma entrada 8,00 (mais recente)
+  const movimentacoes = [
+    { tipo: 'entrada', material: 'A36', material_perfil: 'L64X64X6.4', custo_unitario: 8.0, data: '2026-09-01', fornecedor: 'GERDAU' },
+  ];
+  const hist2 = construirHistoricoPrecos({ estoque, movimentacoes });
+  const precoL64 = (estrategia) => montarAbastecimento({ bom, estoque, historico: hist2, estrategia }).linhas.find((l) => l.perfil === 'L64X64X6.4').precoKg;
+
+  it('último = 8,00 (entrada mais recente)', () => expect(precoL64('ultimo')).toBe(8));
+  it('média = 7,80', () => expect(precoL64('media')).toBe(7.8));
+  it('menor = 7,60', () => expect(precoL64('menor')).toBe(7.6));
+});
+
+describe('fornecedor sugerido + agrupamento por fornecedor', () => {
+  const r = montarAbastecimento({ bom, estoque, historico });
+
+  it('sugere o fornecedor do preço casado', () => {
+    expect(linha(r, 'HP250X62').fornecedorSugerido).toBe('WB');
+    expect(linha(r, 'W200X19.3').fornecedorSugerido).toBe('ACOFORTE');
+    expect(linha(r, 'UE200X75X25X4.25').fornecedorSugerido).toBe(''); // fallback: sem fornecedor
+  });
+  it('agrupa por fornecedor (sem base → "A definir")', () => {
+    const grupos = agruparPorFornecedor(r.linhas);
+    const nomes = grupos.map((g) => g.fornecedor);
+    expect(nomes).toContain('WB');
+    expect(nomes).toContain('A definir');
+    const wb = grupos.find((g) => g.fornecedor === 'WB');
+    expect(wb.linhas.some((l) => l.perfil === 'HP250X62')).toBe(true);
+    // soma dos grupos = total a comprar
+    const somaGrupos = grupos.reduce((s, g) => s + g.valor, 0);
+    expect(somaGrupos).toBeCloseTo(r.totalValor, 0);
   });
 });

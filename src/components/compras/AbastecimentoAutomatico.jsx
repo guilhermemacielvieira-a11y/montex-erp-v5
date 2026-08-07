@@ -13,9 +13,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Sparkles, RefreshCw, Package, Weight, DollarSign, AlertTriangle, ShoppingCart, Loader2, Building2 } from 'lucide-react';
+import { Sparkles, RefreshCw, Package, Weight, DollarSign, AlertTriangle, ShoppingCart, Loader2, Building2, TrendingUp } from 'lucide-react';
 import { materiaisCorteApi, estoqueApi, movEstoqueApi } from '@/api/supabaseClient';
-import { construirHistoricoPrecos, montarAbastecimento } from '@/services/abastecimento';
+import { construirHistoricoPrecos, montarAbastecimento, agruparPorFornecedor } from '@/services/abastecimento';
+
+const ESTRATEGIAS = [
+  { value: 'ultimo', label: 'Último preço', hint: 'preço da entrada mais recente' },
+  { value: 'media', label: 'Média', hint: 'média dos lançamentos do perfil' },
+  { value: 'menor', label: 'Menor preço', hint: 'menor valor já pago' },
+];
 
 const fmtKg = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 const fmtMoeda = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -49,6 +55,8 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
   const [dados, setDados] = useState({ bom: [], estoque: [], mov: [] });
   const [sel, setSel] = useState({});
   const [gerando, setGerando] = useState(false);
+  const [estrategia, setEstrategia] = useState('ultimo');
+  const [agrupar, setAgrupar] = useState(false);
 
   const carregar = useCallback(async (oid) => {
     if (!oid) { setDados({ bom: [], estoque: [], mov: [] }); return; }
@@ -69,10 +77,11 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
 
   const resultado = useMemo(() => {
     const historico = construirHistoricoPrecos({ movimentacoes: dados.mov, estoque: dados.estoque, notasFiscais });
-    return montarAbastecimento({ bom: dados.bom, estoque: dados.estoque, historico });
-  }, [dados, notasFiscais]);
+    return montarAbastecimento({ bom: dados.bom, estoque: dados.estoque, historico, estrategia });
+  }, [dados, notasFiscais, estrategia]);
 
   const aComprar = useMemo(() => resultado.linhas.filter((l) => l.pesoFalta > 0), [resultado]);
+  const grupos = useMemo(() => agruparPorFornecedor(aComprar), [aComprar]);
 
   useEffect(() => {
     const s = {};
@@ -85,35 +94,58 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
   const totalSelPeso = selecionadas.reduce((s, l) => s + l.pesoFalta, 0);
   const toggle = (k) => setSel((p) => ({ ...p, [k]: !p[k] }));
 
+  const mapItem = (l) => ({
+    descricao: `${l.perfil} — ${l.material}`,
+    perfil: l.perfil, material: l.material,
+    quantidade: l.pesoFalta, unidade: 'kg',
+    precoUnitario: l.precoKg, valorTotal: l.valorEstimado,
+    fontePreco: l.fonteLabel, fornecedorSugerido: l.fornecedorSugerido || '',
+  });
+  const estrategiaLabel = ESTRATEGIAS.find((e) => e.value === estrategia)?.label || estrategia;
+
   const gerar = async () => {
     if (!selecionadas.length) { toast.error('Selecione ao menos um item para gerar o pedido'); return; }
     setGerando(true);
     try {
       const o = obras.find((x) => x.id === obraId);
       const obraNome = o?.codigo || o?.nome || obraId;
-      const itens = selecionadas.map((l) => ({
-        descricao: `${l.perfil} — ${l.material}`,
-        perfil: l.perfil, material: l.material,
-        quantidade: l.pesoFalta, unidade: 'kg',
-        precoUnitario: l.precoKg, valorTotal: l.valorEstimado,
-        fontePreco: l.fonteLabel,
-      }));
-      await addCompra({
-        id: `COMP-${Date.now()}`,
-        obraId,
-        descricao: `Abastecimento automático — ${obraNome} (${itens.length} itens)`,
-        fornecedor: '',
-        valorPrevisto: Math.round(totalSelValor * 100) / 100,
-        valorTotal: Math.round(totalSelValor * 100) / 100,
-        pesoTotalKg: Math.round(totalSelPeso * 100) / 100,
-        status: 'cotacao',
-        tipo: 'abastecimento_automatico',
-        documentoOrigem: 'abastecimento_automatico',
-        dataPedido: hojeLocal(),
-        itens,
-        observacoes: 'Gerado do BOM × estoque. Preços estimados por materiais similares (base: estoque / movimentações / NFs).',
-      });
-      toast.success(`Pedido futuro gerado: ${itens.length} itens · ${fmtMoeda(totalSelValor)}`);
+      const obsBase = `Gerado do BOM × estoque · preço por "${estrategiaLabel}" (base: estoque / movimentações / NFs).`;
+
+      // Um pedido por FORNECEDOR sugerido (agrupar) ou um pedido único.
+      const pedidos = agrupar
+        ? agruparPorFornecedor(selecionadas).map((g) => ({
+            fornecedor: g.fornecedor === 'A definir' ? '' : g.fornecedor,
+            fornecedorLabel: g.fornecedor,
+            linhas: g.linhas, valor: g.valor, peso: g.peso,
+          }))
+        : [{ fornecedor: '', fornecedorLabel: '', linhas: selecionadas, valor: totalSelValor, peso: totalSelPeso }];
+
+      let seq = 0;
+      for (const p of pedidos) {
+        seq += 1;
+        const itens = p.linhas.map(mapItem);
+        const sufixo = agrupar && p.fornecedorLabel ? ` · ${p.fornecedorLabel}` : '';
+        await addCompra({
+          id: `COMP-${Date.now()}-${seq}`,
+          obraId,
+          descricao: `Abastecimento automático — ${obraNome}${sufixo} (${itens.length} itens)`,
+          fornecedor: p.fornecedor,
+          valorPrevisto: Math.round(p.valor * 100) / 100,
+          valorTotal: Math.round(p.valor * 100) / 100,
+          pesoTotalKg: Math.round(p.peso * 100) / 100,
+          status: 'cotacao',
+          tipo: 'abastecimento_automatico',
+          documentoOrigem: 'abastecimento_automatico',
+          dataPedido: hojeLocal(),
+          itens,
+          observacoes: agrupar && p.fornecedorLabel ? `${obsBase} Fornecedor sugerido: ${p.fornecedorLabel}.` : obsBase,
+        });
+      }
+      toast.success(
+        agrupar
+          ? `${pedidos.length} pedido(s) por fornecedor · ${fmtMoeda(totalSelValor)}`
+          : `Pedido futuro gerado: ${selecionadas.length} itens · ${fmtMoeda(totalSelValor)}`
+      );
       onGerado?.();
     } catch (e) {
       toast.error('Erro ao gerar pedido: ' + (e.message || e));
@@ -172,6 +204,44 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
             <Kpi icon={AlertTriangle} label="Sem base de preço" value={resultado.semPreco} sub="usam média geral" tone={resultado.semPreco ? 'danger' : 'default'} />
           </div>
 
+          {/* Estratégia de preço + agrupamento */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              <span className="text-sm text-muted-foreground">Estimar por:</span>
+              <Select value={estrategia} onValueChange={setEstrategia}>
+                <SelectTrigger className="w-[190px] h-9"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {ESTRATEGIAS.map((e) => (
+                    <SelectItem key={e.value} value={e.value}>
+                      <span className="font-medium">{e.label}</span>
+                      <span className="text-muted-foreground text-xs ml-1">· {e.hint}</span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" checked={agrupar} onChange={(e) => setAgrupar(e.target.checked)} className="accent-primary w-4 h-4" />
+              <Building2 className="h-4 w-4 text-muted-foreground" />
+              Agrupar por fornecedor sugerido
+              {agrupar && <Badge variant="secondary" className="ml-1">{grupos.length} pedido(s)</Badge>}
+            </label>
+          </div>
+
+          {/* Resumo por fornecedor (quando agrupado) */}
+          {agrupar && grupos.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {grupos.map((g) => (
+                <Badge key={g.fornecedor} variant="outline" className="gap-1 py-1 px-2">
+                  <Building2 className="h-3 w-3" />
+                  <span className="font-medium">{g.fornecedor}</span>
+                  <span className="text-muted-foreground">· {g.linhas.length} itens · {fmtKg(g.peso)} · {fmtMoeda(g.valor)}</span>
+                </Badge>
+              ))}
+            </div>
+          )}
+
           {/* Ação */}
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <p className="text-sm text-muted-foreground">
@@ -179,7 +249,7 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
             </p>
             <Button onClick={gerar} disabled={gerando || !selecionadas.length} className="gap-2">
               {gerando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingCart className="h-4 w-4" />}
-              Gerar pedido futuro
+              {agrupar ? 'Gerar pedidos por fornecedor' : 'Gerar pedido futuro'}
             </Button>
           </div>
 
@@ -197,12 +267,13 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
                     <TableHead className="text-right">Falta</TableHead>
                     <TableHead className="text-right">R$/kg</TableHead>
                     <TableHead>Base preço</TableHead>
+                    <TableHead>Fornecedor</TableHead>
                     <TableHead className="text-right">Valor estimado</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {aComprar.length === 0 && (
-                    <TableRow><TableCell colSpan={9} className="text-center py-10 text-muted-foreground">
+                    <TableRow><TableCell colSpan={10} className="text-center py-10 text-muted-foreground">
                       Nenhum material faltando — o estoque cobre o BOM desta obra. 🎉
                     </TableCell></TableRow>
                   )}
@@ -218,6 +289,7 @@ export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFi
                         <TableCell className="text-right text-xs font-semibold text-amber-600">{fmtKg(l.pesoFalta)}</TableCell>
                         <TableCell className="text-right text-xs">{l.precoKg ? fmtMoeda(l.precoKg) : '—'}</TableCell>
                         <TableCell><Badge variant="secondary" className={`text-[10px] ${FONTE_COR[l.fonte] || ''}`}>{l.fonteLabel}</Badge></TableCell>
+                        <TableCell className="text-xs">{l.fornecedorSugerido || <span className="text-muted-foreground italic">a definir</span>}</TableCell>
                         <TableCell className="text-right text-sm font-bold">{fmtMoeda(l.valorEstimado)}</TableCell>
                       </TableRow>
                     );
