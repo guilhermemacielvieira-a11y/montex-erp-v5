@@ -32,6 +32,38 @@ export function matchEstoqueItem(estoque = [], perfil = '') {
   ) || null;
 }
 
+// Monta a linha de um NOVO item de estoque a partir de um item recebido numa
+// compra — usado quando o perfil recebido AINDA NÃO existe no estoque, para o
+// material aparecer no saldo (fecha o loop também para materiais novos). Deriva
+// codigo/descricao do perfil+material; o peso recebido (kg) vira o saldo
+// inicial. Item de FÁBRICA (obra_id null): aço é insumo fungível e reutilizável
+// entre obras, e assim continua casável globalmente pelo matchEstoqueItem.
+// Retorna null se não houver identificação mínima (perfil/descricao/codigo).
+export function montarNovoItemEstoque(item = {}, compra = {}, { hoje, nowISO } = {}) {
+  const perfil = String(item.perfil || item.material_perfil || '').trim();
+  const material = String(item.material || '').trim();
+  const descricao = String(item.descricao || [perfil, material].filter(Boolean).join(' — ') || item.codigo || '').trim();
+  const codigoBase = String(perfil || item.codigo || descricao || '').trim();
+  if (!codigoBase && !descricao) return null;
+  const qtd = num(item.quantidade);
+  const custo = num(item.precoUnitario ?? item.custo_unitario ?? item.valorUnit);
+  return {
+    codigo: (codigoBase || descricao).slice(0, 40),
+    descricao: descricao || codigoBase,
+    perfil: perfil || null,
+    material: material || null,
+    quantidade: qtd,
+    peso_kg: qtd,            // itens de aço são lançados em kg
+    unidade: item.unidade || 'kg',
+    preco: custo || 0,
+    fornecedor: String(item.fornecedorSugerido || compra.fornecedor || '').trim() || null,
+    minimo: 0, maximo: 0,
+    obra_id: null,          // estoque de fábrica (fungível), não obra-específico
+    ...(hoje ? { ultima_entrada: hoje } : {}),
+    ...(nowISO ? { updated_at: nowISO } : {}),
+  };
+}
+
 // Constrói o histórico de preços por material (chave normalizada → entradas
 // ordenadas por data desc) a partir das 3 fontes disponíveis.
 export function construirHistoricoPrecos({ movimentacoes = [], estoque = [], notasFiscais = [] } = {}) {
