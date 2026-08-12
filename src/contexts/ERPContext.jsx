@@ -70,7 +70,7 @@ import {
   configMedicaoApi,
   checkConnection
 } from '@/api/supabaseClient';
-import { matchEstoqueItem } from '@/services/abastecimento';
+import { matchEstoqueItem, montarNovoItemEstoque } from '@/services/abastecimento';
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -1040,6 +1040,22 @@ export function ERPProvider({ children }) {
             itemId = est.id;
             await estoqueApi.update(est.id, { quantidade: saldoNovo, ultima_entrada: hoje, updated_at: now })
               .catch((e) => console.error('⚠️ Falha ao atualizar saldo do estoque:', e.message));
+          } else if (perfil || material) {
+            // Perfil NOVO (sem item no estoque): cria o item de fábrica para o
+            // material recebido aparecer no saldo. Best-effort.
+            const novoItem = montarNovoItemEstoque(item, compra, { hoje, nowISO: now });
+            if (novoItem) {
+              try {
+                const criado = await estoqueApi.create(novoItem);
+                itemId = criado?.id || itemId;
+                saldoAnterior = 0;
+                saldoNovo = qtd;
+                // Disponibiliza p/ próximos itens do MESMO perfil neste recebimento
+                estoqueAtual.push({ ...novoItem, id: itemId });
+              } catch (e) {
+                console.error('⚠️ Falha ao criar item de estoque novo:', e.message);
+              }
+            }
           }
 
           await movEstoqueApi.create({

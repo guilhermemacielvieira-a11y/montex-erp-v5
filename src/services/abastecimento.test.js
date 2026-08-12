@@ -3,7 +3,7 @@
 // (perfis e preços extraídos da obra-009 / SPASSO NOVAAGRO 040)
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, agruparPorFornecedor, normalizar, matchEstoqueItem } from './abastecimento';
+import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, agruparPorFornecedor, normalizar, matchEstoqueItem, montarNovoItemEstoque } from './abastecimento';
 
 // Amostra fiel do estoque real (base de preços R$/kg de aço) + fornecedor
 const estoque = [
@@ -106,6 +106,40 @@ describe('matchEstoqueItem — casa perfil ↔ item de estoque (recebimento de c
   });
   it('perfil vazio → null', () => {
     expect(matchEstoqueItem(estoque, '')).toBeNull();
+  });
+});
+
+describe('montarNovoItemEstoque — cria item p/ perfil novo no recebimento', () => {
+  const item = { perfil: 'UE200X75X25X4.25', material: 'CIVIL 300', descricao: 'UE200X75X25X4.25 — CIVIL 300', quantidade: 35197, unidade: 'kg', precoUnitario: 7.25, fornecedorSugerido: '' };
+  const compra = { obraId: 'obra-009', fornecedor: 'ACOFORTE' };
+
+  it('deriva codigo/descricao/perfil/material e usa o peso como saldo inicial', () => {
+    const novo = montarNovoItemEstoque(item, compra, { hoje: '2026-08-12' });
+    expect(novo.codigo).toBe('UE200X75X25X4.25');
+    expect(novo.perfil).toBe('UE200X75X25X4.25');
+    expect(novo.material).toBe('CIVIL 300');
+    expect(novo.quantidade).toBe(35197);
+    expect(novo.peso_kg).toBe(35197);
+    expect(novo.preco).toBe(7.25);
+    expect(novo.unidade).toBe('kg');
+    expect(novo.ultima_entrada).toBe('2026-08-12');
+  });
+  it('item de fábrica (obra_id null) — aço fungível, casável globalmente', () => {
+    expect(montarNovoItemEstoque(item, compra).obra_id).toBeNull();
+  });
+  it('usa o fornecedor da compra quando o item não sugere um', () => {
+    expect(montarNovoItemEstoque(item, compra).fornecedor).toBe('ACOFORTE');
+  });
+  it('trunca codigo em 40 chars', () => {
+    const longo = montarNovoItemEstoque({ perfil: 'X'.repeat(60), quantidade: 1 }, {});
+    expect(longo.codigo.length).toBe(40);
+  });
+  it('sem identificação mínima → null', () => {
+    expect(montarNovoItemEstoque({ quantidade: 10 }, {})).toBeNull();
+  });
+  it('o item criado é casável pelo matchEstoqueItem (loop de dedup no recebimento)', () => {
+    const novo = { ...montarNovoItemEstoque(item, compra), id: 'EST-novo' };
+    expect(matchEstoqueItem([novo], 'UE200X75X25X4.25')?.id).toBe('EST-novo');
   });
 });
 
