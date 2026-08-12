@@ -32,10 +32,12 @@ export function construirHistoricoPrecos({ movimentacoes = [], estoque = [], not
     porMaterial.get(chave).push({ descricao: String(texto).trim(), valorUnit: v, data: String(data || ''), fornecedor: fornecedor || '', fonte, unidade: (unidade || 'KG') });
   };
 
-  // 1) Movimentações de ENTRADA com custo unitário (inclui importação de chegada)
+  // 1) Movimentações de ENTRADA com custo unitário (inclui importação de chegada).
+  //    Indexa por PERFIL + material (o perfil é o identificador forte no match).
   (movimentacoes || []).forEach((m) => {
     if (String(m.tipo || '').toLowerCase() !== 'entrada') return;
-    add(m.material || m.material_perfil, m.custo_unitario, m.data, m.fornecedor, 'movimentacao', m.unidade);
+    const texto = [m.material_perfil, m.material].filter(Boolean).join(' ');
+    add(texto, m.custo_unitario, m.data, m.fornecedor, 'movimentacao', m.unidade);
   });
   // 2) Preço atual dos itens de estoque
   (estoque || []).forEach((e) => {
@@ -58,40 +60,37 @@ export function construirHistoricoPrecos({ movimentacoes = [], estoque = [], not
 }
 
 // Estima o preço unitário (R$/kg) para um material pelo match de tokens com o
-// histórico. Prefere o MAIS RECENTE do melhor match; expõe média e menor valor.
-export function estimarPreco(historico, texto, minScore = 0.45) {
+// histórico. O PERFIL é o identificador forte: usa o token mais longo da
+// consulta (ex.: "W200X19", "HP250X62", "L64X64X6") como chave de pool e
+// REÚNE as entradas de TODAS as chaves que o contêm — combinando as 3 fontes
+// (estoque + movimentações + NF) num único conjunto. Assim último/média/menor
+// enxergam todos os lançamentos daquele perfil, sem cross-match por tokens
+// genéricos ("A572", "GR", "50") que casariam perfis diferentes.
+export function estimarPreco(historico, texto, minLen = 3) {
   const tokens = normalizar(texto).split(' ').filter((t) => t.length >= 2);
   if (!tokens.length || !historico?.porMaterial?.size) return null;
-  // Score PONDERADO pelo tamanho do token: o perfil (ex.: W200X19, HP250X62)
-  // pesa muito mais que tokens genéricos de material (A572, GR, 50) — evita
-  // cross-match (ex.: W200X19.3 pegar preço da viga HP só por casar "A572").
-  const totalLen = tokens.reduce((a, t) => a + t.length, 0);
-  let melhor = null;
+  const perfilToken = tokens.reduce((a, t) => (t.length > a.length ? t : a), '');
+  if (perfilToken.length < minLen) return null;
+
+  const pool = [];
   historico.porMaterial.forEach((entradas, chave) => {
-    const matched = tokens.filter((t) => chave.includes(t));
-    if (!matched.length) return;
-    const score = matched.reduce((a, t) => a + t.length, 0) / totalLen;
-    const valores = entradas.map((e) => e.valorUnit).filter((v) => v > 0);
-    if (!valores.length) return;
-    const cand = {
-      score,
-      recente: entradas[0],
-      media: valores.reduce((a, v) => a + v, 0) / valores.length,
-      menor: Math.min(...valores),
-      ocorrencias: entradas.length,
-    };
-    if (!melhor || cand.score > melhor.score || (cand.score === melhor.score && cand.ocorrencias > melhor.ocorrencias)) melhor = cand;
+    if (!chave.includes(perfilToken)) return;
+    entradas.forEach((e) => { if (e.valorUnit > 0) pool.push(e); });
   });
-  if (!melhor || melhor.score < minScore) return null;
+  if (!pool.length) return null;
+
+  pool.sort((a, b) => String(b.data).localeCompare(String(a.data)));
+  const valores = pool.map((e) => e.valorUnit);
+  const recente = pool[0];
   return {
-    valorUnit: melhor.recente.valorUnit,
-    media: r2(melhor.media),
-    menor: r2(melhor.menor),
-    fonte: melhor.recente.fonte,
-    fornecedor: melhor.recente.fornecedor,
-    data: melhor.recente.data,
-    ocorrencias: melhor.ocorrencias,
-    score: Math.round(melhor.score * 100),
+    valorUnit: recente.valorUnit,
+    media: r2(valores.reduce((a, v) => a + v, 0) / valores.length),
+    menor: r2(Math.min(...valores)),
+    fonte: recente.fonte,
+    fornecedor: recente.fornecedor,
+    data: recente.data,
+    ocorrencias: pool.length,
+    score: 100,
   };
 }
 
@@ -118,7 +117,10 @@ export function precoReferencia({ estoque = [] } = {}) {
 // Agrega o BOM por perfil+material, subtrai o estoque e estima preço/valor.
 // Preço: 1) match específico no histórico (estoque/movimentações/NF); senão
 // 2) média da FAMÍLIA de material (estoque); senão 3) média geral do estoque.
-export function montarAbastecimento({ bom = [], estoque = [], historico } = {}) {
+// `estrategia`: 'ultimo' (default) | 'media' | 'menor' — como precificar o
+// match específico (o fallback já é uma média, então não muda).
+export function montarAbastecimento({ bom = [], estoque = [], historico, estrategia = 'ultimo' } = {}) {
+  const pick = (e) => estrategia === 'media' ? e.media : estrategia === 'menor' ? e.menor : e.valorUnit;
   const grupos = new Map();
   (bom || []).forEach((mc) => {
     const perfil = String(mc.perfil || '').trim();
@@ -149,15 +151,17 @@ export function montarAbastecimento({ bom = [], estoque = [], historico } = {}) 
 
     // 1) match específico
     let estimativa = historico ? estimarPreco(historico, `${g.perfil} ${g.material}`) : null;
-    let precoKg, fonte;
+    let precoKg, fonte, fornecedorSugerido = '';
     if (estimativa?.valorUnit > 0) {
-      precoKg = estimativa.valorUnit; fonte = estimativa.fonte;
+      precoKg = pick(estimativa) || estimativa.valorUnit;
+      fonte = estimativa.fonte;
+      fornecedorSugerido = estimativa.fornecedor || '';
     } else {
       const mm = ref.mediasMaterial.get(normalizar(g.material));
       if (mm > 0) { precoKg = mm; fonte = 'media_material'; }
       else if (ref.geral > 0) { precoKg = ref.geral; fonte = 'media_geral'; }
       else { precoKg = 0; fonte = 'sem_base'; }
-      estimativa = { valorUnit: precoKg, media: precoKg, menor: precoKg, fonte, ocorrencias: 0, score: 0 };
+      estimativa = { valorUnit: precoKg, media: precoKg, menor: precoKg, fonte, fornecedor: '', ocorrencias: 0, score: 0 };
     }
 
     linhas.push({
@@ -168,9 +172,10 @@ export function montarAbastecimento({ bom = [], estoque = [], historico } = {}) 
       pesoNecessario: r2(g.pesoNecessario),
       pesoEstoque: r2(pesoEstoque),
       pesoFalta,
-      precoKg,
+      precoKg: r2(precoKg),
       fonte,
       fonteLabel: FONTE_LABEL[fonte] || fonte,
+      fornecedorSugerido,
       valorEstimado: r2(pesoFalta * precoKg),
       estimativa,
       comprar: pesoFalta > 0,
@@ -188,4 +193,19 @@ export function montarAbastecimento({ bom = [], estoque = [], historico } = {}) 
     comCobertura: linhas.length - aComprar.length,
     precoRef: ref,
   };
+}
+
+// Agrupa as linhas (a comprar) pelo FORNECEDOR SUGERIDO — cada grupo vira um
+// pedido. Sem fornecedor conhecido cai em "A definir". Ordena por valor desc.
+export function agruparPorFornecedor(linhas = []) {
+  const grupos = new Map();
+  linhas.filter((l) => l.pesoFalta > 0).forEach((l) => {
+    const forn = (l.fornecedorSugerido || '').trim() || 'A definir';
+    if (!grupos.has(forn)) grupos.set(forn, { fornecedor: forn, linhas: [], peso: 0, valor: 0 });
+    const g = grupos.get(forn);
+    g.linhas.push(l);
+    g.peso = r2(g.peso + l.pesoFalta);
+    g.valor = r2(g.valor + l.valorEstimado);
+  });
+  return [...grupos.values()].sort((a, b) => b.valor - a.valor);
 }
