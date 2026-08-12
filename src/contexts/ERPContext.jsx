@@ -70,6 +70,7 @@ import {
   configMedicaoApi,
   checkConnection
 } from '@/api/supabaseClient';
+import { matchEstoqueItem } from '@/services/abastecimento';
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -1006,29 +1007,61 @@ export function ERPProvider({ children }) {
         throw err;
       }
 
-      // INTEGRAÇÃO COMPRAS → ESTOQUE: registrar movimentações de ENTRADA
-      // por item recebido (antes a notificação dizia "Estoque atualizado"
-      // mas nenhum registro era criado). Best-effort: falha aqui não
-      // desfaz o recebimento.
+      // INTEGRAÇÃO COMPRAS → ESTOQUE (loop fechado): por item recebido,
+      // registra uma ENTRADA COM perfil/material/custo, ATUALIZA o saldo do
+      // item de estoque casado pelo perfil (mesma regra do abastecimento) e
+      // grava saldo_anterior/novo. Assim o aço recebido: (1) aparece no saldo
+      // e (2) alimenta o histórico de preços do Abastecimento Automático
+      // (últimos valores lançados). Best-effort: falha aqui não desfaz o
+      // recebimento.
       try {
         const compra = state.compras.find(c => c.id === compraId);
         const itens = Array.isArray(itensRecebidos) && itensRecebidos.length > 0
           ? itensRecebidos
           : (Array.isArray(compra?.itens) ? compra.itens : []);
+        const estoqueAtual = await estoqueApi.getAll().catch(() => []);
+        const now = new Date().toISOString();
+        const hoje = now.split('T')[0];
+
         for (const item of itens) {
+          const perfil = item.perfil || item.material_perfil || '';
+          const material = item.material || item.descricao || null;
+          const qtd = Number(item.quantidade) || 0;
+          const custo = Number(item.precoUnitario ?? item.custo_unitario ?? item.valorUnit) || 0;
+          const unidade = item.unidade || 'kg';
+
+          // Casa item de estoque pelo perfil e atualiza o saldo (quando existe)
+          const est = perfil ? matchEstoqueItem(estoqueAtual, perfil) : null;
+          let saldoAnterior = null, saldoNovo = null;
+          let itemId = item.item_id || item.itemId || null;
+          if (est) {
+            saldoAnterior = Number(est.quantidade) || 0;
+            saldoNovo = saldoAnterior + qtd;
+            itemId = est.id;
+            await estoqueApi.update(est.id, { quantidade: saldoNovo, ultima_entrada: hoje, updated_at: now })
+              .catch((e) => console.error('⚠️ Falha ao atualizar saldo do estoque:', e.message));
+          }
+
           await movEstoqueApi.create({
+            item_id: itemId,
             tipo: 'entrada',
-            quantidade: item.quantidade || 0,
-            peso: item.peso || item.quantidade || 0,
-            motivo: `Recebimento compra ${compraId} — ${item.descricao || item.material || ''}`.trim(),
+            quantidade: qtd,
+            peso: item.peso || qtd,
+            unidade,
+            material_perfil: perfil || null,
+            material,
+            custo_unitario: custo || null,
+            motivo: `Recebimento compra ${compraId} — ${item.descricao || material || ''}`.trim(),
             nota_fiscal: compra?.notaFiscal || compra?.documentoOrigem || null,
             obra_id: compra?.obraId || null,
             setor: 'suprimentos',
-            data: new Date().toISOString()
+            origem: 'compra',
+            ...(saldoAnterior != null ? { saldo_anterior: saldoAnterior, saldo_novo: saldoNovo } : {}),
+            data: now,
           });
         }
         if (itens.length > 0) {
-          console.log(`✅ ${itens.length} movimentações de entrada registradas (compra ${compraId})`);
+          console.log(`✅ ${itens.length} entradas registradas (compra ${compraId}) com perfil/material/custo`);
         }
       } catch (err) {
         console.error('⚠️ Recebimento ok, mas falhou ao registrar movimentação de estoque:', err.message);

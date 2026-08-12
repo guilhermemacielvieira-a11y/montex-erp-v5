@@ -20,6 +20,18 @@ export const normalizar = (s) => String(s || '')
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 
+// Casa um PERFIL a um item de estoque existente (mesma regra usada no
+// abastecimento): chave do perfil normalizada (12 primeiros chars) procurada em
+// descricao/codigo/perfil/material do item. Retorna o item casado ou null.
+// Reutilizado no recebimento de compras p/ atualizar o saldo do item certo.
+export function matchEstoqueItem(estoque = [], perfil = '') {
+  const chave = normalizar(perfil).slice(0, 12);
+  if (!chave) return null;
+  return (estoque || []).find((e) =>
+    normalizar(`${e.descricao || ''} ${e.codigo || ''} ${e.perfil || ''} ${e.material || ''}`).includes(chave)
+  ) || null;
+}
+
 // Constrói o histórico de preços por material (chave normalizada → entradas
 // ordenadas por data desc) a partir das 3 fontes disponíveis.
 export function construirHistoricoPrecos({ movimentacoes = [], estoque = [], notasFiscais = [] } = {}) {
@@ -141,11 +153,8 @@ export function montarAbastecimento({ bom = [], estoque = [], historico, estrate
 
   const linhas = [];
   grupos.forEach((g) => {
-    // Estoque disponível: casa pelo perfil (12 primeiros chars normalizados)
-    const chavePerfil = normalizar(g.perfil).slice(0, 12);
-    const est = g.perfil !== '—' && chavePerfil
-      ? (estoque || []).find((e) => normalizar(`${e.descricao || ''} ${e.codigo || ''} ${e.perfil || ''} ${e.material || ''}`).includes(chavePerfil))
-      : null;
+    // Estoque disponível: casa pelo perfil (helper compartilhado)
+    const est = g.perfil !== '—' ? matchEstoqueItem(estoque, g.perfil) : null;
     const pesoEstoque = est ? (num(est.peso_kg) || num(est.quantidade)) : 0;
     const pesoFalta = Math.max(0, r2(g.pesoNecessario - pesoEstoque));
 

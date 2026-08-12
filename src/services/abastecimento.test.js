@@ -3,7 +3,7 @@
 // (perfis e preços extraídos da obra-009 / SPASSO NOVAAGRO 040)
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, agruparPorFornecedor, normalizar } from './abastecimento';
+import { construirHistoricoPrecos, estimarPreco, montarAbastecimento, precoReferencia, agruparPorFornecedor, normalizar, matchEstoqueItem } from './abastecimento';
 
 // Amostra fiel do estoque real (base de preços R$/kg de aço) + fornecedor
 const estoque = [
@@ -90,6 +90,23 @@ describe('estratégia de preço: último × média × menor', () => {
   it('último = 8,00 (entrada mais recente)', () => expect(precoL64('ultimo')).toBe(8));
   it('média = 7,80', () => expect(precoL64('media')).toBe(7.8));
   it('menor = 7,60', () => expect(precoL64('menor')).toBe(7.6));
+});
+
+describe('matchEstoqueItem — casa perfil ↔ item de estoque (recebimento de compra)', () => {
+  it('casa o perfil exato pela chave normalizada', () => {
+    const m = matchEstoqueItem(estoque, 'L64X64X6.4');
+    expect(m).toBeTruthy();
+    expect(m.codigo).toBe('L64X64X6.4');
+  });
+  it('casa o perfil W mesmo com sufixo -12M no item de estoque', () => {
+    expect(matchEstoqueItem(estoque, 'W200X19.3').codigo).toBe('W200X19.3-12M');
+  });
+  it('perfil inexistente no estoque → null', () => {
+    expect(matchEstoqueItem(estoque, 'UE200X75X25X4.25')).toBeNull();
+  });
+  it('perfil vazio → null', () => {
+    expect(matchEstoqueItem(estoque, '')).toBeNull();
+  });
 });
 
 describe('fornecedor sugerido + agrupamento por fornecedor', () => {
