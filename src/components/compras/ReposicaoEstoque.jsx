@@ -11,9 +11,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { RefreshCw, PackageX, DollarSign, AlertTriangle, ShoppingCart, Loader2, Bell } from 'lucide-react';
+import { RefreshCw, PackageX, DollarSign, AlertTriangle, ShoppingCart, Loader2, Bell, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { estoqueApi } from '@/api/supabaseClient';
-import { calcularReposicao, linhaParaItemCompra, SEVERIDADE } from '@/services/reposicao';
+import { calcularReposicao, linhaParaItemCompra, SEVERIDADE, itensSemPonto } from '@/services/reposicao';
+import DefinirPontosReposicao from '@/components/compras/DefinirPontosReposicao';
 
 const fmtNum = (n, u) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + (u ? ` ${u}` : '');
 const fmtMoeda = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -40,6 +41,7 @@ export default function ReposicaoEstoque({ addCompra, onGerado }) {
   const [estoque, setEstoque] = useState([]);
   const [sel, setSel] = useState({});
   const [gerando, setGerando] = useState(false);
+  const [abrirPontos, setAbrirPontos] = useState(false);
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -54,6 +56,7 @@ export default function ReposicaoEstoque({ addCompra, onGerado }) {
   useEffect(() => { carregar(); }, [carregar]);
 
   const resultado = useMemo(() => calcularReposicao(estoque), [estoque]);
+  const semPonto = useMemo(() => itensSemPonto(estoque).length, [estoque]);
 
   useEffect(() => {
     const s = {};
@@ -109,6 +112,21 @@ export default function ReposicaoEstoque({ addCompra, onGerado }) {
         </CardContent></Card>
       ) : (
         <>
+          {/* Configurar pontos de reposição (mín/máx) em massa */}
+          <div>
+            <Button variant="outline" size="sm" onClick={() => setAbrirPontos((v) => !v)} className="gap-2">
+              <SlidersHorizontal className="h-4 w-4" />
+              Definir pontos de reposição
+              {semPonto > 0 && <Badge variant="secondary" className="bg-amber-100 text-amber-800">{semPonto} sem mínimo</Badge>}
+              <ChevronDown className={`h-4 w-4 transition-transform ${abrirPontos ? 'rotate-180' : ''}`} />
+            </Button>
+            {abrirPontos && (
+              <div className="mt-3">
+                <DefinirPontosReposicao estoque={estoque} onSaved={carregar} />
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
             <Kpi icon={PackageX} label="Itens a repor" value={resultado.itens} sub={`${resultado.criticos} crítico(s)`} tone={resultado.itens ? 'warn' : 'ok'} />
             <Kpi icon={DollarSign} label="Custo estimado" value={fmtMoeda(resultado.totalCusto)} tone="ok" />
