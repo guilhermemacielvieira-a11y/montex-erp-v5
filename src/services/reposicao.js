@@ -84,6 +84,33 @@ export function calcularReposicao(estoque = [], { fatorAtencao = 1.2, incluirAte
   };
 }
 
+// Itens SEM ponto de reposição definido (minimo <= 0) — candidatos a
+// configurar para entrarem no radar. Ordenados por descrição/código.
+export function itensSemPonto(estoque = []) {
+  return (estoque || [])
+    .filter((e) => num(e.minimo) <= 0)
+    .sort((a, b) => String(a.descricao || a.codigo || '').localeCompare(String(b.descricao || b.codigo || ''), 'pt-BR'));
+}
+
+// Valida um par mínimo/máximo antes de salvar.
+// Regras: ambos ≥ 0; máximo pode ser 0 (sem teto) ou ≥ mínimo.
+export function validarPontos({ minimo, maximo } = {}) {
+  const mn = num(minimo), mx = num(maximo);
+  if (mn < 0 || mx < 0) return { ok: false, erro: 'Valores não podem ser negativos' };
+  if (mx > 0 && mx < mn) return { ok: false, erro: 'Máximo deve ser ≥ mínimo' };
+  return { ok: true, minimo: r2(mn), maximo: r2(mx) };
+}
+
+// Sugestão simples de pontos a partir do saldo atual: mínimo ≈ 30% do saldo,
+// máximo ≈ 120% (arredondados). Ponto de partida editável — evita o usuário
+// começar do zero em cada um dos itens sem configuração.
+export function sugerirPontos(saldo) {
+  const s = num(saldo);
+  if (s <= 0) return { minimo: 0, maximo: 0 };
+  const arred = (n) => (n >= 100 ? Math.round(n / 10) * 10 : Math.max(1, Math.round(n)));
+  return { minimo: arred(s * 0.3), maximo: arred(s * 1.2) };
+}
+
 // Mapeia uma linha de reposição para item de compra (mesma forma dos itens de
 // pedido gerados pelo Abastecimento — perfil/material/precoUnitario/valorTotal).
 export function linhaParaItemCompra(l) {

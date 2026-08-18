@@ -2,7 +2,7 @@
 // Testes da reposição de estoque (ponto de compra proativo)
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { calcularReposicao, severidadeItem, linhaParaItemCompra } from './reposicao';
+import { calcularReposicao, severidadeItem, linhaParaItemCompra, itensSemPonto, validarPontos, sugerirPontos } from './reposicao';
 
 // Amostra com os casos-chave: crítico (0), abaixo do mínimo, atenção, ok e
 // sem mínimo definido.
@@ -57,6 +57,34 @@ describe('calcularReposicao', () => {
     const r3 = calcularReposicao([{ id: 'X', codigo: 'X', quantidade: 0, minimo: 5, maximo: 10, preco: 0, unidade: 'UN' }]);
     expect(r3.semPreco).toBe(1);
     expect(r3.linhas[0].custoEstimado).toBe(0);
+  });
+});
+
+describe('itensSemPonto', () => {
+  it('lista só os itens sem mínimo definido, ordenados', () => {
+    const semPonto = itensSemPonto(estoque);
+    expect(semPonto.map((e) => e.codigo)).toEqual(['SUCATA']); // único com minimo 0
+  });
+});
+
+describe('validarPontos', () => {
+  it('aceita máximo 0 (sem teto)', () => expect(validarPontos({ minimo: 10, maximo: 0 }).ok).toBe(true));
+  it('aceita máximo ≥ mínimo', () => expect(validarPontos({ minimo: 10, maximo: 50 }).ok).toBe(true));
+  it('rejeita máximo < mínimo', () => expect(validarPontos({ minimo: 50, maximo: 10 }).ok).toBe(false));
+  it('rejeita negativos', () => expect(validarPontos({ minimo: -1, maximo: 0 }).ok).toBe(false));
+  it('normaliza (r2)', () => expect(validarPontos({ minimo: '10.555', maximo: 20 }).minimo).toBe(10.56));
+});
+
+describe('sugerirPontos', () => {
+  it('saldo 0 → 0/0', () => expect(sugerirPontos(0)).toEqual({ minimo: 0, maximo: 0 }));
+  it('saldo grande arredonda p/ dezenas', () => {
+    const s = sugerirPontos(500); // 150 / 600
+    expect(s.minimo).toBe(150);
+    expect(s.maximo).toBe(600);
+  });
+  it('máximo ≥ mínimo sempre', () => {
+    const s = sugerirPontos(37);
+    expect(s.maximo).toBeGreaterThanOrEqual(s.minimo);
   });
 });
 
