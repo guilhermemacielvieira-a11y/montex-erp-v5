@@ -31,6 +31,7 @@ import { CATEGORIAS_MATERIAL } from '@/data/database';
 import {
   SAUDE, saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
+  necessarioItem, chegouItem, faltaItem, temNecessidade,
 } from '@/services/estoqueAnalytics';
 import { ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
 import { normalizar } from '@/services/abastecimento';
@@ -604,6 +605,16 @@ export default function EstoquePageV2() {
         </button>
       </div>
 
+      {/* Faltante da obra — aparece quando há necessidade cadastrada (pedido>0) */}
+      {kpis.itensComNecessidade > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <KPICard title="Necessário (obra)" value={fmtPeso(kpis.totalNecessario)} subtitle={`${kpis.itensComNecessidade} perfis`} icon={Layers} color="blue" />
+          <KPICard title="Já chegou" value={fmtPeso(kpis.totalChegou)} subtitle={kpis.coberturaPct != null ? `${kpis.coberturaPct}% de cobertura` : ''} icon={ArrowDownLeft} color="green" />
+          <KPICard title="Falta chegar" value={fmtPeso(kpis.totalFalta)} subtitle={`${kpis.itensComFalta} perfis faltando`} icon={AlertTriangle} color={kpis.totalFalta > 0 ? 'red' : 'green'} />
+          <KPICard title="Cobertura" value={kpis.coberturaPct != null ? `${kpis.coberturaPct}%` : '—'} subtitle="chegou / necessário" icon={CheckCircle2} color={kpis.coberturaPct >= 100 ? 'green' : 'orange'} />
+        </div>
+      )}
+
       {/* Painel de alertas — itens em alerta no escopo filtrado */}
       {itensAlerta.length > 0 && (
         <motion.div
@@ -938,6 +949,8 @@ export default function EstoquePageV2() {
                           <SortTh label="Categoria" campo="categoria" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} />
                           <SortTh label="Saúde" campo="saude" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} align="center" />
                           <SortTh label="Saldo" campo="quantidade" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} align="right" />
+                          <th className="text-right px-3 py-2 font-medium">Necessário</th>
+                          <th className="text-right px-3 py-2 font-medium">Falta</th>
                           <th className="text-right px-3 py-2 font-medium">Mín/Máx</th>
                           <th className="text-right px-3 py-2 font-medium">R$/un</th>
                           <SortTh label="Valor" campo="valor" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} align="right" />
@@ -960,6 +973,8 @@ export default function EstoquePageV2() {
                                 </span>
                               </td>
                               <td className="px-3 py-2 text-right text-white font-semibold">{fmtNum(item.quantidade)} <span className="text-slate-500 text-[10px]">{item.unidade}</span></td>
+                              <td className="px-3 py-2 text-right text-slate-400 text-xs">{temNecessidade(item) ? fmtNum(necessarioItem(item)) : '—'}</td>
+                              <td className="px-3 py-2 text-right text-xs">{temNecessidade(item) ? (faltaItem(item) > 0 ? <span className="text-red-400 font-semibold">{fmtNum(faltaItem(item))}</span> : <span className="text-emerald-400">0</span>) : '—'}</td>
                               <td className="px-3 py-2 text-right text-slate-400 text-xs">{fmtNum(item.minimo)}{Number(item.maximo) > 0 ? ` / ${fmtNum(item.maximo)}` : ''}</td>
                               <td className="px-3 py-2 text-right text-slate-400 text-xs">{fmtMoeda(item.preco || item.precoUnitario || 0)}</td>
                               <td className="px-3 py-2 text-right text-emerald-400 font-medium text-xs">{fmtMoedaCompact(valorItem(item))}</td>
