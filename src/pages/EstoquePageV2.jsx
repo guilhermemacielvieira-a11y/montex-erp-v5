@@ -33,6 +33,7 @@ import {
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
 } from '@/services/estoqueAnalytics';
 import { ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
+import { normalizar } from '@/services/abastecimento';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import EstoqueEditModal from '@/components/estoque/EstoqueEditModal';
@@ -216,7 +217,7 @@ function ItemEstoque({ item, onEdit, obraAtual, onEntrada, onSaida, onHistorico 
 
 export default function EstoquePageV2() {
   // Contexto ERP
-  const { estoque, estoqueObraAtual, alertasEstoque, consumirEstoque, adicionarEstoque, addNotificacao, movimentacoesEstoque, reloadEstoque } = useEstoque();
+  const { estoque, movimentacoesEstoque, reloadEstoque } = useEstoque();
   const { obras, obraAtual, obraAtualData } = useObras();
   const { pecasObraAtual } = useProducao();
 
@@ -241,13 +242,34 @@ export default function EstoquePageV2() {
     setFiltroObra('todas'); setFlagSemPreco(false); setFlagSemMinimo(false);
   };
 
-  // 1) Pré-filtro por OBRA (depende de arrays do contexto)
+  // ─── MATERIAL NECESSÁRIO para a obra selecionada (vindo de materiais_corte) ──
+  const [materiaisNecessarios, setMateriaisNecessarios] = useState([]);
+  const [carregandoNecessarios, setCarregandoNecessarios] = useState(false);
+
+  // 1) Pré-filtro por OBRA. O estoque de aço é de FÁBRICA (obraId quase sempre
+  // null), então filtrar só por obraId daria (quase) vazio e "Obra Atual" antes
+  // mostrava tudo (bug do fallback do contexto). Aqui, ao selecionar uma obra,
+  // mostramos o estoque RELEVANTE a ela: itens reservados (obraId) + itens cujo
+  // perfil está no BOM da obra (materiais_corte já carregado). Assim o filtro
+  // muda os dados de forma útil e consistente.
   const estoquePorObra = useMemo(() => {
-    if (filtroObra === 'todas') return estoque || [];
-    if (filtroObra === 'obra_atual') return estoqueObraAtual || [];
-    if (filtroObra === 'sem_obra') return (estoque || []).filter(it => !it.obra_id && !it.obraId && !it.obraReservada);
-    return (estoque || []).filter(it => it.obra_id === filtroObra || it.obraId === filtroObra || it.obraReservada === filtroObra);
-  }, [estoque, estoqueObraAtual, filtroObra]);
+    const base = estoque || [];
+    if (filtroObra === 'todas') return base;
+    if (filtroObra === 'sem_obra') return base.filter(it => !it.obraId && !it.obra_id);
+    const alvo = filtroObra === 'obra_atual' ? obraAtual : filtroObra;
+    if (!alvo) return base;
+    const perfisBOM = new Set(
+      (materiaisNecessarios || []).map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean)
+    );
+    return base.filter(it => {
+      if (it.obraId === alvo || it.obra_id === alvo) return true;        // reservado à obra
+      if (perfisBOM.size) {
+        const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
+        for (const p of perfisBOM) if (chave.includes(p)) return true;   // usado no BOM da obra
+      }
+      return false;
+    });
+  }, [estoque, filtroObra, obraAtual, materiaisNecessarios]);
 
   // 2) Filtro FUNCIONAL (busca/categoria/saúde/flags) + ordenação — via serviço
   const estoqueFiltrado = useMemo(() => {
@@ -257,10 +279,6 @@ export default function EstoquePageV2() {
     });
     return ordenarEstoque(filtrado, ordenarPor, ordenarDir);
   }, [estoquePorObra, busca, filtroCategoria, filtroSaude, flagSemPreco, flagSemMinimo, ordenarPor, ordenarDir]);
-
-  // ─── MATERIAL NECESSÁRIO para a obra selecionada (vindo de materiais_corte) ──
-  const [materiaisNecessarios, setMateriaisNecessarios] = useState([]);
-  const [carregandoNecessarios, setCarregandoNecessarios] = useState(false);
 
   const obraIdParaConsulta = useMemo(() => {
     if (filtroObra === 'obra_atual') return obraAtual;
@@ -721,7 +739,7 @@ export default function EstoquePageV2() {
                     <Select.ItemText>📦 Todas as Obras + Geral</Select.ItemText>
                   </Select.Item>
                   <Select.Item value="sem_obra" className="px-3 py-2 text-sm text-cyan-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>🏭 MONTEX (Geral — sem obra)</Select.ItemText>
+                    <Select.ItemText>🏭 Fábrica (Geral — sem obra)</Select.ItemText>
                   </Select.Item>
                   {obraAtualData && (
                     <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
@@ -869,10 +887,13 @@ export default function EstoquePageV2() {
               Exibindo <strong className="text-white">{paginationItens.totalCount}</strong> de <strong className="text-white">{estoque.length}</strong> itens
               {filtroObra !== 'todas' && (
                 <span> · obra: <strong className="text-orange-400">{
-                  filtroObra === 'sem_obra' ? 'MONTEX (Geral)' :
+                  filtroObra === 'sem_obra' ? 'Fábrica (Geral)' :
                   filtroObra === 'obra_atual' ? obraAtualData?.codigo :
                   (obras || []).find(o => o.id === filtroObra)?.codigo || filtroObra
                 }</strong></span>
+              )}
+              {(filtroObra !== 'todas' && filtroObra !== 'sem_obra') && (
+                <span className="text-slate-500"> · reservados + materiais do BOM da obra{carregandoNecessarios ? ' (carregando BOM…)' : ''}</span>
               )}
             </div>
             {/* Barra de ferramentas: toggle de visualização */}
