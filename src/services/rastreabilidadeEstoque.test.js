@@ -2,7 +2,7 @@
 // Testes da rastreabilidade de estoque (extrato por item)
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { historicoDoItem, resumoRastreabilidade, normalizarMov, rotuloOrigem } from './rastreabilidadeEstoque';
+import { historicoDoItem, resumoRastreabilidade, normalizarMov, rotuloOrigem, linhasParaExport } from './rastreabilidadeEstoque';
 
 const item = { id: 'EST-L', codigo: 'L64X64X6.4', perfil: 'L64X64X6.4' };
 
@@ -44,6 +44,18 @@ describe('resumoRastreabilidade', () => {
     expect(compra.entradas).toBe(5000);
     expect(prod.saidas).toBe(300);
     expect(prod.count).toBe(1);
+  });
+});
+
+describe('linhasParaExport', () => {
+  const rows = linhasParaExport(historicoDoItem(movs, item));
+  it('gera uma linha por movimentação com colunas planas', () => {
+    expect(rows.length).toBe(4);
+    expect(Object.keys(rows[0])).toEqual(['Data', 'Tipo', 'Origem', 'Quantidade', 'Unidade', 'Saldo após', 'Custo/un', 'Peça', 'NF', 'Motivo']);
+  });
+  it('rotula tipo e origem em pt-BR', () => {
+    const saida = rows.find((r) => r.Quantidade === 300 && r.Tipo === 'Saída');
+    expect(saida.Origem).toBe('Produção');
   });
 });
 
