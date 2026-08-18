@@ -58,6 +58,7 @@ import { useDisplay } from '@/contexts/DisplayContext';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { useNotification } from '@/contexts/NotificationContext';
 import Breadcrumbs from '@/components/Breadcrumbs';
+import ReposicaoBadge from '@/components/layout/ReposicaoBadge';
 
 // ====== COMPONENTES ERP ======
 import { ERPProvider, useERP } from '@/contexts/ERPContext';
@@ -127,7 +128,7 @@ const navigationCategories = [
       { name: 'Croquis', href: 'CroquisPage', icon: FileSearch },
       { name: 'Detalhamentos', href: 'DetalhamentosPage', icon: ClipboardList },
       { name: 'Estoque', href: 'EstoquePage', icon: Warehouse },
-      { name: 'Compras', href: 'ComprasPage', icon: ShoppingCart, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
+      { name: 'Compras', href: 'ComprasPage', icon: ShoppingCart },
       { name: 'Materiais', href: 'MateriaisPage', icon: Package, badge: 'NEW', badgeColor: 'bg-amber-500/20 text-amber-400' },
     ]
   },
@@ -366,6 +367,7 @@ function CollapsedNavItem({ category, currentPageName, onNavigate }) {
                     >
                       <item.icon className={cn("h-4 w-4", isActive ? "text-white" : "text-slate-500")} />
                       <span className="flex-1">{item.name}</span>
+                      <ReposicaoBadge href={item.href} isActive={isActive} />
                       {item.badge && (
                         <span className={cn("px-1.5 py-0.5 text-[9px] font-bold rounded-md", item.badgeColor || "bg-slate-700 text-slate-400")}>
                           {item.badge}
@@ -451,6 +453,7 @@ function AccordionCategory({ category, isOpen, onToggle, currentPageName, onNavi
                       <span className="truncate">{item.name}</span>
                     </div>
                     <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <ReposicaoBadge href={item.href} isActive={isActive} />
                       {item.badge && (
                         <span className={cn(
                           "px-1.5 py-0.5 text-[9px] font-bold rounded-md",

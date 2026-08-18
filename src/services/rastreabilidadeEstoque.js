@@ -63,6 +63,27 @@ export function historicoDoItem(movs = [], item = {}) {
   return filtradas;
 }
 
+// Linhas prontas para exportação (Excel/PDF): rótulos pt-BR, colunas planas.
+export function linhasParaExport(historico = []) {
+  const fmtData = (d) => {
+    if (!d) return '';
+    const dt = new Date(d);
+    return Number.isNaN(dt.getTime()) ? String(d) : dt.toLocaleString('pt-BR');
+  };
+  return (historico || []).map((m) => ({
+    Data: fmtData(m.data),
+    Tipo: m.tipo === 'entrada' ? 'Entrada' : m.tipo === 'saida' ? 'Saída' : m.tipo,
+    Origem: rotuloOrigem(m.origem),
+    Quantidade: m.quantidade,
+    Unidade: m.unidade || '',
+    'Saldo após': m.saldoNovo ?? '',
+    'Custo/un': m.custoUnitario || '',
+    Peça: m.pecaId || '',
+    NF: m.notaFiscal || '',
+    Motivo: m.motivo || '',
+  }));
+}
+
 // Resumo do extrato: totais de entrada/saída, saldo líquido e quebra por origem.
 export function resumoRastreabilidade(historico = []) {
   let entradas = 0, saidas = 0;

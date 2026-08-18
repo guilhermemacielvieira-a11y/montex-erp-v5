@@ -7,8 +7,11 @@
 // contexto) via serviço puro rastreabilidadeEstoque.
 // ============================================================
 import React, { useMemo } from 'react';
-import { X, ArrowDownLeft, ArrowUpRight, FileText, Package } from 'lucide-react';
-import { historicoDoItem, resumoRastreabilidade, ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
+import { X, ArrowDownLeft, ArrowUpRight, FileText, Package, FileSpreadsheet, FileDown } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { jsPDF } from 'jspdf';
+import { toast } from 'sonner';
+import { historicoDoItem, resumoRastreabilidade, linhasParaExport, ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
 
 const fmtNum = (n, u) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + (u ? ` ${u}` : '');
 const fmtData = (d) => {
@@ -23,6 +26,55 @@ export default function HistoricoItemModal({ open, item, movimentacoes = [], onC
 
   if (!open || !item) return null;
   const un = item.unidade || 'kg';
+  const baseNome = String(item.codigo || item.descricao || 'item').replace(/[^\w.-]+/g, '_').slice(0, 40);
+
+  const exportarExcel = () => {
+    try {
+      const rows = linhasParaExport(historico);
+      if (!rows.length) { toast.error('Sem movimentações para exportar'); return; }
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Extrato');
+      XLSX.writeFile(wb, `extrato_${baseNome}.xlsx`);
+    } catch (e) {
+      toast.error('Erro ao exportar Excel: ' + (e.message || e));
+    }
+  };
+
+  const exportarPDF = () => {
+    try {
+      const rows = linhasParaExport(historico);
+      if (!rows.length) { toast.error('Sem movimentações para exportar'); return; }
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const M = 10;
+      let y = M;
+      doc.setFontSize(13); doc.setFont(undefined, 'bold');
+      doc.text(`Rastreabilidade — ${item.codigo || item.descricao || ''}`, M, y); y += 6;
+      doc.setFontSize(9); doc.setFont(undefined, 'normal');
+      doc.text(`Saldo atual: ${(Number(item.quantidade) || 0).toLocaleString('pt-BR')} ${un}  ·  Entradas: ${resumo.entradas.toLocaleString('pt-BR')}  ·  Saídas: ${resumo.saidas.toLocaleString('pt-BR')}  ·  Movimentações: ${resumo.total}`, M, y);
+      y += 6;
+      // Cabeçalho da tabela
+      const cols = [
+        { k: 'Data', x: M, w: 34 }, { k: 'Tipo', x: 44, w: 16 }, { k: 'Origem', x: 60, w: 30 },
+        { k: 'Quantidade', x: 90, w: 24 }, { k: 'Saldo após', x: 114, w: 24 }, { k: 'NF', x: 138, w: 20 }, { k: 'Motivo', x: 158, w: 128 },
+      ];
+      const linha = (obj, bold) => {
+        doc.setFont(undefined, bold ? 'bold' : 'normal');
+        cols.forEach((c) => {
+          const v = obj[c.k] == null ? '' : String(obj[c.k]);
+          doc.text(doc.splitTextToSize(v, c.w)[0] || '', c.x, y);
+        });
+        y += 5;
+        if (y > 200) { doc.addPage(); y = M; linha(Object.fromEntries(cols.map((c) => [c.k, c.k])), true); }
+      };
+      doc.setFontSize(8);
+      linha(Object.fromEntries(cols.map((c) => [c.k, c.k])), true);
+      rows.forEach((r) => linha(r, false));
+      doc.save(`extrato_${baseNome}.pdf`);
+    } catch (e) {
+      toast.error('Erro ao exportar PDF: ' + (e.message || e));
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={onClose}>
@@ -32,7 +84,17 @@ export default function HistoricoItemModal({ open, item, movimentacoes = [], onC
             <Package className="w-5 h-5 text-orange-400" />
             Rastreabilidade — {item.codigo || item.descricao}
           </h2>
-          <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"><X className="w-5 h-5" /></button>
+          <div className="flex items-center gap-2">
+            <button onClick={exportarExcel} title="Exportar Excel" disabled={!historico.length}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-emerald-700/60 text-emerald-300 hover:bg-emerald-800/20 disabled:opacity-40">
+              <FileSpreadsheet className="w-4 h-4" /> Excel
+            </button>
+            <button onClick={exportarPDF} title="Exportar PDF" disabled={!historico.length}
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border border-red-700/60 text-red-300 hover:bg-red-800/20 disabled:opacity-40">
+              <FileDown className="w-4 h-4" /> PDF
+            </button>
+            <button onClick={onClose} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800"><X className="w-5 h-5" /></button>
+          </div>
         </div>
 
         <div className="p-5 space-y-4">
