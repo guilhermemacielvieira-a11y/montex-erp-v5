@@ -184,6 +184,37 @@ export default function FinanceiroPage() {
       });
   }, [lancamentosDespesas]);
 
+  // ===== DESPESAS DE OBRA (com obraId = lançadas na Gestão de Despesas de Obra/GFO) =====
+  // FIX: ao selecionar uma obra, o painel precisa mostrar AS DESPESAS DELA (que
+  // vivem no GFO), não zero. Antes o filtro por obra fazia despesas=[] e o Lucro
+  // ficava totalmente errado (só receitas).
+  const despesasObra = useMemo(() => {
+    if (!lancamentosDespesas || lancamentosDespesas.length === 0) return [];
+    return lancamentosDespesas
+      .filter(l => l.obraId || l.obra_id)
+      .map(l => {
+        const venc = l.dataVencimento || l.vencimento || '-';
+        const statusBruto = l.status || 'pendente';
+        const obraId = l.obraId || l.obra_id;
+        return {
+          id: l.id,
+          tipo: 'despesa',
+          data: l.dataEmissao || l.data || l.createdAt || '',
+          descricao: l.descricao || l.nome || '-',
+          fornecedor: l.fornecedor || '-',
+          categoria: l.categoria || 'Outros',
+          valor: l.valor || 0,
+          status: statusBruto,
+          statusEfetivo: computeStatusEfetivo(statusBruto, venc, 'despesa'),
+          formaPagto: l.formaPagto || '-',
+          vencimento: venc,
+          origem: `Obra: ${obrasMap[obraId] || obraId}`,
+          origemObra: true,
+          obraId,
+        };
+      });
+  }, [lancamentosDespesas, obrasMap]);
+
   // ===== RECEITAS: MEDIÇÕES (Supabase) + MANUAIS (localStorage) + OVERRIDES =====
   const RECEITAS_STORAGE_KEY = 'montex_receitas_gerais';
   const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
@@ -285,15 +316,15 @@ export default function FinanceiroPage() {
       // Somente despesas da fábrica + receitas manuais (sem obraId)
       receitas = receitasManuais;
     } else if (filtroObra !== 'geral') {
-      // Filtra por obra específica
-      despesas = []; // Despesas gerais não pertencem a nenhuma obra
+      // Filtra por obra específica: receitas (medições) + DESPESAS DA OBRA (GFO)
+      despesas = despesasObra.filter(d => d.obraId === filtroObra);
       receitas = receitasMedicoes.filter(r => r.obraId === filtroObra);
     }
     // 'geral' mostra tudo (medições + manuais)
 
     return [...despesas, ...receitas]
       .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
-  }, [despesasGerais, receitasMedicoes, receitasManuais, filtroObra]);
+  }, [despesasGerais, despesasObra, receitasMedicoes, receitasManuais, filtroObra]);
 
   // ===== FILTRO DE PERÍODO =====
   const filtrarPorPeriodo = useCallback((lista) => {
