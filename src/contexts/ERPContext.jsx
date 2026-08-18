@@ -1030,10 +1030,13 @@ export function ERPProvider({ children }) {
           const custo = Number(item.precoUnitario ?? item.custo_unitario ?? item.valorUnit) || 0;
           const unidade = item.unidade || 'kg';
 
-          // Casa item de estoque pelo perfil e atualiza o saldo (quando existe)
-          const est = perfil ? matchEstoqueItem(estoqueAtual, perfil) : null;
-          let saldoAnterior = null, saldoNovo = null;
+          // Casa item de estoque: 1º pelo item_id explícito (ex.: reposição
+          // referencia o item exato), senão pelo perfil (abastecimento). Assim
+          // o saldo sobe também p/ consumíveis sem perfil.
           let itemId = item.item_id || item.itemId || null;
+          const est = (itemId ? estoqueAtual.find((e) => e.id === itemId) : null)
+            || (perfil ? matchEstoqueItem(estoqueAtual, perfil) : null);
+          let saldoAnterior = null, saldoNovo = null;
           if (est) {
             saldoAnterior = Number(est.quantidade) || 0;
             saldoNovo = saldoAnterior + qtd;
