@@ -11,7 +11,8 @@
 // ============================================
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
-import { supabase } from '../api/supabaseClient';
+import { supabase, estoqueApi, movEstoqueApi } from '../api/supabaseClient';
+import { planejarBaixaCorte, planejarEstornoCorte } from '../services/consumoProducao';
 
 /**
  * Hook que fornece dados de corte da tabela materiais_corte do Supabase.
@@ -71,6 +72,77 @@ export function useCorteSupabase(obraId) {
     }));
   }, [rawItems]);
 
+  // ===== CONSUMO AUTOMÁTICO DE ESTOQUE (baixa por corte) =====
+  // Ao finalizar um corte, dá baixa no estoque (item casado pelo perfil) no peso
+  // teórico do corte, registra a movimentação de saída e marca baixa_estoque_kg
+  // (idempotência). Best-effort: falha aqui NÃO impede a finalização do corte.
+  // `estoqueList` é mutado localmente p/ acumular baixas do mesmo perfil no lote.
+  const baixarCorteNoEstoque = useCallback(async (rawCorte, estoqueList) => {
+    const plano = planejarBaixaCorte(rawCorte, estoqueList);
+    if (!plano) return;
+    const now = new Date().toISOString();
+    try {
+      await estoqueApi.update(plano.itemId, { quantidade: plano.saldoNovo, ultima_saida: now.split('T')[0], updated_at: now });
+      await movEstoqueApi.create({
+        item_id: plano.itemId,
+        tipo: 'saida',
+        quantidade: plano.kg,
+        peso: plano.kg,
+        unidade: 'kg',
+        material_perfil: plano.perfil,
+        material: plano.material,
+        custo_unitario: plano.preco || null,
+        motivo: `Consumo produção — corte ${rawCorte.marca || rawCorte.id}`,
+        obra_id: rawCorte.obra_id || null,
+        peca_id: rawCorte.peca_id || rawCorte.id || null,
+        setor: 'producao',
+        origem: 'producao',
+        saldo_anterior: plano.saldoAnterior,
+        saldo_novo: plano.saldoNovo,
+        data: now,
+      });
+      await supabase.from('materiais_corte').update({ baixa_estoque_kg: plano.kg, updated_at: now }).eq('id', rawCorte.id);
+      const it = estoqueList.find((e) => e.id === plano.itemId);
+      if (it) it.quantidade = plano.saldoNovo; // acumula p/ próximos cortes do mesmo perfil
+    } catch (err) {
+      console.error('⚠️ Falha na baixa de estoque do corte', rawCorte.id, err.message);
+    }
+  }, []);
+
+  // Estorno: ao resetar um corte já baixado, devolve o kg ao estoque e zera a baixa.
+  const estornarCorteNoEstoque = useCallback(async (rawCorte) => {
+    if (Number(rawCorte?.baixa_estoque_kg) <= 0) return;
+    const estoqueList = await estoqueApi.getAll().catch(() => []);
+    const plano = planejarEstornoCorte(rawCorte, estoqueList);
+    if (!plano) return;
+    const now = new Date().toISOString();
+    try {
+      if (plano.itemId) {
+        await estoqueApi.update(plano.itemId, { quantidade: plano.saldoNovo, ultima_entrada: now.split('T')[0], updated_at: now });
+        await movEstoqueApi.create({
+          item_id: plano.itemId,
+          tipo: 'entrada',
+          quantidade: plano.kg,
+          peso: plano.kg,
+          unidade: 'kg',
+          material_perfil: plano.perfil,
+          material: plano.material,
+          motivo: `Estorno consumo produção — corte ${rawCorte.marca || rawCorte.id}`,
+          obra_id: rawCorte.obra_id || null,
+          peca_id: rawCorte.peca_id || rawCorte.id || null,
+          setor: 'producao',
+          origem: 'estorno_producao',
+          saldo_anterior: plano.saldoAnterior,
+          saldo_novo: plano.saldoNovo,
+          data: now,
+        });
+      }
+      await supabase.from('materiais_corte').update({ baixa_estoque_kg: 0, updated_at: now }).eq('id', rawCorte.id);
+    } catch (err) {
+      console.error('⚠️ Falha no estorno de estoque do corte', rawCorte.id, err.message);
+    }
+  }, []);
+
   // ===== AÇÕES DE CORTE (com persistência Supabase) =====
 
   const iniciarCorte = useCallback(async (id, funcionarioId = null) => {
@@ -108,16 +180,25 @@ export function useCorteSupabase(obraId) {
         })
         .eq('id', id);
       if (error) throw error;
+      // Baixa automática de estoque (best-effort, não bloqueia a finalização)
+      const rawCorte = rawItems.find((r) => r.id === id);
+      if (rawCorte) {
+        const estoqueList = await estoqueApi.getAll().catch(() => []);
+        await baixarCorteNoEstoque(rawCorte, estoqueList);
+      }
       await fetchData();
       return true;
     } catch (err) {
       console.error('Erro ao finalizar corte:', err);
       return false;
     }
-  }, [fetchData]);
+  }, [fetchData, rawItems, baixarCorteNoEstoque]);
 
   const resetarCorte = useCallback(async (id) => {
     try {
+      // Estorna a baixa de estoque ANTES de zerar o corte (usa baixa_estoque_kg atual)
+      const rawCorte = rawItems.find((r) => r.id === id);
+      if (rawCorte) await estornarCorteNoEstoque(rawCorte);
       const { error } = await supabase
         .from('materiais_corte')
         .update({
@@ -135,33 +216,33 @@ export function useCorteSupabase(obraId) {
       console.error('Erro ao resetar corte:', err);
       return false;
     }
-  }, [fetchData]);
+  }, [fetchData, rawItems, estornarCorteNoEstoque]);
 
   const finalizarCorteEmLote = useCallback(async (ids) => {
     let count = 0;
     const dataFim = new Date().toISOString();
-    const promises = ids.map(async (id) => {
+    // Carrega o estoque UMA vez; as baixas rodam em sequência para acumular
+    // corretamente o saldo de itens do mesmo perfil.
+    const estoqueList = await estoqueApi.getAll().catch(() => []);
+    for (const id of ids) {
       const item = allItems.find(i => i.id === id);
-      if (item && item.status !== 'finalizado') {
-        try {
-          const { error } = await supabase
-            .from('materiais_corte')
-            .update({
-              status_corte: 'finalizado',
-              data_fim: dataFim,
-              updated_at: dataFim
-            })
-            .eq('id', id);
-          if (!error) count++;
-        } catch (err) {
-          console.error('Erro ao finalizar ' + id + ':', err);
-        }
+      if (!item || item.status === 'finalizado') continue;
+      try {
+        const { error } = await supabase
+          .from('materiais_corte')
+          .update({ status_corte: 'finalizado', data_fim: dataFim, updated_at: dataFim })
+          .eq('id', id);
+        if (error) throw error;
+        count++;
+        const rawCorte = rawItems.find((r) => r.id === id);
+        if (rawCorte) await baixarCorteNoEstoque(rawCorte, estoqueList);
+      } catch (err) {
+        console.error('Erro ao finalizar ' + id + ':', err);
       }
-    });
-    await Promise.all(promises);
+    }
     await fetchData();
     return count;
-  }, [allItems, fetchData]);
+  }, [allItems, rawItems, fetchData, baixarCorteNoEstoque]);
 
   // ===== MÉTRICAS / KPIs =====
   const metrics = useMemo(() => {
