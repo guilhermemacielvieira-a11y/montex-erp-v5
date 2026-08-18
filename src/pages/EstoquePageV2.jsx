@@ -12,7 +12,7 @@ import {
   Search, Filter, Plus, Download, Upload, Edit, Eye,
   ChevronDown, TrendingDown, TrendingUp, BarChart3, Bell,
   Building2, RefreshCw, ArrowDown, Layers, X, Link2,
-  ArrowUpRight, ArrowDownLeft, Calendar, Hash
+  ArrowUpRight, ArrowDownLeft, Calendar, Hash, History
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,6 +32,7 @@ import { toast } from 'sonner';
 import EstoqueEditModal from '@/components/estoque/EstoqueEditModal';
 import ImportarChegadaModal from '@/components/estoque/ImportarChegadaModal';
 import MovimentacaoModal from '@/components/estoque/MovimentacaoModal';
+import HistoricoItemModal from '@/components/estoque/HistoricoItemModal';
 // Importar hook de paginação inteligente
 // Importar controles de paginação
 import PaginationControls from '@/components/ui/PaginationControls';
@@ -93,7 +94,7 @@ function KPICard({ title, value, subtitle, icon: Icon, trend, color = 'blue' }) 
 }
 
 // Componente de Item de Estoque
-function ItemEstoque({ item, onEdit, onVerMais, obraAtual, onEntrada, onSaida }) {
+function ItemEstoque({ item, onEdit, onVerMais, obraAtual, onEntrada, onSaida, onHistorico }) {
   const status = getStatusEstoque(item);
   const StatusIcon = status.icon;
   const porcentagemUsada = Math.min(100, (item.quantidade / (item.minimo * 2)) * 100);
@@ -167,6 +168,9 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual, onEntrada, onSaida })
         </Button>
         <Button variant="ghost" size="sm" className="flex-1 text-slate-400 hover:text-white" onClick={() => onEdit(item)}>
           <Edit className="w-4 h-4 mr-1" /> Editar
+        </Button>
+        <Button variant="ghost" size="sm" title="Histórico / rastreabilidade" className="text-sky-400 hover:text-sky-300" onClick={() => onHistorico?.(item)}>
+          <History className="w-4 h-4" />
         </Button>
         <Button variant="ghost" size="sm" title="Registrar entrada" className="text-emerald-400 hover:text-emerald-300" onClick={() => onEntrada?.(item)}>
           <Plus className="w-4 h-4" />
@@ -481,11 +485,13 @@ export default function EstoquePageV2() {
   const [editOpen, setEditOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [mov, setMov] = useState(null);             // { item, tipo } — entrada/saída
+  const [histItem, setHistItem] = useState(null);   // item do histórico (rastreabilidade)
 
   const handleEdit = (item) => { setEditItem(item); setEditOpen(true); };
   const handleNovo = () => { setEditItem(null); setEditOpen(true); };
   const handleEntrada = (item) => setMov({ item, tipo: 'entrada' });
   const handleSaida = (item) => setMov({ item, tipo: 'saida' });
+  const handleHistorico = (item) => setHistItem(item);
 
   const handleVerMais = (item) => {
     setItemSelecionado(item);
@@ -826,6 +832,7 @@ export default function EstoquePageV2() {
                     onVerMais={handleVerMais}
                     onEntrada={handleEntrada}
                     onSaida={handleSaida}
+                    onHistorico={handleHistorico}
                     obraAtual={obraAtualData}
                   />
                 ))}
@@ -1240,6 +1247,7 @@ export default function EstoquePageV2() {
                         onVerMais={handleVerMais}
                         onEntrada={handleEntrada}
                         onSaida={handleSaida}
+                        onHistorico={handleHistorico}
                         obraAtual={(obras || []).find(o => o.id === obraFiltrada) || obraAtualData}
                       />
                     ))}
@@ -1289,6 +1297,14 @@ export default function EstoquePageV2() {
         obraAtual={obraAtual}
         onClose={() => setMov(null)}
         onSaved={() => reloadEstoque?.()}
+      />
+
+      {/* Rastreabilidade — extrato de movimentações do item */}
+      <HistoricoItemModal
+        open={!!histItem}
+        item={histItem}
+        movimentacoes={movimentacoesEstoque}
+        onClose={() => setHistItem(null)}
       />
     </div>
   );
