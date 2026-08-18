@@ -47,11 +47,24 @@ export function pesoItem(item = {}) {
   return String(item.unidade || '').toUpperCase() === 'KG' ? num(item.quantidade) : 0;
 }
 
+// Necessidade da obra (peso teórico), o que chegou e o que falta — usa as
+// colunas pedido/comprado/falta (populadas p/ itens de obra). `falta` cai para
+// max(0, necessário − chegou) quando a coluna não vem.
+export function necessarioItem(item = {}) { return num(item.pedido); }
+export function chegouItem(item = {}) { return num(item.comprado); }
+export function faltaItem(item = {}) {
+  if (item.falta !== undefined && item.falta !== null) return Math.max(0, num(item.falta));
+  return Math.max(0, r2(necessarioItem(item) - chegouItem(item)));
+}
+// Item que participa do controle de "faltante" (tem necessidade cadastrada).
+export function temNecessidade(item = {}) { return necessarioItem(item) > 0; }
+
 // KPIs consolidados de um conjunto de itens.
 export function kpisEstoque(items = []) {
   const porSaude = {};
   Object.keys(SAUDE).forEach((k) => { porSaude[k] = 0; });
   let valorTotal = 0, pesoTotal = 0, semPreco = 0, semMinimo = 0, valorEmRisco = 0;
+  let totalNecessario = 0, totalChegou = 0, totalFalta = 0, itensComNecessidade = 0, itensComFalta = 0;
   (items || []).forEach((it) => {
     const s = saudeItem(it);
     porSaude[s] = (porSaude[s] || 0) + 1;
@@ -61,6 +74,14 @@ export function kpisEstoque(items = []) {
     if (num(it.preco ?? it.precoUnitario) <= 0) semPreco += 1;
     if (num(it.minimo) <= 0) semMinimo += 1;
     if (s === 'zerado' || s === 'critico' || s === 'baixo') valorEmRisco += v;
+    if (temNecessidade(it)) {
+      itensComNecessidade += 1;
+      totalNecessario += necessarioItem(it);
+      totalChegou += chegouItem(it);
+      const f = faltaItem(it);
+      totalFalta += f;
+      if (f > 0) itensComFalta += 1;
+    }
   });
   const alertas = porSaude.zerado + porSaude.critico + porSaude.baixo;
   return {
@@ -73,6 +94,13 @@ export function kpisEstoque(items = []) {
     semPreco,
     semMinimo,
     valorEmRisco: r2(valorEmRisco),
+    // Controle de faltante (obra)
+    itensComNecessidade,
+    itensComFalta,
+    totalNecessario: r2(totalNecessario),
+    totalChegou: r2(totalChegou),
+    totalFalta: r2(totalFalta),
+    coberturaPct: totalNecessario > 0 ? r2((totalChegou / totalNecessario) * 100) : null,
   };
 }
 

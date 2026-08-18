@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
+  necessarioItem, chegouItem, faltaItem, temNecessidade,
 } from './estoqueAnalytics';
 
 const estoque = [
@@ -53,6 +54,40 @@ describe('kpisEstoque', () => {
   });
   it('valor em risco = itens em alerta', () => {
     expect(k.valorEmRisco).toBe(6080 + 1575 + 0); // baixo + critico + zerado
+  });
+});
+
+describe('faltante (necessário/chegou/falta)', () => {
+  const obra = [
+    { id: 'o1', pedido: 16281.3, comprado: 9334, falta: 6947.3, quantidade: 9334, unidade: 'KG' },
+    { id: 'o2', pedido: 80029.3, comprado: 0, falta: 80029.3, quantidade: 0, unidade: 'KG' },
+    { id: 'o3', pedido: 806.3, comprado: 852, falta: 0, quantidade: 852, unidade: 'KG' }, // chegou mais que o previsto
+  ];
+  it('helpers por item', () => {
+    expect(necessarioItem(obra[0])).toBe(16281.3);
+    expect(chegouItem(obra[0])).toBe(9334);
+    expect(faltaItem(obra[0])).toBe(6947.3);
+    expect(temNecessidade(obra[0])).toBe(true);
+    expect(temNecessidade({ pedido: 0 })).toBe(false);
+  });
+  it('falta cai para max(0, necessário-chegou) sem a coluna', () => {
+    expect(faltaItem({ pedido: 100, comprado: 30 })).toBe(70);
+    expect(faltaItem({ pedido: 100, comprado: 130 })).toBe(0);
+  });
+  it('kpis agregam necessário/chegou/falta e cobertura', () => {
+    const k = kpisEstoque(obra);
+    expect(k.itensComNecessidade).toBe(3);
+    expect(k.itensComFalta).toBe(2);
+    expect(k.totalNecessario).toBe(97116.9);
+    expect(k.totalChegou).toBe(10186);
+    expect(k.totalFalta).toBe(86976.6);
+    expect(k.coberturaPct).toBeCloseTo(10.5, 1);
+  });
+  it('sem itens de obra, campos de faltante ficam zerados/null', () => {
+    const k = kpisEstoque([{ quantidade: 10, minimo: 5, preco: 2 }]);
+    expect(k.itensComNecessidade).toBe(0);
+    expect(k.totalFalta).toBe(0);
+    expect(k.coberturaPct).toBeNull();
   });
 });
 
