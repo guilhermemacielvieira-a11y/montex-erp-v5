@@ -12,7 +12,8 @@ import {
   Search, Filter, Plus, Download, Upload, Edit, Eye,
   ChevronDown, TrendingDown, TrendingUp, BarChart3, Bell,
   Building2, RefreshCw, ArrowDown, Layers, X, Link2,
-  ArrowUpRight, ArrowDownLeft, Calendar, Hash, History
+  ArrowUpRight, ArrowDownLeft, Calendar, Hash, History,
+  DollarSign, Weight, Table2, LayoutGrid, ArrowUpDown, ShieldAlert, HelpCircle, Boxes
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,6 +28,11 @@ import {
 // Importa o contexto ERP
 import { useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
+import {
+  SAUDE, saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
+  agregadoCategoria, filtrarEstoque, ordenarEstoque,
+} from '@/services/estoqueAnalytics';
+import { ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import EstoqueEditModal from '@/components/estoque/EstoqueEditModal';
@@ -37,22 +43,31 @@ import HistoricoItemModal from '@/components/estoque/HistoricoItemModal';
 // Importar controles de paginação
 import PaginationControls from '@/components/ui/PaginationControls';
 
-// Status de estoque
-const STATUS_ESTOQUE = {
-  normal: { label: 'Normal', cor: '#10b981', icon: CheckCircle2, bg: 'bg-emerald-500/20' },
-  baixo: { label: 'Baixo', cor: '#f59e0b', icon: AlertTriangle, bg: 'bg-yellow-500/20' },
-  critico: { label: 'Crítico', cor: '#ef4444', icon: AlertCircle, bg: 'bg-red-500/20' },
-  zerado: { label: 'Zerado', cor: '#64748b', icon: X, bg: 'bg-slate-500/20' },
+// Ícones por saúde (o restante — label/cor/badge — vem de SAUDE no serviço)
+const SAUDE_ICON = {
+  zerado: X, critico: AlertCircle, baixo: AlertTriangle, atencao: AlertTriangle,
+  excesso: TrendingUp, saudavel: CheckCircle2, sem_minimo: HelpCircle,
 };
 
-const COLORS = ['#10b981', '#f59e0b', '#ef4444', '#64748b', '#3b82f6', '#8b5cf6'];
-
+// Adapter para a saúde unificada (serviço) → display do card/tabela.
 function getStatusEstoque(item) {
-  if (item.quantidade === 0) return STATUS_ESTOQUE.zerado;
-  if (item.quantidade <= item.minimo * 0.5) return STATUS_ESTOQUE.critico;
-  if (item.quantidade <= item.minimo) return STATUS_ESTOQUE.baixo;
-  return STATUS_ESTOQUE.normal;
+  const s = saudeItem(item);
+  const cfg = SAUDE[s] || SAUDE.sem_minimo;
+  return { key: s, label: cfg.label, cor: cfg.cor, badge: cfg.badge, icon: SAUDE_ICON[s] || Package };
 }
+
+const fmtMoeda = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtMoedaCompact = (v) => {
+  const n = Number(v) || 0;
+  if (Math.abs(n) >= 1000) return 'R$ ' + (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + 'k';
+  return fmtMoeda(n);
+};
+const fmtPeso = (kg) => {
+  const n = Number(kg) || 0;
+  if (Math.abs(n) >= 1000) return (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' t';
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
+};
+const fmtNum = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 
 // Card de KPI
 function KPICard({ title, value, subtitle, icon: Icon, trend, color = 'blue' }) {
@@ -93,12 +108,35 @@ function KPICard({ title, value, subtitle, icon: Icon, trend, color = 'blue' }) 
   );
 }
 
-// Componente de Item de Estoque
-function ItemEstoque({ item, onEdit, onVerMais, obraAtual, onEntrada, onSaida, onHistorico }) {
+// Cabeçalho de coluna ordenável
+function SortTh({ label, campo, ordenarPor, ordenarDir, onSort, align = 'left' }) {
+  const active = ordenarPor === campo;
+  return (
+    <th
+      className={cn('px-3 py-2 font-medium select-none cursor-pointer hover:text-white',
+        align === 'right' ? 'text-right' : align === 'center' ? 'text-center' : 'text-left')}
+      onClick={() => onSort(campo)}
+    >
+      <span className={cn('inline-flex items-center gap-1', active && 'text-white')}>
+        {label}
+        <ArrowUpDown className={cn('w-3 h-3', active ? 'text-orange-400' : 'text-slate-600')} />
+      </span>
+    </th>
+  );
+}
+
+// Card profissional de item de estoque
+function ItemEstoque({ item, onEdit, obraAtual, onEntrada, onSaida, onHistorico }) {
   const status = getStatusEstoque(item);
   const StatusIcon = status.icon;
-  const porcentagemUsada = Math.min(100, (item.quantidade / (item.minimo * 2)) * 100);
+  const minimo = Number(item.minimo) || 0;
+  const maximo = Number(item.maximo) || 0;
+  const qtd = Number(item.quantidade) || 0;
+  // Nível: contra o máximo quando houver, senão contra 2× o mínimo.
+  const alvo = maximo > 0 ? maximo : (minimo > 0 ? minimo * 2 : qtd || 1);
+  const nivel = Math.max(0, Math.min(100, (qtd / alvo) * 100));
   const reservadoParaObra = (item.obraReservada || item.obraId || item.obra_id) === obraAtual?.id;
+  const valor = valorItem(item);
 
   return (
     <motion.div
@@ -111,66 +149,59 @@ function ItemEstoque({ item, onEdit, onVerMais, obraAtual, onEntrada, onSaida, o
     >
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-lg font-mono font-bold text-white">{item.codigo}</span>
-            <span className={cn("px-2 py-0.5 rounded-full text-xs font-medium", status.bg)} style={{ color: status.cor }}>
-              {status.label}
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <span className="text-base font-mono font-bold text-white truncate">{item.codigo}</span>
+            <span className={cn("px-2 py-0.5 rounded-full text-[10px] font-medium border inline-flex items-center gap-1", status.badge)}>
+              <StatusIcon className="w-3 h-3" /> {status.label}
             </span>
             {reservadoParaObra && (
-              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-orange-500/20 text-orange-400 flex items-center gap-1">
-                <Link2 className="w-3 h-3" />
-                Reservado
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-500/20 text-orange-300 border border-orange-500/40 flex items-center gap-1">
+                <Link2 className="w-3 h-3" /> Reservado
               </span>
             )}
           </div>
-          <p className="text-slate-300 text-sm truncate">{item.descricao}</p>
-          <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
-            <span>📍 {item.localizacao}</span>
-            <span>📦 {item.categoria || item.tipo}</span>
-            <span>💰 R$ {(item.preco || item.precoUnitario || 0).toFixed(2)}/{item.unidade}</span>
+          <p className="text-slate-300 text-sm truncate" title={item.descricao}>{item.descricao}</p>
+          <div className="flex items-center gap-x-3 gap-y-1 mt-2 text-xs text-slate-500 flex-wrap">
+            {(item.categoria || item.tipo) && <span className="inline-flex items-center gap-1"><Boxes className="w-3 h-3" />{item.categoria || item.tipo}</span>}
+            {item.localizacao && <span>📍 {item.localizacao}</span>}
+            {item.fornecedor && <span className="inline-flex items-center gap-1"><Building2 className="w-3 h-3" />{item.fornecedor}</span>}
+            <span className="inline-flex items-center gap-1"><DollarSign className="w-3 h-3" />{fmtMoeda(item.preco || item.precoUnitario || 0)}/{item.unidade}</span>
           </div>
         </div>
 
-        <div className="text-right">
-          <div className="text-2xl font-bold text-white">
-            {item.quantidade.toLocaleString()}
-            <span className="text-sm text-slate-400 ml-1">{item.unidade}</span>
+        <div className="text-right shrink-0">
+          <div className="text-2xl font-bold text-white leading-none">
+            {fmtNum(qtd)}<span className="text-sm text-slate-400 ml-1">{item.unidade}</span>
           </div>
-          <div className="text-xs text-slate-500 mt-1">
-            Mín: {item.minimo} | Reserv: {item.reservado || 0}
-          </div>
+          <div className="text-[11px] text-slate-500 mt-1">Mín {fmtNum(minimo)}{maximo > 0 ? ` · Máx ${fmtNum(maximo)}` : ''}</div>
+          {valor > 0 && <div className="text-xs font-semibold text-emerald-400 mt-1">{fmtMoedaCompact(valor)}</div>}
         </div>
       </div>
 
-      {/* Barra de progresso */}
+      {/* Barra de nível */}
       <div className="mt-3">
-        <div className="flex justify-between text-xs text-slate-500 mb-1">
-          <span>Nível</span>
-          <span>{Math.round(porcentagemUsada)}%</span>
+        <div className="flex justify-between text-[11px] text-slate-500 mb-1">
+          <span>Nível de estoque</span>
+          <span>{Math.round(nivel)}%</span>
         </div>
         <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
           <motion.div
             initial={{ width: 0 }}
-            animate={{ width: `${porcentagemUsada}%` }}
+            animate={{ width: `${nivel}%` }}
             transition={{ duration: 0.5 }}
             className="h-full rounded-full"
-            style={{
-              background: `linear-gradient(to right, ${status.cor}, ${status.cor}88)`
-            }}
+            style={{ background: `linear-gradient(to right, ${status.cor}, ${status.cor}88)` }}
           />
         </div>
       </div>
 
       {/* Ações */}
-      <div className="flex items-center gap-2 mt-3 pt-3 border-t border-slate-700/50">
-        <Button variant="ghost" size="sm" className="flex-1 text-slate-400 hover:text-white" onClick={() => onVerMais(item)}>
-          <Eye className="w-4 h-4 mr-1" /> Detalhes
-        </Button>
+      <div className="flex items-center gap-1 mt-3 pt-3 border-t border-slate-700/50">
         <Button variant="ghost" size="sm" className="flex-1 text-slate-400 hover:text-white" onClick={() => onEdit(item)}>
           <Edit className="w-4 h-4 mr-1" /> Editar
         </Button>
-        <Button variant="ghost" size="sm" title="Histórico / rastreabilidade" className="text-sky-400 hover:text-sky-300" onClick={() => onHistorico?.(item)}>
-          <History className="w-4 h-4" />
+        <Button variant="ghost" size="sm" className="flex-1 text-sky-400 hover:text-sky-300" onClick={() => onHistorico?.(item)}>
+          <History className="w-4 h-4 mr-1" /> Histórico
         </Button>
         <Button variant="ghost" size="sm" title="Registrar entrada" className="text-emerald-400 hover:text-emerald-300" onClick={() => onEntrada?.(item)}>
           <Plus className="w-4 h-4" />
@@ -192,55 +223,40 @@ export default function EstoquePageV2() {
   // Estado local
   const [tabAtiva, setTabAtiva] = useState('visao-geral');
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [filtroStatus, setFiltroStatus] = useState('todos');
+  const [filtroSaude, setFiltroSaude] = useState('todos');
   const [filtroObra, setFiltroObra] = useState('todas');
+  const [flagSemPreco, setFlagSemPreco] = useState(false);
+  const [flagSemMinimo, setFlagSemMinimo] = useState(false);
   const [busca, setBusca] = useState('');
-  const [itemSelecionado, setItemSelecionado] = useState(null);
-  const [modalAberto, setModalAberto] = useState(false);
+  const [ordenarPor, setOrdenarPor] = useState('valor');
+  const [ordenarDir, setOrdenarDir] = useState('desc');
+  const [viewItens, setViewItens] = useState('tabela'); // 'tabela' | 'cards'
   const [filtroMovTipo, setFiltroMovTipo] = useState('todos');
   const [filtroMovMaterial, setFiltroMovMaterial] = useState('');
   const [filtroMovPeriodo, setFiltroMovPeriodo] = useState('todos');
 
-  // Filtra estoque
+  const filtrosAtivos = busca || filtroCategoria !== 'todas' || filtroSaude !== 'todos' || filtroObra !== 'todas' || flagSemPreco || flagSemMinimo;
+  const limparFiltros = () => {
+    setBusca(''); setFiltroCategoria('todas'); setFiltroSaude('todos');
+    setFiltroObra('todas'); setFlagSemPreco(false); setFlagSemMinimo(false);
+  };
+
+  // 1) Pré-filtro por OBRA (depende de arrays do contexto)
+  const estoquePorObra = useMemo(() => {
+    if (filtroObra === 'todas') return estoque || [];
+    if (filtroObra === 'obra_atual') return estoqueObraAtual || [];
+    if (filtroObra === 'sem_obra') return (estoque || []).filter(it => !it.obra_id && !it.obraId && !it.obraReservada);
+    return (estoque || []).filter(it => it.obra_id === filtroObra || it.obraId === filtroObra || it.obraReservada === filtroObra);
+  }, [estoque, estoqueObraAtual, filtroObra]);
+
+  // 2) Filtro FUNCIONAL (busca/categoria/saúde/flags) + ordenação — via serviço
   const estoqueFiltrado = useMemo(() => {
-    let items;
-    if (filtroObra === 'todas') {
-      items = estoque;
-    } else if (filtroObra === 'obra_atual') {
-      items = estoqueObraAtual;
-    } else if (filtroObra === 'sem_obra') {
-      // Estoque genérico: itens sem vínculo a obra específica
-      items = estoque.filter(it => !it.obra_id && !it.obraId && !it.obraReservada);
-    } else {
-      // ID específico de obra → filtra pelos campos obra_id / obraId / obraReservada
-      items = estoque.filter(it =>
-        it.obra_id === filtroObra ||
-        it.obraId === filtroObra ||
-        it.obraReservada === filtroObra
-      );
-    }
-
-    if (filtroCategoria !== 'todas') {
-      items = items.filter(item => (item.categoria || item.tipo) === filtroCategoria);
-    }
-
-    if (filtroStatus !== 'todos') {
-      items = items.filter(item => {
-        const status = getStatusEstoque(item);
-        return status.label.toLowerCase() === filtroStatus;
-      });
-    }
-
-    if (busca) {
-      const termoBusca = busca.toLowerCase();
-      items = items.filter(item =>
-        (item.codigo || '').toLowerCase().includes(termoBusca) ||
-        (item.descricao || '').toLowerCase().includes(termoBusca)
-      );
-    }
-
-    return items;
-  }, [estoque, estoqueObraAtual, filtroCategoria, filtroStatus, filtroObra, busca]);
+    const filtrado = filtrarEstoque(estoquePorObra, {
+      busca, categoria: filtroCategoria, saude: filtroSaude,
+      semPreco: flagSemPreco, semMinimo: flagSemMinimo,
+    });
+    return ordenarEstoque(filtrado, ordenarPor, ordenarDir);
+  }, [estoquePorObra, busca, filtroCategoria, filtroSaude, flagSemPreco, flagSemMinimo, ordenarPor, ordenarDir]);
 
   // ─── MATERIAL NECESSÁRIO para a obra selecionada (vindo de materiais_corte) ──
   const [materiaisNecessarios, setMateriaisNecessarios] = useState([]);
@@ -336,7 +352,7 @@ export default function EstoquePageV2() {
   // Reset de página quando o conjunto filtrado muda
   useEffect(() => {
     setPaginaItens(0);
-  }, [filtroObra, filtroCategoria, filtroStatus, busca]);
+  }, [filtroObra, filtroCategoria, filtroSaude, flagSemPreco, flagSemMinimo, busca, ordenarPor, ordenarDir]);
 
   const paginationItens = useMemo(() => {
     const totalCount = estoqueFiltrado.length;
@@ -359,34 +375,30 @@ export default function EstoquePageV2() {
     };
   }, [estoqueFiltrado, paginaItens]);
 
-  // Estatísticas — usam o estoque JÁ FILTRADO para refletir o filtro global
-  const estatisticas = useMemo(() => {
-    const fonte = estoqueFiltrado;
-    const total = fonte.length;
-    const normal = fonte.filter(i => getStatusEstoque(i).label === 'Normal').length;
-    const baixo = fonte.filter(i => getStatusEstoque(i).label === 'Baixo').length;
-    const critico = fonte.filter(i => getStatusEstoque(i).label === 'Crítico').length;
-    const zerado = fonte.filter(i => getStatusEstoque(i).label === 'Zerado').length;
+  // KPIs consolidados (serviço) — refletem o filtro global
+  const kpis = useMemo(() => kpisEstoque(estoqueFiltrado), [estoqueFiltrado]);
 
-    const valorTotal = fonte.reduce((acc, item) => acc + ((Number(item.quantidade) || 0) * (Number(item.preco || item.precoUnitario) || 0)), 0);
-    const itensReservados = fonte.filter(i => i.reservado > 0).length;
+  // Donut de saúde do estoque (só as classes com contagem > 0)
+  const dadosSaudePie = useMemo(() =>
+    Object.keys(SAUDE)
+      .map(k => ({ key: k, name: SAUDE[k].label, value: kpis.porSaude[k] || 0, color: SAUDE[k].cor }))
+      .filter(d => d.value > 0),
+  [kpis]);
 
-    return { total, normal, baixo, critico, zerado, valorTotal, itensReservados };
-  }, [estoqueFiltrado]);
+  // Valor por categoria (top 8) e Curva ABC
+  const dadosCategoria = useMemo(() =>
+    agregadoCategoria(estoqueFiltrado).slice(0, 8).map(c => ({
+      name: (c.categoria || '—').substring(0, 12), valor: Math.round(c.valor), nItens: c.nItens,
+    })),
+  [estoqueFiltrado]);
 
-  // Dados para gráficos — também respondem ao filtro global
-  const dadosStatusPie = [
-    { name: 'Normal', value: estatisticas.normal, color: '#10b981' },
-    { name: 'Baixo', value: estatisticas.baixo, color: '#f59e0b' },
-    { name: 'Crítico', value: estatisticas.critico, color: '#ef4444' },
-    { name: 'Zerado', value: estatisticas.zerado, color: '#64748b' },
-  ];
+  const abc = useMemo(() => curvaABC(estoqueFiltrado), [estoqueFiltrado]);
 
-  const dadosCategoriaBar = CATEGORIAS_MATERIAL.map(cat => ({
-    name: cat.nome.substring(0, 8),
-    quantidade: estoqueFiltrado.filter(i => (i.categoria || i.tipo) === cat.id).length,
-    valor: estoqueFiltrado.filter(i => (i.categoria || i.tipo) === cat.id).reduce((acc, i) => acc + ((Number(i.quantidade) || 0) * (Number(i.preco || i.precoUnitario) || 0)), 0) / 1000
-  }));
+  // Itens em alerta (zerado/crítico/baixo), mais urgentes primeiro
+  const itensAlerta = useMemo(
+    () => ordenarEstoque(estoqueFiltrado.filter(i => ['zerado', 'critico', 'baixo'].includes(saudeItem(i))), 'saude', 'asc'),
+    [estoqueFiltrado]
+  );
 
   // Movimentações filtradas — também respeitam o filtro global (obra + busca)
   const movimentacoesFiltradas = useMemo(() => {
@@ -492,9 +504,9 @@ export default function EstoquePageV2() {
   const handleEntrada = (item) => setMov({ item, tipo: 'entrada' });
   const handleSaida = (item) => setMov({ item, tipo: 'saida' });
   const handleHistorico = (item) => setHistItem(item);
-
-  const handleVerMais = (item) => {
-    setItemSelecionado(item);
+  const toggleSort = (campo) => {
+    if (ordenarPor === campo) setOrdenarDir(d => (d === 'asc' ? 'desc' : 'asc'));
+    else { setOrdenarPor(campo); setOrdenarDir(campo === 'codigo' || campo === 'descricao' || campo === 'categoria' ? 'asc' : 'desc'); }
   };
 
   // Exporta o estoque JÁ FILTRADO para XLSX (respeita filtros globais).
@@ -559,47 +571,23 @@ export default function EstoquePageV2() {
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
-        <KPICard
-          title="Total de Itens"
-          value={estatisticas.total}
-          subtitle={`${estatisticas.itensReservados} reservados`}
-          icon={Package}
-          color="blue"
-        />
-        <KPICard
-          title="Valor em Estoque"
-          value={`R$ ${(isNaN(estatisticas.valorTotal) ? 0 : estatisticas.valorTotal / 1000).toFixed(0)}k`}
-          subtitle="Valor total"
-          icon={BarChart3}
-          color="green"
-          trend={8.5}
-        />
-        <KPICard
-          title="Estoque Normal"
-          value={estatisticas.normal}
-          subtitle={`${((estatisticas.normal / estatisticas.total) * 100).toFixed(0)}% do total`}
-          icon={CheckCircle2}
-          color="green"
-        />
-        <KPICard
-          title="Estoque Baixo"
-          value={estatisticas.baixo + estatisticas.critico}
-          subtitle="Requer atenção"
-          icon={AlertTriangle}
-          color="orange"
-        />
-        <KPICard
-          title="Alertas Críticos"
-          value={alertasEstoque.length}
-          subtitle="Itens abaixo do mínimo"
-          icon={AlertCircle}
-          color="red"
-        />
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <KPICard title="Valor em Estoque" value={fmtMoedaCompact(kpis.valorTotal)} subtitle={`${fmtNum(kpis.nItens)} itens`} icon={DollarSign} color="green" />
+        <KPICard title="Peso Total" value={fmtPeso(kpis.pesoTotal)} subtitle="em aço/materiais" icon={Weight} color="blue" />
+        <button onClick={() => { setFiltroSaude('alerta'); setTabAtiva('itens'); }} className="text-left w-full">
+          <KPICard title="Em Alerta" value={fmtNum(kpis.alertas)} subtitle="crítico + baixo + zerado" icon={ShieldAlert} color="red" />
+        </button>
+        <KPICard title="Saudáveis" value={fmtNum(kpis.saudaveis)} subtitle={`${kpis.nItens ? Math.round((kpis.saudaveis / kpis.nItens) * 100) : 0}% do total`} icon={CheckCircle2} color="green" />
+        <button onClick={() => { setFlagSemPreco(true); setTabAtiva('itens'); }} className="text-left w-full">
+          <KPICard title="Sem Preço" value={fmtNum(kpis.semPreco)} subtitle="sem custo cadastrado" icon={DollarSign} color="orange" />
+        </button>
+        <button onClick={() => { setFlagSemMinimo(true); setTabAtiva('itens'); }} className="text-left w-full">
+          <KPICard title="Sem Mínimo" value={fmtNum(kpis.semMinimo)} subtitle="fora do radar de reposição" icon={AlertTriangle} color="purple" />
+        </button>
       </div>
 
-      {/* Alertas de Estoque */}
-      {alertasEstoque.length > 0 && (
+      {/* Painel de alertas — itens em alerta no escopo filtrado */}
+      {itensAlerta.length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
@@ -607,23 +595,26 @@ export default function EstoquePageV2() {
         >
           <div className="flex items-center gap-3 mb-3">
             <Bell className="w-5 h-5 text-red-400 animate-pulse" />
-            <h3 className="text-white font-semibold">Alertas de Estoque Baixo</h3>
-            <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-bold">
-              {alertasEstoque.length}
-            </span>
+            <h3 className="text-white font-semibold">Itens em alerta</h3>
+            <span className="px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 text-xs font-bold">{itensAlerta.length}</span>
+            <button onClick={() => { setFiltroSaude('alerta'); setTabAtiva('itens'); }} className="ml-auto text-[11px] px-2 py-1 rounded bg-slate-700/40 border border-slate-600/40 text-slate-300 hover:text-white">
+              Ver todos
+            </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-            {alertasEstoque.slice(0, 4).map(item => (
-              <div key={item.id} className="bg-slate-800/50 rounded-lg p-3 flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-yellow-500 flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-white font-medium text-sm truncate">{item.codigo || item.descricao || item.nome || `Item ${item.id}`}</p>
-                  <p className="text-slate-400 text-xs">
-                    {item.quantidadeAtual ?? item.quantidade ?? 0} / {item.quantidadeMinima ?? item.minimo ?? 0} {item.unidade || 'un'}
-                  </p>
-                </div>
-              </div>
-            ))}
+            {itensAlerta.slice(0, 8).map(item => {
+              const st = getStatusEstoque(item);
+              return (
+                <button key={item.id} onClick={() => handleHistorico(item)} className="bg-slate-800/50 rounded-lg p-3 flex items-center gap-3 text-left hover:bg-slate-800">
+                  <st.icon className="w-5 h-5 flex-shrink-0" style={{ color: st.cor }} />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-white font-medium text-sm truncate">{item.codigo || item.descricao || `Item ${item.id}`}</p>
+                    <p className="text-slate-400 text-xs">{fmtNum(item.quantidade)} / mín {fmtNum(item.minimo)} {item.unidade || ''}</p>
+                  </div>
+                  <span className={cn('text-[9px] px-1.5 py-0.5 rounded border', st.badge)}>{st.label}</span>
+                </button>
+              );
+            })}
           </div>
         </motion.div>
       )}
@@ -634,9 +625,9 @@ export default function EstoquePageV2() {
           <Filter className="w-4 h-4 text-orange-400" />
           <h3 className="text-sm font-semibold text-white">Filtros</h3>
           <span className="text-[10px] text-slate-500 ml-1">aplicam-se a todas as sub-páginas</span>
-          {(busca || filtroCategoria !== 'todas' || filtroStatus !== 'todos' || filtroObra !== 'todas') && (
+          {filtrosAtivos && (
             <button
-              onClick={() => { setBusca(''); setFiltroCategoria('todas'); setFiltroStatus('todos'); setFiltroObra('todas'); }}
+              onClick={limparFiltros}
               className="ml-auto text-[10px] px-2 py-1 rounded bg-slate-700/40 border border-slate-600/40 text-slate-400 hover:text-white"
             >
               Limpar filtros
@@ -676,26 +667,46 @@ export default function EstoquePageV2() {
             </Select.Portal>
           </Select.Root>
 
-          <Select.Root value={filtroStatus} onValueChange={setFiltroStatus}>
-            <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[140px]">
-              <Select.Value placeholder="Status" />
+          <Select.Root value={filtroSaude} onValueChange={setFiltroSaude}>
+            <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[150px]">
+              <ShieldAlert className="w-4 h-4" />
+              <Select.Value placeholder="Saúde" />
               <ChevronDown className="w-4 h-4 ml-auto" />
             </Select.Trigger>
             <Select.Portal>
               <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50">
                 <Select.Viewport className="p-1">
                   <Select.Item value="todos" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>Todos Status</Select.ItemText>
+                    <Select.ItemText>Toda Saúde</Select.ItemText>
                   </Select.Item>
-                  {Object.entries(STATUS_ESTOQUE).map(([key, val]) => (
-                    <Select.Item key={key} value={val.label.toLowerCase()} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                      <Select.ItemText>{val.label}</Select.ItemText>
+                  <Select.Item value="alerta" className="px-3 py-2 text-sm text-red-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                    <Select.ItemText>⚠ Em alerta (crít.+baixo+zerado)</Select.ItemText>
+                  </Select.Item>
+                  {Object.keys(SAUDE).map((k) => (
+                    <Select.Item key={k} value={k} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
+                      <Select.ItemText>{SAUDE[k].label}</Select.ItemText>
                     </Select.Item>
                   ))}
                 </Select.Viewport>
               </Select.Content>
             </Select.Portal>
           </Select.Root>
+
+          {/* Toggles rápidos */}
+          <button
+            onClick={() => setFlagSemPreco(v => !v)}
+            className={cn('px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
+              flagSemPreco ? 'bg-orange-500/20 text-orange-300 border-orange-500/40' : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:text-white')}
+          >
+            Sem preço
+          </button>
+          <button
+            onClick={() => setFlagSemMinimo(v => !v)}
+            className={cn('px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
+              flagSemMinimo ? 'bg-purple-500/20 text-purple-300 border-purple-500/40' : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:text-white')}
+          >
+            Sem mínimo
+          </button>
 
           <Select.Root value={filtroObra} onValueChange={setFiltroObra}>
             <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[220px]">
@@ -762,50 +773,93 @@ export default function EstoquePageV2() {
         <div className="mt-6">
           {/* Visão Geral */}
           <Tabs.Content value="visao-geral">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-              {/* Gráfico de Status */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Saúde do estoque (donut) */}
               <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-6">
-                <h3 className="text-white font-semibold mb-4">Status do Estoque</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie
-                      data={dadosStatusPie}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={60}
-                      outerRadius={100}
-                      paddingAngle={5}
-                      dataKey="value"
-                    >
-                      {dadosStatusPie.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
-                      labelStyle={{ color: '#f8fafc' }}
-                    />
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
+                <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><ShieldAlert className="w-4 h-4 text-orange-400" /> Saúde do Estoque</h3>
+                {dadosSaudePie.length === 0 ? (
+                  <div className="h-[250px] flex items-center justify-center text-slate-500 text-sm">Sem itens no escopo atual.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <PieChart>
+                      <Pie data={dadosSaudePie} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={3} dataKey="value" nameKey="name">
+                        {dadosSaudePie.map((entry) => (<Cell key={entry.key} fill={entry.color} />))}
+                      </Pie>
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} labelStyle={{ color: '#f8fafc' }} formatter={(v, n) => [`${v} itens`, n]} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
 
-              {/* Gráfico por Categoria */}
+              {/* Valor por categoria */}
               <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-6">
-                <h3 className="text-white font-semibold mb-4">Valor por Categoria (R$ mil)</h3>
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={dadosCategoriaBar}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                    <XAxis dataKey="name" stroke="#94a3b8" fontSize={12} />
-                    <YAxis stroke="#94a3b8" fontSize={12} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }}
-                      labelStyle={{ color: '#f8fafc' }}
-                    />
-                    <Bar dataKey="valor" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+                <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Boxes className="w-4 h-4 text-amber-400" /> Valor por Categoria</h3>
+                {dadosCategoria.length === 0 ? (
+                  <div className="h-[250px] flex items-center justify-center text-slate-500 text-sm">Sem valor no escopo atual.</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={dadosCategoria} layout="vertical" margin={{ left: 10, right: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+                      <XAxis type="number" stroke="#94a3b8" fontSize={11} tickFormatter={(v) => `${(v / 1000).toFixed(0)}k`} />
+                      <YAxis type="category" dataKey="name" stroke="#94a3b8" fontSize={11} width={90} />
+                      <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '8px' }} labelStyle={{ color: '#f8fafc' }} formatter={(v) => [fmtMoeda(v), 'Valor']} />
+                      <Bar dataKey="valor" fill="#f59e0b" radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
               </div>
+            </div>
+
+            {/* Curva ABC (Pareto) */}
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-6 mt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-white font-semibold flex items-center gap-2"><BarChart3 className="w-4 h-4 text-emerald-400" /> Curva ABC — concentração de valor</h3>
+                <div className="flex items-center gap-2 text-[11px]">
+                  {[['A', '#10b981'], ['B', '#f59e0b'], ['C', '#64748b']].map(([cl, cor]) => (
+                    <span key={cl} className="px-2 py-0.5 rounded border" style={{ color: cor, borderColor: `${cor}66` }}>
+                      Classe {cl}: {abc.resumo[cl].n} itens · {fmtMoedaCompact(abc.resumo[cl].valor)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              {abc.rows.length === 0 ? (
+                <div className="py-8 text-center text-slate-500 text-sm">Cadastre preços nos itens para ver a curva ABC.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="text-slate-400 text-xs border-b border-slate-700/50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium">Item</th>
+                        <th className="text-center px-3 py-2 font-medium">Classe</th>
+                        <th className="text-right px-3 py-2 font-medium">Valor</th>
+                        <th className="text-right px-3 py-2 font-medium">% do total</th>
+                        <th className="text-right px-3 py-2 font-medium">Acum.</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60">
+                      {abc.rows.slice(0, 12).map((r) => (
+                        <tr key={r.id} className="hover:bg-slate-800/40">
+                          <td className="px-3 py-2">
+                            <span className="text-white font-mono text-xs">{r.codigo}</span>
+                            <span className="text-slate-500 text-xs ml-2 truncate">{r.descricao}</span>
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <span className={cn('text-[10px] px-2 py-0.5 rounded font-bold border',
+                              r._classe === 'A' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                              : r._classe === 'B' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                              : 'bg-slate-500/20 text-slate-300 border-slate-500/40')}>{r._classe}</span>
+                          </td>
+                          <td className="px-3 py-2 text-right text-emerald-400 font-medium">{fmtMoeda(r._valor)}</td>
+                          <td className="px-3 py-2 text-right text-slate-400 text-xs">{r._pct.toFixed(1)}%</td>
+                          <td className="px-3 py-2 text-right text-slate-400 text-xs">{r._acumPct.toFixed(1)}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {abc.rows.length > 12 && <p className="text-center text-xs text-slate-500 mt-2">Mostrando os 12 itens de maior valor de {abc.rows.length}.</p>}
+                </div>
+              )}
             </div>
           </Tabs.Content>
 
@@ -821,31 +875,96 @@ export default function EstoquePageV2() {
                 }</strong></span>
               )}
             </div>
-            {/* Grid de Itens */}
-            <div className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
-                {paginationItens.data.map(item => (
-                  <ItemEstoque
-                    key={item.id}
-                    item={item}
-                    onEdit={handleEdit}
-                    onVerMais={handleVerMais}
-                    onEntrada={handleEntrada}
-                    onSaida={handleSaida}
-                    onHistorico={handleHistorico}
-                    obraAtual={obraAtualData}
-                  />
-                ))}
+            {/* Barra de ferramentas: toggle de visualização */}
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span>Ordenar por</span>
+                <select value={`${ordenarPor}:${ordenarDir}`} onChange={(e) => { const [c, d] = e.target.value.split(':'); setOrdenarPor(c); setOrdenarDir(d); }}
+                  className="bg-slate-800/60 border border-slate-700 rounded-lg text-white text-xs px-2 py-1.5 focus:outline-none">
+                  <option value="valor:desc">Maior valor</option>
+                  <option value="valor:asc">Menor valor</option>
+                  <option value="saude:asc">Mais urgente</option>
+                  <option value="quantidade:desc">Maior saldo</option>
+                  <option value="quantidade:asc">Menor saldo</option>
+                  <option value="codigo:asc">Código (A→Z)</option>
+                  <option value="categoria:asc">Categoria</option>
+                </select>
               </div>
+              <div className="inline-flex rounded-lg border border-slate-700 overflow-hidden">
+                <button onClick={() => setViewItens('tabela')} className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium', viewItens === 'tabela' ? 'bg-orange-500 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white')}>
+                  <Table2 className="w-4 h-4" /> Tabela
+                </button>
+                <button onClick={() => setViewItens('cards')} className={cn('flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium', viewItens === 'cards' ? 'bg-orange-500 text-white' : 'bg-slate-800/60 text-slate-400 hover:text-white')}>
+                  <LayoutGrid className="w-4 h-4" /> Cards
+                </button>
+              </div>
+            </div>
 
-              {paginationItens.totalCount === 0 && (
+            <div className="space-y-4">
+              {paginationItens.totalCount === 0 ? (
                 <div className="text-center py-12">
                   <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                   <p className="text-slate-400">Nenhum item encontrado com os filtros aplicados</p>
+                  {filtrosAtivos && <button onClick={limparFiltros} className="mt-3 text-xs text-orange-400 hover:text-orange-300">Limpar filtros</button>}
+                </div>
+              ) : viewItens === 'tabela' ? (
+                <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-900/60 text-slate-400 text-xs">
+                        <tr>
+                          <SortTh label="Item" campo="codigo" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} />
+                          <SortTh label="Categoria" campo="categoria" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} />
+                          <SortTh label="Saúde" campo="saude" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} align="center" />
+                          <SortTh label="Saldo" campo="quantidade" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} align="right" />
+                          <th className="text-right px-3 py-2 font-medium">Mín/Máx</th>
+                          <th className="text-right px-3 py-2 font-medium">R$/un</th>
+                          <SortTh label="Valor" campo="valor" ordenarPor={ordenarPor} ordenarDir={ordenarDir} onSort={toggleSort} align="right" />
+                          <th className="text-right px-3 py-2 font-medium">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-800/60">
+                        {paginationItens.data.map(item => {
+                          const st = getStatusEstoque(item);
+                          return (
+                            <tr key={item.id} className="hover:bg-slate-800/40">
+                              <td className="px-3 py-2">
+                                <div className="text-white font-mono text-xs font-medium">{item.codigo}</div>
+                                <div className="text-slate-500 text-xs truncate max-w-[240px]" title={item.descricao}>{item.descricao}</div>
+                              </td>
+                              <td className="px-3 py-2 text-slate-300 text-xs">{item.categoria || item.tipo || '—'}</td>
+                              <td className="px-3 py-2 text-center">
+                                <span className={cn('inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded border', st.badge)}>
+                                  <st.icon className="w-3 h-3" /> {st.label}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 text-right text-white font-semibold">{fmtNum(item.quantidade)} <span className="text-slate-500 text-[10px]">{item.unidade}</span></td>
+                              <td className="px-3 py-2 text-right text-slate-400 text-xs">{fmtNum(item.minimo)}{Number(item.maximo) > 0 ? ` / ${fmtNum(item.maximo)}` : ''}</td>
+                              <td className="px-3 py-2 text-right text-slate-400 text-xs">{fmtMoeda(item.preco || item.precoUnitario || 0)}</td>
+                              <td className="px-3 py-2 text-right text-emerald-400 font-medium text-xs">{fmtMoedaCompact(valorItem(item))}</td>
+                              <td className="px-3 py-2">
+                                <div className="flex items-center justify-end gap-1">
+                                  <button onClick={() => handleEdit(item)} title="Editar" className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white"><Edit className="w-3.5 h-3.5" /></button>
+                                  <button onClick={() => handleHistorico(item)} title="Histórico" className="p-1.5 rounded hover:bg-slate-700 text-sky-400"><History className="w-3.5 h-3.5" /></button>
+                                  <button onClick={() => handleEntrada(item)} title="Entrada" className="p-1.5 rounded hover:bg-slate-700 text-emerald-400"><Plus className="w-3.5 h-3.5" /></button>
+                                  <button onClick={() => handleSaida(item)} title="Saída" className="p-1.5 rounded hover:bg-slate-700 text-red-400"><ArrowDown className="w-3.5 h-3.5" /></button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                  {paginationItens.data.map(item => (
+                    <ItemEstoque key={item.id} item={item} onEdit={handleEdit} onEntrada={handleEntrada} onSaida={handleSaida} onHistorico={handleHistorico} obraAtual={obraAtualData} />
+                  ))}
                 </div>
               )}
 
-              {/* Pagination Controls */}
               {paginationItens.totalPages > 1 && (
                 <PaginationControls
                   page={paginationItens.page}
@@ -907,6 +1026,26 @@ export default function EstoquePageV2() {
                 </div>
               ) : (
                 <>
+                  {/* Cobertura do BOM pelo estoque */}
+                  <div className="grid grid-cols-3 gap-3">
+                    {(() => {
+                      const ok = materiaisNecessariosResumo.filter(g => g.status === 'ok').length;
+                      const parcial = materiaisNecessariosResumo.filter(g => g.status === 'parcial').length;
+                      const falta = materiaisNecessariosResumo.filter(g => g.status === 'falta').length;
+                      return [
+                        { label: 'Cobertos', v: ok, cor: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/30' },
+                        { label: 'Parciais', v: parcial, cor: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/30' },
+                        { label: 'Faltando', v: falta, cor: 'text-red-400', bg: 'bg-red-500/10 border-red-500/30' },
+                      ].map(c => (
+                        <div key={c.label} className={cn('rounded-xl border p-4', c.bg)}>
+                          <p className="text-xs text-slate-400">{c.label}</p>
+                          <p className={cn('text-2xl font-bold', c.cor)}>{c.v}</p>
+                          <p className="text-[11px] text-slate-500">perfis</p>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+
                   {/* RESUMO POR PERFIL (cruzamento BOM × Estoque) */}
                   <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-slate-700/50">
@@ -1120,6 +1259,7 @@ export default function EstoquePageV2() {
                       <tr className="border-b border-slate-700/50">
                         <th className="text-left text-slate-400 font-medium px-4 py-3">Data</th>
                         <th className="text-left text-slate-400 font-medium px-4 py-3">Tipo</th>
+                        <th className="text-left text-slate-400 font-medium px-4 py-3">Origem</th>
                         <th className="text-left text-slate-400 font-medium px-4 py-3">Material</th>
                         <th className="text-right text-slate-400 font-medium px-4 py-3">Quantidade</th>
                         <th className="text-left text-slate-400 font-medium px-4 py-3">Motivo</th>
@@ -1130,7 +1270,7 @@ export default function EstoquePageV2() {
                     <tbody>
                       {movimentacoesFiltradas.length === 0 ? (
                         <tr>
-                          <td colSpan={7} className="text-center py-12 text-slate-500">
+                          <td colSpan={8} className="text-center py-12 text-slate-500">
                             <Package className="w-12 h-12 mx-auto mb-2 opacity-50" />
                             Nenhuma movimentação encontrada
                           </td>
@@ -1151,8 +1291,13 @@ export default function EstoquePageV2() {
                                 {mov.tipo === 'entrada' ? 'Entrada' : 'Saída'}
                               </span>
                             </td>
+                            <td className="px-4 py-3">
+                              <span className={cn('text-[10px] px-2 py-0.5 rounded border', ORIGEM_INFO[mov.origem]?.cor || 'bg-slate-500/20 text-slate-300 border-slate-500/40')}>
+                                {rotuloOrigem(mov.origem)}
+                              </span>
+                            </td>
                             <td className="px-4 py-3 text-white font-medium">
-                              {mov.materialPerfil || mov.itemId || '-'}
+                              {mov.materialPerfil || mov.material || mov.itemId || '-'}
                             </td>
                             <td className="px-4 py-3 text-right font-mono">
                               <span className={mov.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'}>
@@ -1228,23 +1373,36 @@ export default function EstoquePageV2() {
               );
               return (
                 <div className="space-y-4">
-                  <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 flex items-center gap-4">
-                    <Link2 className="w-6 h-6 text-orange-400" />
-                    <div>
-                      <h3 className="text-white font-semibold">Materiais Reservados para {obraNome}</h3>
-                      <p className="text-slate-400 text-sm">
-                        {itensVinculados.length} item(ns) vinculado(s) {obraFiltrada ? '' : '· nenhuma obra selecionada'}
-                      </p>
+                  <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 flex flex-wrap items-center gap-4 justify-between">
+                    <div className="flex items-center gap-4">
+                      <Link2 className="w-6 h-6 text-orange-400" />
+                      <div>
+                        <h3 className="text-white font-semibold">Materiais Reservados para {obraNome}</h3>
+                        <p className="text-slate-400 text-sm">
+                          {itensVinculados.length} item(ns) vinculado(s) {obraFiltrada ? '' : '· nenhuma obra selecionada'}
+                        </p>
+                      </div>
                     </div>
+                    {itensVinculados.length > 0 && (
+                      <div className="flex items-center gap-3 text-xs">
+                        <div className="px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+                          <span className="text-slate-400">Valor:</span>
+                          <span className="text-emerald-400 font-bold ml-1">{fmtMoedaCompact(itensVinculados.reduce((s, i) => s + valorItem(i), 0))}</span>
+                        </div>
+                        <div className="px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+                          <span className="text-slate-400">Peso:</span>
+                          <span className="text-orange-400 font-bold ml-1">{fmtPeso(itensVinculados.reduce((s, i) => s + pesoItem(i), 0))}</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                     {itensVinculados.map(item => (
                       <ItemEstoque
                         key={item.id}
                         item={item}
                         onEdit={handleEdit}
-                        onVerMais={handleVerMais}
                         onEntrada={handleEntrada}
                         onSaida={handleSaida}
                         onHistorico={handleHistorico}
