@@ -40,12 +40,14 @@ import {
   Sparkles,
   Link2,
   TrendingDown,
-  History
+  History,
+  Bell
 } from 'lucide-react';
 
 import { useCompras, useMateriais, useERP, useObras, useLancamentos } from '@/contexts/ERPContext';
 import { fornecedoresApi } from '@/api/supabaseClient';
 import AbastecimentoAutomatico from '@/components/compras/AbastecimentoAutomatico';
+import ReposicaoEstoque from '@/components/compras/ReposicaoEstoque';
 import {
   processarNF,
   categorizarNF,
@@ -1065,10 +1067,14 @@ export default function ComprasPage() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3 md:grid-cols-6 lg:w-[820px]">
+        <TabsList className="grid w-full grid-cols-3 md:grid-cols-7 lg:w-[940px]">
           <TabsTrigger value="abastecimento" className="gap-2">
             <Sparkles className="h-4 w-4" />
             Abastecimento
+          </TabsTrigger>
+          <TabsTrigger value="reposicao" className="gap-2">
+            <Bell className="h-4 w-4" />
+            Reposição
           </TabsTrigger>
           <TabsTrigger value="pedidos" className="gap-2">
             <ShoppingCart className="h-4 w-4" />
@@ -1098,6 +1104,14 @@ export default function ComprasPage() {
             obras={obras}
             obraAtual={obraAtual}
             notasFiscais={notasFiscais}
+            addCompra={addCompra}
+            onGerado={() => setActiveTab('pedidos')}
+          />
+        </TabsContent>
+
+        {/* Reposição de estoque (ponto de compra proativo) */}
+        <TabsContent value="reposicao" className="space-y-4">
+          <ReposicaoEstoque
             addCompra={addCompra}
             onGerado={() => setActiveTab('pedidos')}
           />
