@@ -247,27 +247,29 @@ export default function EstoquePageV2() {
   const [materiaisNecessarios, setMateriaisNecessarios] = useState([]);
   const [carregandoNecessarios, setCarregandoNecessarios] = useState(false);
 
-  // 1) Pré-filtro por OBRA. O estoque de aço é de FÁBRICA (obraId quase sempre
-  // null), então filtrar só por obraId daria (quase) vazio e "Obra Atual" antes
-  // mostrava tudo (bug do fallback do contexto). Aqui, ao selecionar uma obra,
-  // mostramos o estoque RELEVANTE a ela: itens reservados (obraId) + itens cujo
-  // perfil está no BOM da obra (materiais_corte já carregado). Assim o filtro
-  // muda os dados de forma útil e consistente.
+  // 1) Pré-filtro por OBRA.
+  //  - Se a obra tem ESTOQUE PRÓPRIO (itens com obraId da obra), mostra SÓ ELE
+  //    (estrito) — evita contaminar KPIs com itens de outras obras/fábrica.
+  //  - Se a obra NÃO tem itens próprios, cai no fallback por BOM: itens de
+  //    FÁBRICA (sem obra) cujo perfil está no BOM — nunca itens de outra obra.
   const estoquePorObra = useMemo(() => {
     const base = estoque || [];
     if (filtroObra === 'todas') return base;
     if (filtroObra === 'sem_obra') return base.filter(it => !it.obraId && !it.obra_id);
     const alvo = filtroObra === 'obra_atual' ? obraAtual : filtroObra;
     if (!alvo) return base;
+
+    const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
+    if (proprios.length) return proprios; // obra tem estoque próprio → só ele
+
     const perfisBOM = new Set(
       (materiaisNecessarios || []).map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean)
     );
+    if (!perfisBOM.size) return proprios;
     return base.filter(it => {
-      if (it.obraId === alvo || it.obra_id === alvo) return true;        // reservado à obra
-      if (perfisBOM.size) {
-        const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
-        for (const p of perfisBOM) if (chave.includes(p)) return true;   // usado no BOM da obra
-      }
+      if (it.obraId || it.obra_id) return false; // ignora itens de qualquer obra
+      const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
+      for (const p of perfisBOM) if (chave.includes(p)) return true; // fábrica usada no BOM
       return false;
     });
   }, [estoque, filtroObra, obraAtual, materiaisNecessarios]);
