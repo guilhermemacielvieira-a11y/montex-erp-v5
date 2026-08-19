@@ -48,7 +48,7 @@ import PaginationControls from '@/components/ui/PaginationControls';
 // Ícones por saúde (o restante — label/cor/badge — vem de SAUDE no serviço)
 const SAUDE_ICON = {
   zerado: X, critico: AlertCircle, baixo: AlertTriangle, atencao: AlertTriangle,
-  excesso: TrendingUp, saudavel: CheckCircle2, sem_minimo: HelpCircle,
+  excesso: TrendingUp, saudavel: CheckCircle2, entregue: CheckCircle2, sem_minimo: HelpCircle,
 };
 
 // Adapter para a saúde unificada (serviço) → display do card/tabela.

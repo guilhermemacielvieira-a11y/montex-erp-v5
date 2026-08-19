@@ -18,14 +18,18 @@ export const SAUDE = {
   atencao:    { key: 'atencao', label: 'Atenção', cor: '#eab308', prioridade: 3, badge: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40' },
   excesso:    { key: 'excesso', label: 'Excesso', cor: '#3b82f6', prioridade: 4, badge: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
   saudavel:   { key: 'saudavel', label: 'Saudável', cor: '#10b981', prioridade: 5, badge: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40' },
+  entregue:   { key: 'entregue', label: 'Entregue', cor: '#22c55e', prioridade: 4.5, badge: 'bg-green-500/20 text-green-300 border-green-500/40' },
   sem_minimo: { key: 'sem_minimo', label: 'Sem mínimo', cor: '#94a3b8', prioridade: 6, badge: 'bg-slate-600/30 text-slate-400 border-slate-600/50' },
 };
 
-// Classifica a saúde de um item pelo saldo × mínimo/máximo.
+// Classifica a saúde de um item pelo saldo × mínimo/máximo. Para itens de OBRA
+// (com necessidade cadastrada em `pedido`) totalmente recebidos (falta ≤ 0),
+// o status é "Entregue".
 export function saudeItem(item = {}) {
   const q = num(item.quantidade);
   const minimo = num(item.minimo);
   const maximo = num(item.maximo);
+  if (temNecessidade(item) && q > 0 && faltaItem(item) <= 0) return 'entregue';
   if (q <= 0) return 'zerado';
   if (minimo <= 0) return 'sem_minimo'; // sem ponto de reposição → não classificável
   if (q <= minimo * 0.5) return 'critico';
@@ -90,7 +94,7 @@ export function kpisEstoque(items = []) {
     pesoTotal: r2(pesoTotal),
     porSaude,
     alertas,
-    saudaveis: porSaude.saudavel + porSaude.excesso,
+    saudaveis: porSaude.saudavel + porSaude.excesso + porSaude.entregue,
     semPreco,
     semMinimo,
     valorEmRisco: r2(valorEmRisco),
