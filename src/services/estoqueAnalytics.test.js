@@ -30,6 +30,18 @@ describe('saudeItem', () => {
   it('excesso quando acima do máximo', () => {
     expect(saudeItem({ quantidade: 9000, minimo: 1000, maximo: 8000 })).toBe('excesso');
   });
+  it('entregue: item de obra (pedido>0) com falta 0 e saldo>0', () => {
+    // chaparia entregue: pedido=comprado=quantidade, falta=0
+    expect(saudeItem({ quantidade: 21093, pedido: 21093, comprado: 21093, falta: 0, minimo: 0 })).toBe('entregue');
+    // perfil que chegou mais que o necessário
+    expect(saudeItem({ quantidade: 852, pedido: 806.3, comprado: 852, minimo: 0 })).toBe('entregue');
+  });
+  it('obra ainda faltando NÃO é entregue', () => {
+    expect(saudeItem({ quantidade: 0, pedido: 1000, comprado: 0, falta: 1000, minimo: 0 })).toBe('zerado');
+  });
+  it('item de fábrica (sem pedido) não vira entregue', () => {
+    expect(saudeItem({ quantidade: 500, minimo: 0 })).toBe('sem_minimo');
+  });
 });
 
 describe('valorItem / pesoItem', () => {
