@@ -342,8 +342,31 @@ export default function EstoquePageV2() {
       else grupo[key].aguardando += 1;
     });
 
+    // Chaparia da obra: no estoque, as chapas entram como 1 item agregado
+    // "CHAPARIA" (não por perfil). Se essa chaparia está entregue, todas as
+    // chapas (CH…) do BOM contam como COBERTAS.
+    const chapariaObra = (estoque || []).find(e =>
+      (e.obraId === obraIdParaConsulta || e.obra_id === obraIdParaConsulta) &&
+      (String(e.categoria || '').toLowerCase() === 'chaparia' ||
+       String(e.codigo || e.perfil || '').toUpperCase().includes('CHAPARIA'))
+    );
+    const chapariaEntregue = !!chapariaObra && faltaItem(chapariaObra) <= 0 &&
+      (Number(chapariaObra.comprado) > 0 || Number(chapariaObra.quantidade) > 0);
+
     // Compara com estoque (descricao/codigo contendo o perfil)
     const lista = Object.values(grupo).map(g => {
+      const ehChapa = String(g.perfil || '').trim().toUpperCase().startsWith('CH');
+      if (ehChapa && chapariaEntregue) {
+        // Coberta pela chaparia agregada entregue.
+        return {
+          ...g,
+          peso_necessario: Math.round(g.peso_necessario * 100) / 100,
+          qtd_estoque: g.qtd_necessaria,
+          item_estoque: chapariaObra,
+          status: 'ok',
+          chaparia: true,
+        };
+      }
       const correspondencia = (estoque || []).find(e => {
         const desc = `${e.descricao || ''} ${e.codigo || ''} ${e.material || ''}`.toLowerCase();
         return desc.includes((g.perfil || '').toLowerCase().slice(0, 12));
@@ -361,7 +384,7 @@ export default function EstoquePageV2() {
       };
     });
     return lista.sort((a, b) => (a.status === 'falta' ? -1 : 0) - (b.status === 'falta' ? -1 : 0));
-  }, [materiaisNecessarios, estoque]);
+  }, [materiaisNecessarios, estoque, obraIdParaConsulta]);
 
   // Paginação CLIENT-SIDE sobre o array já filtrado (estoqueFiltrado).
   // Antes usávamos useSmartPagination, mas em modo server-side ele faz query
@@ -1104,11 +1127,13 @@ export default function EstoquePageV2() {
                         </thead>
                         <tbody className="divide-y divide-slate-800/60">
                           {materiaisNecessariosResumo.map((g, idx) => {
-                            const statusCfg = {
-                              ok:      { txt: '✓ OK',      cls: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
-                              parcial: { txt: '⚠ Parcial', cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
-                              falta:   { txt: '✗ Faltando', cls: 'bg-red-500/20 text-red-400 border-red-500/30' },
-                            }[g.status];
+                            const statusCfg = g.chaparia
+                              ? { txt: '✓ Entregue', cls: 'bg-green-500/20 text-green-300 border-green-500/30' }
+                              : {
+                                  ok:      { txt: '✓ OK',      cls: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' },
+                                  parcial: { txt: '⚠ Parcial', cls: 'bg-amber-500/20 text-amber-400 border-amber-500/30' },
+                                  falta:   { txt: '✗ Faltando', cls: 'bg-red-500/20 text-red-400 border-red-500/30' },
+                                }[g.status];
                             return (
                               <tr key={idx} className="hover:bg-slate-800/40">
                                 <td className="px-4 py-2 text-white font-mono text-xs">{g.perfil}</td>
@@ -1116,9 +1141,13 @@ export default function EstoquePageV2() {
                                 <td className="px-3 py-2 text-right text-white font-medium">{g.qtd_necessaria}</td>
                                 <td className="px-3 py-2 text-right text-orange-400 font-mono text-xs">{g.peso_necessario.toFixed(1)} kg</td>
                                 <td className="px-3 py-2 text-right">
-                                  <span className={cn('font-mono text-xs', g.qtd_estoque >= g.qtd_necessaria ? 'text-emerald-400' : g.qtd_estoque > 0 ? 'text-amber-400' : 'text-red-400')}>
-                                    {g.qtd_estoque} {g.item_estoque?.unidade || ''}
-                                  </span>
+                                  {g.chaparia ? (
+                                    <span className="font-mono text-xs text-green-300">entregue</span>
+                                  ) : (
+                                    <span className={cn('font-mono text-xs', g.qtd_estoque >= g.qtd_necessaria ? 'text-emerald-400' : g.qtd_estoque > 0 ? 'text-amber-400' : 'text-red-400')}>
+                                      {g.qtd_estoque} {g.item_estoque?.unidade || ''}
+                                    </span>
+                                  )}
                                 </td>
                                 <td className="px-3 py-2 text-center">
                                   <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium border', statusCfg.cls)}>
