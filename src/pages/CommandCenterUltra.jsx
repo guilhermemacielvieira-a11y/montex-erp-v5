@@ -13,11 +13,13 @@ import {
   ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Treemap,
 } from 'recharts';
 import { AlertTriangle, ArrowUp, ArrowDown, Briefcase, Calendar, CheckCircle2, DollarSign, Factory,
-  Flame, Layers, TrendingUp, Truck, Users, Wallet, Zap,
-  BarChart3, ArrowRight, Box, Map, Cog,
+  Flame, Layers, TrendingUp, Truck, Users, Wallet,
+  BarChart3, ArrowRight, Box, Map, Cog, PackageX, ShoppingCart,
 } from 'lucide-react';
-import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { useObras, useProducao, useLancamentos, useMedicoes, useEstoque, useEquipes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
+import { resumoProducao, porFuncionario, bloqueioFabricacao } from '../services/relatorioProducao';
+import { resumoMaterialObra } from '../services/estoqueAnalytics';
 
 // ============================================
 // THEME — OMEGA Industrial Blueprint
@@ -150,8 +152,8 @@ function FlowStage({ label, value, percent, color, icon: Icon, isLast }) {
           <span className="text-[10px] uppercase tracking-widest font-bold" style={{ color }}>{label}</span>
           {Icon && <Icon className="h-3 w-3" style={{ color }} />}
         </div>
-        <p className="text-xl font-black tabular-nums" style={{ color: OM.textBright, textShadow: `0 0 6px ${color}30` }}>{fmt(value)}</p>
-        <p className="text-[9px] mt-0.5 tabular-nums" style={{ color: OM.textDim }}>{percent.toFixed(1)}% do total</p>
+        <p className="text-xl font-black tabular-nums" style={{ color: OM.textBright, textShadow: `0 0 6px ${color}30` }}>{fmtPeso(value)}</p>
+        <p className="text-[9px] mt-0.5 tabular-nums" style={{ color: OM.textDim }}>{percent.toFixed(1)}% do peso</p>
       </div>
       {!isLast && (
         <div className="px-2 flex-shrink-0">
@@ -231,9 +233,18 @@ function BarList({ items, color = OM.blue, valueFormatter = fmt, max }) {
 export default function CommandCenterUltra() {
   const { obras } = useObras();
   const { pecas } = useProducao();
+  const { estoque } = useEstoque();
+  const { funcionarios: funcionariosCad } = useEquipes();
   const { lancamentosDespesas } = useLancamentos();
   const { medicoes } = useMedicoes();
   const fi = useFinancialIntelligence();
+
+  // Mapa id→nome dos funcionários (peças guardam o id em funcionario_<etapa>).
+  const mapaNomes = useMemo(() => {
+    const m = {};
+    (funcionariosCad || []).forEach((f) => { if (f?.id) m[String(f.id)] = f.nome || String(f.id); });
+    return m;
+  }, [funcionariosCad]);
 
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -241,27 +252,21 @@ export default function CommandCenterUltra() {
     return () => clearInterval(t);
   }, []);
 
-  // ===== Pipeline =====
+  // ===== Produção global (por PESO, ponderada) — fonte única: resumoProducao =====
+  const resumoProd = useMemo(() => resumoProducao(pecas || []), [pecas]);
+  const ETAPA_ICON = { aguardando: Layers, fabricacao: Factory, solda: Flame, pintura: Box, expedido: Truck, enviado: Map, entregue: CheckCircle2 };
+  // Funil das 5 etapas ativas (aguardando → expedido); enviado/entregue = "finalizado".
   const pipeline = useMemo(() => {
-    const stages = [
-      { key: 'fabricacao', label: 'Fabricação', icon: Factory, color: OM.blue },
-      { key: 'corte', label: 'Corte', icon: Zap, color: OM.amber },
-      { key: 'solda', label: 'Solda', icon: Flame, color: OM.violet },
-      { key: 'pintura', label: 'Pintura', icon: Box, color: OM.cyan },
-      { key: 'expedicao', label: 'Expedição', icon: Truck, color: OM.emerald },
-    ];
-    const total = (pecas || []).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-    return stages.map(s => {
-      const qtd = (pecas || []).filter(p => p.etapa === s.key)
-        .reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0);
-      return { ...s, qtd, total, percent: total > 0 ? (qtd / total * 100) : 0 };
-    });
-  }, [pecas]);
+    const total = resumoProd.totalPeso || 0;
+    return resumoProd.porEtapa
+      .filter((e) => ['aguardando', 'fabricacao', 'solda', 'pintura', 'expedido'].includes(e.key))
+      .map((e) => ({ key: e.key, label: e.label.replace(/ \(.*\)/, ''), icon: ETAPA_ICON[e.key] || Layers, color: e.cor, qtd: e.peso, total, percent: total > 0 ? (e.peso / total * 100) : 0 }));
+  }, [resumoProd]);
 
   const totalPcs = (pecas || []).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-  const finalizadas = (pecas || []).filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-    .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-  const eficiencia = totalPcs > 0 ? (finalizadas / totalPcs * 100) : 0;
+  const pesoTotal = resumoProd.totalPeso;
+  const pesoConcluido = resumoProd.pesoConcluido;     // enviado + entregue
+  const eficiencia = resumoProd.progressoPct;          // progresso ponderado por peso
 
   // ===== Financial Top Line =====
   const recMes = fi.kpisGerais?.faturamentoRealMes || 0;
@@ -273,22 +278,52 @@ export default function CommandCenterUltra() {
   const obrasAtivas = (obras || []).filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
   const backlog = obrasAtivas.reduce((s, o) => s + (o.contratoValorTotal || o.valorContrato || 0), 0);
 
-  // ===== Funcionários produção (por etapa) =====
+  // ===== Team Performance (por PESO, toda etapa registrada — não só a atual) =====
   const funcionarios = useMemo(() => {
-    const map = {};
-    (pecas || []).forEach(p => {
-      ['fabricacao','solda','pintura','corte','expedicao'].forEach(et => {
-        const f = p[`funcionario_${et}`] || p[`func_${et}`];
-        if (f && p.etapa === et) {
-          if (!map[f]) map[f] = { nome: f, total: 0, etapas: {} };
-          const qtd = parseInt(p.quantidade) || 1;
-          map[f].total += qtd;
-          map[f].etapas[et] = (map[f].etapas[et] || 0) + qtd;
-        }
+    return porFuncionario(pecas || [], mapaNomes)
+      .map((f) => ({ nome: f.funcionario, total: f.peso, etapas: f.porEtapa }))
+      .slice(0, 8);
+  }, [pecas, mapaNomes]);
+
+  // ===== GARGALOS DE MATERIAL consolidados (estoque faltante → peças não fabricáveis) =====
+  const gargalos = useMemo(() => {
+    const estPorObra = new Map();
+    (estoque || []).forEach((e) => {
+      const oid = e.obraId || e.obra_id;
+      if (!oid) return;
+      if (!estPorObra.has(oid)) estPorObra.set(oid, []);
+      estPorObra.get(oid).push(e);
+    });
+    let pesoBloqueado = 0, pesoParcial = 0, faltaComprar = 0, nBloqueadas = 0;
+    const perfilMap = new Map();     // perfil → { perfil, faltaComprar, peso, obras:Set }
+    const porObra = [];
+    (obrasAtivas || []).forEach((o) => {
+      const est = estPorObra.get(o.id);
+      if (!est || !est.length) return;
+      const pcsObra = (pecas || []).filter((p) => (p.obraId || p.obra_id) === o.id);
+      const mat = resumoMaterialObra(est);
+      const b = bloqueioFabricacao(pcsObra, mat.linhas);
+      if (b.itens.length === 0) return;
+      pesoBloqueado += b.pesoBloqueado; pesoParcial += b.pesoParcial;
+      faltaComprar += b.faltaComprarTotal; nBloqueadas += b.nBloqueadas;
+      porObra.push({ id: o.id, codigo: o.codigo, nome: o.nome, pesoBloqueado: b.pesoBloqueado, pesoParcial: b.pesoParcial, faltaComprar: b.faltaComprarTotal, nBloqueadas: b.nBloqueadas });
+      (b.porPerfil || []).forEach((g) => {
+        const k = g.perfil;
+        if (!perfilMap.has(k)) perfilMap.set(k, { perfil: g.perfil, faltaComprar: 0, peso: 0, obras: new Set() });
+        const acc = perfilMap.get(k);
+        acc.faltaComprar += g.faltaComprar; acc.peso += g.peso; acc.obras.add(o.codigo || o.id);
       });
     });
-    return Object.values(map).sort((a, b) => b.total - a.total).slice(0, 8);
-  }, [pecas]);
+    const topPerfis = [...perfilMap.values()]
+      .map((p) => ({ ...p, nObras: p.obras.size }))
+      .sort((a, b) => b.faltaComprar - a.faltaComprar).slice(0, 8);
+    return {
+      pesoBloqueado, pesoParcial, faltaComprar, nBloqueadas,
+      pctTravado: pesoTotal > 0 ? ((pesoBloqueado + pesoParcial) / pesoTotal * 100) : 0,
+      porObra: porObra.sort((a, b) => b.pesoBloqueado - a.pesoBloqueado),
+      topPerfis,
+    };
+  }, [estoque, obrasAtivas, pecas, pesoTotal]);
 
   // ===== Cash Flow histórico =====
   const cashHist = useMemo(() => {
@@ -327,25 +362,26 @@ export default function CommandCenterUltra() {
 
   const atrasadasTotal = atrasadas.reduce((s, a) => s + (a.valor || 0), 0);
 
-  // ===== Obras ranking =====
+  // ===== Obras ranking (progresso por PESO + risco de material) =====
   const obrasRank = useMemo(() => {
+    const riscoPorObra = Object.fromEntries((gargalos.porObra || []).map((g) => [g.id, g]));
     return obrasAtivas.map(o => {
-      const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
-      const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-      const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-        .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+      const pcsObra = (pecas || []).filter(p => (p.obraId || p.obra_id) === o.id);
+      const rp = resumoProducao(pcsObra);
       const recObra = (medicoes || []).filter(m => (m.obraId || m.obra_id) === o.id
         && ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
         .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
       const valor = o.contratoValorTotal || o.valorContrato || 0;
+      const risco = riscoPorObra[o.id];
       return {
         ...o,
-        pcs: tot, fin, valor, recObra,
-        prog: tot > 0 ? (fin / tot * 100) : 0,
+        pcs: pcsObra.length, pesoTotal: rp.totalPeso, pesoConcluido: rp.pesoConcluido, valor, recObra,
+        prog: rp.progressoPct,
         fatura: valor > 0 ? (recObra / valor * 100) : 0,
+        pesoBloqueado: risco?.pesoBloqueado || 0,
       };
     }).sort((a, b) => b.valor - a.valor).slice(0, 6);
-  }, [obrasAtivas, pecas, medicoes]);
+  }, [obrasAtivas, pecas, medicoes, gargalos]);
 
   // ===== Categorias despesa =====
   const categorias = useMemo(() => {
@@ -414,14 +450,14 @@ export default function CommandCenterUltra() {
             <div className="w-px h-12" style={{ background: OM.border }} />
             <div className="text-center">
               <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Produção</p>
-              <p className="text-2xl font-black tabular-nums" style={{ color: OM.orange }}>{fmt(totalPcs)}</p>
-              <p className="text-[9px]" style={{ color: OM.textDim }}>peças total</p>
+              <p className="text-2xl font-black tabular-nums" style={{ color: OM.orange }}>{fmtPeso(pesoTotal)}</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>{fmt(totalPcs)} peças</p>
             </div>
             <div className="w-px h-12" style={{ background: OM.border }} />
             <div className="text-center">
-              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Eficiência</p>
+              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Progresso</p>
               <p className="text-2xl font-black tabular-nums" style={{ color: eficiencia >= 75 ? OM.emerald : eficiencia >= 50 ? OM.amber : OM.rose }}>{Math.round(eficiencia)}%</p>
-              <p className="text-[9px]" style={{ color: OM.textDim }}>conclusão</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>ponderado/peso</p>
             </div>
             <div className="w-px h-12" style={{ background: OM.border }} />
             <div className="text-center">
@@ -442,8 +478,8 @@ export default function CommandCenterUltra() {
       </div>
 
       {/* ============ PRODUCTION FLOW ============ */}
-      <Section title="Production Flow" sub="funil de produção em tempo real" icon={Factory} accent={OM.orange} className="mb-4"
-        action={<span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmt(totalPcs)} pcs · {fmtPeso((pecas || []).reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0))}</span>}>
+      <Section title="Production Flow" sub="funil de produção por peso (ponderado)" icon={Factory} accent={OM.orange} className="mb-4"
+        action={<span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmt(totalPcs)} pcs · {fmtPeso(pesoTotal)}</span>}>
         <div className="flex items-stretch gap-1">
           {pipeline.map((s, i) => {
             const { key, ...rest } = s; // key fora do spread (senão React avisa "key prop spread")
@@ -452,10 +488,73 @@ export default function CommandCenterUltra() {
           <div className="flex flex-col items-center justify-center px-3 ml-2 rounded-lg"
             style={{ background: `linear-gradient(135deg, ${OM.emerald}20, ${OM.emerald}10)`, border: `1px solid ${OM.emerald}40` }}>
             <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.emerald }}>Finalizado</p>
-            <p className="text-2xl font-black tabular-nums" style={{ color: OM.emerald }}>{fmt(finalizadas)}</p>
+            <p className="text-2xl font-black tabular-nums" style={{ color: OM.emerald }}>{fmtPeso(pesoConcluido)}</p>
             <p className="text-[9px] tabular-nums" style={{ color: OM.emerald }}>{fmtPct(eficiencia)}</p>
           </div>
         </div>
+      </Section>
+
+      {/* ============ GARGALOS DE MATERIAL (estoque faltante → não fabricável) ============ */}
+      <Section title="Gargalos de Material" sub="estoque faltante × peças não fabricáveis · todas as obras" icon={PackageX} accent={OM.rose} className="mb-4"
+        action={<span className="text-[10px] font-mono" style={{ color: gargalos.pesoBloqueado > 0 ? OM.rose : OM.emerald }}>{fmtPct(gargalos.pctTravado)} do peso travado</span>}>
+        {gargalos.pesoBloqueado === 0 && gargalos.pesoParcial === 0 ? (
+          <div className="text-center py-6">
+            <CheckCircle2 className="h-8 w-8 mx-auto mb-2" style={{ color: OM.emerald }} />
+            <p className="text-xs font-bold" style={{ color: OM.emerald }}>Nenhum gargalo de material nas obras com estoque cadastrado</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-12 gap-4">
+            {/* KPIs + top perfis a comprar */}
+            <div className="col-span-5">
+              <div className="grid grid-cols-2 gap-2 mb-3">
+                <div className="p-3 rounded-lg" style={{ background: `${OM.rose}10`, border: `1px solid ${OM.rose}30` }}>
+                  <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.rose }}>Não fabricável</p>
+                  <p className="text-xl font-black tabular-nums" style={{ color: OM.rose }}>{fmtPeso(gargalos.pesoBloqueado)}</p>
+                  <p className="text-[9px]" style={{ color: OM.textDim }}>{fmt(gargalos.nBloqueadas)} peça(s)</p>
+                </div>
+                <div className="p-3 rounded-lg" style={{ background: `${OM.amber}10`, border: `1px solid ${OM.amber}30` }}>
+                  <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.amber }}>Material parcial</p>
+                  <p className="text-xl font-black tabular-nums" style={{ color: OM.amber }}>{fmtPeso(gargalos.pesoParcial)}</p>
+                  <p className="text-[9px]" style={{ color: OM.textDim }}>parte chegou</p>
+                </div>
+                <div className="p-3 rounded-lg col-span-2" style={{ background: `${OM.cyan}10`, border: `1px solid ${OM.cyan}30` }}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.cyan }}>Falta comprar (total)</p>
+                      <p className="text-xl font-black tabular-nums" style={{ color: OM.cyan }}>{fmtPeso(gargalos.faltaComprar)}</p>
+                    </div>
+                    <ShoppingCart className="h-6 w-6" style={{ color: OM.cyan }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* Top perfis a comprar (agregado entre obras) */}
+            <div className="col-span-7">
+              <p className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: OM.textDim }}>Prioridade de compra — perfis (kg agregado entre obras)</p>
+              {gargalos.topPerfis.length === 0 ? (
+                <p className="text-xs italic" style={{ color: OM.textDim }}>Sem perfis pendentes</p>
+              ) : (
+                <BarList color={OM.cyan} valueFormatter={fmtPeso}
+                  items={gargalos.topPerfis.map((p) => ({ label: `${p.perfil}  ·  ${p.nObras} obra(s)`, value: p.faltaComprar, color: OM.cyan }))} />
+              )}
+            </div>
+            {/* Por obra */}
+            {gargalos.porObra.length > 0 && (
+              <div className="col-span-12 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 mt-1">
+                {gargalos.porObra.map((o) => (
+                  <div key={o.id} className="p-2.5 rounded-lg" style={{ background: OM.bgRail, border: `1px solid ${OM.rose}20` }}>
+                    <p className="text-[10px] font-bold text-white truncate">{o.codigo || o.id}</p>
+                    <p className="text-[9px] truncate mb-1" style={{ color: OM.textDim }}>{o.nome}</p>
+                    <div className="flex items-center justify-between text-[10px]">
+                      <span style={{ color: OM.rose }} className="font-bold tabular-nums">{fmtPeso(o.pesoBloqueado)}</span>
+                      <span style={{ color: OM.cyan }} className="tabular-nums">comprar {fmtPeso(o.faltaComprar)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </Section>
 
       {/* ============ MIDDLE ROW: Cash Flow + Categorias ============ */}
@@ -499,7 +598,7 @@ export default function CommandCenterUltra() {
 
       {/* ============ TEAM PERFORMANCE + RECEITA POR OBRA ============ */}
       <div className="grid grid-cols-12 gap-4 mb-4">
-        <Section title="Team Performance" sub="ranking de produção por funcionário" icon={Users} accent={OM.amber} className="col-span-7">
+        <Section title="Team Performance" sub="ranking por peso produzido (todas as etapas registradas)" icon={Users} accent={OM.amber} className="col-span-7">
           {funcionarios.length === 0 ? (
             <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem registros de produção por funcionário</p>
           ) : (
@@ -519,9 +618,9 @@ export default function CommandCenterUltra() {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold truncate text-white">{f.nome}</p>
-                        <p className="text-[9px]" style={{ color: OM.textDim }}>{Object.keys(f.etapas).length} etapa(s) ativa(s)</p>
+                        <p className="text-[9px]" style={{ color: OM.textDim }}>{Object.keys(f.etapas).length} etapa(s) registrada(s)</p>
                       </div>
-                      <span className="text-lg font-black tabular-nums" style={{ color: corRank }}>{fmt(f.total)}</span>
+                      <span className="text-lg font-black tabular-nums" style={{ color: corRank }}>{fmtPeso(f.total)}</span>
                     </div>
                     <div className="relative h-1 rounded-full overflow-hidden" style={{ background: OM.bgPanel }}>
                       <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${pct}%`, background: corRank, boxShadow: `0 0 4px ${corRank}80` }} />
@@ -592,10 +691,17 @@ export default function CommandCenterUltra() {
                     <p className="text-xs font-bold tabular-nums" style={{ color: OM.emerald }}>{fmtR$(o.recObra)}</p>
                   </div>
                   <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
-                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Peças</p>
-                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.blue }}>{fmt(o.fin)}/{fmt(o.pcs)}</p>
+                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Peso</p>
+                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.blue }}>{fmtPeso(o.pesoConcluido)}/{fmtPeso(o.pesoTotal)}</p>
                   </div>
                 </div>
+                {o.pesoBloqueado > 0 && (
+                  <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded text-[10px]" style={{ background: `${OM.rose}12`, border: `1px solid ${OM.rose}30` }}>
+                    <PackageX className="h-3 w-3 flex-shrink-0" style={{ color: OM.rose }} />
+                    <span style={{ color: OM.rose }} className="font-bold tabular-nums">{fmtPeso(o.pesoBloqueado)}</span>
+                    <span style={{ color: OM.textDim }}>sem material p/ fabricar</span>
+                  </div>
+                )}
               </div>
             );
           })}
