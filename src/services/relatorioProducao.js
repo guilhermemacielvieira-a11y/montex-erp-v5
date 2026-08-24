@@ -177,53 +177,77 @@ export function bloqueioFabricacao(pecas = [], materialLinhas = []) {
 }
 
 // ============================================================
-// FABRICABILIDADE: classifica cada MARCA/PEÇA (ainda não fabricada:
-// aguardando/fabricação) segundo o material necessário × entregue da obra:
-//   - fabricavel     → material do perfil ENTREGUE (pode fabricar agora)
-//   - parcial        → material PARCIAL (parte chegou)
-//   - naoFabricavel  → material FALTANDO (não é possível fabricar)
-//   - semInfo        → perfil sem linha de material cadastrada (a verificar)
-// `materialLinhas` vem de resumoMaterialObra(estoque).linhas.
+// FABRICABILIDADE: para cada MARCA/PEÇA ainda não fabricada
+// (aguardando/fabricação), ALOCA o material entregue do perfil (comprado) às
+// peças pendentes por peso. As que cabem no material disponível CONSEGUEM ser
+// fabricadas; o restante NÃO consegue (falta material). Trata CHAPARIA (chapas
+// tiram do estoque agregado de chaparia). `materialLinhas` vem de
+// resumoMaterialObra(estoque).linhas (perfil + entregue + falta + status).
 // ============================================================
+const CHAVE_CHAPARIA = '__CHAPARIA__';
+const ehPerfilChapa = (s) => /^\s*CH\d/i.test(String(s || '')); // CH8X130, CH2X1200.7, CH16X340…
+const ehLinhaChaparia = (s) => /^\s*chaparia\s*$/i.test(String(s || ''));
+
 export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
-  const infoPorPerfil = new Map();
+  // Pool de material disponível por perfil (chaparia agregada numa chave única).
+  const pool = new Map(); // chave → { disponivel, falta, perfil }
   (materialLinhas || []).forEach((l) => {
-    const chave = chavePerfil(l.perfil);
-    if (chave) infoPorPerfil.set(chave, { status: l.status, falta: num(l.falta), cobertura: num(l.coberturaPct) });
+    const chaparia = ehLinhaChaparia(l.perfil);
+    const chave = chaparia ? CHAVE_CHAPARIA : chavePerfil(l.perfil);
+    if (!chave) return;
+    const acc = pool.get(chave) || { disponivel: 0, falta: 0, perfil: chaparia ? 'CHAPARIA' : l.perfil };
+    acc.disponivel += num(l.entregue); acc.falta += num(l.falta);
+    pool.set(chave, acc);
   });
+
+  // Agrupa peças pendentes por perfil (chapas → bucket CHAPARIA se houver estoque).
   const consideraFab = (et) => et === 'aguardando' || et === 'fabricacao';
-  const fabricaveis = [], parciais = [], naoFabricaveis = [], semInfo = [];
+  const grupos = new Map(); // chave → pieces[]
   (pecas || []).forEach((p) => {
-    const et = etapaPeca(p);
-    if (!consideraFab(et)) return; // já passou de fabricação → já fabricada
+    if (!consideraFab(etapaPeca(p))) return;
     const perfil = pick(p, 'perfil') || '';
-    const info = infoPorPerfil.get(chavePerfil(perfil));
-    const base = {
+    const chave = (ehPerfilChapa(perfil) && pool.has(CHAVE_CHAPARIA)) ? CHAVE_CHAPARIA : chavePerfil(perfil);
+    const item = {
       marca: pick(p, 'marca', 'codigo') || '—', perfil,
       material: pick(p, 'material') || '', tipo: pick(p, 'tipo', 'peca') || '',
-      quantidade: qtdPeca(p), peso: pesoPeca(p), etapa: et,
+      quantidade: qtdPeca(p), peso: pesoPeca(p), etapa: etapaPeca(p),
     };
-    if (!info) semInfo.push({ ...base, status: 'sem_info' });
-    else if (info.status === 'entregue') fabricaveis.push({ ...base, status: 'fabricavel', cobertura: info.cobertura });
-    else if (info.status === 'parcial') parciais.push({ ...base, status: 'parcial', cobertura: info.cobertura, faltaComprar: r2(info.falta) });
-    else naoFabricaveis.push({ ...base, status: 'faltando', faltaComprar: r2(info.falta) });
+    if (!grupos.has(chave)) grupos.set(chave, []);
+    grupos.get(chave).push(item);
   });
+
+  const fabricaveis = [], naoFabricaveis = [], semInfo = [];
+  const perfisParciais = new Set();
+  for (const [chave, pieces] of grupos) {
+    const info = pool.get(chave);
+    if (!info) { pieces.forEach((pc) => semInfo.push({ ...pc, status: 'sem_info' })); continue; }
+    let disp = num(info.disponivel);
+    const need = pieces.reduce((s, i) => s + i.peso, 0);
+    if (disp > 0 && disp < need - 0.01) perfisParciais.add(info.perfil);
+    // Aloca por peso ASC (libera o maior nº de peças possível).
+    [...pieces].sort((a, b) => a.peso - b.peso).forEach((pc) => {
+      if (pc.peso <= disp + 0.01) { disp = Math.max(0, disp - pc.peso); fabricaveis.push({ ...pc, status: 'fabricavel' }); }
+      else naoFabricaveis.push({ ...pc, status: 'faltando', faltaComprar: r2(info.falta) });
+    });
+  }
   const byPeso = (a, b) => b.peso - a.peso;
-  [fabricaveis, parciais, naoFabricaveis, semInfo].forEach((a) => a.sort(byPeso));
+  [fabricaveis, naoFabricaveis, semInfo].forEach((a) => a.sort(byPeso));
   const sumP = (a) => r2(a.reduce((s, i) => s + i.peso, 0));
   const sumQ = (a) => a.reduce((s, i) => s + i.quantidade, 0);
-  const pesoFab = sumP(fabricaveis), pesoParc = sumP(parciais), pesoNao = sumP(naoFabricaveis), pesoSem = sumP(semInfo);
-  const total = pesoFab + pesoParc + pesoNao + pesoSem;
+  const pesoFab = sumP(fabricaveis), pesoNao = sumP(naoFabricaveis), pesoSem = sumP(semInfo);
+  const total = pesoFab + pesoNao + pesoSem;
+  const faltaComprarTotal = r2([...pool.values()].reduce((s, g) => s + num(g.falta), 0));
   return {
-    fabricaveis, parciais, naoFabricaveis, semInfo,
+    fabricaveis, naoFabricaveis, semInfo,
+    perfisParciais: [...perfisParciais].sort(),
     resumo: {
-      nFabricaveis: fabricaveis.length, nParciais: parciais.length, nNaoFabricaveis: naoFabricaveis.length, nSemInfo: semInfo.length,
-      qtdFabricaveis: sumQ(fabricaveis), qtdParciais: sumQ(parciais), qtdNaoFabricaveis: sumQ(naoFabricaveis),
-      pesoFabricavel: pesoFab, pesoParcial: pesoParc, pesoNaoFabricavel: pesoNao, pesoSemInfo: pesoSem,
-      pesoTotal: r2(total),
+      nFabricaveis: fabricaveis.length, nNaoFabricaveis: naoFabricaveis.length, nSemInfo: semInfo.length,
+      nPerfisParciais: perfisParciais.size,
+      qtdFabricaveis: sumQ(fabricaveis), qtdNaoFabricaveis: sumQ(naoFabricaveis),
+      pesoFabricavel: pesoFab, pesoNaoFabricavel: pesoNao, pesoSemInfo: pesoSem,
+      pesoTotal: r2(total), faltaComprarTotal,
       pctFabricavel: total > 0 ? r2((pesoFab / total) * 100) : 0,
       pctNaoFabricavel: total > 0 ? r2((pesoNao / total) * 100) : 0,
-      pctParcial: total > 0 ? r2((pesoParc / total) * 100) : 0,
     },
   };
 }
