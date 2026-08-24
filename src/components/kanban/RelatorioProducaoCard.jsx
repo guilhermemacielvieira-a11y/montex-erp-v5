@@ -74,25 +74,28 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
         <Mini icon={Activity} label="Progresso" value={`${resumo.progressoPct}%`} tone="text-orange-400" />
       </div>
 
-      {/* Alerta: peças sem material (vermelho) e material parcial (amarelo) */}
-      {bloqueio.nBloqueadas > 0 && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
-          <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-          <div className="text-xs">
-            <p className="text-red-300 font-semibold">{fmtNum(bloqueio.nBloqueadas)} peça(s) sem material — não é possível fabricar ({fmtPeso(bloqueio.pesoBloqueado)})</p>
-            <p className="text-red-400/80 mt-0.5">Perfis zerados no estoque: {bloqueio.perfisFaltando.slice(0, 6).join(', ')}{bloqueio.perfisFaltando.length > 6 ? '…' : ''} · destacadas em vermelho no PDF.</p>
+      {/* Painel analítico: material faltante × peças impactadas (visão geral) */}
+      {(bloqueio.nBloqueadas > 0 || bloqueio.nParciais > 0) && (() => {
+        const pesoImpactado = bloqueio.pesoBloqueado + bloqueio.pesoParcial;
+        const pctImpacto = resumo.totalPeso > 0 ? Math.round((pesoImpactado / resumo.totalPeso) * 100) : 0;
+        return (
+          <div className="mt-3 rounded-lg border border-slate-600/50 bg-slate-900/40 p-3">
+            <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
+              <AlertTriangle className="w-4 h-4 text-red-400" /> Material faltante × peças impactadas
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+              <Painel tone="text-red-400" label="Não fabricável" value={fmtPeso(bloqueio.pesoBloqueado)} sub={`${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis`} />
+              <Painel tone="text-amber-400" label="Material parcial" value={fmtPeso(bloqueio.pesoParcial)} sub={`${fmtNum(bloqueio.nParciais)} pç · ${fmtNum(bloqueio.nPerfisParciais)} perfis`} />
+              <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="total por perfil" />
+              <Painel tone="text-slate-200" label="% peso impactado" value={`${pctImpacto}%`} sub={`de ${fmtPeso(resumo.totalPeso)}`} />
+            </div>
+            {bloqueio.perfisFaltando.length > 0 && (
+              <p className="text-[11px] text-red-400/80 mt-2">Sem material: {bloqueio.perfisFaltando.slice(0, 8).join(', ')}{bloqueio.perfisFaltando.length > 8 ? '…' : ''}</p>
+            )}
+            <p className="text-[10px] text-slate-500 mt-1">Detalhamento por perfil (peso travado + falta comprar) no PDF.</p>
           </div>
-        </div>
-      )}
-      {bloqueio.nParciais > 0 && (
-        <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
-          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-          <div className="text-xs">
-            <p className="text-amber-300 font-semibold">{fmtNum(bloqueio.nParciais)} peça(s) com material parcial — só parte chegou ({fmtPeso(bloqueio.pesoParcial)})</p>
-            <p className="text-amber-400/80 mt-0.5">Perfis parciais: {bloqueio.perfisParciais.slice(0, 6).join(', ')}{bloqueio.perfisParciais.length > 6 ? '…' : ''} · em amarelo no PDF, com o quanto falta comprar por perfil.</p>
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* Distribuição por etapa (barra) */}
       <div className="mt-4 space-y-1.5">
@@ -107,6 +110,16 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function Painel({ label, value, sub, tone = 'text-white' }) {
+  return (
+    <div className="bg-slate-800/60 border border-slate-700/40 rounded-lg px-2.5 py-2">
+      <div className="text-slate-400 text-[10px]">{label}</div>
+      <div className={`text-base font-bold ${tone}`}>{value}</div>
+      {sub && <div className="text-[9px] text-slate-500">{sub}</div>}
     </div>
   );
 }

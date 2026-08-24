@@ -242,44 +242,44 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     doc.text('Vermelho = sem material (não é possível fabricar)', M + 5, y);
     doc.setFillColor(217, 119, 6); doc.rect(M + 95, y - 2.6, 3, 3, 'F');
     doc.text('Amarelo = material parcial (parte já chegou)', M + 100, y); y += 6;
-    // KPI
-    doc.setTextColor(185, 28, 28); doc.setFontSize(10); doc.setFont(undefined, 'bold');
-    doc.text(`Bloqueadas: ${fmtNum(bloqueio.nBloqueadas)} peça(s) · ${fmtNum(bloqueio.qtdBloqueada)} un · ${fmtPeso(bloqueio.pesoBloqueado)}`, M, y); y += 5;
-    if (bloqueio.nParciais > 0) {
-      doc.setTextColor(180, 83, 9);
-      doc.text(`Parciais: ${fmtNum(bloqueio.nParciais)} peça(s) · ${fmtPeso(bloqueio.pesoParcial)}`, M, y); y += 5;
-    }
-    doc.setFont(undefined, 'normal'); doc.setTextColor(51, 65, 85); doc.setFontSize(8);
-    if (bloqueio.perfisFaltando.length) {
-      const l1 = doc.splitTextToSize(`Perfis sem material: ${bloqueio.perfisFaltando.join(', ')}`, W);
-      l1.slice(0, 2).forEach((ln) => { doc.text(ln, M, y); y += 4; });
-    }
-    if (bloqueio.perfisParciais.length) {
-      const l2 = doc.splitTextToSize(`Perfis parciais: ${bloqueio.perfisParciais.join(', ')}`, W);
-      l2.slice(0, 2).forEach((ln) => { doc.text(ln, M, y); y += 4; });
-    }
-    y += 2;
-    const colsB = [
-      { k: 'marca', label: 'Marca', x: M, w: 24 },
-      { k: 'perfil', label: 'Perfil', x: M + 24, w: 32, colorFn: corDe, bold: true },
-      { k: 'material', label: 'Material', x: M + 56, w: 24 },
-      { k: 'tipo', label: 'Tipo', x: M + 80, w: 22 },
-      { k: 'qtd', label: 'Qtd', x: M + 102, w: 14, align: 'right' },
-      { k: 'peso', label: 'Peso', x: M + 116, w: 22, align: 'right' },
-      { k: 'falta', label: 'Falta comprar', x: M + 138, w: 26, align: 'right', colorFn: corDe, bold: true },
-      { k: 'st', label: 'Status', x: M + 164, w: 26, colorFn: corDe, boldFn: () => true },
+    // ===== Painel analítico: 4 indicadores da realidade geral =====
+    const pesoImpactado = bloqueio.pesoBloqueado + bloqueio.pesoParcial;
+    const pctImpacto = resumo.totalPeso > 0 ? Math.round((pesoImpactado / resumo.totalPeso) * 100) : 0;
+    const painel = [
+      ['Não fabricável', `${fmtPeso(bloqueio.pesoBloqueado)}`, `${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis`, [220, 38, 38]],
+      ['Material parcial', `${fmtPeso(bloqueio.pesoParcial)}`, `${fmtNum(bloqueio.nParciais)} pç · ${fmtNum(bloqueio.nPerfisParciais)} perfis`, [180, 83, 9]],
+      ['Falta comprar', `${fmtPeso(bloqueio.faltaComprarTotal)}`, 'total por perfil', [37, 99, 235]],
+      ['% peso impactado', `${pctImpacto}%`, `de ${fmtPeso(resumo.totalPeso)}`, [15, 23, 42]],
     ];
-    y = drawTable(doc, colsB, bloqueio.itens.slice(0, cap).map((b) => ({
-      marca: b.marca, perfil: b.perfil, material: b.material, tipo: b.tipo,
-      qtd: fmtNum(b.quantidade), peso: fmtPeso(b.peso),
-      falta: fmtPeso(b.faltaComprar),
-      st: b.status === 'parcial' ? '⚠ Parcial' : '✗ Sem mat.',
-      _st: b.status,
+    const pw = W / painel.length;
+    painel.forEach((k, i) => {
+      const x = M + i * pw;
+      doc.setDrawColor(203, 213, 225); doc.setFillColor(248, 250, 252); doc.roundedRect(x + 1, y, pw - 2, 17, 1.5, 1.5, 'FD');
+      doc.setTextColor(100, 116, 139); doc.setFontSize(7.5); doc.setFont(undefined, 'normal'); doc.text(k[0], x + 4, y + 5);
+      doc.setTextColor(k[3][0], k[3][1], k[3][2]); doc.setFontSize(12); doc.setFont(undefined, 'bold'); doc.text(k[1], x + 4, y + 11.5);
+      doc.setTextColor(100, 116, 139); doc.setFontSize(6.8); doc.setFont(undefined, 'normal'); doc.text(k[2], x + 4, y + 15.5);
+    });
+    y += 22;
+
+    // ===== Tabela ANALÍTICA por perfil (material faltante → impacto em peças) =====
+    doc.setFontSize(10.5); doc.setFont(undefined, 'bold'); doc.setTextColor(15, 23, 42);
+    doc.text('Material faltante × peças impactadas (por perfil)', M, y); y += 3; doc.setFont(undefined, 'normal');
+    const colsP = [
+      { k: 'perfil', label: 'Perfil', x: M, w: 40, colorFn: corDe, bold: true },
+      { k: 'material', label: 'Material', x: M + 40, w: 26 },
+      { k: 'st', label: 'Situação', x: M + 66, w: 30, colorFn: corDe, boldFn: () => true },
+      { k: 'nPecas', label: 'Peças', x: M + 96, w: 18, align: 'right' },
+      { k: 'peso', label: 'Peso travado', x: M + 114, w: 32, align: 'right', colorFn: corDe, bold: true },
+      { k: 'falta', label: 'Falta comprar', x: M + 146, w: 44, align: 'right', colorFn: corDe, bold: true },
+    ];
+    y = drawTable(doc, colsP, bloqueio.porPerfil.slice(0, cap).map((g) => ({
+      perfil: g.perfil, material: g.material,
+      st: g.status === 'parcial' ? '⚠ Parcial' : '✗ Sem material',
+      nPecas: fmtNum(g.nPecas), peso: fmtPeso(g.peso), falta: fmtPeso(g.faltaComprar),
+      _st: g.status,
     })), y);
-    if (bloqueio.itens.length > cap) {
-      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-      doc.text(`… mostrando as ${cap} de maior peso, de ${fmtNum(bloqueio.itens.length)} peças com pendência.`, M, y + 2);
-    }
+    doc.setFontSize(7.5); doc.setTextColor(100, 116, 139);
+    doc.text('Peso travado = peso das peças (Aguardando/Fabricação) que dependem do perfil. Falta comprar = kg do perfil ainda por chegar.', M, y + 1);
   }
 
   // Detalhe por etapa (dados de produção)
