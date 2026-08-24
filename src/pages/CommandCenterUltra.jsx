@@ -1,38 +1,33 @@
 // ============================================
-// MONTEX COMMAND CENTER ULTRA — v5 OMEGA
+// MONTEX COMMAND CENTER ULTRA — v5 OMEGA (OPERAÇÕES)
 // ============================================
-// Operations control deep-dive: foco em pessoas, produção,
-// financeiro consolidado e timeline operacional. Visual
-// industrial / blueprint com toque executivo.
+// Centro de controle OPERACIONAL: produção, corte, estoque de
+// material, gargalos e entrega/expedição. Sem dados financeiros.
+// Todas as métricas de produção por PESO (ponderado). Visual
+// industrial / blueprint.
 // ============================================
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
-  ResponsiveContainer, Area, Line,
-  ComposedChart, XAxis, YAxis, Tooltip, CartesianGrid, Legend, Treemap,
-} from 'recharts';
-import { AlertTriangle, ArrowUp, ArrowDown, Briefcase, Calendar, CheckCircle2, DollarSign, Factory,
-  Flame, Layers, TrendingUp, Truck, Users, Wallet,
-  BarChart3, ArrowRight, Box, Map as MapIcon, Cog, PackageX, ShoppingCart,
+  ArrowRight, Box, Briefcase, CheckCircle2, Cog, Factory,
+  Flame, Layers, Map as MapIcon, PackageX, Scissors, ShoppingCart, Truck,
+  Users, Warehouse, Send,
 } from 'lucide-react';
-import { useObras, useProducao, useLancamentos, useMedicoes, useEstoque, useEquipes } from '../contexts/ERPContext';
-import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
+import { useObras, useProducao, useEstoque, useEquipes, useExpedicao } from '../contexts/ERPContext';
 import { resumoProducao, porFuncionario, bloqueioFabricacao } from '../services/relatorioProducao';
-import { resumoMaterialObra } from '../services/estoqueAnalytics';
+import { resumoMaterialObra, kpisEstoque } from '../services/estoqueAnalytics';
 
 // ============================================
 // THEME — OMEGA Industrial Blueprint
 // ============================================
 const OM = {
-  // Base
   bgDeep: '#040814',
   bgPanel: '#0a1124',
   bgPanelAlt: '#0d1830',
   bgRail: '#06091a',
   border: 'rgba(96,165,250,0.15)',
   borderStrong: 'rgba(96,165,250,0.4)',
-  // Brand
   blue: '#60a5fa',
   blueDeep: '#3b82f6',
   navy: '#1e3a8a',
@@ -43,7 +38,6 @@ const OM = {
   rose: '#fb7185',
   violet: '#a78bfa',
   cyan: '#22d3ee',
-  // Text
   text: '#e5e7eb',
   textBright: '#f3f4f6',
   textDim: '#6b7280',
@@ -54,26 +48,14 @@ const OM = {
 // FORMATTERS
 // ============================================
 const fmt = (v) => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
-const fmtR$ = (v) => {
-  if (v == null || isNaN(v)) return 'R$ —';
-  if (Math.abs(v) >= 1e6) return `R$ ${(v / 1e6).toFixed(2)}M`;
-  if (Math.abs(v) >= 1e3) return `R$ ${(v / 1e3).toFixed(0)}k`;
-  return `R$ ${Math.round(v).toLocaleString('pt-BR')}`;
-};
-const fmtR$Full = (v) => v == null ? 'R$ —' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v);
 const fmtPeso = (kg) => {
   if (kg == null) return '—';
   return Math.abs(kg) >= 1000 ? `${(kg / 1000).toFixed(1)}t` : `${Math.round(kg)}kg`;
 };
 const fmtPct = (v) => v == null || isNaN(v) ? '—' : `${Math.round(v)}%`;
-const parseLocalDate = (s) => {
-  if (!s) return null;
-  const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(s);
-};
 
 // ============================================
-// SECTION HEADER (Blueprint title-block style)
+// SECTION (Blueprint title-block)
 // ============================================
 function Section({ children, title, sub, icon: Icon, accent = OM.blue, className = '', action }) {
   return (
@@ -83,7 +65,6 @@ function Section({ children, title, sub, icon: Icon, accent = OM.blue, className
         border: `1px solid ${OM.border}`,
         boxShadow: '0 4px 24px -8px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.02)',
       }}>
-      {/* Title block */}
       <div className="relative px-4 py-2.5 flex items-center justify-between"
         style={{ borderBottom: `1px solid ${OM.border}`, background: 'rgba(96,165,250,0.03)' }}>
         <div className="flex items-center gap-2">
@@ -98,7 +79,6 @@ function Section({ children, title, sub, icon: Icon, accent = OM.blue, className
           </div>
         </div>
         {action}
-        {/* Right accent bar */}
         <div className="absolute right-0 top-0 bottom-0 w-1" style={{ background: `linear-gradient(180deg, ${accent}, transparent)` }} />
       </div>
       <div className="p-4">{children}</div>
@@ -109,16 +89,12 @@ function Section({ children, title, sub, icon: Icon, accent = OM.blue, className
 // ============================================
 // STAT BLOCK
 // ============================================
-function StatBlock({ label, value, sub, accent = OM.blue, icon: Icon, delta, deltaPositive }) {
-  const isPositive = deltaPositive !== undefined ? deltaPositive : (delta || 0) >= 0;
+function StatBlock({ label, value, sub, accent = OM.blue, icon: Icon }) {
   return (
-    <div className="relative p-4 rounded-lg group hover:border-blue-500/30 transition-all"
-      style={{ background: OM.bgPanel, border: `1px solid ${OM.border}` }}>
+    <div className="relative p-4 rounded-lg" style={{ background: OM.bgPanel, border: `1px solid ${OM.border}` }}>
       <div className="absolute top-0 left-0 w-12 h-0.5" style={{ background: accent }} />
       <div className="flex items-start justify-between mb-2">
-        <div>
-          <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>{label}</p>
-        </div>
+        <p className="text-[10px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>{label}</p>
         {Icon && (
           <div className="p-1.5 rounded" style={{ background: `${accent}12` }}>
             <Icon className="h-3.5 w-3.5" style={{ color: accent }} />
@@ -127,22 +103,14 @@ function StatBlock({ label, value, sub, accent = OM.blue, icon: Icon, delta, del
       </div>
       <p className="text-2xl font-black tabular-nums leading-none" style={{ color: OM.textBright }}>{value}</p>
       {sub && <p className="text-[10px] mt-2" style={{ color: OM.textDim }}>{sub}</p>}
-      {delta != null && (
-        <div className={`flex items-center gap-1 mt-2 text-[11px] font-bold`}
-          style={{ color: isPositive ? OM.emerald : OM.rose }}>
-          {isPositive ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
-          <span className="tabular-nums">{Math.abs(delta).toFixed(1)}%</span>
-          <span style={{ color: OM.textDim }} className="font-normal">vs anterior</span>
-        </div>
-      )}
     </div>
   );
 }
 
 // ============================================
-// FLOW STAGE (production funnel)
+// FLOW STAGE (production/cut funnel) — por peso
 // ============================================
-function FlowStage({ label, value, percent, color, icon: Icon, isLast }) {
+function FlowStage({ label, value, percent, color, icon: Icon, isLast, sub }) {
   return (
     <div className="flex items-center flex-1 min-w-0">
       <div className="flex-1 rounded-lg p-3 relative overflow-hidden"
@@ -153,12 +121,10 @@ function FlowStage({ label, value, percent, color, icon: Icon, isLast }) {
           {Icon && <Icon className="h-3 w-3" style={{ color }} />}
         </div>
         <p className="text-xl font-black tabular-nums" style={{ color: OM.textBright, textShadow: `0 0 6px ${color}30` }}>{fmtPeso(value)}</p>
-        <p className="text-[9px] mt-0.5 tabular-nums" style={{ color: OM.textDim }}>{percent.toFixed(1)}% do peso</p>
+        <p className="text-[9px] mt-0.5 tabular-nums" style={{ color: OM.textDim }}>{sub || `${percent.toFixed(1)}% do peso`}</p>
       </div>
       {!isLast && (
-        <div className="px-2 flex-shrink-0">
-          <ArrowRight className="h-4 w-4" style={{ color: OM.textDim }} />
-        </div>
+        <div className="px-2 flex-shrink-0"><ArrowRight className="h-4 w-4" style={{ color: OM.textDim }} /></div>
       )}
     </div>
   );
@@ -167,7 +133,7 @@ function FlowStage({ label, value, percent, color, icon: Icon, isLast }) {
 // ============================================
 // PROGRESS RING (compact)
 // ============================================
-function ProgressRing({ value, size = 60, color = OM.blue, label, sub }) {
+function ProgressRing({ value, size = 60, color = OM.blue, label }) {
   const radius = (size - 8) / 2;
   const circ = 2 * Math.PI * radius;
   const pct = Math.min(100, Math.max(0, value));
@@ -214,10 +180,7 @@ function BarList({ items, color = OM.blue, valueFormatter = fmt, max }) {
                 animate={{ width: `${pct}%` }}
                 transition={{ duration: 0.8, delay: i * 0.04 }}
                 className="absolute inset-y-0 left-0 rounded-full"
-                style={{
-                  background: `linear-gradient(90deg, ${item.color || color}, ${item.color || color}80)`,
-                  boxShadow: `0 0 4px ${item.color || color}60`,
-                }}
+                style={{ background: `linear-gradient(90deg, ${item.color || color}, ${item.color || color}80)`, boxShadow: `0 0 4px ${item.color || color}60` }}
               />
             </div>
           </div>
@@ -228,23 +191,41 @@ function BarList({ items, color = OM.blue, valueFormatter = fmt, max }) {
 }
 
 // ============================================
+// HELPERS de dados
+// ============================================
+const pesoDe = (p) => Number(p?.pesoTotal ?? p?.peso_total ?? p?.peso ?? 0) || 0;
+
+// Fluxo de corte (statusCorte)
+const CORTE_STAGES = [
+  { key: 'aguardando', label: 'Aguardando', cor: OM.textDim },
+  { key: 'programacao', label: 'Programação', cor: OM.blue },
+  { key: 'em_corte', label: 'Em corte', cor: OM.amber },
+  { key: 'conferencia', label: 'Conferência', cor: OM.violet },
+  { key: 'liberado', label: 'Liberado', cor: OM.emerald },
+];
+const CORTE_KEYS = CORTE_STAGES.map((s) => s.key);
+
+// Distribuição de saúde do estoque
+const SAUDE_META = [
+  { key: 'zerado', label: 'Zerado', cor: OM.rose },
+  { key: 'critico', label: 'Crítico', cor: OM.orange },
+  { key: 'baixo', label: 'Baixo', cor: OM.amber },
+  { key: 'atencao', label: 'Atenção', cor: OM.violet },
+  { key: 'saudavel', label: 'Saudável', cor: OM.emerald },
+  { key: 'entregue', label: 'Entregue', cor: OM.cyan },
+  { key: 'excesso', label: 'Excesso', cor: OM.blue },
+  { key: 'sem_minimo', label: 'Sem mínimo', cor: OM.textDimmer },
+];
+
+// ============================================
 // MAIN
 // ============================================
 export default function CommandCenterUltra() {
   const { obras } = useObras();
   const { pecas } = useProducao();
   const { estoque } = useEstoque();
+  const { expedicoes } = useExpedicao();
   const { funcionarios: funcionariosCad } = useEquipes();
-  const { lancamentosDespesas } = useLancamentos();
-  const { medicoes } = useMedicoes();
-  const fi = useFinancialIntelligence();
-
-  // Mapa id→nome dos funcionários (peças guardam o id em funcionario_<etapa>).
-  const mapaNomes = useMemo(() => {
-    const m = {};
-    (funcionariosCad || []).forEach((f) => { if (f?.id) m[String(f.id)] = f.nome || String(f.id); });
-    return m;
-  }, [funcionariosCad]);
 
   const [now, setNow] = useState(new Date());
   useEffect(() => {
@@ -252,40 +233,91 @@ export default function CommandCenterUltra() {
     return () => clearInterval(t);
   }, []);
 
-  // ===== Produção global (por PESO, ponderada) — fonte única: resumoProducao =====
+  const mapaNomes = useMemo(() => {
+    const m = {};
+    (funcionariosCad || []).forEach((f) => { if (f?.id) m[String(f.id)] = f.nome || String(f.id); });
+    return m;
+  }, [funcionariosCad]);
+
+  const obrasAtivas = useMemo(() => (obras || []).filter(o => !['cancelada', 'concluida', 'orcamento'].includes(o.status)), [obras]);
+
+  // ===== Produção global (por PESO) =====
   const resumoProd = useMemo(() => resumoProducao(pecas || []), [pecas]);
   const ETAPA_ICON = { aguardando: Layers, fabricacao: Factory, solda: Flame, pintura: Box, expedido: Truck, enviado: MapIcon, entregue: CheckCircle2 };
-  // Funil das 5 etapas ativas (aguardando → expedido); enviado/entregue = "finalizado".
   const pipeline = useMemo(() => {
     const total = resumoProd.totalPeso || 0;
     return resumoProd.porEtapa
       .filter((e) => ['aguardando', 'fabricacao', 'solda', 'pintura', 'expedido'].includes(e.key))
-      .map((e) => ({ key: e.key, label: e.label.replace(/ \(.*\)/, ''), icon: ETAPA_ICON[e.key] || Layers, color: e.cor, qtd: e.peso, total, percent: total > 0 ? (e.peso / total * 100) : 0 }));
+      .map((e) => ({ key: e.key, label: e.label.replace(/ \(.*\)/, ''), icon: ETAPA_ICON[e.key] || Layers, color: e.cor, peso: e.peso, total, percent: total > 0 ? (e.peso / total * 100) : 0 }));
   }, [resumoProd]);
-
   const totalPcs = (pecas || []).reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
   const pesoTotal = resumoProd.totalPeso;
-  const pesoConcluido = resumoProd.pesoConcluido;     // enviado + entregue
-  const eficiencia = resumoProd.progressoPct;          // progresso ponderado por peso
+  const pesoConcluido = resumoProd.pesoConcluido;   // enviado + entregue
+  const eficiencia = resumoProd.progressoPct;
 
-  // ===== Financial Top Line =====
-  const recMes = fi.kpisGerais?.faturamentoRealMes || 0;
-  const desMes = fi.kpisGerais?.despesaMensalMedia || 0;
-  const margem = fi.kpisGerais?.margemReal || 0;
-  const saldo = fi.kpisGerais?.saldoReal || 0;
-  const comp = fi.comparativo || {};
+  // ===== Corte (statusCorte) =====
+  const corte = useMemo(() => {
+    const stages = CORTE_STAGES.map((s) => ({ ...s, peso: 0, pecas: 0 }));
+    const idx = Object.fromEntries(stages.map((s, i) => [s.key, i]));
+    let totalPeso = 0;
+    (pecas || []).forEach((p) => {
+      const sc = p.statusCorte || p.status_corte;
+      if (!sc || !CORTE_KEYS.includes(sc)) return;
+      const linha = stages[idx[sc]];
+      const peso = pesoDe(p);
+      linha.peso += peso; linha.pecas += 1; totalPeso += peso;
+    });
+    const totalP = totalPeso || 0;
+    stages.forEach((s) => { s.peso = Math.round(s.peso); s.percent = totalP > 0 ? (s.peso / totalP * 100) : 0; });
+    const liberado = stages.find((s) => s.key === 'liberado');
+    return { stages, totalPeso: Math.round(totalP), liberadoPeso: liberado?.peso || 0, temDados: totalP > 0 };
+  }, [pecas]);
 
-  const obrasAtivas = (obras || []).filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
-  const backlog = obrasAtivas.reduce((s, o) => s + (o.contratoValorTotal || o.valorContrato || 0), 0);
+  // ===== Estoque (saúde + faltantes) =====
+  const estoqueKpis = useMemo(() => kpisEstoque(estoque || []), [estoque]);
+  const estoqueSaude = useMemo(() => {
+    return SAUDE_META
+      .map((s) => ({ ...s, n: estoqueKpis.porSaude?.[s.key] || 0 }))
+      .filter((s) => s.n > 0);
+  }, [estoqueKpis]);
+  const topFalta = useMemo(() => {
+    return resumoMaterialObra(estoque || []).linhas
+      .filter((l) => l.status !== 'entregue' && l.falta > 0)
+      .sort((a, b) => b.falta - a.falta)
+      .slice(0, 8);
+  }, [estoque]);
 
-  // ===== Team Performance (por PESO, toda etapa registrada — não só a atual) =====
+  // ===== Entrega / Expedição =====
+  const entrega = useMemo(() => {
+    const byKey = Object.fromEntries(resumoProd.porEtapa.map((e) => [e.key, e]));
+    const stages = [
+      { key: 'expedido', label: 'Fila de embarque', cor: OM.orange, peso: byKey.expedido?.peso || 0, pecas: byKey.expedido?.pecas || 0 },
+      { key: 'enviado', label: 'Em obra', cor: OM.amber, peso: byKey.enviado?.peso || 0, pecas: byKey.enviado?.pecas || 0 },
+      { key: 'entregue', label: 'Entregue', cor: OM.emerald, peso: byKey.entregue?.peso || 0, pecas: byKey.entregue?.pecas || 0 },
+    ];
+    const romaneios = (expedicoes || [])
+      .map((e) => ({
+        id: e.id,
+        romaneio: e.romaneio || e.id,
+        destino: e.destino || e.obraNome || '—',
+        status: e.status || '—',
+        peso: Number(e.pesoTotal || e.peso_total || 0) || 0,
+        nPecas: Array.isArray(e.pecas) ? e.pecas.length : (Array.isArray(e.pecasIds) ? e.pecasIds.length : (Array.isArray(e.pecas_ids) ? e.pecas_ids.length : 0)),
+      }))
+      .sort((a, b) => b.peso - a.peso)
+      .slice(0, 6);
+    const pesoEmbarcado = stages.reduce((s, x) => s + x.peso, 0);
+    return { stages, romaneios, nRomaneios: (expedicoes || []).length, pesoEmbarcado };
+  }, [resumoProd, expedicoes]);
+
+  // ===== Team Performance (por peso) =====
   const funcionarios = useMemo(() => {
     return porFuncionario(pecas || [], mapaNomes)
       .map((f) => ({ nome: f.funcionario, total: f.peso, etapas: f.porEtapa }))
       .slice(0, 8);
   }, [pecas, mapaNomes]);
 
-  // ===== GARGALOS DE MATERIAL consolidados (estoque faltante → peças não fabricáveis) =====
+  // ===== Gargalos de material (consolidado) =====
   const gargalos = useMemo(() => {
     const estPorObra = new Map();
     (estoque || []).forEach((e) => {
@@ -295,138 +327,60 @@ export default function CommandCenterUltra() {
       estPorObra.get(oid).push(e);
     });
     let pesoBloqueado = 0, pesoParcial = 0, faltaComprar = 0, nBloqueadas = 0;
-    const perfilMap = new Map();     // perfil → { perfil, faltaComprar, peso, obras:Set }
+    const perfilMap = new Map();
     const porObra = [];
     (obrasAtivas || []).forEach((o) => {
       const est = estPorObra.get(o.id);
       if (!est || !est.length) return;
       const pcsObra = (pecas || []).filter((p) => (p.obraId || p.obra_id) === o.id);
-      const mat = resumoMaterialObra(est);
-      const b = bloqueioFabricacao(pcsObra, mat.linhas);
+      const b = bloqueioFabricacao(pcsObra, resumoMaterialObra(est).linhas);
       if (b.itens.length === 0) return;
       pesoBloqueado += b.pesoBloqueado; pesoParcial += b.pesoParcial;
       faltaComprar += b.faltaComprarTotal; nBloqueadas += b.nBloqueadas;
-      porObra.push({ id: o.id, codigo: o.codigo, nome: o.nome, pesoBloqueado: b.pesoBloqueado, pesoParcial: b.pesoParcial, faltaComprar: b.faltaComprarTotal, nBloqueadas: b.nBloqueadas });
+      porObra.push({ id: o.id, pesoBloqueado: b.pesoBloqueado, faltaComprar: b.faltaComprarTotal });
       (b.porPerfil || []).forEach((g) => {
-        const k = g.perfil;
-        if (!perfilMap.has(k)) perfilMap.set(k, { perfil: g.perfil, faltaComprar: 0, peso: 0, obras: new Set() });
-        const acc = perfilMap.get(k);
-        acc.faltaComprar += g.faltaComprar; acc.peso += g.peso; acc.obras.add(o.codigo || o.id);
+        if (!perfilMap.has(g.perfil)) perfilMap.set(g.perfil, { perfil: g.perfil, faltaComprar: 0, obras: new Set() });
+        const acc = perfilMap.get(g.perfil);
+        acc.faltaComprar += g.faltaComprar; acc.obras.add(o.codigo || o.id);
       });
     });
-    const topPerfis = [...perfilMap.values()]
-      .map((p) => ({ ...p, nObras: p.obras.size }))
+    const topPerfis = [...perfilMap.values()].map((p) => ({ ...p, nObras: p.obras.size }))
       .sort((a, b) => b.faltaComprar - a.faltaComprar).slice(0, 8);
     return {
       pesoBloqueado, pesoParcial, faltaComprar, nBloqueadas,
       pctTravado: pesoTotal > 0 ? ((pesoBloqueado + pesoParcial) / pesoTotal * 100) : 0,
-      porObra: porObra.sort((a, b) => b.pesoBloqueado - a.pesoBloqueado),
-      topPerfis,
+      porObra, topPerfis,
     };
   }, [estoque, obrasAtivas, pecas, pesoTotal]);
 
-  // ===== Cash Flow histórico =====
-  const cashHist = useMemo(() => {
-    if (!fi.evolucaoMensal) return [];
-    return fi.evolucaoMensal.slice(-6).map(m => ({
-      mes: m.mesLabel,
-      receita: m.faturamentoReal || 0,
-      despesa: m.custo || 0,
-      lucro: (m.faturamentoReal || 0) - (m.custo || 0),
-    }));
-  }, [fi]);
-
-  // ===== Próximos Vencimentos =====
-  const proxVenc = useMemo(() => {
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    const em30 = new Date(); em30.setDate(em30.getDate() + 30);
-    return (lancamentosDespesas || [])
-      .filter(l => {
-        if (l.status === 'pago') return false;
-        const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
-        return v && v >= hoje && v <= em30;
-      })
-      .sort((a, b) => parseLocalDate(a.dataVencimento || a.data_vencimento) - parseLocalDate(b.dataVencimento || b.data_vencimento))
-      .slice(0, 6);
-  }, [lancamentosDespesas]);
-
-  // ===== Atrasadas =====
-  const atrasadas = useMemo(() => {
-    const hoje = new Date(); hoje.setHours(0,0,0,0);
-    return (lancamentosDespesas || []).filter(l => {
-      if (l.status === 'pago') return false;
-      const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
-      return v && v < hoje;
-    });
-  }, [lancamentosDespesas]);
-
-  const atrasadasTotal = atrasadas.reduce((s, a) => s + (a.valor || 0), 0);
-
-  // ===== Obras ranking (progresso por PESO + risco de material) =====
+  // ===== Portfolio de obras (operacional) =====
   const obrasRank = useMemo(() => {
     const riscoPorObra = Object.fromEntries((gargalos.porObra || []).map((g) => [g.id, g]));
     return obrasAtivas.map(o => {
       const pcsObra = (pecas || []).filter(p => (p.obraId || p.obra_id) === o.id);
       const rp = resumoProducao(pcsObra);
-      const recObra = (medicoes || []).filter(m => (m.obraId || m.obra_id) === o.id
-        && ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
-        .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
-      const valor = o.contratoValorTotal || o.valorContrato || 0;
       const risco = riscoPorObra[o.id];
       return {
         ...o,
-        pcs: pcsObra.length, pesoTotal: rp.totalPeso, pesoConcluido: rp.pesoConcluido, valor, recObra,
+        pcs: pcsObra.length, pesoTotal: rp.totalPeso, pesoConcluido: rp.pesoConcluido,
         prog: rp.progressoPct,
-        fatura: valor > 0 ? (recObra / valor * 100) : 0,
         pesoBloqueado: risco?.pesoBloqueado || 0,
       };
-    }).sort((a, b) => b.valor - a.valor).slice(0, 6);
-  }, [obrasAtivas, pecas, medicoes, gargalos]);
-
-  // ===== Categorias despesa =====
-  const categorias = useMemo(() => {
-    const map = {};
-    (lancamentosDespesas || []).forEach(l => {
-      if (l.obraId || l.obra_id) return;
-      const cat = l.categoria || 'Outros';
-      if (!map[cat]) map[cat] = 0;
-      map[cat] += l.valor || 0;
-    });
-    const cores = [OM.blue, OM.violet, OM.cyan, OM.orange, OM.emerald, OM.amber, OM.rose];
-    return Object.entries(map).map(([label, value], i) => ({ label, value, color: cores[i % cores.length] }))
-      .sort((a, b) => b.value - a.value).slice(0, 6);
-  }, [lancamentosDespesas]);
-
-  // ===== Receita por obra (treemap data) =====
-  const receitaPorObra = useMemo(() => {
-    return obrasAtivas.map(o => {
-      const rec = (medicoes || []).filter(m => (m.obraId || m.obra_id) === o.id
-        && ['paga','pago','recebido','faturado','confirmado'].includes(m.status))
-        .reduce((s, m) => s + (m.valorBruto || m.valor_bruto || 0), 0);
-      return { name: o.codigo || o.id, size: rec, fill: OM.blue };
-    }).filter(x => x.size > 0).sort((a, b) => b.size - a.size).slice(0, 10);
-  }, [obrasAtivas, medicoes]);
+    }).sort((a, b) => b.pesoTotal - a.pesoTotal).slice(0, 6);
+  }, [obrasAtivas, pecas, gargalos]);
 
   return (
     <div className="min-h-screen -m-4 p-4 relative" style={{ background: OM.bgDeep }}>
-      {/* Blueprint pattern */}
       <div className="fixed inset-0 pointer-events-none opacity-[0.03]" style={{
-        backgroundImage: `
-          linear-gradient(${OM.blue} 1px, transparent 1px),
-          linear-gradient(90deg, ${OM.blue} 1px, transparent 1px)
-        `,
+        backgroundImage: `linear-gradient(${OM.blue} 1px, transparent 1px), linear-gradient(90deg, ${OM.blue} 1px, transparent 1px)`,
         backgroundSize: '24px 24px',
       }} />
 
       {/* ============ HEADER ============ */}
       <div className="relative mb-4 rounded-lg overflow-hidden"
-        style={{
-          background: `linear-gradient(135deg, ${OM.bgPanel}, ${OM.bgPanelAlt})`,
-          border: `1px solid ${OM.borderStrong}`,
-          boxShadow: `0 4px 24px -4px ${OM.blue}20`,
-        }}>
+        style={{ background: `linear-gradient(135deg, ${OM.bgPanel}, ${OM.bgPanelAlt})`, border: `1px solid ${OM.borderStrong}`, boxShadow: `0 4px 24px -4px ${OM.blue}20` }}>
         <div className="absolute top-0 left-0 right-0 h-0.5" style={{ background: `linear-gradient(90deg, ${OM.blue}, ${OM.orange}, ${OM.emerald})` }} />
-        <div className="px-6 py-4 flex items-center justify-between">
+        <div className="px-6 py-4 flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
             <div className="relative">
               <div className="absolute inset-0 rounded-xl blur opacity-60" style={{ background: OM.blue }} />
@@ -435,13 +389,13 @@ export default function CommandCenterUltra() {
               </div>
             </div>
             <div>
-              <p className="text-[10px] font-mono uppercase tracking-[0.3em]" style={{ color: OM.blue }}>MONTEX OMEGA // CMD_CTRL</p>
+              <p className="text-[10px] font-mono uppercase tracking-[0.3em]" style={{ color: OM.blue }}>MONTEX OMEGA // OPS_CTRL</p>
               <h1 className="text-2xl font-black text-white tracking-tight">Command Center Ultra</h1>
               <p className="text-xs mt-0.5" style={{ color: OM.textDim }}>{now.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}</p>
             </div>
           </div>
 
-          <div className="flex items-center gap-8">
+          <div className="flex items-center gap-8 flex-wrap">
             <div className="text-center">
               <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Operações</p>
               <p className="text-2xl font-black tabular-nums" style={{ color: OM.blue }}>{obrasAtivas.length}</p>
@@ -461,40 +415,104 @@ export default function CommandCenterUltra() {
             </div>
             <div className="w-px h-12" style={{ background: OM.border }} />
             <div className="text-center">
-              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Backlog</p>
-              <p className="text-2xl font-black tabular-nums" style={{ color: OM.violet }}>{fmtR$(backlog)}</p>
-              <p className="text-[9px]" style={{ color: OM.textDim }}>{obrasAtivas.length} contratos</p>
+              <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.textDim }}>Entregue</p>
+              <p className="text-2xl font-black tabular-nums" style={{ color: OM.emerald }}>{fmtPeso(pesoConcluido)}</p>
+              <p className="text-[9px]" style={{ color: OM.textDim }}>em obra + concluído</p>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ============ STAT ROW ============ */}
+      {/* ============ STAT ROW (operacional) ============ */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
-        <StatBlock label="Receita Mensal" value={fmtR$(recMes)} sub={`meta ${fmtR$(fi.kpisGerais?.metaReceitaDinamica || 0)}`} accent={OM.emerald} icon={DollarSign} delta={comp.deltaReceitas} />
-        <StatBlock label="Despesa Mensal" value={fmtR$(desMes)} sub="todos custos" accent={OM.rose} icon={Flame} delta={comp.deltaDespesas} deltaPositive={comp.deltaDespesas <= 0} />
-        <StatBlock label="Lucro Operacional" value={fmtR$(recMes - desMes)} sub={`margem ${fmtPct(margem)}`} accent={OM.blue} icon={TrendingUp} delta={comp.deltaLucro} />
-        <StatBlock label="Saldo Caixa" value={fmtR$(saldo)} sub={saldo >= 0 ? 'positivo' : 'atenção'} accent={saldo >= 0 ? OM.cyan : OM.rose} icon={Wallet} />
+        <StatBlock label="Produção" value={fmtPeso(pesoTotal)} sub={`${fmt(totalPcs)} peças · ${obrasAtivas.length} obras`} accent={OM.orange} icon={Factory} />
+        <StatBlock label="Corte liberado" value={corte.temDados ? fmtPeso(corte.liberadoPeso) : '—'} sub={corte.temDados ? `de ${fmtPeso(corte.totalPeso)} em corte` : 'sem dados de corte'} accent={OM.emerald} icon={Scissors} />
+        <StatBlock label="Estoque — cobertura" value={estoqueKpis.coberturaPct != null ? `${estoqueKpis.coberturaPct}%` : '—'} sub={`falta ${fmtPeso(estoqueKpis.totalFalta)} · ${fmt(estoqueKpis.alertas)} alertas`} accent={estoqueKpis.alertas > 0 ? OM.rose : OM.cyan} icon={Warehouse} />
+        <StatBlock label="Entrega" value={fmtPeso(entrega.pesoEmbarcado)} sub={`${fmt(entrega.nRomaneios)} romaneio(s)`} accent={OM.violet} icon={Truck} />
       </div>
 
       {/* ============ PRODUCTION FLOW ============ */}
-      <Section title="Production Flow" sub="funil de produção por peso (ponderado)" icon={Factory} accent={OM.orange} className="mb-4"
+      <Section title="Fluxo de Produção" sub="funil por peso (ponderado)" icon={Factory} accent={OM.orange} className="mb-4"
         action={<span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmt(totalPcs)} pcs · {fmtPeso(pesoTotal)}</span>}>
-        <div className="flex items-stretch gap-1">
+        <div className="flex items-stretch gap-1 flex-wrap">
           {pipeline.map((s, i) => {
-            const { key, ...rest } = s; // key fora do spread (senão React avisa "key prop spread")
-            return <FlowStage key={key} {...rest} value={s.qtd} percent={s.percent} isLast={i === pipeline.length - 1} />;
+            const { key, ...rest } = s;
+            return <FlowStage key={key} {...rest} value={s.peso} percent={s.percent} isLast={i === pipeline.length - 1} />;
           })}
           <div className="flex flex-col items-center justify-center px-3 ml-2 rounded-lg"
             style={{ background: `linear-gradient(135deg, ${OM.emerald}20, ${OM.emerald}10)`, border: `1px solid ${OM.emerald}40` }}>
-            <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.emerald }}>Finalizado</p>
+            <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.emerald }}>Concluído</p>
             <p className="text-2xl font-black tabular-nums" style={{ color: OM.emerald }}>{fmtPeso(pesoConcluido)}</p>
             <p className="text-[9px] tabular-nums" style={{ color: OM.emerald }}>{fmtPct(eficiencia)}</p>
           </div>
         </div>
       </Section>
 
-      {/* ============ GARGALOS DE MATERIAL (estoque faltante → não fabricável) ============ */}
+      {/* ============ CORTE + ESTOQUE ============ */}
+      <div className="grid grid-cols-12 gap-4 mb-4">
+        {/* Corte */}
+        <Section title="Corte de Material" sub="fluxo de corte por peso (statusCorte)" icon={Scissors} accent={OM.amber} className="col-span-12 lg:col-span-6"
+          action={corte.temDados ? <span className="text-[10px] font-mono" style={{ color: OM.textDim }}>{fmtPeso(corte.totalPeso)}</span> : null}>
+          {!corte.temDados ? (
+            <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem peças com status de corte registrado</p>
+          ) : (
+            <>
+              <div className="flex items-stretch gap-1 mb-3">
+                {corte.stages.map((s, i) => (
+                  <FlowStage key={s.key} label={s.label} value={s.peso} percent={s.percent} color={s.cor}
+                    sub={`${fmt(s.pecas)} pç`} isLast={i === corte.stages.length - 1} />
+                ))}
+              </div>
+              <div className="flex items-center justify-between p-2.5 rounded-lg" style={{ background: `${OM.emerald}10`, border: `1px solid ${OM.emerald}30` }}>
+                <span className="text-[11px] font-semibold" style={{ color: OM.emerald }}>Liberado para fabricação</span>
+                <span className="text-lg font-black tabular-nums" style={{ color: OM.emerald }}>{fmtPeso(corte.liberadoPeso)}</span>
+              </div>
+            </>
+          )}
+        </Section>
+
+        {/* Estoque */}
+        <Section title="Estoque de Material" sub="saúde e cobertura da fábrica" icon={Warehouse} accent={OM.cyan} className="col-span-12 lg:col-span-6"
+          action={<span className="text-[10px] font-mono" style={{ color: estoqueKpis.alertas > 0 ? OM.rose : OM.emerald }}>{fmt(estoqueKpis.nItens)} itens</span>}>
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            <div className="p-2.5 rounded-lg text-center" style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
+              <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Cobertura</p>
+              <p className="text-lg font-black tabular-nums" style={{ color: OM.cyan }}>{estoqueKpis.coberturaPct != null ? `${estoqueKpis.coberturaPct}%` : '—'}</p>
+            </div>
+            <div className="p-2.5 rounded-lg text-center" style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
+              <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Falta</p>
+              <p className="text-lg font-black tabular-nums" style={{ color: OM.amber }}>{fmtPeso(estoqueKpis.totalFalta)}</p>
+            </div>
+            <div className="p-2.5 rounded-lg text-center" style={{ background: OM.bgRail, border: `1px solid ${estoqueKpis.alertas > 0 ? OM.rose + '40' : OM.border}` }}>
+              <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Alertas</p>
+              <p className="text-lg font-black tabular-nums" style={{ color: estoqueKpis.alertas > 0 ? OM.rose : OM.emerald }}>{fmt(estoqueKpis.alertas)}</p>
+            </div>
+          </div>
+          {estoqueSaude.length > 0 && (
+            <div className="flex h-2 rounded-full overflow-hidden mb-2" style={{ background: OM.bgRail }}>
+              {estoqueSaude.map((s) => (
+                <div key={s.key} style={{ width: `${(s.n / estoqueKpis.nItens) * 100}%`, background: s.cor }} title={`${s.label}: ${s.n}`} />
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap gap-x-3 gap-y-1 mb-3">
+            {estoqueSaude.map((s) => (
+              <span key={s.key} className="flex items-center gap-1 text-[9px]" style={{ color: OM.textDim }}>
+                <span className="w-2 h-2 rounded-full" style={{ background: s.cor }} /> {s.label} {s.n}
+              </span>
+            ))}
+          </div>
+          {topFalta.length > 0 && (
+            <>
+              <p className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: OM.textDim }}>Maiores faltas (kg por perfil)</p>
+              <BarList color={OM.amber} valueFormatter={fmtPeso}
+                items={topFalta.slice(0, 6).map((l) => ({ label: l.perfil, value: l.falta, color: l.status === 'faltando' ? OM.rose : OM.amber }))} />
+            </>
+          )}
+        </Section>
+      </div>
+
+      {/* ============ GARGALOS DE MATERIAL ============ */}
       <Section title="Gargalos de Material" sub="estoque faltante × peças não fabricáveis · todas as obras" icon={PackageX} accent={OM.rose} className="mb-4"
         action={<span className="text-[10px] font-mono" style={{ color: gargalos.pesoBloqueado > 0 ? OM.rose : OM.emerald }}>{fmtPct(gargalos.pctTravado)} do peso travado</span>}>
         {gargalos.pesoBloqueado === 0 && gargalos.pesoParcial === 0 ? (
@@ -504,9 +522,8 @@ export default function CommandCenterUltra() {
           </div>
         ) : (
           <div className="grid grid-cols-12 gap-4">
-            {/* KPIs + top perfis a comprar */}
-            <div className="col-span-5">
-              <div className="grid grid-cols-2 gap-2 mb-3">
+            <div className="col-span-12 md:col-span-5">
+              <div className="grid grid-cols-2 gap-2">
                 <div className="p-3 rounded-lg" style={{ background: `${OM.rose}10`, border: `1px solid ${OM.rose}30` }}>
                   <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.rose }}>Não fabricável</p>
                   <p className="text-xl font-black tabular-nums" style={{ color: OM.rose }}>{fmtPeso(gargalos.pesoBloqueado)}</p>
@@ -528,8 +545,7 @@ export default function CommandCenterUltra() {
                 </div>
               </div>
             </div>
-            {/* Top perfis a comprar (agregado entre obras) */}
-            <div className="col-span-7">
+            <div className="col-span-12 md:col-span-7">
               <p className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: OM.textDim }}>Prioridade de compra — perfis (kg agregado entre obras)</p>
               {gargalos.topPerfis.length === 0 ? (
                 <p className="text-xs italic" style={{ color: OM.textDim }}>Sem perfis pendentes</p>
@@ -538,67 +554,45 @@ export default function CommandCenterUltra() {
                   items={gargalos.topPerfis.map((p) => ({ label: `${p.perfil}  ·  ${p.nObras} obra(s)`, value: p.faltaComprar, color: OM.cyan }))} />
               )}
             </div>
-            {/* Por obra */}
-            {gargalos.porObra.length > 0 && (
-              <div className="col-span-12 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2 mt-1">
-                {gargalos.porObra.map((o) => (
-                  <div key={o.id} className="p-2.5 rounded-lg" style={{ background: OM.bgRail, border: `1px solid ${OM.rose}20` }}>
-                    <p className="text-[10px] font-bold text-white truncate">{o.codigo || o.id}</p>
-                    <p className="text-[9px] truncate mb-1" style={{ color: OM.textDim }}>{o.nome}</p>
-                    <div className="flex items-center justify-between text-[10px]">
-                      <span style={{ color: OM.rose }} className="font-bold tabular-nums">{fmtPeso(o.pesoBloqueado)}</span>
-                      <span style={{ color: OM.cyan }} className="tabular-nums">comprar {fmtPeso(o.faltaComprar)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
       </Section>
 
-      {/* ============ MIDDLE ROW: Cash Flow + Categorias ============ */}
+      {/* ============ ENTREGA + TEAM ============ */}
       <div className="grid grid-cols-12 gap-4 mb-4">
-        <Section title="Cash Flow Histórico" sub="evolução 6 meses" icon={BarChart3} accent={OM.blue} className="col-span-8">
-          <ResponsiveContainer width="100%" height={240}>
-            <ComposedChart data={cashHist}>
-              <defs>
-                <linearGradient id="rec-ult" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={OM.emerald} stopOpacity={0.4} />
-                  <stop offset="100%" stopColor={OM.emerald} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="des-ult" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={OM.rose} stopOpacity={0.4} />
-                  <stop offset="100%" stopColor={OM.rose} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke={OM.border} />
-              <XAxis dataKey="mes" stroke={OM.textDim} fontSize={10} />
-              <YAxis stroke={OM.textDim} fontSize={10} tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
-              <Tooltip
-                contentStyle={{ background: OM.bgPanel, border: `1px solid ${OM.borderStrong}`, borderRadius: '6px', fontSize: '11px' }}
-                formatter={(v) => fmtR$(v)}
-              />
-              <Legend wrapperStyle={{ fontSize: '10px', color: OM.textDim }} />
-              <Area type="monotone" dataKey="receita" name="Receita" stroke={OM.emerald} fill="url(#rec-ult)" strokeWidth={2} />
-              <Area type="monotone" dataKey="despesa" name="Despesa" stroke={OM.rose} fill="url(#des-ult)" strokeWidth={2} />
-              <Line type="monotone" dataKey="lucro" name="Lucro" stroke={OM.blue} strokeWidth={2.5} dot={{ r: 4, fill: OM.blue }} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </Section>
-
-        <Section title="Top Categorias" sub="despesas operacionais" icon={Layers} accent={OM.violet} className="col-span-4">
-          {categorias.length === 0 ? (
-            <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem categorização</p>
+        {/* Entrega / Expedição */}
+        <Section title="Entrega & Expedição" sub="embarque → em obra → concluído" icon={Send} accent={OM.violet} className="col-span-12 lg:col-span-6">
+          <div className="grid grid-cols-3 gap-2 mb-3">
+            {entrega.stages.map((s) => (
+              <div key={s.key} className="p-2.5 rounded-lg text-center" style={{ background: `${s.cor}10`, border: `1px solid ${s.cor}30` }}>
+                <p className="text-[9px] uppercase tracking-wider font-bold" style={{ color: s.cor }}>{s.label}</p>
+                <p className="text-lg font-black tabular-nums" style={{ color: s.cor }}>{fmtPeso(s.peso)}</p>
+                <p className="text-[9px]" style={{ color: OM.textDim }}>{fmt(s.pecas)} pç</p>
+              </div>
+            ))}
+          </div>
+          {entrega.romaneios.length === 0 ? (
+            <p className="text-center text-xs italic py-3" style={{ color: OM.textDim }}>Sem romaneios de expedição</p>
           ) : (
-            <BarList items={categorias} valueFormatter={fmtR$} />
+            <>
+              <p className="text-[10px] uppercase tracking-widest font-bold mb-2" style={{ color: OM.textDim }}>Romaneios (maiores)</p>
+              <div className="space-y-1.5">
+                {entrega.romaneios.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between gap-2 p-2 rounded-lg text-[11px]" style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-white truncate font-medium">{r.romaneio} <span style={{ color: OM.textDim }}>· {r.destino}</span></p>
+                      <p className="text-[9px]" style={{ color: OM.textDim }}>{r.status} · {fmt(r.nPecas)} pç</p>
+                    </div>
+                    <span className="font-bold tabular-nums" style={{ color: OM.violet }}>{fmtPeso(r.peso)}</span>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </Section>
-      </div>
 
-      {/* ============ TEAM PERFORMANCE + RECEITA POR OBRA ============ */}
-      <div className="grid grid-cols-12 gap-4 mb-4">
-        <Section title="Team Performance" sub="ranking por peso produzido (todas as etapas registradas)" icon={Users} accent={OM.amber} className="col-span-7">
+        {/* Team Performance */}
+        <Section title="Produção por Funcionário" sub="ranking por peso (todas as etapas registradas)" icon={Users} accent={OM.amber} className="col-span-12 lg:col-span-6">
           {funcionarios.length === 0 ? (
             <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem registros de produção por funcionário</p>
           ) : (
@@ -609,8 +603,7 @@ export default function CommandCenterUltra() {
                 const medalha = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : null;
                 const corRank = i === 0 ? OM.amber : i === 1 ? OM.cyan : i === 2 ? OM.orange : OM.blue;
                 return (
-                  <div key={f.nome} className="relative p-3 rounded-lg"
-                    style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
+                  <div key={f.nome} className="relative p-3 rounded-lg" style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
                     <div className="flex items-center gap-2 mb-2">
                       <div className="flex items-center justify-center w-7 h-7 rounded-full font-mono text-xs font-bold"
                         style={{ background: `${corRank}20`, color: corRank, border: `1px solid ${corRank}40` }}>
@@ -631,68 +624,32 @@ export default function CommandCenterUltra() {
             </div>
           )}
         </Section>
-
-        <Section title="Receita por Obra" sub="treemap de faturamento" icon={MapIcon} accent={OM.cyan} className="col-span-5">
-          {receitaPorObra.length === 0 ? (
-            <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem receitas registradas</p>
-          ) : (
-            <ResponsiveContainer width="100%" height={240}>
-              <Treemap data={receitaPorObra} dataKey="size" stroke={OM.bgDeep} fill={OM.blue}
-                content={({ x, y, width, height, name, size }) => (
-                  <g>
-                    <rect x={x} y={y} width={width} height={height}
-                      fill={OM.blue}
-                      fillOpacity={Math.min(0.9, 0.3 + ((Number(size) || 0) / (receitaPorObra[0]?.size || 1)) * 0.6)}
-                      stroke={OM.bgDeep} strokeWidth={2} />
-                    {width > 50 && height > 30 && (
-                      <>
-                        <text x={x + width / 2} y={y + height / 2 - 4} textAnchor="middle"
-                          fill="white" fontSize={Math.min(11, width / 8)} fontWeight="bold">{name}</text>
-                        <text x={x + width / 2} y={y + height / 2 + 10} textAnchor="middle"
-                          fill="rgba(255,255,255,0.7)" fontSize={9}>{fmtR$(size)}</text>
-                      </>
-                    )}
-                  </g>
-                )}
-              />
-            </ResponsiveContainer>
-          )}
-        </Section>
       </div>
 
-      {/* ============ OBRAS RANKING (DETAIL) ============ */}
-      <Section title="Portfolio de Obras" sub="top 6 por valor de contrato" icon={Briefcase} accent={OM.blue} className="mb-4"
+      {/* ============ PORTFOLIO DE OBRAS (operacional) ============ */}
+      <Section title="Portfolio de Obras" sub="top 6 por peso · progresso, entrega e material" icon={Briefcase} accent={OM.blue}
         action={<span className="text-[10px]" style={{ color: OM.textDim }}>{obrasAtivas.length} ativas</span>}>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
           {obrasRank.map(o => {
             const corProg = o.prog >= 75 ? OM.emerald : o.prog >= 50 ? OM.cyan : o.prog >= 25 ? OM.amber : OM.rose;
-            const corFat = o.fatura >= 75 ? OM.emerald : o.fatura >= 50 ? OM.cyan : OM.violet;
             return (
-              <div key={o.id} className="relative p-4 rounded-lg group hover:border-blue-500/40 transition-all"
-                style={{ background: OM.bgPanel, border: `1px solid ${OM.border}` }}>
+              <div key={o.id} className="relative p-4 rounded-lg" style={{ background: OM.bgPanel, border: `1px solid ${OM.border}` }}>
                 <div className="flex items-start justify-between gap-2 mb-3">
                   <div className="min-w-0 flex-1">
                     <span className="font-mono text-[9px] px-1.5 py-0.5 rounded" style={{ background: `${OM.blue}15`, color: OM.blue }}>{o.codigo}</span>
                     <p className="text-sm font-bold text-white mt-1 truncate">{o.nome}</p>
                     <p className="text-[10px] truncate" style={{ color: OM.textDim }}>{o.cliente || '—'}</p>
                   </div>
-                  <div className="flex items-center gap-3 flex-shrink-0">
-                    <ProgressRing value={o.prog} color={corProg} size={48} label="Prod" />
-                    <ProgressRing value={o.fatura} color={corFat} size={48} label="Fat" />
-                  </div>
+                  <ProgressRing value={o.prog} color={corProg} size={52} label="Prod" />
                 </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
-                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Contrato</p>
-                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.violet }}>{fmtR$(o.valor)}</p>
-                  </div>
-                  <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
-                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Recebido</p>
-                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.emerald }}>{fmtR$(o.recObra)}</p>
-                  </div>
+                <div className="grid grid-cols-2 gap-2 text-center">
                   <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
                     <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Peso</p>
-                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.blue }}>{fmtPeso(o.pesoConcluido)}/{fmtPeso(o.pesoTotal)}</p>
+                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.blue }}>{fmtPeso(o.pesoTotal)}</p>
+                  </div>
+                  <div className="p-1.5 rounded" style={{ background: OM.bgRail }}>
+                    <p className="text-[9px] uppercase tracking-wider" style={{ color: OM.textDim }}>Entregue</p>
+                    <p className="text-xs font-bold tabular-nums" style={{ color: OM.emerald }}>{fmtPeso(o.pesoConcluido)}</p>
                   </div>
                 </div>
                 {o.pesoBloqueado > 0 && (
@@ -708,86 +665,13 @@ export default function CommandCenterUltra() {
         </div>
       </Section>
 
-      {/* ============ FOOTER: VENCIMENTOS + ATRASADAS ============ */}
-      <div className="grid grid-cols-12 gap-4">
-        <Section title="Próximos Vencimentos" sub="30 dias" icon={Calendar} accent={OM.amber} className="col-span-7">
-          {proxVenc.length === 0 ? (
-            <div className="text-center py-6">
-              <CheckCircle2 className="h-8 w-8 mx-auto mb-2" style={{ color: OM.emerald }} />
-              <p className="text-xs font-bold" style={{ color: OM.emerald }}>Sem vencimentos nos próximos 30 dias</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {proxVenc.map((v, i) => {
-                const dt = parseLocalDate(v.dataVencimento || v.data_vencimento);
-                const hoje = new Date(); hoje.setHours(0,0,0,0);
-                const dias = Math.ceil((dt - hoje) / (1000 * 60 * 60 * 24));
-                const urg = dias <= 3 ? OM.rose : dias <= 7 ? OM.amber : OM.blue;
-                return (
-                  <div key={i} className="flex items-center gap-3 p-2.5 rounded-lg group hover:bg-blue-500/5 transition-all"
-                    style={{ background: OM.bgRail, border: `1px solid ${OM.border}` }}>
-                    <div className="flex flex-col items-center justify-center w-12 h-12 rounded-lg flex-shrink-0"
-                      style={{ background: `${urg}15`, border: `1px solid ${urg}40` }}>
-                      <span className="text-[8px] uppercase tracking-widest font-bold" style={{ color: urg }}>{dt?.toLocaleDateString('pt-BR', { month: 'short' }).slice(0, 3)}</span>
-                      <span className="text-base font-black tabular-nums" style={{ color: urg }}>{dt?.getDate()}</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-white truncate">{v.descricao || v.fornecedor || 'Despesa'}</p>
-                      <p className="text-[10px]" style={{ color: OM.textDim }}>{v.categoria || '—'} · em {dias} dia(s)</p>
-                    </div>
-                    <p className="text-sm font-bold tabular-nums" style={{ color: urg }}>{fmtR$(v.valor)}</p>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </Section>
-
-        <Section title="Atrasadas" sub="ação necessária" icon={AlertTriangle} accent={OM.rose} className="col-span-5">
-          {atrasadas.length === 0 ? (
-            <div className="text-center py-6">
-              <CheckCircle2 className="h-8 w-8 mx-auto mb-2" style={{ color: OM.emerald }} />
-              <p className="text-xs font-bold" style={{ color: OM.emerald }}>Nenhuma despesa atrasada</p>
-              <p className="text-[10px] mt-1" style={{ color: OM.textDim }}>Operação em dia</p>
-            </div>
-          ) : (
-            <>
-              <div className="mb-3 p-3 rounded-lg text-center" style={{ background: `${OM.rose}10`, border: `1px solid ${OM.rose}40` }}>
-                <p className="text-[9px] uppercase tracking-widest font-bold" style={{ color: OM.rose }}>Total atrasado</p>
-                <p className="text-2xl font-black tabular-nums" style={{ color: OM.rose, textShadow: `0 0 8px ${OM.rose}40` }}>{fmtR$(atrasadasTotal)}</p>
-                <p className="text-[10px]" style={{ color: OM.textDim }}>{atrasadas.length} lançamento(s) vencido(s)</p>
-              </div>
-              <div className="space-y-1.5 max-h-44 overflow-y-auto custom-scroll">
-                {atrasadas.slice(0, 6).map((a, i) => {
-                  const dt = parseLocalDate(a.dataVencimento || a.data_vencimento);
-                  const hoje = new Date(); hoje.setHours(0,0,0,0);
-                  const dias = Math.floor((hoje - dt) / (1000 * 60 * 60 * 24));
-                  return (
-                    <div key={i} className="flex items-center justify-between gap-2 p-2 rounded text-[11px]"
-                      style={{ background: OM.bgRail, border: `1px solid ${OM.rose}20` }}>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white truncate font-medium">{a.descricao || a.fornecedor || 'Despesa'}</p>
-                        <p style={{ color: OM.rose }} className="text-[9px] font-bold">-{dias} dia(s) · {dt?.toLocaleDateString('pt-BR')}</p>
-                      </div>
-                      <p className="font-bold tabular-nums" style={{ color: OM.rose }}>{fmtR$(a.valor)}</p>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
-        </Section>
-      </div>
-
       {/* Footer */}
       <div className="mt-4 text-center text-[10px] font-mono" style={{ color: OM.textDim }}>
-        MONTEX OMEGA · COMMAND CENTER ULTRA v5 · {now.toLocaleTimeString('pt-BR')}
+        MONTEX OMEGA · COMMAND CENTER ULTRA v5 · OPERAÇÕES · {now.toLocaleTimeString('pt-BR')}
       </div>
 
       <style>{`
-        @keyframes spin-slow {
-          to { transform: rotate(360deg); }
-        }
+        @keyframes spin-slow { to { transform: rotate(360deg); } }
         .animate-spin-slow { animation: spin-slow 12s linear infinite; }
         .custom-scroll::-webkit-scrollbar { width: 4px; }
         .custom-scroll::-webkit-scrollbar-track { background: transparent; }
