@@ -90,15 +90,15 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
 
   // Introdução
   doc.setTextColor(100, 116, 139); doc.setFontSize(8.5);
-  doc.text('Cruza o material recebido no estoque da obra (necessário × entregue) com as peças ainda não fabricadas', M, y);
-  doc.text('(Aguardando/Fabricação) e indica quais marcas CONSEGUEM e quais NÃO conseguem ser fabricadas.', M, y + 4);
+  doc.text('Aloca o material recebido no estoque da obra (entregue) às peças ainda não fabricadas (Aguardando/', M, y);
+  doc.text('Fabricação). As que cabem no material disponível CONSEGUEM ser fabricadas; o restante NÃO consegue.', M, y + 4);
   y += 11;
 
-  // KPIs (fabricável / parcial / não fabricável)
+  // KPIs (consegue / não consegue / sem info)
   const kpis = [
-    ['✓ Consegue fabricar', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${fmtNum(R.qtdFabricaveis)} un`, '#22c55e'],
-    ['⚠ Parcial', fmtPeso(R.pesoParcial), `${fmtNum(R.nParciais)} marcas · ${fmtNum(R.qtdParciais)} un`, '#f59e0b'],
-    ['✗ Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${fmtNum(R.qtdNaoFabricaveis)} un`, '#ef4444'],
+    ['✓ Consegue fabricar', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${fmtNum(R.qtdFabricaveis)} un · ${R.pctFabricavel}%`, '#22c55e'],
+    ['✗ Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${fmtNum(R.qtdNaoFabricaveis)} un · ${R.pctNaoFabricavel}%`, '#ef4444'],
+    ['A comprar (total)', fmtPeso(R.faltaComprarTotal), `${fmtNum(R.nPerfisParciais)} perfis parciais`, '#0ea5e9'],
   ];
   const kw = W / kpis.length;
   kpis.forEach((kp, i) => {
@@ -110,17 +110,16 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
   });
   y += 25;
 
-  // Barra empilhada (fabricável × parcial × não fabricável × sem info)
+  // Barra empilhada (consegue × não consegue × sem info)
   const total = R.pesoTotal || 1;
   const segs = [
-    { v: R.pesoFabricavel, c: '#22c55e' }, { v: R.pesoParcial, c: '#f59e0b' },
-    { v: R.pesoNaoFabricavel, c: '#ef4444' }, { v: R.pesoSemInfo, c: '#94a3b8' },
+    { v: R.pesoFabricavel, c: '#22c55e' }, { v: R.pesoNaoFabricavel, c: '#ef4444' }, { v: R.pesoSemInfo, c: '#94a3b8' },
   ];
   let xb = M;
   doc.setFillColor(226, 232, 240); doc.roundedRect(M, y, W, 7, 1.5, 1.5, 'F');
   segs.forEach((s) => { const w = (s.v / total) * W; if (w > 0.3) { const [r, g, b] = hexRgb(s.c); doc.setFillColor(r, g, b); doc.rect(xb, y, w, 7, 'F'); xb += w; } });
   doc.setTextColor(15, 23, 42); doc.setFontSize(8); doc.setFont(undefined, 'bold');
-  doc.text(`Fabricável: ${R.pctFabricavel}% do peso a fabricar (${fmtPeso(total)})`, M, y + 12);
+  doc.text(`Fabricável agora: ${R.pctFabricavel}% do peso a fabricar (${fmtPeso(R.pesoFabricavel)} de ${fmtPeso(total)})`, M, y + 12);
   doc.setFont(undefined, 'normal');
   y += 17;
 
@@ -144,24 +143,14 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
     });
   }
 
-  // ===== PARCIAL =====
-  if (fab.parciais.length) {
-    const amber = [180, 83, 9];
-    y = secao(doc, y, M, W, {
-      titulo: '⚠ Parcial — material incompleto', cor: '#f59e0b',
-      sub: 'Parte do material do perfil já chegou. Pode iniciar parte da fabricação; falta comprar o restante.',
-      cap,
-      cols: [
-        { k: 'marca', label: 'Marca', x: M, w: 26, bold: true, color: amber },
-        { k: 'perfil', label: 'Perfil', x: M + 26, w: 36, bold: true, color: amber },
-        { k: 'material', label: 'Material', x: M + 62, w: 26 },
-        { k: 'cob', label: 'Cobertura', x: M + 88, w: 26, align: 'right' },
-        { k: 'qtd', label: 'Qtd', x: M + 114, w: 14, align: 'right' },
-        { k: 'peso', label: 'Peso', x: M + 128, w: 26, align: 'right' },
-        { k: 'falta', label: 'Falta comprar', x: M + 154, w: 36, align: 'right', bold: true, color: amber },
-      ],
-      rows: fab.parciais.map((p) => ({ marca: p.marca, perfil: p.perfil, material: p.material, cob: `${Math.round(p.cobertura || 0)}%`, qtd: fmtNum(p.quantidade), peso: fmtPeso(p.peso), falta: fmtPeso(p.faltaComprar) })),
-    });
+  // Nota sobre perfis parcialmente cobertos (parte das peças do perfil dá, parte não)
+  if ((fab.perfisParciais || []).length) {
+    if (y > 255) { doc.addPage(); y = M; }
+    doc.setFontSize(8.5); doc.setFont(undefined, 'bold'); doc.setTextColor(180, 83, 9);
+    doc.text(`Perfis com material PARCIAL (parte das peças dá, parte não): ${fab.perfisParciais.length}`, M, y);
+    doc.setFont(undefined, 'normal'); doc.setTextColor(120, 130, 145); doc.setFontSize(8);
+    doc.splitTextToSize(fab.perfisParciais.join(', '), W).slice(0, 2).forEach((ln, i) => doc.text(ln, M, y + 5 + i * 4));
+    y += 14;
   }
 
   // ===== CONSEGUE FABRICAR =====

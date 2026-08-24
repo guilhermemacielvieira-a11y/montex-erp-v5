@@ -93,25 +93,25 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
         </div>
       </div>
 
-      {/* Fabricabilidade: consegue × não consegue fabricar (estoque necessário × entregue) */}
-      {(fab.resumo.nFabricaveis > 0 || fab.resumo.nNaoFabricaveis > 0 || fab.resumo.nParciais > 0) && (
+      {/* Fabricabilidade: consegue × não consegue fabricar (aloca material entregue às peças) */}
+      {(fab.resumo.nFabricaveis > 0 || fab.resumo.nNaoFabricaveis > 0) && (
         <div className="mt-3 rounded-lg border border-slate-600/50 bg-slate-900/40 p-3">
           <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
             <Factory className="w-4 h-4 text-emerald-400" /> Fabricabilidade — consegue × não consegue fabricar
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2">
             <Painel tone="text-emerald-400" label="✓ Consegue" value={fmtPeso(fab.resumo.pesoFabricavel)} sub={`${fmtNum(fab.resumo.nFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdFabricaveis)} un`} />
-            <Painel tone="text-amber-400" label="⚠ Parcial" value={fmtPeso(fab.resumo.pesoParcial)} sub={`${fmtNum(fab.resumo.nParciais)} marcas`} />
             <Painel tone="text-red-400" label="✗ Não consegue" value={fmtPeso(fab.resumo.pesoNaoFabricavel)} sub={`${fmtNum(fab.resumo.nNaoFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdNaoFabricaveis)} un`} />
+            <Painel tone="text-sky-400" label="A comprar" value={fmtPeso(fab.resumo.faltaComprarTotal)} sub={`${fmtNum(fab.resumo.nPerfisParciais)} perfis parciais`} />
           </div>
           {/* barra empilhada */}
           <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-slate-700/60">
-            {[['#22c55e', fab.resumo.pesoFabricavel], ['#f59e0b', fab.resumo.pesoParcial], ['#ef4444', fab.resumo.pesoNaoFabricavel], ['#94a3b8', fab.resumo.pesoSemInfo]].map(([cor, v], i) => (
+            {[['#22c55e', fab.resumo.pesoFabricavel], ['#ef4444', fab.resumo.pesoNaoFabricavel], ['#94a3b8', fab.resumo.pesoSemInfo]].map(([cor, v], i) => (
               <div key={i} style={{ width: `${fab.resumo.pesoTotal > 0 ? (v / fab.resumo.pesoTotal) * 100 : 0}%`, background: cor }} />
             ))}
           </div>
           <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
-            <XCircle className="w-3 h-3 text-red-400" /> {fab.resumo.pctFabricavel}% do peso a fabricar está liberado · detalhe por marca no PDF verde.
+            <XCircle className="w-3 h-3 text-emerald-400" /> {fab.resumo.pctFabricavel}% do peso a fabricar liberado com o material já entregue · detalhe por marca no PDF.
           </p>
         </div>
       )}

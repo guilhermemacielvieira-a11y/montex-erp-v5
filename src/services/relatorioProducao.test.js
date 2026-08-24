@@ -136,39 +136,47 @@ describe('bloqueioFabricacao (peça × material faltante)', () => {
   });
 });
 
-describe('fabricabilidadePecas (consegue × não consegue fabricar)', () => {
+describe('fabricabilidadePecas (aloca material entregue → consegue × não consegue)', () => {
+  // resumoMaterialObra.linhas: { perfil, entregue, falta, status }
   const material = [
-    { perfil: 'HP250X62', status: 'faltando', falta: 2578.3, coberturaPct: 0 },
-    { perfil: 'W200X19.3', status: 'entregue', falta: 0, coberturaPct: 100 },
-    { perfil: 'UE250X85X25X2', status: 'parcial', falta: 33510.1, coberturaPct: 32 },
+    { perfil: 'W200X19.3', entregue: 1200, falta: 0, status: 'entregue' },
+    { perfil: 'HP250X62', entregue: 0, falta: 500, status: 'faltando' },
+    { perfil: 'UE250X85X25X2', entregue: 300, falta: 200, status: 'parcial' },
+    { perfil: 'CHAPARIA', entregue: 1000, falta: 0, status: 'entregue' },
   ];
   const pcs = [
-    { marca: 'C1', perfil: 'HP250X62', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },   // não fabricável
-    { marca: 'V1', perfil: 'W200X19.3', quantidade: 3, pesoTotal: 900, etapa: 'aguardando' },   // fabricável
-    { marca: 'V2', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' },   // fabricável
-    { marca: 'U1', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 200, etapa: 'aguardando' }, // parcial
-    { marca: 'X1', perfil: 'CH8X130', quantidade: 5, pesoTotal: 50, etapa: 'aguardando' },       // sem info
-    { marca: 'Z1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 999, etapa: 'solda' },         // já fabricada → ignora
+    { marca: 'V1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 900, etapa: 'aguardando' },   // consegue
+    { marca: 'V2', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' },   // consegue
+    { marca: 'C1', perfil: 'HP250X62', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },     // não (0 entregue)
+    { marca: 'U1', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 200, etapa: 'aguardando' }, // consegue (cabe em 300)
+    { marca: 'U2', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 200, etapa: 'aguardando' }, // não (só sobra 100)
+    { marca: 'CH1', perfil: 'CH8X130', quantidade: 1, pesoTotal: 400, etapa: 'aguardando' },     // consegue (via CHAPARIA)
+    { marca: 'X1', perfil: 'FOO123', quantidade: 1, pesoTotal: 50, etapa: 'aguardando' },         // sem info
+    { marca: 'Z1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 999, etapa: 'solda' },          // já fabricada → ignora
   ];
   const f = fabricabilidadePecas(pcs, material);
-  it('classifica fabricável / não fabricável / parcial / sem info', () => {
-    expect(f.fabricaveis.map((x) => x.marca).sort()).toEqual(['V1', 'V2']);
-    expect(f.naoFabricaveis.map((x) => x.marca)).toEqual(['C1']);
-    expect(f.parciais.map((x) => x.marca)).toEqual(['U1']);
+  it('aloca material entregue: cabe → consegue; excede → não consegue', () => {
+    expect(f.fabricaveis.map((x) => x.marca).sort()).toEqual(['CH1', 'U1', 'V1', 'V2']);
+    expect(f.naoFabricaveis.map((x) => x.marca).sort()).toEqual(['C1', 'U2']);
     expect(f.semInfo.map((x) => x.marca)).toEqual(['X1']);
   });
+  it('chapas (CH…) puxam do estoque de CHAPARIA', () => {
+    expect(f.fabricaveis.find((x) => x.marca === 'CH1')).toBeTruthy();
+  });
   it('ignora peças já fabricadas (além de aguardando/fabricação)', () => {
-    const todas = [...f.fabricaveis, ...f.naoFabricaveis, ...f.parciais, ...f.semInfo];
+    const todas = [...f.fabricaveis, ...f.naoFabricaveis, ...f.semInfo];
     expect(todas.find((x) => x.marca === 'Z1')).toBeUndefined();
   });
+  it('marca perfil parcialmente coberto', () => {
+    expect(f.perfisParciais).toContain('UE250X85X25X2');
+  });
   it('resumo com pesos e percentuais corretos', () => {
-    expect(f.resumo.pesoFabricavel).toBe(1200);       // 900 + 300
-    expect(f.resumo.pesoNaoFabricavel).toBe(500);
-    expect(f.resumo.pesoParcial).toBe(200);
-    expect(f.resumo.pesoTotal).toBe(1950);            // 1200+500+200+50
-    expect(f.resumo.pctFabricavel).toBeCloseTo(1200 / 1950 * 100, 1);
-    expect(f.naoFabricaveis[0].faltaComprar).toBe(2578.3);
-    expect(f.parciais[0].cobertura).toBe(32);
+    expect(f.resumo.pesoFabricavel).toBe(1800);        // 900+300+200+400
+    expect(f.resumo.pesoNaoFabricavel).toBe(700);       // 500+200
+    expect(f.resumo.pesoSemInfo).toBe(50);
+    expect(f.resumo.pesoTotal).toBe(2550);
+    expect(f.resumo.pctFabricavel).toBeCloseTo(1800 / 2550 * 100, 1);
+    expect(f.naoFabricaveis.find((x) => x.marca === 'C1').faltaComprar).toBe(500);
   });
 });
 
