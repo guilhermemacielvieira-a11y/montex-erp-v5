@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ETAPAS_REL, etapaPeca, qtdPeca, pesoPeca,
-  resumoProducao, porFuncionario, pecasPorEtapa,
+  resumoProducao, porFuncionario, pecasPorEtapa, bloqueioFabricacao,
 } from './relatorioProducao';
 
 // Mistura camel/snake de propósito.
@@ -59,6 +59,30 @@ describe('porFuncionario', () => {
   });
   it('ordena por peso desc', () => {
     expect(f[0].funcionario).toBe('Pedro'); // 900 (entregue) > João 450 > Maria 150
+  });
+});
+
+describe('bloqueioFabricacao (peça × material faltante)', () => {
+  const material = [
+    { perfil: 'HP250X62', status: 'faltando' },      // zerado
+    { perfil: 'W200X19.3', status: 'entregue' },
+    { perfil: 'UE250X85X25X2', status: 'parcial' },
+  ];
+  const pecasT = [
+    { marca: 'C1', perfil: 'HP250X62', material: 'A572', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },  // bloqueada (faltando)
+    { marca: 'C2', perfil: 'HP250X62', material: 'A572', quantidade: 1, pesoTotal: 250, etapa: 'solda' },        // já em solda → ignora
+    { marca: 'V1', perfil: 'W200X19.3', material: 'A572', quantidade: 3, pesoTotal: 900, etapa: 'aguardando' },  // ok (entregue)
+    { marca: 'U1', perfil: 'UE250X85X25X2', material: 'CIVIL', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' }, // parcial → não bloqueia
+  ];
+  const b = bloqueioFabricacao(pecasT, material);
+  it('marca só peças em etapa inicial com perfil faltando', () => {
+    expect(b.nBloqueadas).toBe(1);
+    expect(b.bloqueadas[0].marca).toBe('C1');
+    expect(b.pesoBloqueado).toBe(500);
+    expect(b.perfisFaltando).toEqual(['HP250X62']);
+  });
+  it('sem material → nada bloqueado', () => {
+    expect(bloqueioFabricacao(pecasT, []).nBloqueadas).toBe(0);
   });
 });
 

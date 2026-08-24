@@ -7,10 +7,13 @@
 // snake_case e camelCase.
 // ============================================================
 
+import { normalizar } from './abastecimento';
+
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const r0 = (n) => Math.round(n);
 const pick = (o, ...ks) => { for (const k of ks) if (o && o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k]; return undefined; };
+const chavePerfil = (p) => normalizar(String(p || '')).slice(0, 12);
 
 // Fluxo de produção (ordem crescente). `ordem` alimenta o progresso ponderado.
 export const ETAPAS_REL = [
@@ -100,6 +103,40 @@ export function porFuncionario(pecas = [], mapaNomes = {}) {
     }
   });
   return [...mapa.values()].sort((a, b) => b.peso - a.peso);
+}
+
+// Cruza PEÇAS (a fabricar) × MATERIAL da obra: uma peça em etapa inicial
+// (aguardando/fabricação) cujo perfil está SEM material recebido (status
+// 'faltando') NÃO PODE ser fabricada. `materialLinhas` vem de
+// resumoMaterialObra(estoque).linhas (perfil + status). Retorna as peças
+// bloqueadas (para destacar em vermelho no relatório) e o resumo.
+export function bloqueioFabricacao(pecas = [], materialLinhas = []) {
+  const statusPorPerfil = new Map();
+  (materialLinhas || []).forEach((l) => { const k = chavePerfil(l.perfil); if (k) statusPorPerfil.set(k, l.status); });
+  const podeFaltar = (et) => et === 'aguardando' || et === 'fabricacao';
+  const bloqueadas = [];
+  (pecas || []).forEach((p) => {
+    const et = etapaPeca(p);
+    if (!podeFaltar(et)) return;
+    const perfil = pick(p, 'perfil') || '';
+    const st = statusPorPerfil.get(chavePerfil(perfil));
+    if (st === 'faltando') {
+      bloqueadas.push({
+        marca: pick(p, 'marca', 'codigo') || '—',
+        perfil, material: pick(p, 'material') || '',
+        tipo: pick(p, 'tipo', 'peca') || '',
+        quantidade: qtdPeca(p), peso: pesoPeca(p), etapa: et,
+      });
+    }
+  });
+  bloqueadas.sort((a, b) => b.peso - a.peso);
+  return {
+    bloqueadas,
+    nBloqueadas: bloqueadas.length,
+    qtdBloqueada: bloqueadas.reduce((s, b) => s + b.quantidade, 0),
+    pesoBloqueado: r2(bloqueadas.reduce((s, b) => s + b.peso, 0)),
+    perfisFaltando: [...new Set(bloqueadas.map((b) => b.perfil).filter(Boolean))].sort(),
+  };
 }
 
 // Detalhe: peças agrupadas por etapa (para as tabelas do relatório).

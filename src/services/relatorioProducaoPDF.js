@@ -6,7 +6,7 @@
 // React); usa jsPDF. Agregações em services/relatorioProducao.js (testado).
 // ============================================================
 import { jsPDF } from 'jspdf';
-import { resumoProducao, pecasPorEtapa } from './relatorioProducao';
+import { resumoProducao, pecasPorEtapa, bloqueioFabricacao } from './relatorioProducao';
 import { resumoMaterialObra } from './estoqueAnalytics';
 
 const STATUS_MAT = {
@@ -40,11 +40,15 @@ function drawTable(doc, cols, rows, y, { margin = 10, width = 190, bottom = 285 
   rows.forEach((row, i) => {
     if (y > bottom) { doc.addPage(); y = margin; header(); doc.setFont(undefined, 'normal'); }
     if (i % 2) { doc.setFillColor(241, 245, 249); doc.rect(margin, y, width, rowH, 'F'); }
-    doc.setTextColor(15, 23, 42); doc.setFontSize(8);
+    doc.setFontSize(8);
     cols.forEach((c) => {
       const raw = row[c.k] == null ? '' : String(row[c.k]);
       const txt = doc.splitTextToSize(raw, c.w - 2)[0] || '';
+      const col = c.color || [15, 23, 42];
+      doc.setTextColor(col[0], col[1], col[2]);
+      if (c.bold) doc.setFont(undefined, 'bold');
       doc.text(txt, c.align === 'right' ? c.x + c.w : c.x, y + 4.1, { align: c.align === 'right' ? 'right' : 'left' });
+      if (c.bold) doc.setFont(undefined, 'normal');
     });
     y += rowH;
   });
@@ -87,6 +91,7 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
   const resumo = resumoProducao(pecas);
   const grupos = pecasPorEtapa(pecas);
   const material = resumoMaterialObra(estoque || []);
+  const bloqueio = bloqueioFabricacao(pecas, material.linhas);
   const cap = Number.isFinite(detalheCap) ? detalheCap : DETALHE_CAP;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const M = 10; const W = 190;
@@ -219,6 +224,42 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
       nec: fmtPeso(l.necessario), ent: fmtPeso(l.entregue), fal: fmtPeso(l.falta),
       st: (STATUS_MAT[l.status] || {}).txt || l.status,
     })), y);
+  }
+
+  // ===== Peças SEM MATERIAL — não é possível fabricar (destaque vermelho) =====
+  if (bloqueio.nBloqueadas > 0) {
+    doc.addPage(); y = M;
+    doc.setFillColor(239, 68, 68); doc.rect(M, y, W, 9, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont(undefined, 'bold');
+    doc.text('⚠ Peças SEM MATERIAL — Não é possível fabricar', M + 3, y + 6);
+    doc.setFont(undefined, 'normal'); y += 13;
+    doc.setFontSize(8.5); doc.setTextColor(100, 116, 139);
+    doc.text('Peças em Aguardando/Fabricação cujo perfil está zerado no estoque (material ainda não recebido).', M, y); y += 6;
+    // KPI + perfis
+    doc.setTextColor(185, 28, 28); doc.setFontSize(10); doc.setFont(undefined, 'bold');
+    doc.text(`${fmtNum(bloqueio.nBloqueadas)} peça(s) · ${fmtNum(bloqueio.qtdBloqueada)} un · ${fmtPeso(bloqueio.pesoBloqueado)} bloqueado(s)`, M, y); y += 5;
+    doc.setFont(undefined, 'normal'); doc.setTextColor(51, 65, 85); doc.setFontSize(8);
+    const perfilLinha = doc.splitTextToSize(`Perfis sem material: ${bloqueio.perfisFaltando.join(', ')}`, W);
+    perfilLinha.slice(0, 3).forEach((ln) => { doc.text(ln, M, y); y += 4; });
+    y += 2;
+    const red = [220, 38, 38];
+    const colsB = [
+      { k: 'marca', label: 'Marca', x: M, w: 26 },
+      { k: 'perfil', label: 'Perfil (faltante)', x: M + 26, w: 34, color: red, bold: true },
+      { k: 'material', label: 'Material', x: M + 60, w: 26 },
+      { k: 'tipo', label: 'Tipo', x: M + 86, w: 26 },
+      { k: 'qtd', label: 'Qtd', x: M + 112, w: 16, align: 'right' },
+      { k: 'peso', label: 'Peso', x: M + 128, w: 26, align: 'right' },
+      { k: 'st', label: 'Status', x: M + 154, w: 36, color: red, bold: true },
+    ];
+    y = drawTable(doc, colsB, bloqueio.bloqueadas.slice(0, cap).map((b) => ({
+      marca: b.marca, perfil: b.perfil, material: b.material, tipo: b.tipo,
+      qtd: fmtNum(b.quantidade), peso: fmtPeso(b.peso), st: '✗ Não fabricável',
+    })), y);
+    if (bloqueio.bloqueadas.length > cap) {
+      doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+      doc.text(`… mostrando as ${cap} de maior peso, de ${fmtNum(bloqueio.bloqueadas.length)} peças bloqueadas.`, M, y + 2);
+    }
   }
 
   // Detalhe por etapa (dados de produção)
