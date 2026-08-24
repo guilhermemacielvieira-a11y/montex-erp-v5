@@ -143,16 +143,36 @@ export function bloqueioFabricacao(pecas = [], materialLinhas = []) {
   const bloqueadas = itens.filter((i) => i.status === 'faltando');
   const parciais = itens.filter((i) => i.status === 'parcial');
   const perfis = (arr) => [...new Set(arr.map((b) => b.perfil).filter(Boolean))].sort();
+
+  // Agregação ANALÍTICA por perfil: material faltante → impacto em peças.
+  // Reduz a lista peça-a-peça a uma linha por perfil (a "realidade geral").
+  const mapPerfil = new Map();
+  itens.forEach((i) => {
+    const k = chavePerfil(i.perfil);
+    if (!mapPerfil.has(k)) {
+      mapPerfil.set(k, { perfil: i.perfil, material: i.material, status: i.status, faltaComprar: i.faltaComprar, nPecas: 0, qtd: 0, peso: 0, tipos: new Set() });
+    }
+    const g = mapPerfil.get(k);
+    g.nPecas += 1; g.qtd += i.quantidade; g.peso += i.peso;
+    if (i.tipo) g.tipos.add(i.tipo);
+  });
+  const porPerfil = [...mapPerfil.values()]
+    .map((g) => ({ ...g, peso: r2(g.peso), tipos: [...g.tipos].sort() }))
+    .sort((a, b) => (a.status === b.status ? b.peso - a.peso : a.status === 'faltando' ? -1 : 1));
+
+  const faltaComprarTotal = r2([...mapPerfil.values()].reduce((s, g) => s + num(g.faltaComprar), 0));
   return {
-    itens, bloqueadas, parciais,
+    itens, bloqueadas, parciais, porPerfil,
     nBloqueadas: bloqueadas.length,
     nParciais: parciais.length,
+    nPerfisFaltando: porPerfil.filter((g) => g.status === 'faltando').length,
+    nPerfisParciais: porPerfil.filter((g) => g.status === 'parcial').length,
     qtdBloqueada: bloqueadas.reduce((s, b) => s + b.quantidade, 0),
     pesoBloqueado: r2(bloqueadas.reduce((s, b) => s + b.peso, 0)),
     pesoParcial: r2(parciais.reduce((s, b) => s + b.peso, 0)),
     perfisFaltando: perfis(bloqueadas),
     perfisParciais: perfis(parciais),
-    faltaComprarTotal: r2([...new Map(itens.map((i) => [chavePerfil(i.perfil), i.faltaComprar])).values()].reduce((s, v) => s + v, 0)),
+    faltaComprarTotal,
   };
 }
 

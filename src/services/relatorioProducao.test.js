@@ -94,6 +94,30 @@ describe('bloqueioFabricacao (peça × material faltante)', () => {
   it('sem material → nada bloqueado', () => {
     expect(bloqueioFabricacao(pecasT, []).nBloqueadas).toBe(0);
   });
+  it('agrega porPerfil (material faltante → impacto em peças)', () => {
+    // 2 peças C1/C2 de HP250X62 estão em etapas diferentes: só C1 (aguardando) conta.
+    const mat2 = [
+      { perfil: 'HP250X62', status: 'faltando', falta: 2578.3 },
+      { perfil: 'UE250X85X25X2', status: 'parcial', falta: 33510.1 },
+    ];
+    const pcs2 = [
+      { marca: 'C1', perfil: 'HP250X62', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },
+      { marca: 'C1b', perfil: 'HP250X62', quantidade: 1, pesoTotal: 250, etapa: 'fabricacao', tipo: 'COLUNA' },
+      { marca: 'U1', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 300, etapa: 'aguardando', tipo: 'TERÇA' },
+    ];
+    const b = bloqueioFabricacao(pcs2, mat2);
+    expect(b.porPerfil.length).toBe(2);
+    const hp = b.porPerfil.find((g) => g.perfil === 'HP250X62');
+    expect(hp.status).toBe('faltando');
+    expect(hp.nPecas).toBe(2);          // C1 + C1b (ambas em etapa inicial)
+    expect(hp.qtd).toBe(3);             // 2 + 1
+    expect(hp.peso).toBe(750);          // 500 + 250
+    expect(hp.faltaComprar).toBe(2578.3);
+    expect(b.nPerfisFaltando).toBe(1);
+    expect(b.nPerfisParciais).toBe(1);
+    // faltando vem antes de parcial na ordenação
+    expect(b.porPerfil[0].status).toBe('faltando');
+  });
   it('NÃO colide variantes de espessura (…X2 vs …X2.25) no falta comprar', () => {
     const mat = [
       { perfil: 'UE250X85X25X2', status: 'faltando', falta: 80029.3 },
