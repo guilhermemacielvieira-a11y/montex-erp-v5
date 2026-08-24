@@ -13,7 +13,12 @@ const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 const r0 = (n) => Math.round(n);
 const pick = (o, ...ks) => { for (const k of ks) if (o && o[k] !== undefined && o[k] !== null && o[k] !== '') return o[k]; return undefined; };
-const chavePerfil = (p) => normalizar(String(p || '')).slice(0, 12);
+// Chave de cruzamento peça × material: perfil normalizado COMPLETO (sem truncar).
+// Truncar (ex.: slice 0,12) colide variantes de espessura — "UE250X85X25X2" vs
+// "UE250X85X25X2.25", "UE200X75X25X3.75" vs "…X4.25" — atribuindo status/falta
+// do perfil errado. Peça e estoque usam a mesma nomenclatura Tekla, então a
+// igualdade exata do perfil normalizado é o casamento correto.
+const chavePerfil = (p) => normalizar(String(p || ''));
 
 // Fluxo de produção (ordem crescente). `ordem` alimenta o progresso ponderado.
 export const ETAPAS_REL = [
