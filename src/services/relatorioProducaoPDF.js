@@ -16,11 +16,8 @@ const STATUS_MAT = {
 };
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
-const fmtPeso = (kg) => {
-  const n = Number(kg) || 0;
-  return n >= 1000 ? (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' t'
-                   : n.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
-};
+// Peso SEMPRE em kg (sem conversão para toneladas) — padronizado com a planilha.
+const fmtPeso = (kg) => (Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 export const DETALHE_CAP = 40; // limite padrão de peças por etapa no detalhe
 const hexRgb = (hex) => {
   const h = String(hex || '#64748b').replace('#', '');
