@@ -176,6 +176,58 @@ export function bloqueioFabricacao(pecas = [], materialLinhas = []) {
   };
 }
 
+// ============================================================
+// FABRICABILIDADE: classifica cada MARCA/PEÇA (ainda não fabricada:
+// aguardando/fabricação) segundo o material necessário × entregue da obra:
+//   - fabricavel     → material do perfil ENTREGUE (pode fabricar agora)
+//   - parcial        → material PARCIAL (parte chegou)
+//   - naoFabricavel  → material FALTANDO (não é possível fabricar)
+//   - semInfo        → perfil sem linha de material cadastrada (a verificar)
+// `materialLinhas` vem de resumoMaterialObra(estoque).linhas.
+// ============================================================
+export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
+  const infoPorPerfil = new Map();
+  (materialLinhas || []).forEach((l) => {
+    const chave = chavePerfil(l.perfil);
+    if (chave) infoPorPerfil.set(chave, { status: l.status, falta: num(l.falta), cobertura: num(l.coberturaPct) });
+  });
+  const consideraFab = (et) => et === 'aguardando' || et === 'fabricacao';
+  const fabricaveis = [], parciais = [], naoFabricaveis = [], semInfo = [];
+  (pecas || []).forEach((p) => {
+    const et = etapaPeca(p);
+    if (!consideraFab(et)) return; // já passou de fabricação → já fabricada
+    const perfil = pick(p, 'perfil') || '';
+    const info = infoPorPerfil.get(chavePerfil(perfil));
+    const base = {
+      marca: pick(p, 'marca', 'codigo') || '—', perfil,
+      material: pick(p, 'material') || '', tipo: pick(p, 'tipo', 'peca') || '',
+      quantidade: qtdPeca(p), peso: pesoPeca(p), etapa: et,
+    };
+    if (!info) semInfo.push({ ...base, status: 'sem_info' });
+    else if (info.status === 'entregue') fabricaveis.push({ ...base, status: 'fabricavel', cobertura: info.cobertura });
+    else if (info.status === 'parcial') parciais.push({ ...base, status: 'parcial', cobertura: info.cobertura, faltaComprar: r2(info.falta) });
+    else naoFabricaveis.push({ ...base, status: 'faltando', faltaComprar: r2(info.falta) });
+  });
+  const byPeso = (a, b) => b.peso - a.peso;
+  [fabricaveis, parciais, naoFabricaveis, semInfo].forEach((a) => a.sort(byPeso));
+  const sumP = (a) => r2(a.reduce((s, i) => s + i.peso, 0));
+  const sumQ = (a) => a.reduce((s, i) => s + i.quantidade, 0);
+  const pesoFab = sumP(fabricaveis), pesoParc = sumP(parciais), pesoNao = sumP(naoFabricaveis), pesoSem = sumP(semInfo);
+  const total = pesoFab + pesoParc + pesoNao + pesoSem;
+  return {
+    fabricaveis, parciais, naoFabricaveis, semInfo,
+    resumo: {
+      nFabricaveis: fabricaveis.length, nParciais: parciais.length, nNaoFabricaveis: naoFabricaveis.length, nSemInfo: semInfo.length,
+      qtdFabricaveis: sumQ(fabricaveis), qtdParciais: sumQ(parciais), qtdNaoFabricaveis: sumQ(naoFabricaveis),
+      pesoFabricavel: pesoFab, pesoParcial: pesoParc, pesoNaoFabricavel: pesoNao, pesoSemInfo: pesoSem,
+      pesoTotal: r2(total),
+      pctFabricavel: total > 0 ? r2((pesoFab / total) * 100) : 0,
+      pctNaoFabricavel: total > 0 ? r2((pesoNao / total) * 100) : 0,
+      pctParcial: total > 0 ? r2((pesoParc / total) * 100) : 0,
+    },
+  };
+}
+
 // Detalhe: peças agrupadas por etapa (para as tabelas do relatório).
 export function pecasPorEtapa(pecas = []) {
   const grupos = ETAPAS_REL.map((e) => ({ ...e, itens: [] }));
