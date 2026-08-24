@@ -15,16 +15,18 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity, AlertTriangle, Cpu, Shield, Truck, Wrench, RefreshCw, TrendingUp,
-  TrendingDown, CheckCircle2, Radio, Power,
+  TrendingDown, CheckCircle2, Radio, Power, PackageX,
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, Line, ComposedChart,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell,
   Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts';
-import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { useObras, useProducao, useLancamentos, useEstoque } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 import { supabase } from '../api/supabaseClient';
+import { resumoProducao, bloqueioFabricacao } from '../services/relatorioProducao';
+import { resumoMaterialObra } from '../services/estoqueAnalytics';
 
 // ============================================
 // HELPERS
@@ -169,9 +171,10 @@ function HUDPanel({ children, title, glow = '#06b6d4', className = '', subtitle,
 // ============================================
 // COMPONENT: Sparkline mini
 // ============================================
-function Sparkline({ data, color = '#06b6d4', height = 30 }) {
+function Sparkline({ data, color = '#06b6d4', height = 30, id: idProp }) {
   if (!data || data.length === 0) return <div style={{ height }} className="bg-slate-800/30 rounded" />;
-  const id = `spk-${color.replace('#','')}-${Math.random().toString(36).slice(2,7)}`;
+  // id estável (sem Math.random p/ não regenerar a cada tick do relógio)
+  const id = `spk-${idProp || color.replace('#', '')}`;
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data.map((v, i) => ({ i, v }))}>
@@ -193,10 +196,13 @@ function Sparkline({ data, color = '#06b6d4', height = 30 }) {
 export default function VisaoGeralPage() {
   const { obras } = useObras();
   const { pecas } = useProducao();
+  const { estoque } = useEstoque();
   const { lancamentosDespesas } = useLancamentos();
-  const { medicoes } = useMedicoes();
   const fi = useFinancialIntelligence();
   const historico = useHistoricoProducao();
+
+  // Produção global por PESO (ponderado) — fonte única
+  const resumoProd = useMemo(() => resumoProducao(pecas || []), [pecas]);
   const now = useClock();
   const [bootMs, setBootMs] = useState(0);
   useEffect(() => {
@@ -205,7 +211,7 @@ export default function VisaoGeralPage() {
     return () => clearInterval(t);
   }, []);
 
-  // ===== KPIs produção =====
+  // ===== KPIs produção (contagem p/ display + PESO ponderado) =====
   const kpis = useMemo(() => {
     const pcs = pecas || [];
     const total = pcs.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
@@ -213,18 +219,60 @@ export default function VisaoGeralPage() {
     pcs.forEach(p => {
       const qtd = parseInt(p.quantidade) || 1;
       const e = p.etapa;
-      if (['fabricacao','aguardando','corte'].includes(e)) buckets.fabricacao += qtd;
+      if (['fabricacao', 'aguardando', 'corte'].includes(e)) buckets.fabricacao += qtd;
       else if (e === 'solda') buckets.solda += qtd;
       else if (e === 'pintura') buckets.pintura += qtd;
       else if (e === 'expedido') buckets.expedido += qtd;
-      else if (['enviado','entregue','montagem'].includes(e)) buckets.enviado += qtd;
+      else if (['enviado', 'entregue', 'montagem'].includes(e)) buckets.enviado += qtd;
     });
-    const pesoTotal = pcs.reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-    const pesoFin = pcs.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-      .reduce((s, p) => s + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-    const pct = total > 0 ? (buckets.expedido + buckets.enviado) / total * 100 : 0;
-    return { total, ...buckets, pesoTotal, pesoFin, pct };
-  }, [pecas]);
+    // Peso por etapa (ponderado, etapas reais)
+    const pe = Object.fromEntries(resumoProd.porEtapa.map((x) => [x.key, x.peso]));
+    const pesoPorEtapa = {
+      fabricacao: (pe.aguardando || 0) + (pe.fabricacao || 0),
+      solda: pe.solda || 0, pintura: pe.pintura || 0,
+      expedido: pe.expedido || 0, enviado: (pe.enviado || 0) + (pe.entregue || 0),
+    };
+    return {
+      total, ...buckets,
+      pesoTotal: resumoProd.totalPeso,
+      pesoFin: resumoProd.pesoConcluido,     // enviado + entregue (por peso)
+      pct: resumoProd.progressoPct,          // progresso ponderado por peso
+      pesoPorEtapa,
+    };
+  }, [pecas, resumoProd]);
+
+  // ===== Gargalos de material consolidados (estoque faltante → não fabricável) =====
+  const gargalos = useMemo(() => {
+    const ativas = (obras || []).filter(o => !['cancelada', 'cancelado', 'concluida', 'concluido', 'pausado', 'pausada', 'orcamento'].includes(o.status));
+    const estPorObra = new Map();
+    (estoque || []).forEach((e) => {
+      const oid = e.obraId || e.obra_id;
+      if (!oid) return;
+      if (!estPorObra.has(oid)) estPorObra.set(oid, []);
+      estPorObra.get(oid).push(e);
+    });
+    let pesoBloqueado = 0, pesoParcial = 0, faltaComprar = 0, nBloqueadas = 0;
+    const perfilMap = new Map();
+    ativas.forEach((o) => {
+      const est = estPorObra.get(o.id);
+      if (!est || !est.length) return;
+      const pcsObra = (pecas || []).filter((p) => (p.obraId || p.obra_id) === o.id);
+      const b = bloqueioFabricacao(pcsObra, resumoMaterialObra(est).linhas);
+      if (b.itens.length === 0) return;
+      pesoBloqueado += b.pesoBloqueado; pesoParcial += b.pesoParcial;
+      faltaComprar += b.faltaComprarTotal; nBloqueadas += b.nBloqueadas;
+      (b.porPerfil || []).forEach((g) => {
+        if (!perfilMap.has(g.perfil)) perfilMap.set(g.perfil, { perfil: g.perfil, faltaComprar: 0 });
+        perfilMap.get(g.perfil).faltaComprar += g.faltaComprar;
+      });
+    });
+    const topPerfis = [...perfilMap.values()].sort((a, b) => b.faltaComprar - a.faltaComprar).slice(0, 4);
+    return {
+      pesoBloqueado, pesoParcial, faltaComprar, nBloqueadas,
+      pctTravado: resumoProd.totalPeso > 0 ? ((pesoBloqueado + pesoParcial) / resumoProd.totalPeso * 100) : 0,
+      topPerfis,
+    };
+  }, [estoque, obras, pecas, resumoProd]);
 
   // ===== Sparkline produção últimos 30 dias =====
   const sparkProducao = useMemo(() => {
@@ -259,16 +307,15 @@ export default function VisaoGeralPage() {
     return { matriz, labelsDias, max: maxVal || 1 };
   }, [historico]);
 
-  // ===== Score Saúde Sistêmica =====
+  // ===== Score Saúde Sistêmica (financeiro + produção + material) =====
   const score = useMemo(() => {
     const margem = fi.kpisGerais?.margemReal || 0;
     const fScore = Math.max(0, Math.min(100, (margem / 25) * 100));
-    const pScore = kpis.pct;
-    const expedScore = kpis.total > 0 ? Math.min(100, (kpis.expedido / kpis.total) * 100 * 1.5) : 0;
-    // Bonus se receita real > 0
+    const pScore = Math.max(0, Math.min(100, kpis.pct));         // progresso ponderado por peso
+    const mScore = Math.max(0, Math.min(100, 100 - gargalos.pctTravado)); // menos travado = melhor
     const rScore = (fi.kpisGerais?.faturamentoRealMes || 0) > 0 ? 80 : 40;
-    return Math.round((fScore * 0.3 + pScore * 0.3 + expedScore * 0.2 + rScore * 0.2));
-  }, [kpis, fi]);
+    return Math.round((fScore * 0.3 + pScore * 0.3 + mScore * 0.2 + rScore * 0.2));
+  }, [kpis, fi, gargalos]);
   const scoreCor = score >= 80 ? '#10b981' : score >= 60 ? '#06b6d4' : score >= 40 ? '#f59e0b' : '#ef4444';
   const scoreLabel = score >= 80 ? 'OPTIMAL' : score >= 60 ? 'NOMINAL' : score >= 40 ? 'CAUTION' : 'CRITICAL';
 
@@ -288,13 +335,13 @@ export default function VisaoGeralPage() {
     }));
   }, [fi]);
 
-  // ===== Pipeline =====
+  // ===== Pipeline (por PESO) =====
   const pipelineData = useMemo(() => [
-    { name: 'FAB', value: kpis.fabricacao, peso: 0, cor: COR_ETAPAS.fabricacao },
-    { name: 'SOLDA', value: kpis.solda, peso: 0, cor: COR_ETAPAS.solda },
-    { name: 'PINT', value: kpis.pintura, peso: 0, cor: COR_ETAPAS.pintura },
-    { name: 'EXPED', value: kpis.expedido, peso: 0, cor: COR_ETAPAS.expedido },
-    { name: 'ENVD', value: kpis.enviado, peso: 0, cor: COR_ETAPAS.enviado },
+    { name: 'FAB', value: Math.round(kpis.pesoPorEtapa.fabricacao), pcs: kpis.fabricacao, cor: COR_ETAPAS.fabricacao },
+    { name: 'SOLDA', value: Math.round(kpis.pesoPorEtapa.solda), pcs: kpis.solda, cor: COR_ETAPAS.solda },
+    { name: 'PINT', value: Math.round(kpis.pesoPorEtapa.pintura), pcs: kpis.pintura, cor: COR_ETAPAS.pintura },
+    { name: 'EXPED', value: Math.round(kpis.pesoPorEtapa.expedido), pcs: kpis.expedido, cor: COR_ETAPAS.expedido },
+    { name: 'ENVD', value: Math.round(kpis.pesoPorEtapa.enviado), pcs: kpis.enviado, cor: COR_ETAPAS.enviado },
   ], [kpis]);
 
   // ===== Comparativo Mês vs Anterior =====
@@ -303,16 +350,11 @@ export default function VisaoGeralPage() {
     return fi.comparativo;
   }, [fi]);
 
-  // ===== Radar das obras (top 5) =====
+  // ===== Radar das obras (top 5, progresso ponderado por PESO) =====
   const radarObras = useMemo(() => {
-    const ativas = obrasAtivas.slice(0, 5);
-    return ativas.map(o => {
-      const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
-      const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-      const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-        .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-      const pct = tot > 0 ? (fin / tot) * 100 : 0;
-      return { obra: o.codigo || o.id, valor: Math.round(pct) };
+    return obrasAtivas.slice(0, 5).map(o => {
+      const pcsObra = (pecas || []).filter(p => (p.obraId || p.obra_id) === o.id);
+      return { obra: o.codigo || o.id, valor: Math.round(resumoProducao(pcsObra).progressoPct) };
     });
   }, [obrasAtivas, pecas]);
 
@@ -325,6 +367,9 @@ export default function VisaoGeralPage() {
       const v = parseLocalDate(l.dataVencimento || l.data_vencimento);
       return v && v < hoje;
     });
+    if (gargalos.nBloqueadas > 0) {
+      al.push({ nivel: 'CRIT', icon: PackageX, msg: `${fmt(gargalos.nBloqueadas)} peças sem material`, valor: `${fmtPeso(gargalos.pesoBloqueado)} · comprar ${fmtPeso(gargalos.faltaComprar)}` });
+    }
     if (atrasadas.length > 0) {
       al.push({ nivel: 'CRIT', icon: AlertTriangle, msg: `${atrasadas.length} despesas atrasadas`, valor: fmtR$(atrasadas.reduce((s, a) => s + (a.valor || 0), 0)) });
     }
@@ -335,10 +380,10 @@ export default function VisaoGeralPage() {
       al.push({ nivel: 'CRIT', icon: TrendingDown, msg: 'Saldo mensal negativo', valor: fmtR$(fi.kpisGerais?.saldoReal) });
     }
     if (kpis.expedido > 50) {
-      al.push({ nivel: 'INFO', icon: Truck, msg: `${fmt(kpis.expedido)} pcs aguardando embarque`, valor: fmtPeso(kpis.pesoFin) });
+      al.push({ nivel: 'INFO', icon: Truck, msg: `${fmt(kpis.expedido)} pcs aguardando embarque`, valor: fmtPeso(kpis.pesoPorEtapa.expedido) });
     }
     return al;
-  }, [lancamentosDespesas, kpis, fi]);
+  }, [lancamentosDespesas, kpis, fi, gargalos]);
 
   // ===== Activity feed =====
   const activityFeed = useMemo(() => {
@@ -380,6 +425,8 @@ export default function VisaoGeralPage() {
   }, [lancamentosDespesas]);
 
   const hora = now.toLocaleTimeString('pt-BR');
+  // id de sessão estável (não recalcula a cada tick do relógio)
+  const sessId = useMemo(() => Date.now().toString(36).toUpperCase().slice(-8), []);
 
   return (
     <div className="space-y-3 -m-4 p-3" style={{
@@ -458,8 +505,16 @@ export default function VisaoGeralPage() {
           </div>
           <div className="mt-2 pt-2 border-t border-slate-800/60">
             <p className="text-[8px] text-slate-500 uppercase tracking-widest mb-1">30-day trend</p>
-            <Sparkline data={sparkProducao} color="#3b82f6" height={28} />
+            <Sparkline data={sparkProducao} color="#3b82f6" height={28} id="prod30" />
           </div>
+          {gargalos.pesoBloqueado > 0 && (
+            <div className="mt-2 flex items-center gap-1.5 px-2 py-1 rounded text-[9px]" style={{ background: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.3)' }}>
+              <PackageX className="h-3 w-3 flex-shrink-0 text-red-300" />
+              <span className="text-red-300 font-bold tabular-nums">{fmtPeso(gargalos.pesoBloqueado)}</span>
+              <span className="text-slate-400">sem material · comprar</span>
+              <span className="text-cyan-300 font-bold tabular-nums">{fmtPeso(gargalos.faltaComprar)}</span>
+            </div>
+          )}
         </HUDPanel>
 
         <HUDPanel className="col-span-3" title="FINANCIAL" glow="#10b981" subtitle="margem operacional">
@@ -474,7 +529,7 @@ export default function VisaoGeralPage() {
           </div>
           <div className="mt-2 pt-2 border-t border-slate-800/60">
             <p className="text-[8px] text-slate-500 uppercase tracking-widest mb-1">Cash flow 6M</p>
-            <Sparkline data={cashFlow.map(c => c.saldo)} color="#10b981" height={28} />
+            <Sparkline data={cashFlow.map(c => c.saldo)} color="#10b981" height={28} id="cash6m" />
           </div>
         </HUDPanel>
 
@@ -509,7 +564,7 @@ export default function VisaoGeralPage() {
       {/* ============================================ */}
       <div className="grid grid-cols-12 gap-3">
         {/* Pipeline */}
-        <HUDPanel className="col-span-4" title="PIPELINE PRODUÇÃO" glow="#8b5cf6" subtitle="peças por etapa">
+        <HUDPanel className="col-span-4" title="PIPELINE PRODUÇÃO" glow="#8b5cf6" subtitle="peso por etapa">
           <ResponsiveContainer width="100%" height={220}>
             <BarChart data={pipelineData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
               <defs>
@@ -524,7 +579,7 @@ export default function VisaoGeralPage() {
               <XAxis dataKey="name" stroke="#475569" fontSize={10} tick={{ fill: '#94a3b8', fontFamily: 'monospace' }} />
               <YAxis stroke="#475569" fontSize={9} tick={{ fill: '#64748b' }} />
               <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '6px', fontSize: '10px' }}
-                formatter={(v) => [fmt(v) + ' pcs', '']} />
+                formatter={(v, n, p) => [`${fmtPeso(v)} · ${fmt(p?.payload?.pcs)} pcs`, '']} />
               <Bar dataKey="value" radius={[4, 4, 0, 0]}>
                 {pipelineData.map((e, i) => <Cell key={i} fill={`url(#bar-${e.name})`} stroke={e.cor} strokeWidth={1} />)}
               </Bar>
@@ -534,7 +589,8 @@ export default function VisaoGeralPage() {
             {pipelineData.map(d => (
               <div key={d.name} className="text-[9px]">
                 <p className="text-slate-500 uppercase tracking-wider">{d.name}</p>
-                <p className="font-bold tabular-nums" style={{ color: d.cor }}>{fmt(d.value)}</p>
+                <p className="font-bold tabular-nums" style={{ color: d.cor }}>{fmtPeso(d.value)}</p>
+                <p className="text-slate-600 tabular-nums">{fmt(d.pcs)} pç</p>
               </div>
             ))}
           </div>
@@ -684,11 +740,9 @@ export default function VisaoGeralPage() {
             {obrasAtivas.length === 0 ? (
               <p className="text-xs text-slate-500 italic text-center py-4">Sem operações ativas</p>
             ) : obrasAtivas.map(o => {
-              const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
-              const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-              const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-                .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-              const pct = tot > 0 ? Math.round((fin / tot) * 100) : 0;
+              const pcsObra = (pecas || []).filter(p => (p.obraId || p.obra_id) === o.id);
+              const rp = resumoProducao(pcsObra);
+              const pct = Math.round(rp.progressoPct);
               const cor = pct >= 80 ? '#10b981' : pct >= 50 ? '#06b6d4' : pct >= 25 ? '#f59e0b' : '#ef4444';
               return (
                 <div key={o.id} className="bg-slate-900/40 hover:bg-slate-900/70 border border-slate-800 rounded p-2 transition-all">
@@ -696,7 +750,7 @@ export default function VisaoGeralPage() {
                     <div className="font-mono text-[9px] text-blue-300 bg-blue-500/10 px-1.5 py-0.5 rounded">{o.codigo}</div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs text-white truncate font-medium">{o.nome}</p>
-                      <p className="text-[9px] text-slate-500">{fmt(fin)}/{fmt(tot)} · {fmtR$k(o.contratoValorTotal || o.valorContrato || 0)}</p>
+                      <p className="text-[9px] text-slate-500">{fmtPeso(rp.pesoConcluido)}/{fmtPeso(rp.totalPeso)} · {fmtR$k(o.contratoValorTotal || o.valorContrato || 0)}</p>
                     </div>
                     <p className="text-sm font-black tabular-nums" style={{ color: cor }}>{pct}%</p>
                   </div>
@@ -834,7 +888,7 @@ export default function VisaoGeralPage() {
           <span className="flex items-center gap-1"><Power className="h-2.5 w-2.5 text-emerald-400" /> ALL SYSTEMS GO</span>
         </div>
         <div className="flex items-center gap-3">
-          <span className="font-mono">SESS::{Date.now().toString(36).toUpperCase().slice(-8)}</span>
+          <span className="font-mono">SESS::{sessId}</span>
         </div>
       </div>
     </div>
