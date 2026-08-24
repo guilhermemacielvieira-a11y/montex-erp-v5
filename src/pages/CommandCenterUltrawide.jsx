@@ -17,10 +17,12 @@ import {
 import {
   Activity, AlertTriangle, ArrowUp, ArrowDown, Bell, Building2, CheckCircle2,
   Clock, DollarSign, Factory, Flame, Gauge, Layers, Radio, Signal, Target, TrendingUp, TrendingDown, Truck,
-  Wallet, Weight, Wifi, Zap, BarChart3, Box, Radar as RadarIcon, Hash, Satellite, Briefcase,
+  Wallet, Weight, Wifi, BarChart3, Box, Radar as RadarIcon, Hash, Satellite, Briefcase, Map, PackageX, ShoppingCart,
 } from 'lucide-react';
-import { useObras, useProducao, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { useObras, useProducao, useLancamentos, useMedicoes, useEstoque } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
+import { resumoProducao, bloqueioFabricacao } from '../services/relatorioProducao';
+import { resumoMaterialObra } from '../services/estoqueAnalytics';
 
 // ============================================
 // THEME — NEXUS Sci-Fi Tactical
@@ -113,7 +115,7 @@ function Panel({ children, title, subtitle, accent = NX.cyan, icon: Icon, classN
               {title && (
                 <div className="flex items-center gap-1.5">
                   <span className="text-[10px] font-bold text-white uppercase tracking-[0.2em]">{title}</span>
-                  <span className="font-mono text-[8px]" style={{ color: NX.textDim }}>// {String(Math.floor(Math.random() * 9999)).padStart(4, '0')}</span>
+                  <span className="font-mono text-[8px]" style={{ color: NX.textDim }}>// {String([...String(title)].reduce((a, c) => a + c.charCodeAt(0), 0) % 10000).padStart(4, '0')}</span>
                 </div>
               )}
               {subtitle && <p className="text-[9px] mt-0.5" style={{ color: NX.textDim }}>{subtitle}</p>}
@@ -270,6 +272,7 @@ function ScanLine({ color = NX.cyan }) {
 export default function CommandCenterUltrawide() {
   const { obras } = useObras();
   const { pecas } = useProducao();
+  const { estoque } = useEstoque();
   const { lancamentosDespesas } = useLancamentos();
   const { medicoes } = useMedicoes();
   const fi = useFinancialIntelligence();
@@ -281,27 +284,60 @@ export default function CommandCenterUltrawide() {
     return () => clearInterval(t);
   }, []);
 
-  // ===== Production Pipeline =====
+  // ===== Production Pipeline (etapas REAIS, por PESO) — fonte: resumoProducao =====
+  const resumoProd = useMemo(() => resumoProducao(pecas || []), [pecas]);
+  const STAGE_META = {
+    fabricacao: { label: 'FAB', icon: Factory, color: NX.amber },
+    solda: { label: 'WELD', icon: Flame, color: NX.violet },
+    pintura: { label: 'PAINT', icon: Box, color: NX.electric },
+    expedido: { label: 'SHIP', icon: Truck, color: NX.emerald },
+    enviado: { label: 'FIELD', icon: Map, color: NX.blue },
+  };
   const pipeline = useMemo(() => {
-    const stages = [
-      { key: 'fabricacao', label: 'FAB', icon: Factory, color: NX.amber },
-      { key: 'corte', label: 'CUT', icon: Zap, color: NX.cyan },
-      { key: 'solda', label: 'WELD', icon: Flame, color: NX.violet },
-      { key: 'pintura', label: 'PAINT', icon: Box, color: NX.electric },
-      { key: 'expedicao', label: 'SHIP', icon: Truck, color: NX.emerald },
-    ];
-    return stages.map(s => {
-      const items = (pecas || []).filter(p => p.etapa === s.key);
-      const qtd = items.reduce((sum, p) => sum + (parseInt(p.quantidade) || 1), 0);
-      const peso = items.reduce((sum, p) => sum + (parseFloat(p.pesoTotal) || parseFloat(p.peso) || 0), 0);
-      return { ...s, qtd, peso, count: items.length };
-    });
-  }, [pecas]);
+    return resumoProd.porEtapa
+      .filter((e) => STAGE_META[e.key])
+      .map((e) => ({ key: e.key, ...STAGE_META[e.key], qtd: e.qtd, peso: e.peso, count: e.pecas }));
+  }, [resumoProd]);
 
-  const totalPcs = pipeline.reduce((s, p) => s + p.qtd, 0);
-  const totalPeso = pipeline.reduce((s, p) => s + p.peso, 0);
-  const expedidoPcs = pipeline.find(p => p.key === 'expedicao')?.qtd || 0;
-  const efficiencyPct = totalPcs > 0 ? (expedidoPcs / totalPcs * 100) : 0;
+  const totalPcs = resumoProd.totalQtd;
+  const totalPeso = resumoProd.totalPeso;
+  const pesoConcluido = resumoProd.pesoConcluido;      // enviado + entregue
+  const efficiencyPct = resumoProd.progressoPct;        // progresso ponderado por peso
+
+  // ===== GARGALOS DE MATERIAL consolidados (estoque faltante → não fabricável) =====
+  const gargalos = useMemo(() => {
+    const ativas = (obras || []).filter(o => !['cancelada', 'concluida', 'orcamento'].includes(o.status));
+    const estPorObra = new Map();
+    (estoque || []).forEach((e) => {
+      const oid = e.obraId || e.obra_id;
+      if (!oid) return;
+      if (!estPorObra.has(oid)) estPorObra.set(oid, []);
+      estPorObra.get(oid).push(e);
+    });
+    let pesoBloqueado = 0, pesoParcial = 0, faltaComprar = 0, nBloqueadas = 0;
+    const perfilMap = new Map();
+    ativas.forEach((o) => {
+      const est = estPorObra.get(o.id);
+      if (!est || !est.length) return;
+      const pcsObra = (pecas || []).filter((p) => (p.obraId || p.obra_id) === o.id);
+      const b = bloqueioFabricacao(pcsObra, resumoMaterialObra(est).linhas);
+      if (b.itens.length === 0) return;
+      pesoBloqueado += b.pesoBloqueado; pesoParcial += b.pesoParcial;
+      faltaComprar += b.faltaComprarTotal; nBloqueadas += b.nBloqueadas;
+      (b.porPerfil || []).forEach((g) => {
+        if (!perfilMap.has(g.perfil)) perfilMap.set(g.perfil, { perfil: g.perfil, faltaComprar: 0, obras: new Set() });
+        const acc = perfilMap.get(g.perfil);
+        acc.faltaComprar += g.faltaComprar; acc.obras.add(o.codigo || o.id);
+      });
+    });
+    const topPerfis = [...perfilMap.values()].map((p) => ({ ...p, nObras: p.obras.size }))
+      .sort((a, b) => b.faltaComprar - a.faltaComprar).slice(0, 6);
+    return {
+      pesoBloqueado, pesoParcial, faltaComprar, nBloqueadas,
+      pctTravado: totalPeso > 0 ? ((pesoBloqueado + pesoParcial) / totalPeso * 100) : 0,
+      topPerfis,
+    };
+  }, [estoque, obras, pecas, totalPeso]);
 
   // ===== Financial state =====
   const recMes = fi.kpisGerais?.faturamentoRealMes || 0;
@@ -325,22 +361,19 @@ export default function CommandCenterUltrawide() {
     }));
   }, [fi]);
 
-  // ===== Radar das obras =====
+  // ===== Radar das obras (progresso ponderado por PESO) =====
   const radarObras = useMemo(() => {
     return obrasAtivas.slice(0, 6).map(o => {
-      const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
-      const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-      const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-        .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
+      const pcsObra = (pecas || []).filter(p => (p.obraId || p.obra_id) === o.id);
       return {
         obra: (o.codigo || o.id).slice(-6),
-        producao: tot > 0 ? Math.round(fin / tot * 100) : 0,
+        producao: Math.round(resumoProducao(pcsObra).progressoPct),
       };
     });
   }, [obrasAtivas, pecas]);
 
-  // ===== Stage distribution (donut) =====
-  const stageDist = pipeline.filter(p => p.qtd > 0).map(p => ({ name: p.label, value: p.qtd, fill: p.color }));
+  // ===== Stage distribution (donut) — por peso =====
+  const stageDist = pipeline.filter(p => p.peso > 0).map(p => ({ name: p.label, value: Math.round(p.peso), fill: p.color }));
 
   // ===== Alerts =====
   const alerts = useMemo(() => {
@@ -354,6 +387,7 @@ export default function CommandCenterUltrawide() {
     if (atrasadas.length > 0) {
       arr.push({ severity: 'critical', icon: AlertTriangle, msg: `${atrasadas.length} despesa(s) ATRASADA(S)`, sub: fmtR$(atrasadas.reduce((s, a) => s + (a.valor || 0), 0)) });
     }
+    if (gargalos.nBloqueadas > 0) arr.push({ severity: 'critical', icon: PackageX, msg: `${gargalos.nBloqueadas} PEÇA(S) SEM MATERIAL`, sub: `${fmtPeso(gargalos.pesoBloqueado)} · comprar ${fmtPeso(gargalos.faltaComprar)}` });
     if (margem < 0) arr.push({ severity: 'critical', icon: TrendingDown, msg: 'MARGEM NEGATIVA', sub: `${margem.toFixed(1)}%` });
     if (saldo < 0) arr.push({ severity: 'warn', icon: Wallet, msg: 'SALDO CAIXA NEGATIVO', sub: fmtR$(saldo) });
     const proxVenc = (lancamentosDespesas || []).filter(l => {
@@ -365,7 +399,7 @@ export default function CommandCenterUltrawide() {
     if (proxVenc.length > 0) arr.push({ severity: 'info', icon: Clock, msg: `${proxVenc.length} venc. em 7 dias`, sub: fmtR$(proxVenc.reduce((s, a) => s + (a.valor || 0), 0)) });
     if (arr.length === 0) arr.push({ severity: 'ok', icon: CheckCircle2, msg: 'SISTEMAS OPERACIONAIS', sub: 'No alerts' });
     return arr;
-  }, [lancamentosDespesas, margem, saldo]);
+  }, [lancamentosDespesas, margem, saldo, gargalos]);
 
   // ===== System health score =====
   const sysHealth = useMemo(() => {
@@ -491,12 +525,11 @@ export default function CommandCenterUltrawide() {
                   </div>
                   <span className="font-mono text-[10px] font-bold uppercase tracking-widest flex-1" style={{ color: stage.color }}>{stage.label}</span>
                   <div className="flex items-baseline gap-2">
-                    <span className="text-lg font-black tabular-nums" style={{ color: stage.color, textShadow: `0 0 6px ${stage.color}40` }}>{fmt(stage.qtd)}</span>
-                    <span className="text-[9px]" style={{ color: NX.textDim }}>pcs</span>
-                    <span className="font-mono text-[10px] tabular-nums" style={{ color: stage.color, opacity: 0.6 }}>{fmtPeso(stage.peso)}</span>
+                    <span className="text-lg font-black tabular-nums" style={{ color: stage.color, textShadow: `0 0 6px ${stage.color}40` }}>{fmtPeso(stage.peso)}</span>
+                    <span className="font-mono text-[10px] tabular-nums" style={{ color: stage.color, opacity: 0.6 }}>{fmt(stage.qtd)} pcs</span>
                   </div>
                 </div>
-                <BarProgress value={stage.qtd} max={totalPcs || 1} color={stage.color} height={3} />
+                <BarProgress value={stage.peso} max={totalPeso || 1} color={stage.color} height={3} />
               </motion.div>
             ))}
             {/* Throughput total */}
@@ -517,7 +550,7 @@ export default function CommandCenterUltrawide() {
         <Panel title="System Vitals" subtitle="Composite scores [0-100]" icon={Gauge} accent={NX.violet} className="col-span-4">
           <div className="grid grid-cols-3 gap-2 mt-1">
             <div className="flex flex-col items-center">
-              <CircularGauge value={efficiencyPct} max={100} label="PROD" sublabel={fmt(expedidoPcs) + ' pcs'} color={NX.cyan} size={90} />
+              <CircularGauge value={efficiencyPct} max={100} label="PROD" sublabel={fmtPeso(pesoConcluido)} color={NX.cyan} size={90} />
             </div>
             <div className="flex flex-col items-center">
               <CircularGauge value={margem} max={50} label="MARGIN" sublabel={fmtPct(margem)} color={margem >= 15 ? NX.emerald : margem >= 0 ? NX.amber : NX.rose} size={90} />
@@ -566,6 +599,42 @@ export default function CommandCenterUltrawide() {
           <MetricCell label="lucro mês" value={fmtR$(recMes - desMes)} sub={`margem ${fmtPct(margem)}`} accent={NX.blue} icon={TrendingUp} />
           <MetricCell label="backlog" value={fmtR$(backlog)} sub={`${obrasAtivas.length} obras`} accent={NX.violet} icon={Briefcase} />
         </div>
+
+        {/* Material Bottleneck (full width) — estoque faltante × não fabricável */}
+        <Panel title="Material Bottleneck" subtitle="Estoque faltante × peças não fabricáveis · prioridade de compra" icon={PackageX} accent={NX.rose} className="col-span-12"
+          headerRight={<span className="font-mono text-[8px] tabular-nums" style={{ color: gargalos.pesoBloqueado > 0 ? NX.rose : NX.emerald }}>{fmtPct(gargalos.pctTravado)} TRAVADO</span>}>
+          {gargalos.pesoBloqueado === 0 && gargalos.pesoParcial === 0 ? (
+            <div className="flex items-center gap-2 py-3">
+              <CheckCircle2 className="h-4 w-4" style={{ color: NX.emerald }} />
+              <span className="text-[11px]" style={{ color: NX.emerald }}>Nenhum gargalo de material nas obras com estoque cadastrado</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-12 gap-3 mt-1">
+              <div className="col-span-4 grid grid-cols-3 gap-2">
+                <MetricCell label="não fabricável" value={fmtPeso(gargalos.pesoBloqueado)} sub={`${fmt(gargalos.nBloqueadas)} pç`} accent={NX.rose} icon={PackageX} />
+                <MetricCell label="parcial" value={fmtPeso(gargalos.pesoParcial)} sub="parte chegou" accent={NX.amber} icon={Layers} />
+                <MetricCell label="falta comprar" value={fmtPeso(gargalos.faltaComprar)} sub="total" accent={NX.cyan} icon={ShoppingCart} />
+              </div>
+              <div className="col-span-8">
+                <p className="font-mono text-[8px] uppercase tracking-widest mb-2" style={{ color: NX.textDim }}>prioridade de compra — perfis (kg agregado entre obras)</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+                  {gargalos.topPerfis.map((p) => {
+                    const max = gargalos.topPerfis[0]?.faltaComprar || 1;
+                    return (
+                      <div key={p.perfil}>
+                        <div className="flex items-center justify-between text-[10px] mb-0.5">
+                          <span style={{ color: NX.text }}>{p.perfil} <span style={{ color: NX.textDim }}>· {p.nObras} obra(s)</span></span>
+                          <span className="tabular-nums font-bold" style={{ color: NX.cyan }}>{fmtPeso(p.faltaComprar)}</span>
+                        </div>
+                        <BarProgress value={p.faltaComprar} max={max} color={NX.cyan} height={3} />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </Panel>
 
         {/* === ROW 3 === */}
 
@@ -626,11 +695,9 @@ export default function CommandCenterUltrawide() {
           headerRight={<span className="font-mono text-[8px]" style={{ color: NX.cyan }}>{obrasAtivas.length} ATIVAS</span>}>
           <div className="grid grid-cols-2 gap-2 mt-1 max-h-72 overflow-y-auto custom-scroll">
             {obrasAtivas.slice(0, 8).map((o) => {
-              const pcsObra = (pecas || []).filter(p => p.obraId === o.id);
-              const tot = pcsObra.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-              const fin = pcsObra.filter(p => ['expedido','enviado','entregue','montagem'].includes(p.etapa))
-                .reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0);
-              const pct = tot > 0 ? (fin / tot) * 100 : 0;
+              const pcsObra = (pecas || []).filter(p => (p.obraId || p.obra_id) === o.id);
+              const rp = resumoProducao(pcsObra);
+              const pct = rp.progressoPct;
               const valor = o.contratoValorTotal || o.valorContrato || 0;
               const c = pct >= 75 ? NX.emerald : pct >= 50 ? NX.cyan : pct >= 25 ? NX.amber : NX.rose;
               return (
@@ -645,7 +712,7 @@ export default function CommandCenterUltrawide() {
                   </div>
                   <BarProgress value={pct} max={100} color={c} height={3} />
                   <div className="flex items-center justify-between mt-2 text-[9px]">
-                    <span className="font-mono" style={{ color: NX.textDim }}>{fmt(fin)}/{fmt(tot)} pcs</span>
+                    <span className="font-mono" style={{ color: NX.textDim }}>{fmtPeso(rp.pesoConcluido)}/{fmtPeso(rp.totalPeso)}</span>
                     <span className="font-mono tabular-nums" style={{ color: NX.violet }}>{fmtR$(valor)}</span>
                   </div>
                 </div>
