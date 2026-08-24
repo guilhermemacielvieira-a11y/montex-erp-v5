@@ -94,6 +94,22 @@ describe('bloqueioFabricacao (peça × material faltante)', () => {
   it('sem material → nada bloqueado', () => {
     expect(bloqueioFabricacao(pecasT, []).nBloqueadas).toBe(0);
   });
+  it('NÃO colide variantes de espessura (…X2 vs …X2.25) no falta comprar', () => {
+    const mat = [
+      { perfil: 'UE250X85X25X2', status: 'faltando', falta: 80029.3 },
+      { perfil: 'UE250X85X25X2.25', status: 'faltando', falta: 2364.3 },
+    ];
+    const pcs = [
+      { marca: 'T1', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 100, etapa: 'aguardando' },
+      { marca: 'S1', perfil: 'UE250X85X25X2.25', quantidade: 1, pesoTotal: 50, etapa: 'aguardando' },
+    ];
+    const b = bloqueioFabricacao(pcs, mat);
+    const t1 = b.itens.find((i) => i.marca === 'T1');
+    const s1 = b.itens.find((i) => i.marca === 'S1');
+    expect(t1.faltaComprar).toBe(80029.3);   // não pode herdar o 2364.3 da variante .25
+    expect(s1.faltaComprar).toBe(2364.3);
+    expect(b.perfisFaltando).toEqual(['UE250X85X25X2', 'UE250X85X25X2.25']);
+  });
 });
 
 describe('pecasPorEtapa', () => {
