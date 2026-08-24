@@ -14,7 +14,7 @@ import {
 } from 'recharts';
 import { AlertTriangle, ArrowUp, ArrowDown, Briefcase, Calendar, CheckCircle2, DollarSign, Factory,
   Flame, Layers, TrendingUp, Truck, Users, Wallet,
-  BarChart3, ArrowRight, Box, Map, Cog, PackageX, ShoppingCart,
+  BarChart3, ArrowRight, Box, Map as MapIcon, Cog, PackageX, ShoppingCart,
 } from 'lucide-react';
 import { useObras, useProducao, useLancamentos, useMedicoes, useEstoque, useEquipes } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
@@ -254,7 +254,7 @@ export default function CommandCenterUltra() {
 
   // ===== Produção global (por PESO, ponderada) — fonte única: resumoProducao =====
   const resumoProd = useMemo(() => resumoProducao(pecas || []), [pecas]);
-  const ETAPA_ICON = { aguardando: Layers, fabricacao: Factory, solda: Flame, pintura: Box, expedido: Truck, enviado: Map, entregue: CheckCircle2 };
+  const ETAPA_ICON = { aguardando: Layers, fabricacao: Factory, solda: Flame, pintura: Box, expedido: Truck, enviado: MapIcon, entregue: CheckCircle2 };
   // Funil das 5 etapas ativas (aguardando → expedido); enviado/entregue = "finalizado".
   const pipeline = useMemo(() => {
     const total = resumoProd.totalPeso || 0;
@@ -632,7 +632,7 @@ export default function CommandCenterUltra() {
           )}
         </Section>
 
-        <Section title="Receita por Obra" sub="treemap de faturamento" icon={Map} accent={OM.cyan} className="col-span-5">
+        <Section title="Receita por Obra" sub="treemap de faturamento" icon={MapIcon} accent={OM.cyan} className="col-span-5">
           {receitaPorObra.length === 0 ? (
             <p className="text-center text-xs italic py-6" style={{ color: OM.textDim }}>Sem receitas registradas</p>
           ) : (

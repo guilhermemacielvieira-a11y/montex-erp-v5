@@ -17,7 +17,7 @@ import {
 import {
   Activity, AlertTriangle, ArrowUp, ArrowDown, Bell, Building2, CheckCircle2,
   Clock, DollarSign, Factory, Flame, Gauge, Layers, Radio, Signal, Target, TrendingUp, TrendingDown, Truck,
-  Wallet, Weight, Wifi, BarChart3, Box, Radar as RadarIcon, Hash, Satellite, Briefcase, Map, PackageX, ShoppingCart,
+  Wallet, Weight, Wifi, BarChart3, Box, Radar as RadarIcon, Hash, Satellite, Briefcase, Map as MapIcon, PackageX, ShoppingCart,
 } from 'lucide-react';
 import { useObras, useProducao, useLancamentos, useMedicoes, useEstoque } from '../contexts/ERPContext';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
@@ -291,7 +291,7 @@ export default function CommandCenterUltrawide() {
     solda: { label: 'WELD', icon: Flame, color: NX.violet },
     pintura: { label: 'PAINT', icon: Box, color: NX.electric },
     expedido: { label: 'SHIP', icon: Truck, color: NX.emerald },
-    enviado: { label: 'FIELD', icon: Map, color: NX.blue },
+    enviado: { label: 'FIELD', icon: MapIcon, color: NX.blue },
   };
   const pipeline = useMemo(() => {
     return resumoProd.porEtapa
