@@ -252,9 +252,9 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     doc.setPage(p);
     doc.setDrawColor(203, 213, 225); doc.setLineWidth(0.2); doc.line(M, 289, 200, 289);
     doc.setFontSize(7.5); doc.setTextColor(100, 116, 139); doc.setFont(undefined, 'bold');
-    doc.text('MONTEX', M, 293);
+    doc.text('GRUPO MONTEX', M, 293);
     doc.setFont(undefined, 'normal'); doc.setTextColor(148, 163, 184);
-    doc.text(`Estruturas Metálicas · Belo Vale/MG · ${obraTxt}`, M + 14, 293);
+    doc.text(`São Joaquim de Bicas/MG · ${obraTxt}`, M + 25, 293);
     doc.text(`Página ${p}/${total}`, 200, 293, { align: 'right' });
   }
 
