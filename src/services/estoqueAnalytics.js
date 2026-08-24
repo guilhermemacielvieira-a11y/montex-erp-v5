@@ -108,6 +108,40 @@ export function kpisEstoque(items = []) {
   };
 }
 
+// Resumo de MATERIAL DA OBRA (necessário × entregue), para relatórios. Usa os
+// itens com necessidade cadastrada (pedido>0). Status: entregue (falta<=0),
+// parcial (chegou algo) ou faltando (nada chegou).
+export function resumoMaterialObra(estoque = []) {
+  const linhas = (estoque || []).filter(temNecessidade).map((it) => {
+    const necessario = necessarioItem(it);
+    const entregue = chegouItem(it);
+    const falta = faltaItem(it);
+    const status = falta <= 0 ? 'entregue' : entregue > 0 ? 'parcial' : 'faltando';
+    return {
+      perfil: it.perfil || it.codigo || '—',
+      material: it.material || '',
+      necessario: r2(necessario),
+      entregue: r2(entregue),
+      falta: r2(falta),
+      coberturaPct: necessario > 0 ? r2(Math.min(100, (entregue / necessario) * 100)) : 0,
+      status,
+    };
+  }).sort((a, b) => b.necessario - a.necessario);
+  const totalNecessario = r2(linhas.reduce((s, l) => s + l.necessario, 0));
+  const totalEntregue = r2(linhas.reduce((s, l) => s + l.entregue, 0));
+  const totalFalta = r2(linhas.reduce((s, l) => s + l.falta, 0));
+  return {
+    linhas,
+    totalNecessario,
+    totalEntregue,
+    totalFalta,
+    coberturaPct: totalNecessario > 0 ? r2((totalEntregue / totalNecessario) * 100) : null,
+    entregues: linhas.filter((l) => l.status === 'entregue').length,
+    parciais: linhas.filter((l) => l.status === 'parcial').length,
+    faltando: linhas.filter((l) => l.status === 'faltando').length,
+  };
+}
+
 // Curva ABC (Pareto) por valor em estoque: A ≤80% acumulado, B ≤95%, C resto.
 export function curvaABC(items = []) {
   const comValor = (items || [])

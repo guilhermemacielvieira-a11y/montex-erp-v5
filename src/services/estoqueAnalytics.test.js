@@ -5,7 +5,7 @@ import { describe, it, expect } from 'vitest';
 import {
   saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
-  necessarioItem, chegouItem, faltaItem, temNecessidade,
+  necessarioItem, chegouItem, faltaItem, temNecessidade, resumoMaterialObra,
 } from './estoqueAnalytics';
 
 const estoque = [
@@ -100,6 +100,32 @@ describe('faltante (necessário/chegou/falta)', () => {
     expect(k.itensComNecessidade).toBe(0);
     expect(k.totalFalta).toBe(0);
     expect(k.coberturaPct).toBeNull();
+  });
+});
+
+describe('resumoMaterialObra (necessário × entregue)', () => {
+  const est = [
+    { perfil: 'UE250', material: 'CIVIL', pedido: 80000, comprado: 0, falta: 80000, quantidade: 0 },     // faltando
+    { perfil: 'W200', material: 'A572', pedido: 15738, comprado: 2316, falta: 13422, quantidade: 2316 }, // parcial
+    { perfil: 'CHAPARIA', material: 'A36', pedido: 25852, comprado: 25852, falta: 0, quantidade: 25852 }, // entregue
+    { perfil: 'FABRICA', material: 'A36', quantidade: 500 },                                              // sem necessidade → fora
+  ];
+  const r = resumoMaterialObra(est);
+  it('inclui só itens com necessidade e classifica status', () => {
+    expect(r.linhas.length).toBe(3);
+    expect(r.linhas.find((l) => l.perfil === 'UE250').status).toBe('faltando');
+    expect(r.linhas.find((l) => l.perfil === 'W200').status).toBe('parcial');
+    expect(r.linhas.find((l) => l.perfil === 'CHAPARIA').status).toBe('entregue');
+  });
+  it('totais e cobertura', () => {
+    expect(r.totalNecessario).toBe(80000 + 15738 + 25852);
+    expect(r.totalEntregue).toBe(0 + 2316 + 25852);
+    expect(r.totalFalta).toBe(80000 + 13422 + 0);
+    expect(r.coberturaPct).toBeCloseTo((2316 + 25852) / (80000 + 15738 + 25852) * 100, 1);
+    expect(r.entregues).toBe(1); expect(r.parciais).toBe(1); expect(r.faltando).toBe(1);
+  });
+  it('ordena por necessário desc', () => {
+    expect(r.linhas[0].perfil).toBe('UE250');
   });
 });
 
