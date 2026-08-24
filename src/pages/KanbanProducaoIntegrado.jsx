@@ -31,7 +31,7 @@ import {
 } from 'recharts';
 
 // Contexto ERP e Database
-import { useObras, useProducao } from '@/contexts/ERPContext';
+import { useObras, useProducao, useEstoque } from '@/contexts/ERPContext';
 import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { supabase } from '@/api/supabaseClient';
 // FuncionarioSelectorModal removido — substituído pelo LancamentoProducaoModal completo
@@ -92,6 +92,7 @@ export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
   const { obras, obraAtual } = useObras();
   const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, updatePeca, addPecas: addPecasContext, reloadPecas } = useProducao();
+  const { estoque: estoqueGlobal } = useEstoque();
 
   // ========================================
   // BASE DE DADOS DE PRODUÇÃO INDEPENDENTE
@@ -1164,6 +1165,7 @@ export default function KanbanProducaoIntegrado() {
       <RelatorioProducaoCard
         pecas={pecasSupabase || []}
         obra={(obras || []).find(o => o.id === obraAtual) || null}
+        estoque={(estoqueGlobal || []).filter(e => (e.obraId || e.obra_id) === obraAtual)}
       />
 
       {/* Ordem de Produção Atual */}

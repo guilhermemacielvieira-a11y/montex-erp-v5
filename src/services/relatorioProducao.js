@@ -73,11 +73,13 @@ const funcsPorEtapa = {
 };
 
 // Produção por FUNCIONÁRIO: para cada peça, atribui o peso ao funcionário de
-// cada etapa registrada. Retorna [{ funcionario, peso, pecas, porEtapa{} }].
-export function porFuncionario(pecas = []) {
+// cada etapa registrada. `mapaNomes` (id→nome) resolve códigos para nomes.
+// Retorna [{ funcionario, peso, pecas, porEtapa{} }].
+export function porFuncionario(pecas = [], mapaNomes = {}) {
   const mapa = new Map();
-  const add = (nome, etapaKey, peso) => {
-    const n = String(nome || '').trim();
+  const nomeDe = (v) => { const raw = String(v || '').trim(); return (mapaNomes && mapaNomes[raw]) || raw; };
+  const add = (valor, etapaKey, peso) => {
+    const n = nomeDe(valor);
     if (!n) return;
     if (!mapa.has(n)) mapa.set(n, { funcionario: n, peso: 0, pecas: 0, porEtapa: {} });
     const f = mapa.get(n);
