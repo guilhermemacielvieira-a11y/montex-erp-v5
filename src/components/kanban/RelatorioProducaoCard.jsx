@@ -6,7 +6,7 @@
 // com tabelas desenhadas manualmente (sem autotable). Lógica de agregação em
 // services/relatorioProducao.js (pura/testada).
 // ============================================================
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { FileDown, Loader2, Package, Weight, Activity, CheckCircle2 } from 'lucide-react';
 import { resumoProducao } from '@/services/relatorioProducao';
@@ -20,13 +20,29 @@ const fmtPeso = (kg) => {
 };
 export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque = [] }) {
   const [gerando, setGerando] = useState(false);
+  const [logoDataUrl, setLogoDataUrl] = useState(null);
   const resumo = useMemo(() => resumoProducao(pecas), [pecas]);
+
+  // Pré-carrega o logo (para embutir no PDF). Falha em silêncio → usa só o texto.
+  useEffect(() => {
+    let alive = true;
+    fetch('/logo-montex.png')
+      .then((r) => (r.ok ? r.blob() : null))
+      .then((blob) => {
+        if (!blob || !alive) return;
+        const fr = new FileReader();
+        fr.onload = () => { if (alive) setLogoDataUrl(fr.result); };
+        fr.readAsDataURL(blob);
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, []);
 
   const gerar = async () => {
     if (!pecas.length) { toast.error('Sem peças para gerar o relatório'); return; }
     setGerando(true);
     try {
-      const { paginas } = gerarRelatorioProducaoPDF(pecas, obra, { estoque });
+      const { paginas } = gerarRelatorioProducaoPDF(pecas, obra, { estoque, logoDataUrl });
       toast.success(`Relatório PDF gerado (${paginas} páginas)`);
     } catch (e) {
       toast.error('Erro ao gerar PDF: ' + (e.message || e));

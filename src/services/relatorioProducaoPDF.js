@@ -21,7 +21,7 @@ const fmtPeso = (kg) => {
   return n >= 1000 ? (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' t'
                    : n.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 };
-export const DETALHE_CAP = 120;
+export const DETALHE_CAP = 40; // limite padrão de peças por etapa no detalhe
 const hexRgb = (hex) => {
   const h = String(hex || '#64748b').replace('#', '');
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
@@ -83,10 +83,11 @@ function drawProgress(doc, pct, y, { margin = 10, width = 190 } = {}) {
   return y + 11;
 }
 
-export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque } = {}) {
+export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque, logoDataUrl, detalheCap } = {}) {
   const resumo = resumoProducao(pecas);
   const grupos = pecasPorEtapa(pecas);
   const material = resumoMaterialObra(estoque || []);
+  const cap = Number.isFinite(detalheCap) ? detalheCap : DETALHE_CAP;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const M = 10; const W = 190;
   const hoje = data || new Date().toLocaleString('pt-BR');
@@ -94,14 +95,18 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
 
   // Cabeçalho
   doc.setFillColor(15, 23, 42); doc.rect(0, 0, 210, 24, 'F');
+  // Logo (opcional) — canto superior direito
+  if (logoDataUrl) {
+    try { const h = 12, w = h * 1.341; doc.addImage(logoDataUrl, 'PNG', 200 - w, 4, w, h); } catch (_) { /* ignora logo inválido */ }
+  }
   doc.setTextColor(255, 255, 255); doc.setFontSize(16); doc.setFont(undefined, 'bold');
   doc.text('MONTEX — Relatório de Produção', M, 11);
   doc.setFontSize(9); doc.setFont(undefined, 'normal');
   const obraTxt = obra ? `Obra: ${obra.codigo ? obra.codigo + ' · ' : ''}${obra.nome || ''}` : 'Todas as obras';
   doc.text(obraTxt, M, 17);
   const cli = cliente || obra?.cliente;
-  if (cli) doc.text(`Cliente: ${cli}`, M, 21.5);
-  doc.text(`Gerado em ${hoje}`, 200, 17, { align: 'right' });
+  const linha2 = [cli ? `Cliente: ${cli}` : '', `Gerado em ${hoje}`].filter(Boolean).join('   ·   ');
+  doc.text(linha2, M, 21.5);
   y = 30;
 
   // KPIs
@@ -230,23 +235,27 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.setTextColor(15, 23, 42);
     doc.text(`Peças — ${g.label}  (${fmtNum(g.itens.length)} · ${fmtPeso(g.itens.reduce((s, i) => s + i.peso, 0))})`, M, y);
     y += 4; doc.setFont(undefined, 'normal');
-    const itens = g.itens.slice(0, DETALHE_CAP);
+    const itens = g.itens.slice(0, cap);
     y = drawTable(doc, colsD, itens.map((it) => ({
       marca: it.marca, perfil: it.perfil, material: it.material, tipo: it.tipo,
       qtd: fmtNum(it.quantidade), peso: fmtPeso(it.peso),
     })), y);
-    if (g.itens.length > DETALHE_CAP) {
+    if (g.itens.length > cap) {
       doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-      doc.text(`… mostrando ${DETALHE_CAP} de ${fmtNum(g.itens.length)} peças desta etapa (as de maior peso).`, M, y + 2);
+      doc.text(`… mostrando as ${cap} peças de maior peso, de ${fmtNum(g.itens.length)} nesta etapa.`, M, y + 2);
     }
   });
 
-  // Rodapé
+  // Rodapé (linha divisória + branding + paginação)
   const total = doc.getNumberOfPages();
   for (let p = 1; p <= total; p++) {
-    doc.setPage(p); doc.setFontSize(7.5); doc.setTextColor(148, 163, 184);
-    doc.text(`MONTEX ERP · Relatório de Produção · ${obraTxt}`, M, 292);
-    doc.text(`Página ${p}/${total}`, 200, 292, { align: 'right' });
+    doc.setPage(p);
+    doc.setDrawColor(203, 213, 225); doc.setLineWidth(0.2); doc.line(M, 289, 200, 289);
+    doc.setFontSize(7.5); doc.setTextColor(100, 116, 139); doc.setFont(undefined, 'bold');
+    doc.text('MONTEX', M, 293);
+    doc.setFont(undefined, 'normal'); doc.setTextColor(148, 163, 184);
+    doc.text(`Estruturas Metálicas · Belo Vale/MG · ${obraTxt}`, M + 14, 293);
+    doc.text(`Página ${p}/${total}`, 200, 293, { align: 'right' });
   }
 
   const nome = `relatorio_producao_${(obra?.codigo || 'geral').toString().replace(/[^\w.-]+/g, '_')}.pdf`;
