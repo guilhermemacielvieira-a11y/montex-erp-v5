@@ -36,6 +36,7 @@ import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { supabase } from '@/api/supabaseClient';
 // FuncionarioSelectorModal removido — substituído pelo LancamentoProducaoModal completo
 import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
+import RelatorioProducaoCard from '@/components/kanban/RelatorioProducaoCard';
 import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 import { listasMaterial, obras as obrasDB } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
@@ -1158,6 +1159,12 @@ export default function KanbanProducaoIntegrado() {
           </Button>
         </div>
       </div>
+
+      {/* Relatório de Produção (card + PDF completo) */}
+      <RelatorioProducaoCard
+        pecas={pecasSupabase || []}
+        obra={(obras || []).find(o => o.id === obraAtual) || null}
+      />
 
       {/* Ordem de Produção Atual */}
       {ordemProducaoAtual && (
