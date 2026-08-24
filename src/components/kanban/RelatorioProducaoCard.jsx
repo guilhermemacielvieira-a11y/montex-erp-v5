@@ -77,13 +77,22 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
         <Mini icon={Activity} label="Progresso" value={`${resumo.progressoPct}%`} tone="text-orange-400" />
       </div>
 
-      {/* Alerta: peças sem material (não é possível fabricar) */}
+      {/* Alerta: peças sem material (vermelho) e material parcial (amarelo) */}
       {bloqueio.nBloqueadas > 0 && (
         <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/40 bg-red-500/10 p-3">
           <AlertTriangle className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
           <div className="text-xs">
             <p className="text-red-300 font-semibold">{fmtNum(bloqueio.nBloqueadas)} peça(s) sem material — não é possível fabricar ({fmtPeso(bloqueio.pesoBloqueado)})</p>
             <p className="text-red-400/80 mt-0.5">Perfis zerados no estoque: {bloqueio.perfisFaltando.slice(0, 6).join(', ')}{bloqueio.perfisFaltando.length > 6 ? '…' : ''} · destacadas em vermelho no PDF.</p>
+          </div>
+        </div>
+      )}
+      {bloqueio.nParciais > 0 && (
+        <div className="mt-2 flex items-start gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3">
+          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+          <div className="text-xs">
+            <p className="text-amber-300 font-semibold">{fmtNum(bloqueio.nParciais)} peça(s) com material parcial — só parte chegou ({fmtPeso(bloqueio.pesoParcial)})</p>
+            <p className="text-amber-400/80 mt-0.5">Perfis parciais: {bloqueio.perfisParciais.slice(0, 6).join(', ')}{bloqueio.perfisParciais.length > 6 ? '…' : ''} · em amarelo no PDF, com o quanto falta comprar por perfil.</p>
           </div>
         </div>
       )}

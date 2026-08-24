@@ -44,11 +44,12 @@ function drawTable(doc, cols, rows, y, { margin = 10, width = 190, bottom = 285 
     cols.forEach((c) => {
       const raw = row[c.k] == null ? '' : String(row[c.k]);
       const txt = doc.splitTextToSize(raw, c.w - 2)[0] || '';
-      const col = c.color || [15, 23, 42];
+      const col = (c.colorFn && c.colorFn(row)) || c.color || [15, 23, 42];
       doc.setTextColor(col[0], col[1], col[2]);
-      if (c.bold) doc.setFont(undefined, 'bold');
+      const bold = c.bold || (c.boldFn && c.boldFn(row));
+      if (bold) doc.setFont(undefined, 'bold');
       doc.text(txt, c.align === 'right' ? c.x + c.w : c.x, y + 4.1, { align: c.align === 'right' ? 'right' : 'left' });
-      if (c.bold) doc.setFont(undefined, 'normal');
+      if (bold) doc.setFont(undefined, 'normal');
     });
     y += rowH;
   });
@@ -226,39 +227,61 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     })), y);
   }
 
-  // ===== Peças SEM MATERIAL — não é possível fabricar (destaque vermelho) =====
-  if (bloqueio.nBloqueadas > 0) {
+  // ===== Peças com pendência de material — sem material (vermelho) / parcial (amarelo) =====
+  if (bloqueio.itens.length > 0) {
+    const red = [220, 38, 38];
+    const amber = [180, 83, 9];
+    const corDe = (row) => (row._st === 'parcial' ? amber : red);
     doc.addPage(); y = M;
     doc.setFillColor(239, 68, 68); doc.rect(M, y, W, 9, 'F');
     doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont(undefined, 'bold');
-    doc.text('⚠ Peças SEM MATERIAL — Não é possível fabricar', M + 3, y + 6);
+    doc.text('⚠ Peças com pendência de material', M + 3, y + 6);
     doc.setFont(undefined, 'normal'); y += 13;
     doc.setFontSize(8.5); doc.setTextColor(100, 116, 139);
-    doc.text('Peças em Aguardando/Fabricação cujo perfil está zerado no estoque (material ainda não recebido).', M, y); y += 6;
-    // KPI + perfis
+    doc.text('Peças em Aguardando/Fabricação cujo perfil ainda não chegou (integralmente) no estoque.', M, y); y += 5;
+    // Legenda
+    doc.setFillColor(220, 38, 38); doc.rect(M, y - 2.6, 3, 3, 'F');
+    doc.setTextColor(51, 65, 85); doc.setFontSize(8);
+    doc.text('Vermelho = sem material (não é possível fabricar)', M + 5, y);
+    doc.setFillColor(217, 119, 6); doc.rect(M + 95, y - 2.6, 3, 3, 'F');
+    doc.text('Amarelo = material parcial (parte já chegou)', M + 100, y); y += 6;
+    // KPI
     doc.setTextColor(185, 28, 28); doc.setFontSize(10); doc.setFont(undefined, 'bold');
-    doc.text(`${fmtNum(bloqueio.nBloqueadas)} peça(s) · ${fmtNum(bloqueio.qtdBloqueada)} un · ${fmtPeso(bloqueio.pesoBloqueado)} bloqueado(s)`, M, y); y += 5;
+    doc.text(`Bloqueadas: ${fmtNum(bloqueio.nBloqueadas)} peça(s) · ${fmtNum(bloqueio.qtdBloqueada)} un · ${fmtPeso(bloqueio.pesoBloqueado)}`, M, y); y += 5;
+    if (bloqueio.nParciais > 0) {
+      doc.setTextColor(180, 83, 9);
+      doc.text(`Parciais: ${fmtNum(bloqueio.nParciais)} peça(s) · ${fmtPeso(bloqueio.pesoParcial)}`, M, y); y += 5;
+    }
     doc.setFont(undefined, 'normal'); doc.setTextColor(51, 65, 85); doc.setFontSize(8);
-    const perfilLinha = doc.splitTextToSize(`Perfis sem material: ${bloqueio.perfisFaltando.join(', ')}`, W);
-    perfilLinha.slice(0, 3).forEach((ln) => { doc.text(ln, M, y); y += 4; });
+    if (bloqueio.perfisFaltando.length) {
+      const l1 = doc.splitTextToSize(`Perfis sem material: ${bloqueio.perfisFaltando.join(', ')}`, W);
+      l1.slice(0, 2).forEach((ln) => { doc.text(ln, M, y); y += 4; });
+    }
+    if (bloqueio.perfisParciais.length) {
+      const l2 = doc.splitTextToSize(`Perfis parciais: ${bloqueio.perfisParciais.join(', ')}`, W);
+      l2.slice(0, 2).forEach((ln) => { doc.text(ln, M, y); y += 4; });
+    }
     y += 2;
-    const red = [220, 38, 38];
     const colsB = [
-      { k: 'marca', label: 'Marca', x: M, w: 26 },
-      { k: 'perfil', label: 'Perfil (faltante)', x: M + 26, w: 34, color: red, bold: true },
-      { k: 'material', label: 'Material', x: M + 60, w: 26 },
-      { k: 'tipo', label: 'Tipo', x: M + 86, w: 26 },
-      { k: 'qtd', label: 'Qtd', x: M + 112, w: 16, align: 'right' },
-      { k: 'peso', label: 'Peso', x: M + 128, w: 26, align: 'right' },
-      { k: 'st', label: 'Status', x: M + 154, w: 36, color: red, bold: true },
+      { k: 'marca', label: 'Marca', x: M, w: 24 },
+      { k: 'perfil', label: 'Perfil', x: M + 24, w: 32, colorFn: corDe, bold: true },
+      { k: 'material', label: 'Material', x: M + 56, w: 24 },
+      { k: 'tipo', label: 'Tipo', x: M + 80, w: 22 },
+      { k: 'qtd', label: 'Qtd', x: M + 102, w: 14, align: 'right' },
+      { k: 'peso', label: 'Peso', x: M + 116, w: 22, align: 'right' },
+      { k: 'falta', label: 'Falta comprar', x: M + 138, w: 26, align: 'right', colorFn: corDe, bold: true },
+      { k: 'st', label: 'Status', x: M + 164, w: 26, colorFn: corDe, boldFn: () => true },
     ];
-    y = drawTable(doc, colsB, bloqueio.bloqueadas.slice(0, cap).map((b) => ({
+    y = drawTable(doc, colsB, bloqueio.itens.slice(0, cap).map((b) => ({
       marca: b.marca, perfil: b.perfil, material: b.material, tipo: b.tipo,
-      qtd: fmtNum(b.quantidade), peso: fmtPeso(b.peso), st: '✗ Não fabricável',
+      qtd: fmtNum(b.quantidade), peso: fmtPeso(b.peso),
+      falta: fmtPeso(b.faltaComprar),
+      st: b.status === 'parcial' ? '⚠ Parcial' : '✗ Sem mat.',
+      _st: b.status,
     })), y);
-    if (bloqueio.bloqueadas.length > cap) {
+    if (bloqueio.itens.length > cap) {
       doc.setFontSize(8); doc.setTextColor(100, 116, 139);
-      doc.text(`… mostrando as ${cap} de maior peso, de ${fmtNum(bloqueio.bloqueadas.length)} peças bloqueadas.`, M, y + 2);
+      doc.text(`… mostrando as ${cap} de maior peso, de ${fmtNum(bloqueio.itens.length)} peças com pendência.`, M, y + 2);
     }
   }
 

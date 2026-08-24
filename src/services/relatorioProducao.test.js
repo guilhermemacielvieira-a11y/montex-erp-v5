@@ -64,22 +64,32 @@ describe('porFuncionario', () => {
 
 describe('bloqueioFabricacao (peça × material faltante)', () => {
   const material = [
-    { perfil: 'HP250X62', status: 'faltando' },      // zerado
-    { perfil: 'W200X19.3', status: 'entregue' },
-    { perfil: 'UE250X85X25X2', status: 'parcial' },
+    { perfil: 'HP250X62', status: 'faltando', falta: 2578.3 },      // zerado
+    { perfil: 'W200X19.3', status: 'entregue', falta: 0 },
+    { perfil: 'UE250X85X25X2', status: 'parcial', falta: 33510.1 }, // chegou parte
   ];
   const pecasT = [
     { marca: 'C1', perfil: 'HP250X62', material: 'A572', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },  // bloqueada (faltando)
     { marca: 'C2', perfil: 'HP250X62', material: 'A572', quantidade: 1, pesoTotal: 250, etapa: 'solda' },        // já em solda → ignora
     { marca: 'V1', perfil: 'W200X19.3', material: 'A572', quantidade: 3, pesoTotal: 900, etapa: 'aguardando' },  // ok (entregue)
-    { marca: 'U1', perfil: 'UE250X85X25X2', material: 'CIVIL', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' }, // parcial → não bloqueia
+    { marca: 'U1', perfil: 'UE250X85X25X2', material: 'CIVIL', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' }, // parcial (amarelo)
   ];
   const b = bloqueioFabricacao(pecasT, material);
-  it('marca só peças em etapa inicial com perfil faltando', () => {
+  it('marca faltando (bloqueada) e parcial em etapa inicial', () => {
     expect(b.nBloqueadas).toBe(1);
     expect(b.bloqueadas[0].marca).toBe('C1');
     expect(b.pesoBloqueado).toBe(500);
     expect(b.perfisFaltando).toEqual(['HP250X62']);
+    expect(b.nParciais).toBe(1);
+    expect(b.parciais[0].marca).toBe('U1');
+    expect(b.perfisParciais).toEqual(['UE250X85X25X2']);
+  });
+  it('mostra quanto falta comprar por perfil em cada peça', () => {
+    expect(b.bloqueadas[0].faltaComprar).toBe(2578.3);
+    expect(b.parciais[0].faltaComprar).toBe(33510.1);
+  });
+  it('ordena faltando antes de parcial', () => {
+    expect(b.itens[0].status).toBe('faltando');
   });
   it('sem material → nada bloqueado', () => {
     expect(bloqueioFabricacao(pecasT, []).nBloqueadas).toBe(0);
