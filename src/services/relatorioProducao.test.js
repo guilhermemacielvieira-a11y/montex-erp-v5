@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   ETAPAS_REL, etapaPeca, qtdPeca, pesoPeca,
-  resumoProducao, porFuncionario, pecasPorEtapa, bloqueioFabricacao,
+  resumoProducao, porFuncionario, pecasPorEtapa, bloqueioFabricacao, fabricabilidadePecas,
 } from './relatorioProducao';
 
 // Mistura camel/snake de propósito.
@@ -133,6 +133,42 @@ describe('bloqueioFabricacao (peça × material faltante)', () => {
     expect(t1.faltaComprar).toBe(80029.3);   // não pode herdar o 2364.3 da variante .25
     expect(s1.faltaComprar).toBe(2364.3);
     expect(b.perfisFaltando).toEqual(['UE250X85X25X2', 'UE250X85X25X2.25']);
+  });
+});
+
+describe('fabricabilidadePecas (consegue × não consegue fabricar)', () => {
+  const material = [
+    { perfil: 'HP250X62', status: 'faltando', falta: 2578.3, coberturaPct: 0 },
+    { perfil: 'W200X19.3', status: 'entregue', falta: 0, coberturaPct: 100 },
+    { perfil: 'UE250X85X25X2', status: 'parcial', falta: 33510.1, coberturaPct: 32 },
+  ];
+  const pcs = [
+    { marca: 'C1', perfil: 'HP250X62', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },   // não fabricável
+    { marca: 'V1', perfil: 'W200X19.3', quantidade: 3, pesoTotal: 900, etapa: 'aguardando' },   // fabricável
+    { marca: 'V2', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' },   // fabricável
+    { marca: 'U1', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 200, etapa: 'aguardando' }, // parcial
+    { marca: 'X1', perfil: 'CH8X130', quantidade: 5, pesoTotal: 50, etapa: 'aguardando' },       // sem info
+    { marca: 'Z1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 999, etapa: 'solda' },         // já fabricada → ignora
+  ];
+  const f = fabricabilidadePecas(pcs, material);
+  it('classifica fabricável / não fabricável / parcial / sem info', () => {
+    expect(f.fabricaveis.map((x) => x.marca).sort()).toEqual(['V1', 'V2']);
+    expect(f.naoFabricaveis.map((x) => x.marca)).toEqual(['C1']);
+    expect(f.parciais.map((x) => x.marca)).toEqual(['U1']);
+    expect(f.semInfo.map((x) => x.marca)).toEqual(['X1']);
+  });
+  it('ignora peças já fabricadas (além de aguardando/fabricação)', () => {
+    const todas = [...f.fabricaveis, ...f.naoFabricaveis, ...f.parciais, ...f.semInfo];
+    expect(todas.find((x) => x.marca === 'Z1')).toBeUndefined();
+  });
+  it('resumo com pesos e percentuais corretos', () => {
+    expect(f.resumo.pesoFabricavel).toBe(1200);       // 900 + 300
+    expect(f.resumo.pesoNaoFabricavel).toBe(500);
+    expect(f.resumo.pesoParcial).toBe(200);
+    expect(f.resumo.pesoTotal).toBe(1950);            // 1200+500+200+50
+    expect(f.resumo.pctFabricavel).toBeCloseTo(1200 / 1950 * 100, 1);
+    expect(f.naoFabricaveis[0].faltaComprar).toBe(2578.3);
+    expect(f.parciais[0].cobertura).toBe(32);
   });
 });
 
