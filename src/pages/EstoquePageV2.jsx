@@ -13,7 +13,7 @@ import {
   ChevronDown, TrendingDown, TrendingUp, BarChart3, Bell,
   Building2, RefreshCw, ArrowDown, Layers, X, Link2,
   ArrowUpRight, ArrowDownLeft, Calendar, Hash, History,
-  DollarSign, Weight, Table2, LayoutGrid, ArrowUpDown, ShieldAlert, HelpCircle, Boxes
+  DollarSign, Weight, Table2, LayoutGrid, ArrowUpDown, ShieldAlert, HelpCircle, Boxes, FileText, Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +34,8 @@ import {
   necessarioItem, chegouItem, faltaItem, temNecessidade,
 } from '@/services/estoqueAnalytics';
 import { ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
+import { gerarRelatorioEstoquePDF } from '@/services/relatorioEstoquePDF';
+import { LOGO_M_MAIN_B64 } from '@/utils/montexLogos';
 import { normalizar } from '@/services/abastecimento';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
@@ -234,6 +236,7 @@ export default function EstoquePageV2() {
   const [busca, setBusca] = useState('');
   const [ordenarPor, setOrdenarPor] = useState('valor');
   const [ordenarDir, setOrdenarDir] = useState('desc');
+  const [gerandoPDF, setGerandoPDF] = useState(false);
   const [viewItens, setViewItens] = useState('tabela'); // 'tabela' | 'cards'
   const [filtroMovTipo, setFiltroMovTipo] = useState('todos');
   const [filtroMovMaterial, setFiltroMovMaterial] = useState('');
@@ -580,6 +583,20 @@ export default function EstoquePageV2() {
     toast.success(`${dados.length} item(ns) exportado(s)`);
   };
 
+  // Gera o Relatório de Estoque em PDF (3 páginas) do estoque JÁ FILTRADO,
+  // no padrão do relatório de Produção (logo, KPIs, gráficos, rodapé Montex).
+  const gerarPDF = () => {
+    if (!estoqueFiltrado.length) { toast.error('Sem itens de estoque para o relatório (com os filtros atuais)'); return; }
+    setGerandoPDF(true);
+    try {
+      const obraInfo = obraAtualData ? { codigo: obraAtualData.codigo, nome: obraAtualData.nome, cliente: obraAtualData.cliente } : null;
+      const { paginas } = gerarRelatorioEstoquePDF(estoqueFiltrado, obraInfo, { logoDataUrl: LOGO_M_MAIN_B64 });
+      toast.success(`Relatório de estoque gerado (${paginas} páginas)`);
+    } catch (e) {
+      toast.error('Erro ao gerar PDF: ' + (e?.message || e));
+    } finally { setGerandoPDF(false); }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -605,6 +622,11 @@ export default function EstoquePageV2() {
           <Button onClick={() => setImportOpen(true)} variant="outline" className="border-emerald-700/60 text-emerald-300 hover:bg-emerald-800/20">
             <Upload className="w-4 h-4 mr-2" />
             Importar Chegada
+          </Button>
+          <Button onClick={gerarPDF} disabled={gerandoPDF} variant="outline" className="border-cyan-700/60 text-cyan-300 hover:bg-cyan-800/20"
+            title="Relatório de estoque em PDF (resumo com gráficos, detalhe por perfil e lista de compra)">
+            {gerandoPDF ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" />}
+            Relatório PDF
           </Button>
           <Button onClick={exportarEstoque} variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
             <Download className="w-4 h-4 mr-2" />
