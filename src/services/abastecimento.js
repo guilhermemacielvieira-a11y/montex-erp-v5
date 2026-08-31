@@ -25,11 +25,24 @@ const r2 = (n) => Math.round(n * 100) / 100;
 // descricao/codigo/perfil/material do item. Retorna o item casado ou null.
 // Reutilizado no recebimento de compras p/ atualizar o saldo do item certo.
 export function matchEstoqueItem(estoque = [], perfil = '') {
-  const chave = normalizar(perfil).slice(0, 12);
-  if (!chave) return null;
-  return (estoque || []).find((e) =>
+  const chaveFull = normalizar(perfil);
+  if (!chaveFull) return null;
+  const lista = estoque || [];
+  // 1. Match EXATO por perfil/código — evita colisão de espessura (ex.: o corte
+  //    UE150X60X20X2.25 casando errado com o item UE150X60X20X2 pelo prefixo).
+  const exato = lista.find((e) => normalizar(e.perfil) === chaveFull || normalizar(e.codigo) === chaveFull);
+  if (exato) return exato;
+  // 2. Substring pela chave (12 primeiros) em descricao/codigo/perfil/material.
+  const chave = chaveFull.slice(0, 12);
+  const sub = lista.find((e) =>
     normalizar(`${e.descricao || ''} ${e.codigo || ''} ${e.perfil || ''} ${e.material || ''}`).includes(chave)
-  ) || null;
+  );
+  if (sub) return sub;
+  // 3. Chapas (CH\d…) sem item próprio puxam do agregado CHAPARIA da obra.
+  if (/^\s*CH\d/i.test(String(perfil))) {
+    return lista.find((e) => /chaparia/i.test(`${e.codigo || ''} ${e.descricao || ''} ${e.perfil || ''}`)) || null;
+  }
+  return null;
 }
 
 // Monta a linha de um NOVO item de estoque a partir de um item recebido numa
