@@ -75,9 +75,7 @@ const formatDate = (date) => {
 
 const formatWeight = (peso) => {
   const p = Number(peso) || 0;
-  return p >= 1000
-    ? `${(p / 1000).toFixed(2)} t`
-    : `${p.toFixed(1)} kg`;
+  return `${p.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 };
 
 // Normaliza registro vindo do ERPContext (camelCase do Supabase) para os

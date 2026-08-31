@@ -256,7 +256,7 @@ export default function DashboardBI() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {[
             { label: 'Valor Total', value: formatCurrency(kpis.totalValor), icon: DollarSign, color: 'emerald', trend: '+12%' },
-            { label: 'Peso Total', value: `${(kpis.totalPeso / 1000).toFixed(0)} ton`, icon: Package, color: 'cyan', trend: '+8%' },
+            { label: 'Peso Total', value: `${(Number(kpis.totalPeso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`, icon: Package, color: 'cyan', trend: '+8%' },
             { label: 'Progresso Médio', value: `${kpis.progressoMedio.toFixed(1)}%`, icon: Target, color: 'purple', trend: '+5%' },
             { label: 'Margem de Lucro', value: `${kpis.margemLucro}%`, icon: TrendingUp, color: 'amber', trend: '+3%' },
           ].map((kpi, i) => (

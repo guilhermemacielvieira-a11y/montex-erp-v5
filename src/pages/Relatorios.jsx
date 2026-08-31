@@ -450,7 +450,7 @@ Analise os dados abaixo e gere um relatório ${tipoLabel} extremamente detalhado
 • Cliente: ${projeto?.cliente_nome || 'Não definido'}
 • Tipo: ${projeto?.tipo || 'Não definido'}
 • Localização: ${projeto?.localizacao || 'Não definido'}
-• Peso Total: ${(pesoTotal / 1000).toFixed(2)} toneladas
+• Peso Total: ${(Number(pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 • Valor Contratado: R$ ${(projeto?.valor_contrato || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
 • Status: ${projeto?.status || 'Não definido'}
 
@@ -466,13 +466,13 @@ Analise os dados abaixo e gere um relatório ${tipoLabel} extremamente detalhado
 📊 PROGRESSO ATUAL (DADOS MONTEX PRODUÇÃO)
 ═══════════════════════════════════════════
 • Fabricação: ${formData.percentual_fabricacao}% concluído
-  - Peso Fabricado: ${(pesoFabricado / 1000).toFixed(2)} ton
-  - Peso Restante: ${((pesoTotal - pesoFabricado) / 1000).toFixed(2)} ton
+  - Peso Fabricado: ${(Number(pesoFabricado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
+  - Peso Restante: ${(Number(pesoTotal - pesoFabricado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
   - Desvio: ${desvioFabricacao > 0 ? '+' : ''}${desvioFabricacao.toFixed(1)}% ${desvioFabricacao > 0 ? '(adiantado)' : '(atrasado)'}
   
 • Montagem: ${formData.percentual_montagem}% concluído
-  - Peso Montado: ${(pesoMontado / 1000).toFixed(2)} ton
-  - Peso Restante: ${((pesoTotal - pesoMontado) / 1000).toFixed(2)} ton
+  - Peso Montado: ${(Number(pesoMontado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
+  - Peso Restante: ${(Number(pesoTotal - pesoMontado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
   - Desvio: ${desvioMontagem > 0 ? '+' : ''}${desvioMontagem.toFixed(1)}% ${desvioMontagem > 0 ? '(adiantado)' : '(atrasado)'}
 
 ═══════════════════════════════════════════

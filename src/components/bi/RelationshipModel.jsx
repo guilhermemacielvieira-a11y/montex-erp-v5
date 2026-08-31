@@ -130,7 +130,7 @@ const RelationshipModel = () => {
         return [
           { label: 'Valor', value: formatCurrency(node.data.valor_total || 0) },
           { label: 'Progresso', value: `${node.data.progresso || 0}%` },
-          { label: 'Peso', value: `${((node.data.peso_total || 0) / 1000).toFixed(1)} ton` }
+          { label: 'Peso', value: `${(Number(node.data.peso_total) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` }
         ];
       case 'cliente':
         const clientProjects = obras.filter(p => p.cliente === node.label);

@@ -208,7 +208,7 @@ export default function AprovacaoOrcamento() {
                   <div>
                     <p className="text-sm text-slate-500">Peso Estimado</p>
                     <p className="text-xl font-bold text-slate-900">
-                      {(orcamento.peso_estimado / 1000).toFixed(1)} ton
+                      {(Number(orcamento.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                     </p>
                   </div>
                 </div>

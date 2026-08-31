@@ -40,7 +40,7 @@ const STATUS_CONFIG = {
 };
 
 const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0 }).format(v || 0);
-const formatWeight = (v) => `${((v || 0) / 1000).toFixed(1)}t`;
+const formatWeight = (v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 const formatDate = (d) => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
 
 // ===== COMPONENTE: MODAL IMPORTAR OBRA =====

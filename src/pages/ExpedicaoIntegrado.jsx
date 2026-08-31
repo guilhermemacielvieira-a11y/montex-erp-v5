@@ -277,7 +277,7 @@ export default function ExpedicaoIntegrado() {
               </div>
             </div>
             <p className="text-xs text-slate-500 mt-2">
-              {(estatisticas.pesoProntas / 1000).toFixed(1)} ton
+              {(Number(estatisticas.pesoProntas) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
             </p>
           </motion.div>
 
@@ -355,7 +355,7 @@ export default function ExpedicaoIntegrado() {
               <div>
                 <p className="text-xs text-slate-400">Peso Expedido</p>
                 <p className="text-xl font-bold text-white">
-                  {(estatisticas.pesoTotal / 1000).toFixed(1)} ton
+                  {(Number(estatisticas.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                 </p>
               </div>
             </div>
@@ -517,7 +517,7 @@ export default function ExpedicaoIntegrado() {
                                   </span>
                                   <span className="flex items-center gap-1">
                                     <Weight className="w-4 h-4" />
-                                    {((expedicao.pesoTotal || 0) / 1000).toFixed(2)} ton
+                                    {(Number(expedicao.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                                   </span>
                                 </div>
                               </div>
@@ -774,7 +774,7 @@ export default function ExpedicaoIntegrado() {
                     <span className="text-white font-bold">{pecasSelecionadas.length}</span> peças selecionadas
                     <span className="mx-2">•</span>
                     <span className="text-cyan-400 font-bold">
-                      {(pecasSelecionadas.reduce((sum, p) => sum + (p.peso || 0), 0) / 1000).toFixed(2)} ton
+                      {(pecasSelecionadas.reduce((sum, p) => sum + (Number(p.peso) || 0), 0)).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                     </span>
                   </div>
                   <button
@@ -847,19 +847,19 @@ export default function ExpedicaoIntegrado() {
               {/* Gráfico de Peso Expedido por Dia */}
               <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl
                             rounded-xl border border-slate-700/50 p-4">
-                <h3 className="text-lg font-semibold text-white mb-4">Peso Expedido por Dia (ton)</h3>
+                <h3 className="text-lg font-semibold text-white mb-4">Peso Expedido por Dia (kg)</h3>
                 <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={dadosGrafico}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                     <XAxis dataKey="dia" stroke="#64748b" fontSize={12} />
-                    <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => (v/1000).toFixed(1)} />
+                    <YAxis stroke="#64748b" fontSize={12} tickFormatter={(v) => `${(v / 1000).toLocaleString('pt-BR')}k`} />
                     <Tooltip
                       contentStyle={{
                         backgroundColor: '#1e293b',
                         border: '1px solid #334155',
                         borderRadius: '8px'
                       }}
-                      formatter={(value) => [(value/1000).toFixed(2) + ' ton', 'Peso']}
+                      formatter={(value) => [(Number(value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg', 'Peso']}
                     />
                     <Bar dataKey="peso" fill="#06b6d4" radius={[4, 4, 0, 0]} />
                   </BarChart>
@@ -882,9 +882,9 @@ export default function ExpedicaoIntegrado() {
                 </div>
                 <div className="text-center p-4 bg-slate-800/50 rounded-xl">
                   <p className="text-3xl font-bold text-cyan-400">
-                    {(estatisticas.pesoTotal / 1000).toFixed(1)}
+                    {(Number(estatisticas.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })}
                   </p>
-                  <p className="text-sm text-slate-400">Toneladas Expedidas</p>
+                  <p className="text-sm text-slate-400">Kg Expedidos</p>
                 </div>
                 <div className="text-center p-4 bg-slate-800/50 rounded-xl">
                   <p className="text-3xl font-bold text-amber-400">
@@ -949,7 +949,7 @@ function NovoRomaneioForm({ pecasSelecionadas, onSubmit, onCancel }) {
           </div>
           <div className="text-right">
             <p className="text-sm text-slate-400">Peso Total</p>
-            <p className="text-2xl font-bold text-cyan-400">{(pesoTotal / 1000).toFixed(2)} ton</p>
+            <p className="text-2xl font-bold text-cyan-400">{(Number(pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
           </div>
         </div>
       </div>
@@ -991,7 +991,7 @@ function NovoRomaneioForm({ pecasSelecionadas, onSubmit, onCancel }) {
                     className="px-4 py-2 text-white hover:bg-slate-700 cursor-pointer"
                   >
                     <Select.ItemText>
-                      {v.icon} {v.label} - até {(v.capacidade/1000).toFixed(0)} ton
+                      {v.icon} {v.label} - até {(Number(v.capacidade) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                     </Select.ItemText>
                   </Select.Item>
                 ))}

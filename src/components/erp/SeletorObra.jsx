@@ -152,7 +152,7 @@ export default function SeletorObra({ compact = false }) {
                       </div>
                       <div className="text-sm text-slate-300 truncate mt-0.5">{obra.nome}</div>
                       <div className="flex items-center gap-3 mt-2 text-xs text-slate-500">
-                        <span>{(obra.pesoTotal / 1000).toFixed(1)}t</span>
+                        <span>{(Number(obra.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
                         <span>•</span>
                         <span>R$ {(obra.valorContrato / 1000000).toFixed(2)}M</span>
                         <span>•</span>
@@ -208,19 +208,19 @@ export default function SeletorObra({ compact = false }) {
         <div className="mt-4 grid grid-cols-2 gap-2">
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-white">
-              {(pesoTotal / 1000).toFixed(1)}t
+              {(Number(pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
             </div>
             <div className="text-xs text-slate-400">Peso Total</div>
           </div>
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-emerald-400">
-              {(pesoProduzido / 1000).toFixed(1)}t
+              {(Number(pesoProduzido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
             </div>
             <div className="text-xs text-slate-400">Produzido (Pintado)</div>
           </div>
           <div className="bg-slate-900/50 rounded-lg p-2 text-center">
             <div className="text-lg font-bold text-amber-400">
-              {(pesoEmProcesso / 1000).toFixed(1)}t
+              {(Number(pesoEmProcesso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
             </div>
             <div className="text-xs text-slate-400">Em Processo</div>
           </div>

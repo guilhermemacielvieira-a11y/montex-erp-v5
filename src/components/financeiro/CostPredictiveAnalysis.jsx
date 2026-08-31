@@ -116,7 +116,7 @@ ${i + 1}. ${p.nome}
    
    Características:
    • Status: ${p.status}
-   • Peso: ${(p.peso / 1000).toFixed(1)} ton
+   • Peso: ${(Number(p.peso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
    • Área: ${p.area.toFixed(0)} m²
    • Relatórios: ${p.historicoRelatorios}
 `).join('\n')}

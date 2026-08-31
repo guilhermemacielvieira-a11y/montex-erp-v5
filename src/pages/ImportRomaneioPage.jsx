@@ -527,7 +527,7 @@ export default function ImportRomaneioPage() {
             Controle de Materiais ({estatisticasEstoque.total})
             {estatisticasEstoque.pesoPedido > 0 && (
               <Badge className="ml-2 bg-amber-500/20 text-amber-400 text-xs">
-                {(estatisticasEstoque.pesoPedido / 1000).toFixed(1)}t
+                {(Number(estatisticasEstoque.pesoPedido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
               </Badge>
             )}
           </TabsTrigger>
@@ -974,7 +974,7 @@ export default function ImportRomaneioPage() {
                   />
                   <div className="flex justify-between mt-2 text-xs text-slate-500">
                     <span>0 kg</span>
-                    <span>{(estatisticasEstoque.pesoPedido / 1000).toFixed(1)} toneladas</span>
+                    <span>{(Number(estatisticasEstoque.pesoPedido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
                   </div>
                 </CardContent>
               </Card>

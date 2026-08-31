@@ -2299,7 +2299,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                     <div className="text-slate-400 text-[10px]">Unidades</div>
                   </div>
                   <div className="bg-white/5 rounded-lg p-2 text-center">
-                    <div className="text-emerald-400 text-lg font-bold">{(erpStats.totalPeso/1000).toFixed(1)}t</div>
+                    <div className="text-emerald-400 text-lg font-bold">{(Number(erpStats.totalPeso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</div>
                     <div className="text-slate-400 text-[10px]">Peso</div>
                   </div>
                 </div>
@@ -2486,7 +2486,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                               ? 'opacity-35 hover:opacity-65 border-transparent'
                               : 'hover:bg-white/5 border-transparent'
                         }`}
-                        title={`${type}: ${d.unidades} unidades · ${d.pecas} peças · ${(d.peso/1000).toFixed(2)} t`}
+                        title={`${type}: ${d.unidades} unidades · ${d.pecas} peças · ${(Number(d.peso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
                       >
                         <span className={`flex-1 text-left truncate font-medium ${isActive ? 'text-slate-200' : 'text-slate-500'}`}>{type}</span>
                         <span className="text-slate-400 tabular-nums text-[10px]">{d.pecas}</span>
@@ -2517,7 +2517,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                   </div>
                   <div className="flex justify-between">
                     <span>Peso total contratado</span>
-                    <span className="text-white">{(erpStats.totalPeso/1000).toFixed(2)} t</span>
+                    <span className="text-white">{(Number(erpStats.totalPeso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
                   </div>
                   <div className="h-px bg-white/10 my-2" />
                   <div className="flex justify-between">
@@ -2554,7 +2554,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
                     </div>
                     <div className="flex justify-between">
                       <span>Peso Total</span>
-                      <span className="text-white">{(expedicoes.reduce((s, e) => s + (parseFloat(e.peso_total) || 0), 0) / 1000).toFixed(1)} ton</span>
+                      <span className="text-white">{(expedicoes.reduce((s, e) => s + (parseFloat(e.peso_total) || 0), 0)).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
                     </div>
                   </div>
                 </div>

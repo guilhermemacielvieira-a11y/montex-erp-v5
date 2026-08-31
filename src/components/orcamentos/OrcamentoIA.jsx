@@ -45,7 +45,7 @@ Recusados: ${recusados.length} (${((recusados.length / orcamentosPassados.length
 ORÇAMENTOS APROVADOS (últimos 10):
 ${aprovados.slice(-10).map((o, i) => `
 ${i + 1}. Cliente: ${o.cliente_nome}
-   Área: ${o.area}m² | Peso: ${(o.peso_estimado / 1000).toFixed(1)}ton
+   Área: ${o.area}m² | Peso: ${(Number(o.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
    Valor: R$ ${o.valor_venda?.toLocaleString('pt-BR')}
    Preço/kg: R$ ${o.preco_por_kg?.toFixed(2)}/kg
    Margem: ${o.margem_lucro?.toFixed(1)}%
@@ -55,7 +55,7 @@ ${i + 1}. Cliente: ${o.cliente_nome}
 ORÇAMENTOS RECUSADOS (últimos 5):
 ${recusados.slice(-5).map((o, i) => `
 ${i + 1}. Cliente: ${o.cliente_nome}
-   Área: ${o.area}m² | Peso: ${(o.peso_estimado / 1000).toFixed(1)}ton
+   Área: ${o.area}m² | Peso: ${(Number(o.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
    Valor: R$ ${o.valor_venda?.toLocaleString('pt-BR')}
    Preço/kg: R$ ${o.preco_por_kg?.toFixed(2)}/kg
    Margem: ${o.margem_lucro?.toFixed(1)}%
@@ -67,7 +67,7 @@ ${i + 1}. Cliente: ${o.cliente_nome}
 Cliente: ${orcamento.cliente_nome}
 Projeto: ${orcamento.projeto_nome}
 Área: ${orcamento.area}m²
-Peso: ${(orcamento.peso_estimado / 1000).toFixed(2)} toneladas
+Peso: ${(Number(orcamento.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 Valor Total: R$ ${orcamento.valor_venda?.toLocaleString('pt-BR')}
 Preço/kg: R$ ${orcamento.preco_por_kg?.toFixed(2)}/kg
 Preço/m²: R$ ${(orcamento.valor_venda / orcamento.area).toFixed(2)}/m²

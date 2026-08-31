@@ -63,8 +63,7 @@ const STATUS_CONF = {
 // ==========================================
 const formatPeso = (kg) => {
   if (kg == null || isNaN(kg)) return '—';
-  if (Math.abs(kg) >= 1000) return (kg / 1000).toFixed(2) + ' t';
-  return kg.toFixed(1) + ' kg';
+  return (Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 };
 
 const formatComp = (mm) => {
