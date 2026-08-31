@@ -177,19 +177,25 @@ export function bloqueioFabricacao(pecas = [], materialLinhas = []) {
 }
 
 // ============================================================
-// FABRICABILIDADE: para cada MARCA/PEÇA ainda não fabricada
-// (aguardando/fabricação), ALOCA o material entregue do perfil (comprado) às
-// peças pendentes por peso. As que cabem no material disponível CONSEGUEM ser
-// fabricadas; o restante NÃO consegue (falta material). Trata CHAPARIA (chapas
-// tiram do estoque agregado de chaparia). `materialLinhas` vem de
+// FABRICABILIDADE: reparte o material ENTREGUE de cada perfil entre o que a
+// PRODUÇÃO ATUAL já consumiu (peças em Solda em diante = "já fabricado") e o
+// que ainda pode fabricar. Passos por perfil:
+//   1. disponível = entregue − já consumido (peças já fabricadas). Não conta o
+//      mesmo aço duas vezes.
+//   2. ALOCA o disponível às peças pendentes (Aguardando/Fabricação) por peso.
+//      As que cabem CONSEGUEM ser fabricadas; o restante NÃO consegue.
+// Trata CHAPARIA (chapas puxam do estoque agregado). `materialLinhas` vem de
 // resumoMaterialObra(estoque).linhas (perfil + entregue + falta + status).
 // ============================================================
 const CHAVE_CHAPARIA = '__CHAPARIA__';
 const ehPerfilChapa = (s) => /^\s*CH\d/i.test(String(s || '')); // CH8X130, CH2X1200.7, CH16X340…
 const ehLinhaChaparia = (s) => /^\s*chaparia\s*$/i.test(String(s || ''));
+// "Já fabricado" = produção atual (passou da fabricação): Solda em diante.
+const jaFabricadoEtapa = (et) => et === 'solda' || et === 'pintura' || et === 'expedido' || et === 'enviado' || et === 'entregue';
+const pendenteEtapa = (et) => et === 'aguardando' || et === 'fabricacao';
 
 export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
-  // Pool de material disponível por perfil (chaparia agregada numa chave única).
+  // Pool de material entregue por perfil (chaparia agregada numa chave única).
   const pool = new Map(); // chave → { disponivel, falta, perfil }
   (materialLinhas || []).forEach((l) => {
     const chaparia = ehLinhaChaparia(l.perfil);
@@ -199,19 +205,31 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
     acc.disponivel += num(l.entregue); acc.falta += num(l.falta);
     pool.set(chave, acc);
   });
+  const chaveDe = (perfil) => (ehPerfilChapa(perfil) && pool.has(CHAVE_CHAPARIA)) ? CHAVE_CHAPARIA : chavePerfil(perfil);
 
-  // Agrupa peças pendentes por perfil (chapas → bucket CHAPARIA se houver estoque).
-  const consideraFab = (et) => et === 'aguardando' || et === 'fabricacao';
+  // Material JÁ CONSUMIDO pela produção atual (Solda em diante) por perfil, e o
+  // total "já fabricado" (independe do material — é o que já foi produzido).
+  const consumidoPorChave = new Map(); // chave → kg já consumido
+  const jaFab = [];
+  (pecas || []).forEach((p) => {
+    if (!jaFabricadoEtapa(etapaPeca(p))) return;
+    const perfil = pick(p, 'perfil') || '';
+    const peso = pesoPeca(p);
+    consumidoPorChave.set(chaveDe(perfil), num(consumidoPorChave.get(chaveDe(perfil))) + peso);
+    jaFab.push({ peso, quantidade: qtdPeca(p) });
+  });
+
+  // Agrupa peças PENDENTES por perfil (chapas → bucket CHAPARIA se houver estoque).
   const grupos = new Map(); // chave → pieces[]
   (pecas || []).forEach((p) => {
-    if (!consideraFab(etapaPeca(p))) return;
+    if (!pendenteEtapa(etapaPeca(p))) return;
     const perfil = pick(p, 'perfil') || '';
-    const chave = (ehPerfilChapa(perfil) && pool.has(CHAVE_CHAPARIA)) ? CHAVE_CHAPARIA : chavePerfil(perfil);
     const item = {
       marca: pick(p, 'marca', 'codigo') || '—', perfil,
       material: pick(p, 'material') || '', tipo: pick(p, 'tipo', 'peca') || '',
       quantidade: qtdPeca(p), peso: pesoPeca(p), etapa: etapaPeca(p),
     };
+    const chave = chaveDe(perfil);
     if (!grupos.has(chave)) grupos.set(chave, []);
     grupos.get(chave).push(item);
   });
@@ -221,7 +239,8 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
   for (const [chave, pieces] of grupos) {
     const info = pool.get(chave);
     if (!info) { pieces.forEach((pc) => semInfo.push({ ...pc, status: 'sem_info' })); continue; }
-    let disp = num(info.disponivel);
+    // Entregue MENOS o já consumido pela produção atual = disponível p/ pendentes.
+    let disp = Math.max(0, num(info.disponivel) - num(consumidoPorChave.get(chave)));
     const need = pieces.reduce((s, i) => s + i.peso, 0);
     if (disp > 0 && disp < need - 0.01) perfisParciais.add(info.perfil);
     // Aloca por peso ASC (libera o maior nº de peças possível).
@@ -236,6 +255,7 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
   const sumQ = (a) => a.reduce((s, i) => s + i.quantidade, 0);
   const pesoFab = sumP(fabricaveis), pesoNao = sumP(naoFabricaveis), pesoSem = sumP(semInfo);
   const total = pesoFab + pesoNao + pesoSem;
+  const pesoJaFab = sumP(jaFab), qtdJaFab = sumQ(jaFab);
   const faltaComprarTotal = r2([...pool.values()].reduce((s, g) => s + num(g.falta), 0));
   return {
     fabricaveis, naoFabricaveis, semInfo,
@@ -245,6 +265,10 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
       nPerfisParciais: perfisParciais.size,
       qtdFabricaveis: sumQ(fabricaveis), qtdNaoFabricaveis: sumQ(naoFabricaveis),
       pesoFabricavel: pesoFab, pesoNaoFabricavel: pesoNao, pesoSemInfo: pesoSem,
+      // Produção atual (Solda em diante): material entregue já consumido.
+      nJaFabricado: jaFab.length, qtdJaFabricado: qtdJaFab, pesoJaFabricado: pesoJaFab,
+      // Total que o material entregue viabiliza: já fabricado + o que ainda dá.
+      pesoViavelEntregue: r2(pesoJaFab + pesoFab),
       pesoTotal: r2(total), faltaComprarTotal,
       pctFabricavel: total > 0 ? r2((pesoFab / total) * 100) : 0,
       pctNaoFabricavel: total > 0 ? r2((pesoNao / total) * 100) : 0,
