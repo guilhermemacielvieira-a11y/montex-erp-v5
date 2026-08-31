@@ -68,7 +68,7 @@ export function kpisEstoque(items = []) {
   const porSaude = {};
   Object.keys(SAUDE).forEach((k) => { porSaude[k] = 0; });
   let valorTotal = 0, pesoTotal = 0, semPreco = 0, semMinimo = 0, valorEmRisco = 0;
-  let totalNecessario = 0, totalChegou = 0, totalFalta = 0, itensComNecessidade = 0, itensComFalta = 0;
+  let totalNecessario = 0, totalChegou = 0, totalExcedente = 0, totalFalta = 0, itensComNecessidade = 0, itensComFalta = 0;
   (items || []).forEach((it) => {
     const s = saudeItem(it);
     porSaude[s] = (porSaude[s] || 0) + 1;
@@ -80,8 +80,12 @@ export function kpisEstoque(items = []) {
     if (s === 'zerado' || s === 'critico' || s === 'baixo') valorEmRisco += v;
     if (temNecessidade(it)) {
       itensComNecessidade += 1;
-      totalNecessario += necessarioItem(it);
-      totalChegou += chegouItem(it);
+      const nec = necessarioItem(it);
+      const bruto = chegouItem(it);
+      totalNecessario += nec;
+      // "Já chegou" conta só até o necessário (excedente não infla cobertura).
+      totalChegou += Math.min(bruto, nec);
+      totalExcedente += Math.max(0, bruto - nec);
       const f = faltaItem(it);
       totalFalta += f;
       if (f > 0) itensComFalta += 1;
@@ -103,6 +107,7 @@ export function kpisEstoque(items = []) {
     itensComFalta,
     totalNecessario: r2(totalNecessario),
     totalChegou: r2(totalChegou),
+    totalExcedente: r2(totalExcedente),
     totalFalta: r2(totalFalta),
     coberturaPct: totalNecessario > 0 ? r2((totalChegou / totalNecessario) * 100) : null,
   };
@@ -114,7 +119,13 @@ export function kpisEstoque(items = []) {
 export function resumoMaterialObra(estoque = []) {
   const linhas = (estoque || []).filter(temNecessidade).map((it) => {
     const necessario = necessarioItem(it);
-    const entregue = chegouItem(it);
+    const bruto = chegouItem(it);
+    // "entregue" ÚTIL = material recebido até o NECESSÁRIO. O que passa disso é
+    // EXCEDENTE (ex.: chaparia entregue para o galpão inteiro numa obra que é só
+    // a Etapa 1) e NÃO é computado como entregue/cobertura — só o necessário
+    // conta como entregue.
+    const entregue = Math.min(bruto, necessario);
+    const excedente = r2(Math.max(0, bruto - necessario));
     const falta = faltaItem(it);
     const status = falta <= 0 ? 'entregue' : entregue > 0 ? 'parcial' : 'faltando';
     return {
@@ -122,6 +133,8 @@ export function resumoMaterialObra(estoque = []) {
       material: it.material || '',
       necessario: r2(necessario),
       entregue: r2(entregue),
+      entregueBruto: r2(bruto),
+      excedente,
       falta: r2(falta),
       coberturaPct: necessario > 0 ? r2(Math.min(100, (entregue / necessario) * 100)) : 0,
       status,
@@ -129,11 +142,13 @@ export function resumoMaterialObra(estoque = []) {
   }).sort((a, b) => b.necessario - a.necessario);
   const totalNecessario = r2(linhas.reduce((s, l) => s + l.necessario, 0));
   const totalEntregue = r2(linhas.reduce((s, l) => s + l.entregue, 0));
+  const totalExcedente = r2(linhas.reduce((s, l) => s + l.excedente, 0));
   const totalFalta = r2(linhas.reduce((s, l) => s + l.falta, 0));
   return {
     linhas,
     totalNecessario,
     totalEntregue,
+    totalExcedente,
     totalFalta,
     coberturaPct: totalNecessario > 0 ? r2((totalEntregue / totalNecessario) * 100) : null,
     entregues: linhas.filter((l) => l.status === 'entregue').length,

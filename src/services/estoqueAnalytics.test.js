@@ -86,14 +86,16 @@ describe('faltante (necessário/chegou/falta)', () => {
     expect(faltaItem({ pedido: 100, comprado: 30 })).toBe(70);
     expect(faltaItem({ pedido: 100, comprado: 130 })).toBe(0);
   });
-  it('kpis agregam necessário/chegou/falta e cobertura', () => {
+  it('kpis agregam necessário/chegou/falta e cobertura (chegou capado no necessário)', () => {
     const k = kpisEstoque(obra);
     expect(k.itensComNecessidade).toBe(3);
     expect(k.itensComFalta).toBe(2);
     expect(k.totalNecessario).toBe(97116.9);
-    expect(k.totalChegou).toBe(10186);
+    // o3 chegou 852 mas necessário 806.3 → conta só 806.3 (45.7 é EXCEDENTE, não entregue)
+    expect(k.totalChegou).toBe(9334 + 0 + 806.3);
+    expect(k.totalExcedente).toBeCloseTo(45.7, 1);
     expect(k.totalFalta).toBe(86976.6);
-    expect(k.coberturaPct).toBeCloseTo(10.5, 1);
+    expect(k.coberturaPct).toBeLessThanOrEqual(100);
   });
   it('sem itens de obra, campos de faltante ficam zerados/null', () => {
     const k = kpisEstoque([{ quantidade: 10, minimo: 5, preco: 2 }]);

@@ -229,7 +229,7 @@ export function montarRelatorioEstoqueDoc(estoque, obra, { data, logoDataUrl } =
   doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont(undefined, 'bold');
   doc.text('Falta comprar — lista de compra', M + 3, y + 6); doc.setFont(undefined, 'normal'); y += 13;
   const pendentes = ordenadas.filter((l) => l.falta > 0).sort((a, b) => b.falta - a.falta);
-  const excedentes = ordenadas.filter((l) => l.entregue - l.necessario > 0.5);
+  const excedentes = ordenadas.filter((l) => (l.excedente || 0) > 0.5);
   const totalComprar = pendentes.reduce((s, l) => s + l.falta, 0);
   doc.setTextColor(185, 28, 28); doc.setFontSize(10); doc.setFont(undefined, 'bold');
   doc.text(`${fmtNum(pendentes.length)} perfil(is) a comprar · total ${fmtPeso(totalComprar)}`, M, y); y += 6;
@@ -256,10 +256,10 @@ export function montarRelatorioEstoqueDoc(estoque, obra, { data, logoDataUrl } =
   }
   if (excedentes.length) {
     y += 2; doc.setFontSize(8.5); doc.setFont(undefined, 'bold'); doc.setTextColor(100, 116, 139);
-    const exTot = excedentes.reduce((s, l) => s + (l.entregue - l.necessario), 0);
-    doc.text(`Nota: ${fmtNum(excedentes.length)} perfil(is) com material EXCEDENTE (entregue > necessário) — total ${fmtPeso(exTot)}.`, M, y);
+    const exTot = excedentes.reduce((s, l) => s + (l.excedente || 0), 0);
+    doc.text(`Nota: ${fmtNum(excedentes.length)} perfil(is) com material EXCEDENTE (recebido além do necessário — não conta como entregue) — total ${fmtPeso(exTot)}.`, M, y);
     doc.setFont(undefined, 'normal'); doc.setTextColor(120, 130, 145); doc.setFontSize(8);
-    doc.text(doc.splitTextToSize(excedentes.slice(0, 10).map((l) => `${l.perfil} (+${fmtPeso(l.entregue - l.necessario)})`).join(', '), W).slice(0, 2).join('  '), M, y + 4);
+    doc.text(doc.splitTextToSize(excedentes.slice(0, 10).map((l) => `${l.perfil} (+${fmtPeso(l.excedente || 0)})`).join(', '), W).slice(0, 2).join('  '), M, y + 4);
   }
 
   // Rodapé em todas as páginas
