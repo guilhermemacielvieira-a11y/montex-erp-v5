@@ -36,7 +36,7 @@ import {
 import { ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
 import { gerarRelatorioEstoquePDF } from '@/services/relatorioEstoquePDF';
 import { LOGO_M_MAIN_B64 } from '@/utils/montexLogos';
-import { normalizar } from '@/services/abastecimento';
+import { normalizar, matchEstoqueItem } from '@/services/abastecimento';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import EstoqueEditModal from '@/components/estoque/EstoqueEditModal';
@@ -372,10 +372,10 @@ export default function EstoquePageV2() {
           chaparia: true,
         };
       }
-      const correspondencia = (estoque || []).find(e => {
-        const desc = `${e.descricao || ''} ${e.codigo || ''} ${e.material || ''}`.toLowerCase();
-        return desc.includes((g.perfil || '').toLowerCase().slice(0, 12));
-      });
+      // Casamento perfil→item pelo matcher CANÔNICO (normalizar + descricao/
+      // codigo/perfil/material), o mesmo usado por compras/abastecimento — antes
+      // era um includes lowercase ad-hoc que divergia (sem normalizar, sem perfil).
+      const correspondencia = matchEstoqueItem(estoque, g.perfil);
       const qtdEstoque = Number(correspondencia?.quantidade) || 0;
       const status = qtdEstoque >= g.qtd_necessaria
         ? 'ok'
