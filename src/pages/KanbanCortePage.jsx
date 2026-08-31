@@ -9,13 +9,12 @@
 // corteStatusStore (que era 100% em memória).
 // ============================================
 
-import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   loadFromSupabase
 } from '../data/corteStatusStore';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
-import { useEstoqueReal } from '../contexts/EstoqueRealContext';
-import { useEstoque, useObras } from '../contexts/ERPContext';
+import { useObras } from '../contexts/ERPContext';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 // LancamentoProducaoModal removido — o lançamento de funcionário no Corte é
 // feito exclusivamente pelo FuncionarioSelectorModal (setor='corte') desta página.
@@ -108,10 +107,6 @@ export default function KanbanCortePage() {
   const toastTimer = useRef(null);
   const mountedRef = useRef(false);
 
-  // --- Integração Estoque Real ---
-  const { deduzirEstoque } = useEstoqueReal();
-  const { estoque: estoqueItems, consumirEstoque } = useEstoque();
-
   // --- Modal de seleção de funcionário ---
   const [modalFuncionario, setModalFuncionario] = useState(false);
   const [itemPendenteCorte, setItemPendenteCorte] = useState(null);
@@ -122,61 +117,13 @@ export default function KanbanCortePage() {
   const [statusOrigemCorte, setStatusOrigemCorte] = useState(null);
   const { registrarTransicao } = useProducaoHistorico();
 
-  // Abater peso do estoque quando peça entra em corte
-  // 1. deduzirEstoque → EstoqueRealContext (histórico/movimentações interno)
-  // 2. consumirEstoque → ERPContext (estoque visível na página de Estoque)
-  const abaterEstoquePorCorte = useCallback((item) => {
-    if (!item || !item.perfil || !item.peso) return;
-
-    // 1. Deduzir do EstoqueReal (em kg) - para histórico e movimentações + baixa Supabase
-    deduzirEstoque(
-      item.perfil,
-      item.peso,
-      'obra-001',
-      `MARCA-${item.marca}`,
-      `Corte Marca ${item.marca} - ${item.peca} (${item.perfil})`,
-      item.comprimento
-    );
-
-    // 2. Deduzir do ERPContext (em metros lineares) - atualiza a página de Estoque
-    // Busca o item no estoque pelo código do perfil (ex: W410X53-6M ou W410X53-12M)
-    if (estoqueItems && consumirEstoque) {
-      const perfilUpper = (item.perfil || '').toUpperCase();
-      const comprimento = item.comprimento || 0;
-
-      // Buscar item correspondente no estoque pelo perfil
-      const itemEstoque = estoqueItems.find(est => {
-        const codPrefix = (est.codigo || est.descricao || '').toUpperCase().split('-')[0];
-        return codPrefix === perfilUpper;
-      }) || estoqueItems.find(est => {
-        const cod = (est.codigo || est.descricao || est.nome || '').toUpperCase();
-        return cod.includes(perfilUpper);
-      });
-
-      if (itemEstoque) {
-        // Calcular quantidade a deduzir na unidade do item do estoque
-        let qtdDeduzir = 0;
-        const unidade = (itemEstoque.unidade || '').toLowerCase();
-        if (unidade === 'm' || unidade === 'metro' || unidade === 'metros') {
-          // Estoque em metros lineares → comprimento em mm ÷ 1000
-          qtdDeduzir = comprimento > 0 ? comprimento / 1000 : item.peso / 53; // fallback: estimar pelo peso
-        } else if (unidade === 'kg') {
-          // Estoque em kg → usar o peso diretamente
-          qtdDeduzir = item.peso;
-        } else {
-          // Unidade desconhecida → usar comprimento em metros
-          qtdDeduzir = comprimento > 0 ? comprimento / 1000 : item.peso;
-        }
-
-        if (qtdDeduzir > 0) {
-          consumirEstoque(itemEstoque.id, qtdDeduzir, 'obra-001');
-          console.log(`[KanbanCorte] ✅ Estoque deduzido: ${perfilUpper} → ${qtdDeduzir.toFixed(3)} ${unidade} (Marca ${item.marca})`);
-        }
-      } else {
-        console.warn(`[KanbanCorte] ⚠️ Item não encontrado no estoque: ${perfilUpper}`);
-      }
-    }
-  }, [deduzirEstoque, estoqueItems, consumirEstoque]);
+  // Baixa de estoque no corte: feita de forma IDEMPOTENTE (marcador
+  // materiais_corte.baixa_estoque_kg) dentro de finalizarCorte/
+  // finalizarCorteEmLote (useCorteSupabase), na FINALIZAÇÃO — casando pelo
+  // matcher canônico e registrando a movimentação de saída. O antigo
+  // abaterEstoquePorCorte (deduzir store B + consumir store A, obra hardcoded,
+  // matcher próprio, m×kg) foi REMOVIDO: causava baixa dupla/tripla. Reset de um
+  // corte estorna a baixa (estornarCorteNoEstoque).
 
   // --- Conjuntos (BOM) prontidão - computado reativamente ---
   const conjuntosInfo = useMemo(() => {
@@ -280,13 +227,7 @@ export default function KanbanCortePage() {
   const handleBatchFinalize = async () => {
     if (selectedIds.size === 0) return;
     const idsArray = Array.from(selectedIds);
-    // Abater estoque para peças que ainda estão aguardando
-    idsArray.forEach(id => {
-      const item = items.find(i => i.id === id);
-      if (item && item.status === 'aguardando') {
-        abaterEstoquePorCorte(item);
-      }
-    });
+    // Baixa de estoque (idempotente) é feita dentro de finalizarCorteEmLote.
     await finalizarCorteEmLote(idsArray);
     setSelectedIds(new Set());
   };
@@ -336,11 +277,9 @@ export default function KanbanCortePage() {
     let etapaPara = 'cortando';
 
     if (acaoPendenteCorte === 'iniciar') {
-      abaterEstoquePorCorte(item);
       iniciarCorte(item.id, funcionarioId);
       etapaPara = 'cortando';
     } else if (acaoPendenteCorte === 'finalizar_direto') {
-      abaterEstoquePorCorte(item);
       iniciarCorte(item.id, funcionarioId);
       finalizarCorte(item.id);
       etapaPara = 'finalizado';
