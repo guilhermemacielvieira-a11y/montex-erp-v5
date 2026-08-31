@@ -109,6 +109,23 @@ describe('matchEstoqueItem — casa perfil ↔ item de estoque (recebimento de c
   });
 });
 
+describe('matchEstoqueItem — match exato (colisão de espessura) e CHAPARIA', () => {
+  const est = [
+    { perfil: 'UE150X60X20X2', codigo: 'UE150X60X20X2 @G5', descricao: 'UE150X60X20X2 - CIVIL 300' },
+    { perfil: 'UE150X60X20X2.25', codigo: 'UE150X60X20X2.25 @G5', descricao: 'UE150X60X20X2.25 - CIVIL 300' },
+    { perfil: 'CHAPARIA', codigo: 'CHAPARIA @G5', descricao: 'CHAPARIA - A36' },
+    { perfil: 'CH-8X1500X6000', codigo: 'CH-8X1500X6000', descricao: 'Chapa A36 8mm 1500x6000' },
+  ];
+  it('match EXATO evita colisão de espessura (X2.25 não casa X2)', () => {
+    expect(matchEstoqueItem(est, 'UE150X60X20X2.25').perfil).toBe('UE150X60X20X2.25');
+    expect(matchEstoqueItem(est, 'UE150X60X20X2').perfil).toBe('UE150X60X20X2');
+  });
+  it('chapa (CH…) sem item próprio cai no agregado CHAPARIA', () => {
+    expect(matchEstoqueItem(est, 'CH8X78.3').perfil).toBe('CHAPARIA');
+    expect(matchEstoqueItem(est, 'CH6.3X100').perfil).toBe('CHAPARIA');
+  });
+});
+
 describe('montarNovoItemEstoque — cria item p/ perfil novo no recebimento', () => {
   const item = { perfil: 'UE200X75X25X4.25', material: 'CIVIL 300', descricao: 'UE200X75X25X4.25 — CIVIL 300', quantidade: 35197, unidade: 'kg', precoUnitario: 7.25, fornecedorSugerido: '' };
   const compra = { obraId: 'obra-009', fornecedor: 'ACOFORTE' };
