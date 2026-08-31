@@ -468,6 +468,7 @@ export default function EstoquePageV2() {
       const t = busca.toLowerCase();
       movs = movs.filter(m =>
         (m.materialPerfil || '').toLowerCase().includes(t) ||
+        (m.material || '').toLowerCase().includes(t) ||
         (m.itemId || '').toLowerCase().includes(t) ||
         (m.motivo || '').toLowerCase().includes(t)
       );
@@ -483,6 +484,7 @@ export default function EstoquePageV2() {
       const termo = filtroMovMaterial.toLowerCase();
       movs = movs.filter(m =>
         m.materialPerfil?.toLowerCase().includes(termo) ||
+        m.material?.toLowerCase().includes(termo) ||
         m.itemId?.toLowerCase().includes(termo) ||
         m.motivo?.toLowerCase().includes(termo)
       );
@@ -503,7 +505,7 @@ export default function EstoquePageV2() {
     // Ordenar por data decrescente
     movs.sort((a, b) => new Date(b.data) - new Date(a.data));
     return movs;
-  }, [movimentacoesEstoque, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
+  }, [movimentacoesEstoque, filtroObra, busca, obraAtual, estoqueFiltrado, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
 
   // Resumo das movimentações
   const resumoMovimentacoes = useMemo(() => {

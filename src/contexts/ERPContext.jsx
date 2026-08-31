@@ -1041,15 +1041,24 @@ export function ERPProvider({ children }) {
             saldoAnterior = Number(est.quantidade) || 0;
             saldoNovo = saldoAnterior + qtd;
             itemId = est.id;
-            await estoqueApi.update(est.id, { quantidade: saldoNovo, ultima_entrada: hoje, updated_at: now })
-              .catch((e) => console.error('⚠️ Falha ao atualizar saldo do estoque:', e.message));
+            // Recebimento = material chegou: sobe saldo E `comprado` (o que os KPIs
+            // leem como chegou/entregue), recalculando `falta` (pedido − comprado).
+            const novoComprado = (Number(est.comprado) || 0) + qtd;
+            await estoqueApi.update(est.id, {
+              quantidade: saldoNovo,
+              comprado: Math.round(novoComprado * 100) / 100,
+              falta: Math.max(0, Math.round(((Number(est.pedido) || 0) - novoComprado) * 100) / 100),
+              ultima_entrada: hoje,
+              updated_at: now,
+            }).catch((e) => console.error('⚠️ Falha ao atualizar saldo do estoque:', e.message));
           } else if (perfil || material) {
             // Perfil NOVO (sem item no estoque): cria o item de fábrica para o
             // material recebido aparecer no saldo. Best-effort.
             const novoItem = montarNovoItemEstoque(item, compra, { hoje, nowISO: now });
             if (novoItem) {
               try {
-                const criado = await estoqueApi.create(novoItem);
+                // Item novo já nasce com comprado = quantidade recebida.
+                const criado = await estoqueApi.create({ ...novoItem, comprado: novoItem.comprado ?? novoItem.quantidade ?? qtd });
                 itemId = criado?.id || itemId;
                 saldoAnterior = 0;
                 saldoNovo = qtd;
