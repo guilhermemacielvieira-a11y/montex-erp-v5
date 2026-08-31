@@ -90,14 +90,16 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
 
   // Introdução
   doc.setTextColor(100, 116, 139); doc.setFontSize(8.5);
-  doc.text('Aloca o material recebido no estoque da obra (entregue) às peças ainda não fabricadas (Aguardando/', M, y);
-  doc.text('Fabricação). As que cabem no material disponível CONSEGUEM ser fabricadas; o restante NÃO consegue.', M, y + 4);
-  y += 11;
+  doc.text('Do material recebido no estoque da obra (entregue), desconta o que a produção atual já consumiu (Solda', M, y);
+  doc.text('em diante = já fabricado) e aloca o restante às peças pendentes (Aguardando/Fabricação). As que cabem', M, y + 4);
+  doc.text('CONSEGUEM ser fabricadas; o restante NÃO consegue.', M, y + 8);
+  y += 15;
 
-  // KPIs (consegue / não consegue / sem info)
+  // KPIs (já fabricado / consegue / não consegue / a comprar)
   const kpis = [
-    ['✓ Consegue fabricar', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${fmtNum(R.qtdFabricaveis)} un · ${R.pctFabricavel}%`, '#22c55e'],
-    ['✗ Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${fmtNum(R.qtdNaoFabricaveis)} un · ${R.pctNaoFabricavel}%`, '#ef4444'],
+    ['Já fabricado', fmtPeso(R.pesoJaFabricado), `${fmtNum(R.nJaFabricado)} marcas · ${fmtNum(R.qtdJaFabricado)} un`, '#14b8a6'],
+    ['✓ Consegue (ainda)', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${R.pctFabricavel}%`, '#22c55e'],
+    ['✗ Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${R.pctNaoFabricavel}%`, '#ef4444'],
     ['A comprar (total)', fmtPeso(R.faltaComprarTotal), `${fmtNum(R.nPerfisParciais)} perfis parciais`, '#0ea5e9'],
   ];
   const kw = W / kpis.length;
@@ -119,9 +121,10 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
   doc.setFillColor(226, 232, 240); doc.roundedRect(M, y, W, 7, 1.5, 1.5, 'F');
   segs.forEach((s) => { const w = (s.v / total) * W; if (w > 0.3) { const [r, g, b] = hexRgb(s.c); doc.setFillColor(r, g, b); doc.rect(xb, y, w, 7, 'F'); xb += w; } });
   doc.setTextColor(15, 23, 42); doc.setFontSize(8); doc.setFont(undefined, 'bold');
-  doc.text(`Fabricável agora: ${R.pctFabricavel}% do peso a fabricar (${fmtPeso(R.pesoFabricavel)} de ${fmtPeso(total)})`, M, y + 12);
-  doc.setFont(undefined, 'normal');
-  y += 17;
+  doc.text(`Fabricável agora: ${R.pctFabricavel}% do peso pendente (${fmtPeso(R.pesoFabricavel)} de ${fmtPeso(total)})`, M, y + 12);
+  doc.setFont(undefined, 'normal'); doc.setTextColor(100, 116, 139);
+  doc.text(`Com o material entregue: já fabricado ${fmtPeso(R.pesoJaFabricado)} + ainda dá p/ fabricar ${fmtPeso(R.pesoFabricavel)} = ${fmtPeso(R.pesoViavelEntregue)}.`, M, y + 16);
+  y += 21;
 
   // ===== NÃO CONSEGUE FABRICAR =====
   if (fab.naoFabricaveis.length) {

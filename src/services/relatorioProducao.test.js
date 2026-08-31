@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ETAPAS_REL, etapaPeca, qtdPeca, pesoPeca,
   resumoProducao, porFuncionario, pecasPorEtapa, bloqueioFabricacao, fabricabilidadePecas,
+  estadoProducao,
 } from './relatorioProducao';
 
 // Mistura camel/snake de propósito.
@@ -44,6 +45,25 @@ describe('resumoProducao', () => {
   });
   it('inclui todas as 7 etapas do fluxo', () => {
     expect(r.porEtapa.length).toBe(ETAPAS_REL.length);
+  });
+});
+
+describe('estadoProducao (estados consolidados)', () => {
+  const e = estadoProducao(pecas);
+  it('consolida etapas em estados de produção', () => {
+    expect(e.naoIniciado.peso).toBe(100);        // aguardando
+    expect(e.emFabricacao.peso).toBe(300);        // fabricacao
+    expect(e.acabamento.peso).toBe(150);          // solda + pintura
+    expect(e.entregue.peso).toBe(900);
+  });
+  it('agregados: já fabricado (Solda+) e em processo', () => {
+    expect(e.jaFabricado.peso).toBe(150 + 900);   // solda + entregue
+    expect(e.emProcesso.peso).toBe(300 + 150);    // fabricacao + solda
+  });
+  it('% sobre o peso total e estados macro somam o total', () => {
+    expect(e.entregue.pct).toBeCloseTo(900 / 1450 * 100, 1);
+    const somaEstados = e.estados.reduce((s, x) => s + x.peso, 0);
+    expect(somaEstados).toBe(e.totalPeso);
   });
 });
 
@@ -136,7 +156,7 @@ describe('bloqueioFabricacao (peça × material faltante)', () => {
   });
 });
 
-describe('fabricabilidadePecas (aloca material entregue → consegue × não consegue)', () => {
+describe('fabricabilidadePecas (desconta já fabricado do entregue → consegue × não consegue)', () => {
   // resumoMaterialObra.linhas: { perfil, entregue, falta, status }
   const material = [
     { perfil: 'W200X19.3', entregue: 1200, falta: 0, status: 'entregue' },
@@ -145,37 +165,45 @@ describe('fabricabilidadePecas (aloca material entregue → consegue × não con
     { perfil: 'CHAPARIA', entregue: 1000, falta: 0, status: 'entregue' },
   ];
   const pcs = [
-    { marca: 'V1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 900, etapa: 'aguardando' },   // consegue
-    { marca: 'V2', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' },   // consegue
+    { marca: 'V1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 900, etapa: 'aguardando' },   // não (só sobra 201)
+    { marca: 'V2', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 300, etapa: 'fabricacao' },   // não (só sobra 201)
     { marca: 'C1', perfil: 'HP250X62', quantidade: 2, pesoTotal: 500, etapa: 'aguardando' },     // não (0 entregue)
     { marca: 'U1', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 200, etapa: 'aguardando' }, // consegue (cabe em 300)
     { marca: 'U2', perfil: 'UE250X85X25X2', quantidade: 1, pesoTotal: 200, etapa: 'aguardando' }, // não (só sobra 100)
     { marca: 'CH1', perfil: 'CH8X130', quantidade: 1, pesoTotal: 400, etapa: 'aguardando' },     // consegue (via CHAPARIA)
     { marca: 'X1', perfil: 'FOO123', quantidade: 1, pesoTotal: 50, etapa: 'aguardando' },         // sem info
-    { marca: 'Z1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 999, etapa: 'solda' },          // já fabricada → ignora
+    { marca: 'Z1', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 999, etapa: 'solda' },          // já fabricada → consome 999
   ];
   const f = fabricabilidadePecas(pcs, material);
-  it('aloca material entregue: cabe → consegue; excede → não consegue', () => {
-    expect(f.fabricaveis.map((x) => x.marca).sort()).toEqual(['CH1', 'U1', 'V1', 'V2']);
-    expect(f.naoFabricaveis.map((x) => x.marca).sort()).toEqual(['C1', 'U2']);
+  it('desconta o já consumido: W200 já fabricou 999, sobra 201 → V1/V2 não cabem', () => {
+    expect(f.fabricaveis.map((x) => x.marca).sort()).toEqual(['CH1', 'U1']);
+    expect(f.naoFabricaveis.map((x) => x.marca).sort()).toEqual(['C1', 'U2', 'V1', 'V2']);
     expect(f.semInfo.map((x) => x.marca)).toEqual(['X1']);
   });
   it('chapas (CH…) puxam do estoque de CHAPARIA', () => {
     expect(f.fabricaveis.find((x) => x.marca === 'CH1')).toBeTruthy();
   });
-  it('ignora peças já fabricadas (além de aguardando/fabricação)', () => {
+  it('peças já fabricadas (Solda+) não entram em consegue/não consegue', () => {
     const todas = [...f.fabricaveis, ...f.naoFabricaveis, ...f.semInfo];
     expect(todas.find((x) => x.marca === 'Z1')).toBeUndefined();
   });
-  it('marca perfil parcialmente coberto', () => {
+  it('contabiliza "já fabricado" (produção atual, Solda em diante)', () => {
+    expect(f.resumo.pesoJaFabricado).toBe(999);
+    expect(f.resumo.nJaFabricado).toBe(1);
+    expect(f.resumo.qtdJaFabricado).toBe(1);
+    // total viável com o material entregue = já fabricado + consegue (ainda)
+    expect(f.resumo.pesoViavelEntregue).toBe(999 + 600);
+  });
+  it('marca perfil parcialmente coberto (inclui W200 após o desconto)', () => {
     expect(f.perfisParciais).toContain('UE250X85X25X2');
+    expect(f.perfisParciais).toContain('W200X19.3');
   });
   it('resumo com pesos e percentuais corretos', () => {
-    expect(f.resumo.pesoFabricavel).toBe(1800);        // 900+300+200+400
-    expect(f.resumo.pesoNaoFabricavel).toBe(700);       // 500+200
+    expect(f.resumo.pesoFabricavel).toBe(600);          // 200 (U1) + 400 (CH1)
+    expect(f.resumo.pesoNaoFabricavel).toBe(1900);       // 900+300+500+200
     expect(f.resumo.pesoSemInfo).toBe(50);
     expect(f.resumo.pesoTotal).toBe(2550);
-    expect(f.resumo.pctFabricavel).toBeCloseTo(1800 / 2550 * 100, 1);
+    expect(f.resumo.pctFabricavel).toBeCloseTo(600 / 2550 * 100, 1);
     expect(f.naoFabricaveis.find((x) => x.marca === 'C1').faltaComprar).toBe(500);
   });
 });

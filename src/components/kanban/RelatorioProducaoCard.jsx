@@ -9,7 +9,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { FileDown, Loader2, Package, Weight, Activity, CheckCircle2, AlertTriangle, Factory, XCircle } from 'lucide-react';
-import { resumoProducao, bloqueioFabricacao, fabricabilidadePecas } from '@/services/relatorioProducao';
+import { resumoProducao, bloqueioFabricacao, fabricabilidadePecas, estadoProducao } from '@/services/relatorioProducao';
 import { resumoMaterialObra } from '@/services/estoqueAnalytics';
 import { gerarRelatorioProducaoPDF } from '@/services/relatorioProducaoPDF';
 import { gerarRelatorioFabricabilidadePDF } from '@/services/relatorioFabricabilidadePDF';
@@ -22,6 +22,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
   const [gerandoFab, setGerandoFab] = useState(false);
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const resumo = useMemo(() => resumoProducao(pecas), [pecas]);
+  const estado = useMemo(() => estadoProducao(pecas), [pecas]);
   const bloqueio = useMemo(
     () => bloqueioFabricacao(pecas, resumoMaterialObra(estoque || []).linhas),
     [pecas, estoque]
@@ -93,26 +94,27 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
         </div>
       </div>
 
-      {/* Fabricabilidade: consegue × não consegue fabricar (aloca material entregue às peças) */}
-      {(fab.resumo.nFabricaveis > 0 || fab.resumo.nNaoFabricaveis > 0) && (
+      {/* Fabricabilidade: já fabricado × consegue × não consegue (reparte o material entregue) */}
+      {(fab.resumo.nFabricaveis > 0 || fab.resumo.nNaoFabricaveis > 0 || fab.resumo.nJaFabricado > 0) && (
         <div className="mt-3 rounded-lg border border-slate-600/50 bg-slate-900/40 p-3">
           <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
-            <Factory className="w-4 h-4 text-emerald-400" /> Fabricabilidade — consegue × não consegue fabricar
+            <Factory className="w-4 h-4 text-emerald-400" /> Fabricabilidade — já fabricado × ainda dá para fabricar
           </div>
-          <p className="text-[10px] text-slate-500 mt-0.5">Aloca o material entregue às peças pendentes (Aguardando/Fabricação), por peso.</p>
-          <div className="grid grid-cols-3 gap-2 mt-2">
-            <Painel tone="text-emerald-400" label="✓ Consegue" value={fmtPeso(fab.resumo.pesoFabricavel)} sub={`${fmtNum(fab.resumo.nFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdFabricaveis)} un`} />
+          <p className="text-[10px] text-slate-500 mt-0.5">Do material entregue: desconta o que a produção atual já consumiu (Solda em diante) e aloca o restante às peças pendentes (Aguardando/Fabricação).</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
+            <Painel tone="text-teal-300" label="◐ Já fabricado (atual)" value={fmtPeso(fab.resumo.pesoJaFabricado)} sub={`${fmtNum(fab.resumo.nJaFabricado)} marcas · ${fmtNum(fab.resumo.qtdJaFabricado)} un`} />
+            <Painel tone="text-emerald-400" label="✓ Consegue (ainda)" value={fmtPeso(fab.resumo.pesoFabricavel)} sub={`${fmtNum(fab.resumo.nFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdFabricaveis)} un`} />
             <Painel tone="text-red-400" label="✗ Não consegue" value={fmtPeso(fab.resumo.pesoNaoFabricavel)} sub={`${fmtNum(fab.resumo.nNaoFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdNaoFabricaveis)} un`} />
             <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="p/ liberar a fabricação" />
           </div>
-          {/* barra empilhada */}
+          {/* barra empilhada (peças pendentes) */}
           <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-slate-700/60">
             {[['#22c55e', fab.resumo.pesoFabricavel], ['#ef4444', fab.resumo.pesoNaoFabricavel], ['#94a3b8', fab.resumo.pesoSemInfo]].map(([cor, v], i) => (
               <div key={i} style={{ width: `${fab.resumo.pesoTotal > 0 ? (v / fab.resumo.pesoTotal) * 100 : 0}%`, background: cor }} />
             ))}
           </div>
           <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
-            <XCircle className="w-3 h-3 text-emerald-400" /> {fab.resumo.pctFabricavel}% do peso pendente (Aguardando/Fabricação) liberado com o material já entregue · detalhe por marca no PDF.
+            <XCircle className="w-3 h-3 text-emerald-400" /> Com o material entregue: já fabricado {fmtPeso(fab.resumo.pesoJaFabricado)} + ainda dá p/ fabricar {fmtPeso(fab.resumo.pesoFabricavel)} = {fmtPeso(fab.resumo.pesoViavelEntregue)} · {fab.resumo.pctFabricavel}% do peso pendente liberado · detalhe no PDF.
           </p>
         </div>
       )}
@@ -150,6 +152,24 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
           </div>
         );
       })()}
+
+      {/* Estado da produção (consolidado): não iniciado / em processo / já fabricado / entregue */}
+      <div className="mt-4">
+        <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold mb-2">
+          <Factory className="w-4 h-4 text-teal-300" /> Estado da produção
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <Painel tone="text-slate-300" label="Não iniciado" value={fmtPeso(estado.naoIniciado.peso)} sub={`${fmtNum(estado.naoIniciado.pecas)} pç · ${estado.naoIniciado.pct}%`} />
+          <Painel tone="text-blue-400" label="Em processo" value={fmtPeso(estado.emProcesso.peso)} sub={`${fmtNum(estado.emProcesso.pecas)} pç · ${estado.emProcesso.pct}%`} />
+          <Painel tone="text-teal-300" label="Já fabricado" value={fmtPeso(estado.jaFabricado.peso)} sub={`${fmtNum(estado.jaFabricado.pecas)} pç · ${estado.jaFabricado.pct}%`} />
+          <Painel tone="text-emerald-400" label="Entregue" value={fmtPeso(estado.entregue.peso)} sub={`${fmtNum(estado.entregue.pecas)} pç · ${estado.entregue.pct}%`} />
+        </div>
+        <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-slate-700/60">
+          {estado.estados.map((e) => (
+            <div key={e.key} title={`${e.label}: ${fmtPeso(e.peso)} (${e.pct}%)`} style={{ width: `${estado.totalPeso > 0 ? (e.peso / estado.totalPeso) * 100 : 0}%`, background: e.cor }} />
+          ))}
+        </div>
+      </div>
 
       {/* Distribuição por etapa (barra) */}
       <div className="mt-4 space-y-1.5">
