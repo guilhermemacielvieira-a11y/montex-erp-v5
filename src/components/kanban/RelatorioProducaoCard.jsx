@@ -10,9 +10,10 @@ import React, { useMemo, useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { FileDown, Loader2, Package, Weight, Activity, CheckCircle2, AlertTriangle, Factory, XCircle } from 'lucide-react';
 import { resumoProducao, bloqueioFabricacao, fabricabilidadePecas, estadoProducao } from '@/services/relatorioProducao';
-import { resumoMaterialObra } from '@/services/estoqueAnalytics';
+import { resumoMaterialObra, enriquecerNecessarioBOM } from '@/services/estoqueAnalytics';
 import { gerarRelatorioProducaoPDF } from '@/services/relatorioProducaoPDF';
 import { gerarRelatorioFabricabilidadePDF } from '@/services/relatorioFabricabilidadePDF';
+import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 // Peso SEMPRE em kg (sem conversão para toneladas) — padronizado com a planilha.
@@ -21,15 +22,35 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
   const [gerando, setGerando] = useState(false);
   const [gerandoFab, setGerandoFab] = useState(false);
   const [logoDataUrl, setLogoDataUrl] = useState(null);
+  // BOM (materiais_corte) da obra → "necessário/falta" derivado da fonte completa
+  // (mesma base da página de Estoque), em vez do estoque.pedido (seed parcial).
+  const [materiaisCorte, setMateriaisCorte] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const obraId = obra?.id || obra?.codigo || null;
+    if (!obraId) { setMateriaisCorte([]); return; }
+    const client = supabaseAdmin || supabase;
+    client.from('materiais_corte')
+      .select('id,perfil,material,peso_teorico,obra_id')
+      .eq('obra_id', obraId)
+      .then(({ data }) => { if (alive) setMateriaisCorte(data || []); })
+      .catch(() => { if (alive) setMateriaisCorte([]); });
+    return () => { alive = false; };
+  }, [obra]);
+  const estoqueBOM = useMemo(
+    () => enriquecerNecessarioBOM(estoque || [], materiaisCorte),
+    [estoque, materiaisCorte]
+  );
+
   const resumo = useMemo(() => resumoProducao(pecas), [pecas]);
   const estado = useMemo(() => estadoProducao(pecas), [pecas]);
   const bloqueio = useMemo(
-    () => bloqueioFabricacao(pecas, resumoMaterialObra(estoque || []).linhas),
-    [pecas, estoque]
+    () => bloqueioFabricacao(pecas, resumoMaterialObra(estoqueBOM).linhas),
+    [pecas, estoqueBOM]
   );
   const fab = useMemo(
-    () => fabricabilidadePecas(pecas, resumoMaterialObra(estoque || []).linhas),
-    [pecas, estoque]
+    () => fabricabilidadePecas(pecas, resumoMaterialObra(estoqueBOM).linhas),
+    [pecas, estoqueBOM]
   );
 
   // Pré-carrega o logo (para embutir no PDF). Falha em silêncio → usa só o texto.
@@ -51,7 +72,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
     if (!pecas.length) { toast.error('Sem peças para gerar o relatório'); return; }
     setGerando(true);
     try {
-      const { paginas } = gerarRelatorioProducaoPDF(pecas, obra, { estoque, logoDataUrl });
+      const { paginas } = gerarRelatorioProducaoPDF(pecas, obra, { estoque: estoqueBOM, logoDataUrl });
       toast.success(`Relatório PDF gerado (${paginas} páginas)`);
     } catch (e) {
       toast.error('Erro ao gerar PDF: ' + (e.message || e));
@@ -63,7 +84,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
     if (!(estoque || []).length) { toast.error('Sem estoque cadastrado para esta obra'); return; }
     setGerandoFab(true);
     try {
-      const { paginas } = gerarRelatorioFabricabilidadePDF(pecas, obra, { estoque, logoDataUrl });
+      const { paginas } = gerarRelatorioFabricabilidadePDF(pecas, obra, { estoque: estoqueBOM, logoDataUrl });
       toast.success(`Relatório de fabricabilidade gerado (${paginas} páginas)`);
     } catch (e) {
       toast.error('Erro ao gerar PDF: ' + (e.message || e));
