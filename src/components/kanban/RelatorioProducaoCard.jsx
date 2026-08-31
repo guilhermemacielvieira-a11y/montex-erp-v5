@@ -9,7 +9,7 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { FileDown, Loader2, Package, Weight, Activity, CheckCircle2, AlertTriangle, Factory, XCircle } from 'lucide-react';
-import { resumoProducao, bloqueioFabricacao, fabricabilidadePecas } from '@/services/relatorioProducao';
+import { resumoProducao, bloqueioFabricacao, fabricabilidadePecas, estadoProducao } from '@/services/relatorioProducao';
 import { resumoMaterialObra } from '@/services/estoqueAnalytics';
 import { gerarRelatorioProducaoPDF } from '@/services/relatorioProducaoPDF';
 import { gerarRelatorioFabricabilidadePDF } from '@/services/relatorioFabricabilidadePDF';
@@ -22,6 +22,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
   const [gerandoFab, setGerandoFab] = useState(false);
   const [logoDataUrl, setLogoDataUrl] = useState(null);
   const resumo = useMemo(() => resumoProducao(pecas), [pecas]);
+  const estado = useMemo(() => estadoProducao(pecas), [pecas]);
   const bloqueio = useMemo(
     () => bloqueioFabricacao(pecas, resumoMaterialObra(estoque || []).linhas),
     [pecas, estoque]
@@ -151,6 +152,24 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
           </div>
         );
       })()}
+
+      {/* Estado da produção (consolidado): não iniciado / em processo / já fabricado / entregue */}
+      <div className="mt-4">
+        <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold mb-2">
+          <Factory className="w-4 h-4 text-teal-300" /> Estado da produção
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          <Painel tone="text-slate-300" label="Não iniciado" value={fmtPeso(estado.naoIniciado.peso)} sub={`${fmtNum(estado.naoIniciado.pecas)} pç · ${estado.naoIniciado.pct}%`} />
+          <Painel tone="text-blue-400" label="Em processo" value={fmtPeso(estado.emProcesso.peso)} sub={`${fmtNum(estado.emProcesso.pecas)} pç · ${estado.emProcesso.pct}%`} />
+          <Painel tone="text-teal-300" label="Já fabricado" value={fmtPeso(estado.jaFabricado.peso)} sub={`${fmtNum(estado.jaFabricado.pecas)} pç · ${estado.jaFabricado.pct}%`} />
+          <Painel tone="text-emerald-400" label="Entregue" value={fmtPeso(estado.entregue.peso)} sub={`${fmtNum(estado.entregue.pecas)} pç · ${estado.entregue.pct}%`} />
+        </div>
+        <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-slate-700/60">
+          {estado.estados.map((e) => (
+            <div key={e.key} title={`${e.label}: ${fmtPeso(e.peso)} (${e.pct}%)`} style={{ width: `${estado.totalPeso > 0 ? (e.peso / estado.totalPeso) * 100 : 0}%`, background: e.cor }} />
+          ))}
+        </div>
+      </div>
 
       {/* Distribuição por etapa (barra) */}
       <div className="mt-4 space-y-1.5">

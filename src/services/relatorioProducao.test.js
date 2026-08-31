@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   ETAPAS_REL, etapaPeca, qtdPeca, pesoPeca,
   resumoProducao, porFuncionario, pecasPorEtapa, bloqueioFabricacao, fabricabilidadePecas,
+  estadoProducao,
 } from './relatorioProducao';
 
 // Mistura camel/snake de propósito.
@@ -44,6 +45,25 @@ describe('resumoProducao', () => {
   });
   it('inclui todas as 7 etapas do fluxo', () => {
     expect(r.porEtapa.length).toBe(ETAPAS_REL.length);
+  });
+});
+
+describe('estadoProducao (estados consolidados)', () => {
+  const e = estadoProducao(pecas);
+  it('consolida etapas em estados de produção', () => {
+    expect(e.naoIniciado.peso).toBe(100);        // aguardando
+    expect(e.emFabricacao.peso).toBe(300);        // fabricacao
+    expect(e.acabamento.peso).toBe(150);          // solda + pintura
+    expect(e.entregue.peso).toBe(900);
+  });
+  it('agregados: já fabricado (Solda+) e em processo', () => {
+    expect(e.jaFabricado.peso).toBe(150 + 900);   // solda + entregue
+    expect(e.emProcesso.peso).toBe(300 + 150);    // fabricacao + solda
+  });
+  it('% sobre o peso total e estados macro somam o total', () => {
+    expect(e.entregue.pct).toBeCloseTo(900 / 1450 * 100, 1);
+    const somaEstados = e.estados.reduce((s, x) => s + x.peso, 0);
+    expect(somaEstados).toBe(e.totalPeso);
   });
 });
 

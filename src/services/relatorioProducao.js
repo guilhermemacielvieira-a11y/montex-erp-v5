@@ -73,6 +73,42 @@ export function resumoProducao(pecas = []) {
   };
 }
 
+// Consolida as etapas em ESTADOS de produção (leitura executiva): Não iniciado
+// (Aguardando) · Em fabricação · Já fabricado (Solda em diante), mais os recortes
+// Solda/Pintura, Expedido, Em obra (Enviado) e Entregue. Base = peso das peças.
+export function estadoProducao(pecas = []) {
+  const r = resumoProducao(pecas);
+  const byKey = Object.fromEntries(r.porEtapa.map((e) => [e.key, e]));
+  const somar = (keys) => keys.reduce((a, k) => {
+    const e = byKey[k] || { pecas: 0, qtd: 0, peso: 0 };
+    a.pecas += e.pecas; a.qtd += e.qtd; a.peso = r2(a.peso + e.peso); return a;
+  }, { pecas: 0, qtd: 0, peso: 0 });
+  const total = r.totalPeso || 0;
+  const comPct = (o) => ({ ...o, peso: r2(o.peso), pct: total > 0 ? r2((o.peso / total) * 100) : 0 });
+  const naoIniciado = comPct(somar(['aguardando']));
+  const emFabricacao = comPct(somar(['fabricacao']));
+  const acabamento = comPct(somar(['solda', 'pintura']));
+  const expedido = comPct(somar(['expedido']));
+  const emObra = comPct(somar(['enviado']));
+  const entregue = comPct(somar(['entregue']));
+  const jaFabricado = comPct(somar(['solda', 'pintura', 'expedido', 'enviado', 'entregue']));
+  const emProcesso = comPct(somar(['fabricacao', 'solda', 'pintura']));
+  // Estados macro para gráfico/donut (somam o total).
+  const estados = [
+    { key: 'nao_iniciado', label: 'Não iniciado', cor: '#64748b', ...naoIniciado },
+    { key: 'em_fabricacao', label: 'Em fabricação', cor: '#3b82f6', ...emFabricacao },
+    { key: 'acabamento', label: 'Solda/Pintura', cor: '#8b5cf6', ...acabamento },
+    { key: 'expedido', label: 'Fila de embarque', cor: '#f97316', ...expedido },
+    { key: 'em_obra', label: 'Em obra', cor: '#eab308', ...emObra },
+    { key: 'entregue', label: 'Entregue', cor: '#22c55e', ...entregue },
+  ];
+  return {
+    totalPeso: r2(total), totalPecas: r.totalPecas, totalQtd: r.totalQtd,
+    naoIniciado, emFabricacao, acabamento, expedido, emObra, entregue,
+    jaFabricado, emProcesso, estados,
+  };
+}
+
 const funcsPorEtapa = {
   fabricacao: ['funcionarioFabricacao', 'funcionario_fabricacao'],
   solda: ['funcionarioSolda', 'funcionario_solda'],

@@ -97,7 +97,7 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
 
   // KPIs (já fabricado / consegue / não consegue / a comprar)
   const kpis = [
-    ['◐ Já fabricado', fmtPeso(R.pesoJaFabricado), `${fmtNum(R.nJaFabricado)} marcas · ${fmtNum(R.qtdJaFabricado)} un`, '#14b8a6'],
+    ['Já fabricado', fmtPeso(R.pesoJaFabricado), `${fmtNum(R.nJaFabricado)} marcas · ${fmtNum(R.qtdJaFabricado)} un`, '#14b8a6'],
     ['✓ Consegue (ainda)', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${R.pctFabricavel}%`, '#22c55e'],
     ['✗ Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${R.pctNaoFabricavel}%`, '#ef4444'],
     ['A comprar (total)', fmtPeso(R.faltaComprarTotal), `${fmtNum(R.nPerfisParciais)} perfis parciais`, '#0ea5e9'],

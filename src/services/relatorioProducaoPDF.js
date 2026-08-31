@@ -6,7 +6,7 @@
 // React); usa jsPDF. Agregações em services/relatorioProducao.js (testado).
 // ============================================================
 import { jsPDF } from 'jspdf';
-import { resumoProducao, pecasPorEtapa, bloqueioFabricacao } from './relatorioProducao';
+import { resumoProducao, pecasPorEtapa, bloqueioFabricacao, estadoProducao } from './relatorioProducao';
 import { resumoMaterialObra } from './estoqueAnalytics';
 
 const STATUS_MAT = {
@@ -75,6 +75,26 @@ function drawBarChart(doc, itens, y, { margin = 10, labelW = 58, barW = 96, valW
   return y + 2;
 }
 
+// Fatia de pizza (para o donut de estados de produção).
+function pieSlice(doc, cx, cy, r, a0, a1, cor) {
+  const [R, G, B] = hexRgb(cor); doc.setFillColor(R, G, B);
+  const steps = Math.max(2, Math.round((a1 - a0) / 0.12));
+  const pts = [[cx, cy]];
+  for (let i = 0; i <= steps; i++) {
+    const a = a0 + (a1 - a0) * (i / steps);
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  const start = pts[0];
+  const rel = pts.slice(1).map((p, i) => [p[0] - pts[i][0], p[1] - pts[i][1]]);
+  doc.lines(rel, start[0], start[1], [1, 1], 'F', true);
+}
+function drawDonut(doc, cx, cy, r, segs) {
+  const total = segs.reduce((s, x) => s + x.v, 0) || 1;
+  let a = -Math.PI / 2;
+  segs.forEach((s) => { if (s.v <= 0) return; const a1 = a + (s.v / total) * Math.PI * 2; pieSlice(doc, cx, cy, r, a, a1, s.cor); a = a1; });
+  doc.setFillColor(255, 255, 255); doc.circle(cx, cy, r * 0.55, 'F');
+}
+
 function drawProgress(doc, pct, y, { margin = 10, width = 190 } = {}) {
   doc.setFillColor(226, 232, 240); doc.roundedRect(margin, y, width, 7, 1.5, 1.5, 'F');
   const w = Math.max(1, Math.min(100, pct) / 100 * width);
@@ -87,6 +107,7 @@ function drawProgress(doc, pct, y, { margin = 10, width = 190 } = {}) {
 
 export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque, logoDataUrl, detalheCap } = {}) {
   const resumo = resumoProducao(pecas);
+  const estado = estadoProducao(pecas);
   const grupos = pecasPorEtapa(pecas);
   const material = resumoMaterialObra(estoque || []);
   const bloqueio = bloqueioFabricacao(pecas, material.linhas);
@@ -129,6 +150,39 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     doc.setFont(undefined, 'normal');
   });
   y += 22;
+
+  // ===== Estado da Produção (consolidado) — donut + cards =====
+  doc.setTextColor(15, 23, 42); doc.setFontSize(11); doc.setFont(undefined, 'bold');
+  doc.text('Estado da produção', M, y); y += 2; doc.setFont(undefined, 'normal');
+  doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+  doc.text('Consolida as etapas por estado. Já fabricado = Solda em diante · Em processo = Fabricação/Solda/Pintura.', M, y + 4);
+  const yEst = y + 8;
+  // Donut à esquerda
+  drawDonut(doc, M + 20, yEst + 18, 16, estado.estados.map((e) => ({ v: e.peso, cor: e.cor })));
+  // Legenda dos estados macro (à direita do donut)
+  let ly = yEst + 3;
+  estado.estados.forEach((e) => {
+    const [r, g, b] = hexRgb(e.cor); doc.setFillColor(r, g, b); doc.rect(M + 42, ly - 2.4, 3, 3, 'F');
+    doc.setTextColor(51, 65, 85); doc.setFontSize(7.8);
+    doc.text(`${e.label}: ${fmtPeso(e.peso)} · ${e.pct}%`, M + 47, ly); ly += 5;
+  });
+  // Cards de recorte executivo (à direita)
+  const cards = [
+    ['Não iniciado', fmtPeso(estado.naoIniciado.peso), `${fmtNum(estado.naoIniciado.pecas)} pç · ${estado.naoIniciado.pct}%`, '#64748b'],
+    ['Em processo', fmtPeso(estado.emProcesso.peso), `${fmtNum(estado.emProcesso.pecas)} pç · ${estado.emProcesso.pct}%`, '#3b82f6'],
+    ['Já fabricado', fmtPeso(estado.jaFabricado.peso), `${fmtNum(estado.jaFabricado.pecas)} pç · ${estado.jaFabricado.pct}%`, '#14b8a6'],
+    ['Entregue', fmtPeso(estado.entregue.peso), `${fmtNum(estado.entregue.pecas)} pç · ${estado.entregue.pct}%`, '#22c55e'],
+  ];
+  const cx0 = M + 108, cw = (W - 108) / 2, ch = 15;
+  cards.forEach((c, i) => {
+    const cx = cx0 + (i % 2) * cw, cy = yEst + Math.floor(i / 2) * (ch + 2);
+    const [r, g, b] = hexRgb(c[3]);
+    doc.setDrawColor(203, 213, 225); doc.setFillColor(248, 250, 252); doc.roundedRect(cx + 1, cy, cw - 2, ch, 1.5, 1.5, 'FD');
+    doc.setTextColor(r, g, b); doc.setFontSize(7); doc.setFont(undefined, 'bold'); doc.text(c[0], cx + 4, cy + 4.5);
+    doc.setTextColor(15, 23, 42); doc.setFontSize(10); doc.text(c[1], cx + 4, cy + 10);
+    doc.setTextColor(100, 116, 139); doc.setFontSize(6.5); doc.setFont(undefined, 'normal'); doc.text(c[2], cx + 4, cy + 13.5);
+  });
+  y = Math.max(ly, yEst + 2 * (ch + 2)) + 4;
 
   // Progresso geral (gráfico)
   doc.setTextColor(15, 23, 42); doc.setFontSize(11); doc.setFont(undefined, 'bold');
