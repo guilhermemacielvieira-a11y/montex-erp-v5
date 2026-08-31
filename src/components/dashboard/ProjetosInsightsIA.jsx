@@ -144,7 +144,7 @@ ${Object.values(dadosProjetosPorTipo).map(d => `
   - Lucro Total: R$ ${d.lucro_total.toLocaleString('pt-BR')}
   - Margem Média: ${d.margem_media.toFixed(1)}%
   - Área Total: ${d.area_total.toFixed(0)}m²
-  - Peso Total: ${(d.peso_total / 1000).toFixed(1)} toneladas
+  - Peso Total: ${(Number(d.peso_total) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 `).join('\n')}
 
 **ANÁLISE POR LOCALIZAÇÃO:**

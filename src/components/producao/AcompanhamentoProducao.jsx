@@ -330,10 +330,10 @@ export default function AcompanhamentoProducao({ projetoId, projetoNome }) {
                 <div className="text-center">
                   <p className="text-xs text-blue-600 mb-1">Peso Fabricado</p>
                   <p className="text-xl font-bold text-blue-900">
-                    {(fisicoFinanceiroFab.pesoProduzido / 1000).toFixed(2)} ton
+                    {(Number(fisicoFinanceiroFab.pesoProduzido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                   </p>
                   <p className="text-xs text-slate-500">
-                    de {(estatisticasFab.pesoTotal / 1000).toFixed(2)} ton
+                    de {(Number(estatisticasFab.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                   </p>
                 </div>
                 <div className="text-center">
@@ -428,10 +428,10 @@ export default function AcompanhamentoProducao({ projetoId, projetoNome }) {
                 <div className="text-center">
                   <p className="text-xs text-orange-600 mb-1">Peso Montado</p>
                   <p className="text-xl font-bold text-orange-900">
-                    {(fisicoFinanceiroMont.pesoProduzido / 1000).toFixed(2)} ton
+                    {(Number(fisicoFinanceiroMont.pesoProduzido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                   </p>
                   <p className="text-xs text-slate-500">
-                    de {(estatisticasMont.pesoTotal / 1000).toFixed(2)} ton
+                    de {(Number(estatisticasMont.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                   </p>
                 </div>
                 <div className="text-center">

@@ -29,7 +29,7 @@ export default function EstoqueResumoWidget({ estoque = [], alertasEstoque = 0, 
       <div className="grid grid-cols-2 gap-3">
         {[
           { label: 'Itens Cadastrados', value: itensTotal, color: '#22d3ee' },
-          { label: 'Peso Total (ton)', value: `${(pesoTotal / 1000).toFixed(1)}t`, color: '#34d399' },
+          { label: 'Peso Total (kg)', value: `${(Number(pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`, color: '#34d399' },
           { label: 'Disponíveis', value: itensDisponiveis, color: '#60a5fa' },
           { label: 'Em Alerta', value: alertasEstoque, color: alertasEstoque > 0 ? '#ef4444' : '#34d399' },
         ].map((item, i) => (

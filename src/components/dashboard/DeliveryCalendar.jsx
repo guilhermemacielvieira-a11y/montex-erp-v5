@@ -19,7 +19,7 @@ import {
 import { useMedicoes, useProducao } from '../../contexts/ERPContext';
 
 // Formatador de peso
-const formatWeight = (value) => `${(value / 1000).toFixed(1)} ton`;
+const formatWeight = (value) => `${(Number(value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 
 const DeliveryCalendar = () => {
   // Dados reais do contexto

@@ -1335,7 +1335,7 @@ export default function AnaliseProducaoPage() {
                   'Aguardando Envio': kpis.pesoEnviado,
                 }]} layout="vertical">
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis type="number" stroke="#64748b" tickFormatter={v => `${(v/1000).toFixed(0)}t`} />
+                  <XAxis type="number" stroke="#64748b" tickFormatter={v => `${(v / 1000).toLocaleString('pt-BR')}k`} />
                   <YAxis type="category" dataKey="name" stroke="#64748b" width={0} />
                   <Tooltip formatter={(val) => `${parseFloat(val).toLocaleString('pt-BR')} kg`}
                     contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
@@ -1464,7 +1464,7 @@ export default function AnaliseProducaoPage() {
                 <ComposedChart data={dadosPorCategoria.slice(0, 12)}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
                   <XAxis dataKey="tipo" stroke="#64748b" angle={-30} textAnchor="end" height={80} tick={{ fontSize: 11 }} />
-                  <YAxis stroke="#64748b" tickFormatter={v => `${(v/1000).toFixed(0)}t`} />
+                  <YAxis stroke="#64748b" tickFormatter={v => `${(v / 1000).toLocaleString('pt-BR')}k`} />
                   <Tooltip formatter={(val) => `${parseFloat(val).toLocaleString('pt-BR')} kg`}
                     contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
                   <Legend wrapperStyle={{ color: '#94a3b8' }} />

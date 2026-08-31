@@ -1594,7 +1594,7 @@ export default function PainelFinanceiroGlobal() {
       if (op.taxa > mediaTaxa * 1.3 && ops.length > 1) motivos.push({ tipo: 'aviso', texto: `Taxa nominal ${op.taxa.toFixed(1)}% — ${((op.taxa/mediaTaxa - 1) * 100).toFixed(0)}% acima da média das operações` });
       if (op.juros > mediaJuros * 1.5 && ops.length > 1) motivos.push({ tipo: 'aviso', texto: `Juros absolutos ${formatCurrency(op.juros)} — ${((op.juros/mediaJuros - 1) * 100).toFixed(0)}% acima da média` });
       if (op.prazoMeses < 3 && op.taxa > 8) motivos.push({ tipo: 'aviso', texto: `Prazo curto (${op.prazoMeses}m) com taxa alta — desconto desfavorável` });
-      if (op.juros / metas.fabricacaoPrecoKg / 1000 > 1) motivos.push({ tipo: 'info', texto: `Custo equivale a ${(op.juros / metas.fabricacaoPrecoKg / 1000).toFixed(1)}t de fabricação` });
+      if (op.juros / metas.fabricacaoPrecoKg / 1000 > 1) motivos.push({ tipo: 'info', texto: `Custo equivale a ${(Number(op.juros / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg de fabricação` });
 
       // Score de "custo" — quanto maior, pior
       const scoreCusto = op.taxaAnual * 1.5 + (op.juros / 1000);
@@ -1649,7 +1649,7 @@ export default function PainelFinanceiroGlobal() {
         liquidoMinimo, jurosMaximo,
         taxaPeriodoMaxPct,
         // Se aceitar essa taxa, em ton de produção
-        tonsPerdidas: jurosMaximo / metas.fabricacaoPrecoKg / 1000,
+        tonsPerdidas: jurosMaximo / metas.fabricacaoPrecoKg,
       };
     } else {
       // Recebo R$ líquido — qual MÁXIMO valor de face aceitável para não passar de Y% a.a.?
@@ -1661,7 +1661,7 @@ export default function PainelFinanceiroGlobal() {
         inputLiquido: liquido, inputTaxaMax: taxaMaxAnual,
         faceMaximo, jurosMaximo,
         taxaPeriodoMaxPct,
-        tonsPerdidas: jurosMaximo / metas.fabricacaoPrecoKg / 1000,
+        tonsPerdidas: jurosMaximo / metas.fabricacaoPrecoKg,
       };
     }
   }, [calcRev, metas.fabricacaoPrecoKg]);
@@ -2454,7 +2454,7 @@ export default function PainelFinanceiroGlobal() {
                     </div>
                     <p className="text-sm font-bold text-white truncate">{rankingOps.maisCaraValor.descricao}</p>
                     <p className="text-2xl font-black text-orange-400 mt-1">{formatCurrency(rankingOps.maisCaraValor.juros)}</p>
-                    <p className="text-[10px] text-slate-400">Taxa: {rankingOps.maisCaraValor.taxaAnual.toFixed(1)}% a.a. • {(rankingOps.maisCaraValor.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)}t prod</p>
+                    <p className="text-[10px] text-slate-400">Taxa: {rankingOps.maisCaraValor.taxaAnual.toFixed(1)}% a.a. • {(Number(rankingOps.maisCaraValor.juros / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg prod</p>
                   </div>
                   <div className="bg-emerald-900/30 border border-emerald-700/40 rounded-lg p-3">
                     <div className="flex items-center gap-1.5 mb-2">
@@ -2625,7 +2625,7 @@ export default function PainelFinanceiroGlobal() {
                             </div>
                             <div>
                               <p className="text-slate-500 text-[10px]">Equiv. Produção</p>
-                              <p className="font-semibold text-violet-400">{(op.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)} ton</p>
+                              <p className="font-semibold text-violet-400">{(Number(op.juros / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
                             </div>
                           </div>
 
@@ -2691,7 +2691,7 @@ export default function PainelFinanceiroGlobal() {
                   </div>
                   <div className="bg-slate-900/40 rounded-lg p-3">
                     <p className="text-xs text-slate-400">Equivalente em produção</p>
-                    <p className="text-base font-bold text-orange-400 mt-1">{(despesasFinanceiras.total / metas.fabricacaoPrecoKg / 1000).toFixed(2)} ton</p>
+                    <p className="text-base font-bold text-orange-400 mt-1">{(Number(despesasFinanceiras.total / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
                     <p className="text-xs text-slate-500">de fabricação para zerar</p>
                   </div>
                 </div>
@@ -2873,7 +2873,7 @@ export default function PainelFinanceiroGlobal() {
                   <div>
                     <p className="text-xs text-slate-400 mb-1">Meta receita mínima/mês</p>
                     <p className="text-2xl font-bold text-purple-400">{formatCurrency(metas.receitaMinimaMensal)}</p>
-                    <p className="text-xs text-slate-500">{metas.fabricacaoKg/1000}t fáb + {metas.montagemKg/1000}t mont</p>
+                    <p className="text-xs text-slate-500">{(Number(metas.fabricacaoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg fáb + {(Number(metas.montagemKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg mont</p>
                   </div>
                   <div className="border-t border-slate-700 pt-3">
                     <p className="text-xs text-slate-400">Receita projetada 30d vs meta</p>
@@ -2892,7 +2892,7 @@ export default function PainelFinanceiroGlobal() {
                   <div className="border-t border-slate-700 pt-3">
                     <p className="text-xs text-slate-400">Equivalente em produção fab</p>
                     <p className="text-lg font-semibold text-amber-400">
-                      {((Math.max(0, futuro.pagar30 - futuro.receber30)) / metas.fabricacaoPrecoKg / 1000).toFixed(1)}t
+                      {(Number((Math.max(0, futuro.pagar30 - futuro.receber30)) / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                     </p>
                   </div>
                 </div>
@@ -2920,14 +2920,14 @@ export default function PainelFinanceiroGlobal() {
                     <span className="text-sm font-semibold text-emerald-300">Fabricação</span>
                   </div>
                   <MetaBar label="Receita Fabricação (mês)" real={metasReal.receitaMes * 0.7 /* aprox. fáb */} meta={metasReal.receitaFabricacaoMeta} />
-                  <p className="text-xs text-slate-500">Meta: {(metas.fabricacaoKg / 1000).toFixed(0)}t × R$ {metas.fabricacaoPrecoKg.toFixed(2)}/kg = {formatCurrency(metasReal.receitaFabricacaoMeta)}</p>
+                  <p className="text-xs text-slate-500">Meta: {(Number(metas.fabricacaoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg × R$ {metas.fabricacaoPrecoKg.toFixed(2)}/kg = {formatCurrency(metasReal.receitaFabricacaoMeta)}</p>
 
                   <div className="flex items-center gap-2 mb-1 mt-4">
                     <HardHat className="h-4 w-4 text-blue-400" />
                     <span className="text-sm font-semibold text-blue-300">Montagem</span>
                   </div>
                   <MetaBar label="Receita Montagem (mês)" real={metasReal.receitaMes * 0.3} meta={metasReal.receitaMontagemMeta} />
-                  <p className="text-xs text-slate-500">Meta: {(metas.montagemKg / 1000).toFixed(0)}t × R$ {metas.montagemPrecoKg.toFixed(2)}/kg = {formatCurrency(metasReal.receitaMontagemMeta)}</p>
+                  <p className="text-xs text-slate-500">Meta: {(Number(metas.montagemKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg × R$ {metas.montagemPrecoKg.toFixed(2)}/kg = {formatCurrency(metasReal.receitaMontagemMeta)}</p>
                 </div>
 
                 <div className="space-y-4">
@@ -2962,7 +2962,7 @@ export default function PainelFinanceiroGlobal() {
                   <span className="text-sm font-semibold text-emerald-300">Equivalente Fabricação</span>
                 </div>
                 <p className="text-xs text-slate-400">Para bater a meta de receita mínima, é preciso produzir:</p>
-                <p className="text-xl font-bold text-emerald-400 mt-2">{(metas.fabricacaoKg / 1000).toFixed(0)} ton/mês</p>
+                <p className="text-xl font-bold text-emerald-400 mt-2">{(Number(metas.fabricacaoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg/mês</p>
                 <p className="text-xs text-slate-500">a R$ {metas.fabricacaoPrecoKg.toFixed(2)}/kg</p>
               </CardContent>
             </Card>
@@ -2973,7 +2973,7 @@ export default function PainelFinanceiroGlobal() {
                   <span className="text-sm font-semibold text-blue-300">Equivalente Montagem</span>
                 </div>
                 <p className="text-xs text-slate-400">Adicionalmente em campo:</p>
-                <p className="text-xl font-bold text-blue-400 mt-2">{(metas.montagemKg / 1000).toFixed(0)} ton/mês</p>
+                <p className="text-xl font-bold text-blue-400 mt-2">{(Number(metas.montagemKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg/mês</p>
                 <p className="text-xs text-slate-500">a R$ {metas.montagemPrecoKg.toFixed(2)}/kg</p>
               </CardContent>
             </Card>
@@ -2984,7 +2984,7 @@ export default function PainelFinanceiroGlobal() {
                   <span className="text-sm font-semibold text-purple-300">Break-even</span>
                 </div>
                 <p className="text-xs text-slate-400">Para cobrir a despesa-teto, basta:</p>
-                <p className="text-xl font-bold text-purple-400 mt-2">{(metas.despesaTetoMensal / metas.fabricacaoPrecoKg / 1000).toFixed(1)} ton/mês</p>
+                <p className="text-xl font-bold text-purple-400 mt-2">{(Number(metas.despesaTetoMensal / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg/mês</p>
                 <p className="text-xs text-slate-500">apenas fabricação</p>
               </CardContent>
             </Card>
@@ -3442,7 +3442,7 @@ export default function PainelFinanceiroGlobal() {
                     <div className="mt-2 p-2 rounded bg-red-900/30 border border-red-700/40 text-xs text-red-200">
                       <strong className="flex items-center gap-1"><AlertTriangle className="h-3 w-3" />Operação cara</strong>
                       Taxa anualizada {chequeOpCalc.taxaAnualizada.toFixed(1)}% a.a. excede limite ({metas.taxaAnualizadaMaxima}% a.a.).
-                      Custo equivale a <strong className="text-orange-300">{(chequeOpCalc.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)}t de produção</strong>.
+                      Custo equivale a <strong className="text-orange-300">{(Number(chequeOpCalc.juros / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg de produção</strong>.
                     </div>
                   )}
                   <p className="text-[10px] text-slate-500 mt-2">
@@ -3644,7 +3644,7 @@ export default function PainelFinanceiroGlobal() {
                     <p className="text-xs text-slate-400 mt-1">Juros máximos: {formatCurrency(calcReversaResultado.jurosMaximo)} ({calcReversaResultado.taxaPeriodoMaxPct.toFixed(2)}% no período)</p>
                   </div>
                   <div className="text-xs text-rose-300 bg-rose-900/20 border border-rose-700/30 rounded p-2">
-                    ⚠ Se o banco oferecer LÍQUIDO MENOR que {formatCurrency(calcReversaResultado.liquidoMinimo)}, a taxa estará ACIMA do seu limite. Equivale a {calcReversaResultado.tonsPerdidas.toFixed(2)}t de produção fabricada perdida em juros.
+                    ⚠ Se o banco oferecer LÍQUIDO MENOR que {formatCurrency(calcReversaResultado.liquidoMinimo)}, a taxa estará ACIMA do seu limite. Equivale a {(Number(calcReversaResultado.tonsPerdidas) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg de produção fabricada perdida em juros.
                   </div>
                 </div>
               ) : (
@@ -3667,7 +3667,7 @@ export default function PainelFinanceiroGlobal() {
                     <p className="text-xs text-slate-400 mt-1">Juros máximos: {formatCurrency(calcReversaResultado.jurosMaximo)} ({calcReversaResultado.taxaPeriodoMaxPct.toFixed(2)}% no período)</p>
                   </div>
                   <div className="text-xs text-rose-300 bg-rose-900/20 border border-rose-700/30 rounded p-2">
-                    ⚠ Se a operação exigir face MAIOR que {isFinite(calcReversaResultado.faceMaximo) ? formatCurrency(calcReversaResultado.faceMaximo) : 'esse valor'}, a taxa estará acima do limite. Equivale a {calcReversaResultado.tonsPerdidas.toFixed(2)}t de produção em juros.
+                    ⚠ Se a operação exigir face MAIOR que {isFinite(calcReversaResultado.faceMaximo) ? formatCurrency(calcReversaResultado.faceMaximo) : 'esse valor'}, a taxa estará acima do limite. Equivale a {(Number(calcReversaResultado.tonsPerdidas) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg de produção em juros.
                   </div>
                 </div>
               )}
@@ -3841,7 +3841,7 @@ export default function PainelFinanceiroGlobal() {
                     Taxa anualizada de <strong>{opFinCalc.taxaAnualizada.toFixed(1)}% a.a.</strong> excede o limite definido nas metas ({metas.taxaAnualizadaMaxima}% a.a.).
                   </p>
                   <p className="text-xs text-slate-400 mt-1">
-                    Custo total dos juros: <strong className="text-rose-400">{formatCurrency(opFinCalc.juros)}</strong> — equivale a <strong className="text-orange-400">{(opFinCalc.juros / metas.fabricacaoPrecoKg / 1000).toFixed(2)} ton</strong> de produção fabricada perdida.
+                    Custo total dos juros: <strong className="text-rose-400">{formatCurrency(opFinCalc.juros)}</strong> — equivale a <strong className="text-orange-400">{(Number(opFinCalc.juros / metas.fabricacaoPrecoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</strong> de produção fabricada perdida.
                   </p>
                   {opFinCalc.nivelCaro === 'grave' && (
                     <p className="text-xs text-red-300 mt-2">

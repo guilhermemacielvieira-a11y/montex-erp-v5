@@ -549,7 +549,7 @@ export default function Projetos() {
                       {projeto.peso_estimado && (
                         <div className="flex items-center gap-2 text-sm text-slate-600">
                           <Weight className="h-4 w-4 text-slate-400" />
-                          <span>{(Number(projeto.peso_estimado) / 1000).toFixed(1)} ton</span>
+                          <span>{(Number(projeto.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
                         </div>
                       )}
                       {projeto.data_fim_prevista && (

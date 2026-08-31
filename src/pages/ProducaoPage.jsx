@@ -76,9 +76,7 @@ import { ETAPAS_PRODUCAO } from '../data/database';
 // Função para formatar peso
 const formatWeight = (peso) => {
   if (!peso && peso !== 0) return '0 kg';
-  return peso >= 1000
-    ? `${(peso / 1000).toFixed(2)} t`
-    : `${peso.toFixed(1)} kg`;
+  return `${(Number(peso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 };
 
 // Configuração das colunas do Kanban - 6 PROCESSOS PADRÃO MONTEX

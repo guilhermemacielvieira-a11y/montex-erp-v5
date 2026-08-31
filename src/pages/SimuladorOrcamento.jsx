@@ -1611,7 +1611,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
         <p className="text-indigo-200 text-sm">
           Prazo: <strong className="text-white">{analise.prazoTotal} dias</strong>
           &nbsp;(Projeto {analise.diasPrj}d · Fabricação {analise.diasFab}d · Montagem 90d em paralelo)
-          &nbsp;·&nbsp;Peso: <strong className="text-white">{fmtN(analise.pesoTotal / 1000)} ton</strong>
+          &nbsp;·&nbsp;Peso: <strong className="text-white">{fmtN(analise.pesoTotal, 0)} kg</strong>
           &nbsp;·&nbsp;Despesa média/mês: <strong className="text-amber-300">{fmtC(despesaMediaMensal)}</strong>
         </p>
       </div>
@@ -1696,7 +1696,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
             {[
               { label: 'Custo Produção Total', val: fmtC(analise.custoProd),            sub: `Fab + Pint + Transp`,                 cor: 'from-purple-500 to-purple-700' },
               { label: 'Custo/mês (Produção)', val: fmtC(analise.custoMensalProdObra),  sub: `${analise.diasFab}d = ${fmtN(analise.mesesFab)} mês`, cor: 'from-violet-500 to-indigo-700' },
-              { label: 'Ocupação Capacidade',  val: `${fmtN(analise.ocProd)}%`,          sub: `Ref. ${(META_PROD_KG/1000).toFixed(0)} ton/mês`, cor: analise.ocProd > 100 ? 'from-red-500 to-red-700' : analise.ocProd > 70 ? 'from-amber-500 to-amber-700' : 'from-sky-500 to-sky-700' },
+              { label: 'Ocupação Capacidade',  val: `${fmtN(analise.ocProd)}%`,          sub: `Ref. ${fmtN(META_PROD_KG, 0)} kg/mês`, cor: analise.ocProd > 100 ? 'from-red-500 to-red-700' : analise.ocProd > 70 ? 'from-amber-500 to-amber-700' : 'from-sky-500 to-sky-700' },
               { label: 'Custo / kg (Prod.)',   val: fmtC(analise.fabKg + analise.pintKg + analise.transpKg), sub: `Ref. ${fmtC(REF_FAB_KG + REF_PINT_KG + REF_TRANSP_KG)}/kg`, cor: 'from-emerald-500 to-green-700' },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>
@@ -1756,7 +1756,7 @@ const StepAnaliseInterna = ({ setores, calculations, unitCosts, fi, cronograma, 
             {[
               { label: 'Custo Montagem Total', val: fmtC(analise.custoMont),           sub: 'Montagem em campo',                  cor: 'from-emerald-500 to-teal-700' },
               { label: 'Custo/mês (Montagem)', val: fmtC(analise.custoMensalMontObra), sub: `${analise.diasMont}d = ${fmtN(analise.mesesMont)} mês`, cor: 'from-teal-500 to-cyan-700' },
-              { label: 'Ocupação Montagem',    val: `${fmtN(analise.ocMont)}%`,         sub: `Ref. ${(META_MONT_KG/1000).toFixed(0)} ton/mês`, cor: analise.ocMont > 100 ? 'from-red-500 to-red-700' : 'from-green-500 to-green-700' },
+              { label: 'Ocupação Montagem',    val: `${fmtN(analise.ocMont)}%`,         sub: `Ref. ${fmtN(META_MONT_KG, 0)} kg/mês`, cor: analise.ocMont > 100 ? 'from-red-500 to-red-700' : 'from-green-500 to-green-700' },
               { label: 'Montagem / kg',        val: fmtC(analise.montKg),              sub: `Ref. ${fmtC(REF_MONT_KG)}/kg`,        cor: 'from-sky-500 to-blue-700' },
             ].map((k, i) => (
               <div key={i} className={`bg-gradient-to-br ${k.cor} rounded-xl p-4 text-white shadow-lg`}>

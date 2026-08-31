@@ -102,7 +102,7 @@ ${i + 1}. ${p.nome}
 Cliente: ${orcamento.cliente_nome}
 Projeto: ${orcamento.projeto_nome}
 Área: ${orcamento.area}m²
-Peso: ${(orcamento.peso_estimado / 1000).toFixed(2)} ton
+Peso: ${(Number(orcamento.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 Valor Orçado: R$ ${orcamento.valor_venda?.toLocaleString('pt-BR')}
 Custo Estimado: R$ ${orcamento.custo_total?.toLocaleString('pt-BR')}
 Margem Prevista: ${orcamento.margem_lucro?.toFixed(1)}%

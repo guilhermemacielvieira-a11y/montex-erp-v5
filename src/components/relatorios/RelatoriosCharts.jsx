@@ -279,8 +279,8 @@ export function EvolutionTonelagem({ relatorios, projetos }) {
         .sort((a, b) => new Date(a.periodo_fim) - new Date(b.periodo_fim))
         .map(rel => ({
           data: rel.periodo_fim ? format(new Date(rel.periodo_fim), 'dd/MM') : '-',
-          fabricada: (rel.tonelagem_fabricada || 0) / 1000,
-          montada: (rel.tonelagem_montada || 0) / 1000
+          fabricada: rel.tonelagem_fabricada || 0,
+          montada: rel.tonelagem_montada || 0
         }));
 
       return {
@@ -311,14 +311,14 @@ export function EvolutionTonelagem({ relatorios, projetos }) {
             <XAxis dataKey="data" tick={{ fontSize: 12 }} />
             <YAxis tick={{ fontSize: 12 }} />
             <Tooltip 
-              formatter={(value) => `${value.toFixed(2)} ton`}
+              formatter={(value) => `${(Number(value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
               contentStyle={{ borderRadius: '8px', border: '1px solid #e2e8f0' }}
             />
             <Legend />
             <Line 
               type="monotone" 
               dataKey="fabricada" 
-              name="Fabricada (ton)"
+              name="Fabricada (kg)"
               stroke="#3b82f6" 
               strokeWidth={3}
               dot={{ r: 5 }}
@@ -326,7 +326,7 @@ export function EvolutionTonelagem({ relatorios, projetos }) {
             <Line 
               type="monotone" 
               dataKey="montada" 
-              name="Montada (ton)"
+              name="Montada (kg)"
               stroke="#10b981" 
               strokeWidth={3}
               dot={{ r: 5 }}

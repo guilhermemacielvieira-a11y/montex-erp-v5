@@ -284,7 +284,7 @@ Seja específico e técnico, mas compreensível.`;
                     <div>
                       <p className="text-sm text-slate-500">Peso Estimado</p>
                       <p className="text-xl font-bold text-slate-900">
-                        {(analysis.peso_estimado_kg / 1000).toFixed(1)} ton
+                        {(Number(analysis.peso_estimado_kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
                       </p>
                     </div>
                   </div>

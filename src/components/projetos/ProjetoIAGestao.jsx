@@ -76,7 +76,7 @@ Total de Projetos Analisados: ${dadosHistoricos.length}
 
 ${dadosHistoricos.slice(0, 15).map((p, i) => `
 ${i + 1}. ${p.nome}
-   Tipo: ${p.tipo} | Área: ${p.area}m² | Peso: ${(p.peso / 1000).toFixed(1)}ton
+   Tipo: ${p.tipo} | Área: ${p.area}m² | Peso: ${(Number(p.peso) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
    Prazo Estimado: ${p.prazo_estimado} dias → Real: ${p.prazo_real} dias (Desvio: ${p.desvio_prazo > 0 ? '+' : ''}${p.desvio_prazo} dias)
    Custo Estimado: R$ ${p.custo_estimado.toLocaleString('pt-BR')} → Real: R$ ${p.custo_real.toLocaleString('pt-BR')} (Desvio: ${p.margem_desvio_custo.toFixed(1)}%)
 `).join('\n')}
@@ -93,7 +93,7 @@ ${i + 1}. ${p.nome}
 Nome: ${novoProjeto.nome}
 Tipo: ${novoProjeto.tipo}
 Área: ${novoProjeto.area}m²
-Peso Estimado: ${(novoProjeto.peso_estimado / 1000).toFixed(2)} toneladas
+Peso Estimado: ${(Number(novoProjeto.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 Valor Contratado: R$ ${novoProjeto.valor_contrato?.toLocaleString('pt-BR')}
 ${novoProjeto.data_inicio ? `Data Início: ${new Date(novoProjeto.data_inicio).toLocaleDateString('pt-BR')}` : ''}
 ${novoProjeto.data_fim_prevista ? `Data Fim Prevista: ${new Date(novoProjeto.data_fim_prevista).toLocaleDateString('pt-BR')}` : ''}
@@ -635,7 +635,7 @@ export function IdentificacaoGargalosRiscos({ projetosAtivos, tarefas, relatorio
 Nome: ${projeto.nome}
 Cliente: ${projeto.cliente_nome}
 Status: ${projeto.status}
-Área: ${projeto.area}m² | Peso: ${(projeto.peso_estimado / 1000).toFixed(2)}ton
+Área: ${projeto.area}m² | Peso: ${(Number(projeto.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 Valor Contrato: R$ ${projeto.valor_contrato?.toLocaleString('pt-BR')}
 
 **CRONOGRAMA:**
@@ -676,7 +676,7 @@ ${tarefasBloqueadas.slice(0, 5).map(t => `
 ${relatorioMaisRecente ? `
 Fabricação: ${relatorioMaisRecente.percentual_fabricacao}%
 Montagem: ${relatorioMaisRecente.percentual_montagem}%
-Tonelagem Fabricada: ${(relatorioMaisRecente.tonelagem_fabricada / 1000).toFixed(1)}ton de ${(projeto.peso_estimado / 1000).toFixed(1)}ton
+Tonelagem Fabricada: ${(Number(relatorioMaisRecente.tonelagem_fabricada) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg de ${(Number(projeto.peso_estimado) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg
 ` : 'Sem relatórios registrados'}
 
 ═══════════════════════════════════════════

@@ -59,8 +59,7 @@ const ETAPA_CAMPO_DATA = {
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 function formatPeso(kg) {
   if (!kg) return '—';
-  if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`;
-  return `${Number(kg).toFixed(1)} kg`;
+  return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 }
 
 function hoje() {

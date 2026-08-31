@@ -38,7 +38,7 @@ const CustomTooltip = ({ active, payload, label }) => {
               style={{ backgroundColor: entry.color }}
             />
             <span className="text-slate-400">{entry.name}:</span>
-            <span className="text-white font-medium">{entry.value} ton</span>
+            <span className="text-white font-medium">{(Number(entry.value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
           </div>
         ))}
       </div>
@@ -65,7 +65,7 @@ export default function ProductionChart({ data = mockData }) {
               <BarChart3 className="h-5 w-5 text-emerald-500" />
               Produção & Montagem
             </h3>
-            <p className="text-sm text-slate-400">Evolução mensal em toneladas</p>
+            <p className="text-sm text-slate-400">Evolução mensal em quilogramas</p>
           </div>
 
           <div className="flex items-center gap-2">

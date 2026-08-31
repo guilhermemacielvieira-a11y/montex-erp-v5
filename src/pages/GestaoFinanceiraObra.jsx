@@ -923,7 +923,7 @@ export default function GestaoFinanceiraObra() {
             <p className="text-slate-400 mt-1">
               <span className="text-cyan-400 font-medium">{obra.codigo}</span> - {obra.nome}
               <span className="mx-2">•</span>
-              <span className="text-emerald-400">{(obra.contrato.pesoTotal / 1000).toFixed(0)} ton</span>
+              <span className="text-emerald-400">{(Number(obra.contrato.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
             </p>
           </div>
 
@@ -1144,7 +1144,7 @@ export default function GestaoFinanceiraObra() {
           <KPICard
             icon={Weight}
             label="Peso Previsto"
-            value={`${(obra.contrato.pesoTotal / 1000).toFixed(0)} ton`}
+            value={`${(Number(obra.contrato.pesoTotal) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
             subvalue="107.000 kg"
             color="blue"
           />
@@ -1269,7 +1269,7 @@ export default function GestaoFinanceiraObra() {
                         boxShadow: '0 8px 32px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.08)',
                         backdropFilter: 'blur(10px)',
                       }}
-                      formatter={(value) => `${(value / 1000).toFixed(1)} ton`}
+                      formatter={(value) => `${(Number(value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
                     />
                     <Bar dataKey="fabricacao" name="Fabricação" fill="#8b5cf6" stackId="a" />
                     <Bar dataKey="montagem" name="Montagem" fill="#10b981" stackId="a" />
@@ -2191,7 +2191,7 @@ export default function GestaoFinanceiraObra() {
                                 </span>
                               </div>
                               <p className="text-sm text-slate-400">
-                                {med.setor} {med.pesoMedido ? `• ${(med.pesoMedido / 1000).toFixed(2)} ton` : ''}
+                                {med.setor} {med.pesoMedido ? `• ${(Number(med.pesoMedido) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg` : ''}
                               </p>
                             </div>
                           </div>
@@ -2917,7 +2917,7 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
               <label className={labelClass}>Peso Medido (kg)</label>
               <input type="number" step="0.01" value={formData.pesoMedido} onChange={e => setField('pesoMedido', e.target.value)}
                 className={inputClass} style={inputStyle} placeholder="Ex: 15000" required />
-              {pesoNum > 0 && <p className="text-[10px] text-slate-500 mt-1">{(pesoNum / 1000).toFixed(2)} ton</p>}
+              {pesoNum > 0 && <p className="text-[10px] text-slate-500 mt-1">{(Number(pesoNum) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>}
             </div>
             <div>
               <label className={labelClass}>Data Referência</label>

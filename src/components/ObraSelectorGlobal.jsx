@@ -24,7 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { useObras } from '../contexts/ERPContext';
 
 // Formatador de peso
-const formatWeight = (value) => `${(value / 1000).toFixed(1)} ton`;
+const formatWeight = (value) => `${(Number(value) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 
 export default function ObraSelectorGlobal({
   selectedObra,

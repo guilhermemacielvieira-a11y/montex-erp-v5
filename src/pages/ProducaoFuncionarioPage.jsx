@@ -888,7 +888,7 @@ const ETAPA_CAMPO_FUNC_MAP = { fabricacao: 'funcionario_fabricacao', solda: 'fun
 const ETAPA_CAMPO_DATA_MAP = { fabricacao: 'data_inicio_fabricacao', solda: 'data_inicio_solda', pintura: 'data_inicio_pintura' };
 function hojeStr() { return new Date().toISOString().split('T')[0]; }
 function gerarLancId() { return 'LANC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8); }
-function formatPesoLanc(kg) { if (!kg) return '—'; if (kg >= 1000) return `${(kg / 1000).toFixed(1)}t`; return `${Number(kg).toFixed(1)} kg`; }
+function formatPesoLanc(kg) { if (!kg) return '—'; return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`; }
 
 /**
  * Expande peças com quantidade > 1 em entradas individuais por conjunto.

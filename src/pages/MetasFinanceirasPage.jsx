@@ -197,7 +197,7 @@ function EstagioCard({ etapa, formatCurrency }) {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <p className="text-xs text-slate-500">Produção</p>
-          <p className="text-lg font-semibold text-white">{(etapa.producaoKg / 1000).toFixed(1)} ton</p>
+          <p className="text-lg font-semibold text-white">{(Number(etapa.producaoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
         </div>
         <div>
           <p className="text-xs text-slate-500">Valor Gerado</p>
@@ -425,7 +425,7 @@ export default function MetasFinanceirasPage() {
         />
         <KPICard
           title="Produção (kg)"
-          value={`${((fi.kpisGerais.producaoMensalKg || 0) / 1000).toFixed(1)} ton`}
+          value={`${(Number(fi.kpisGerais.producaoMensalKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
           subtitle={`Fat. teórico: ${fi.formatCurrency(fi.kpisGerais.faturamentoProducaoMes)}`}
           icon={Factory}
           color="from-cyan-500 to-blue-500"
@@ -625,7 +625,7 @@ export default function MetasFinanceirasPage() {
               progresso={fi.metas.producaoFabricaKg?.progresso || 0}
               icon={Factory}
               cor="emerald"
-              formatCurrency={(v) => `${(v / 1000).toFixed(1)} ton`}
+              formatCurrency={(v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
             />
             <MetaProgressCard
               titulo="Produção Fábrica (R$)"
@@ -645,7 +645,7 @@ export default function MetasFinanceirasPage() {
               progresso={fi.metas.montagemCampoKg?.progresso || 0}
               icon={HardHat}
               cor="blue"
-              formatCurrency={(v) => `${(v / 1000).toFixed(1)} ton`}
+              formatCurrency={(v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
             />
             <MetaProgressCard
               titulo="Montagem Campo (R$)"
@@ -698,7 +698,7 @@ export default function MetasFinanceirasPage() {
               progresso={fi.metas.producao?.progresso || 0}
               icon={Award}
               cor="violet"
-              formatCurrency={(v) => `${(v / 1000).toFixed(1)} ton`}
+              formatCurrency={(v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`}
             />
             <MetaProgressCard
               titulo="Margem Operacional"
@@ -807,7 +807,7 @@ export default function MetasFinanceirasPage() {
                           <TableCell className="text-right text-red-400 font-semibold">{fi.formatCurrency(mes.custo)}</TableCell>
                           <TableCell className={cn("text-right font-semibold", saldoReal >= 0 ? "text-emerald-400" : "text-red-400")}>{fi.formatCurrency(saldoReal)}</TableCell>
                           <TableCell className={cn("text-right font-semibold", mes.margem >= 0 ? "text-emerald-400" : "text-red-400")}>{fi.formatPercent(mes.margem)}</TableCell>
-                          <TableCell className="text-right text-cyan-400">{((mes.producaoKg || 0) / 1000).toFixed(1)} ton</TableCell>
+                          <TableCell className="text-right text-cyan-400">{(Number(mes.producaoKg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</TableCell>
                         </TableRow>
                       );
                     })}
