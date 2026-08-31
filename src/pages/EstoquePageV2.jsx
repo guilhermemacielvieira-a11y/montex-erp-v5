@@ -31,7 +31,7 @@ import { CATEGORIAS_MATERIAL } from '@/data/database';
 import {
   SAUDE, saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
-  necessarioItem, chegouItem, faltaItem, temNecessidade,
+  necessarioItem, chegouItem, faltaItem, temNecessidade, enriquecerNecessarioBOM,
 } from '@/services/estoqueAnalytics';
 import { ORIGEM_INFO, rotuloOrigem } from '@/services/rastreabilidadeEstoque';
 import { gerarRelatorioEstoquePDF } from '@/services/relatorioEstoquePDF';
@@ -259,24 +259,31 @@ export default function EstoquePageV2() {
   //    FÁBRICA (sem obra) cujo perfil está no BOM — nunca itens de outra obra.
   const estoquePorObra = useMemo(() => {
     const base = estoque || [];
-    if (filtroObra === 'todas') return base;
-    if (filtroObra === 'sem_obra') return base.filter(it => !it.obraId && !it.obra_id);
-    const alvo = filtroObra === 'obra_atual' ? obraAtual : filtroObra;
-    if (!alvo) return base;
+    const escopo = (() => {
+      if (filtroObra === 'todas') return base;
+      if (filtroObra === 'sem_obra') return base.filter(it => !it.obraId && !it.obra_id);
+      const alvo = filtroObra === 'obra_atual' ? obraAtual : filtroObra;
+      if (!alvo) return base;
 
-    const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
-    if (proprios.length) return proprios; // obra tem estoque próprio → só ele
+      const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
+      if (proprios.length) return proprios; // obra tem estoque próprio → só ele
 
-    const perfisBOM = new Set(
-      (materiaisNecessarios || []).map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean)
-    );
-    if (!perfisBOM.size) return proprios;
-    return base.filter(it => {
-      if (it.obraId || it.obra_id) return false; // ignora itens de qualquer obra
-      const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
-      for (const p of perfisBOM) if (chave.includes(p)) return true; // fábrica usada no BOM
-      return false;
-    });
+      const perfisBOM = new Set(
+        (materiaisNecessarios || []).map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean)
+      );
+      if (!perfisBOM.size) return proprios;
+      return base.filter(it => {
+        if (it.obraId || it.obra_id) return false; // ignora itens de qualquer obra
+        const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
+        for (const p of perfisBOM) if (chave.includes(p)) return true; // fábrica usada no BOM
+        return false;
+      });
+    })();
+    // "Necessário" derivado do BOM (materiais_corte) — fonte completa e autoritativa
+    // — para KPIs/lista/PDF/saúde baterem com a aba "Necessário p/ Obra". Só quando
+    // há UMA obra escopada (o BOM carregado é o dela; evita casar entre obras).
+    if (filtroObra === 'todas' || filtroObra === 'sem_obra') return escopo;
+    return enriquecerNecessarioBOM(escopo, materiaisNecessarios);
   }, [estoque, filtroObra, obraAtual, materiaisNecessarios]);
 
   // 2) Filtro FUNCIONAL (busca/categoria/saúde/flags) + ordenação — via serviço

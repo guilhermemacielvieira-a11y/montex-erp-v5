@@ -6,9 +6,32 @@
 // KPIs, curva ABC (Pareto), agregação por categoria e um filtro/ordenador
 // unificados e FUNCIONAIS. A página (EstoquePageV2) só consome estas funções.
 // ============================================================
+import { matchEstoqueItem } from './abastecimento';
 
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
+
+// Deriva o "necessário" (pedido) de cada item de estoque a partir do BOM real
+// (materiais_corte: peso_teorico por perfil), casando pelo matcher canônico
+// (matchEstoqueItem). O BOM é a fonte AUTORITATIVA e completa de necessário — a
+// coluna `estoque.pedido` era um seed manual parcial (cobria poucas obras). Puro:
+// não escreve no banco, só devolve novos itens com pedido/falta derivados.
+// Itens SEM linha de BOM casada mantêm o valor existente (não zera dado seedado).
+// Aplicar sempre sobre estoque + BOM da MESMA obra (evita casar entre obras).
+export function enriquecerNecessarioBOM(estoque = [], materiaisCorte = []) {
+  const necPorItem = new Map(); // itemId → Σ peso_teorico casado
+  (materiaisCorte || []).forEach((mc) => {
+    const item = matchEstoqueItem(estoque, mc && mc.perfil);
+    if (!item) return;
+    necPorItem.set(item.id, r2(num(necPorItem.get(item.id)) + num(mc.peso_teorico)));
+  });
+  if (necPorItem.size === 0) return estoque || [];
+  return (estoque || []).map((it) => {
+    if (!necPorItem.has(it.id)) return it;
+    const pedido = necPorItem.get(it.id);
+    return { ...it, pedido, falta: Math.max(0, r2(pedido - num(it.comprado))) };
+  });
+}
 
 // Saúde do item — prioridade menor = mais urgente (usada na ordenação).
 export const SAUDE = {

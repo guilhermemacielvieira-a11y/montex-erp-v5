@@ -6,6 +6,7 @@ import {
   saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
   necessarioItem, chegouItem, faltaItem, temNecessidade, resumoMaterialObra,
+  enriquecerNecessarioBOM,
 } from './estoqueAnalytics';
 
 const estoque = [
@@ -128,6 +129,36 @@ describe('resumoMaterialObra (necessário × entregue)', () => {
   });
   it('ordena por necessário desc', () => {
     expect(r.linhas[0].perfil).toBe('UE250');
+  });
+});
+
+describe('enriquecerNecessarioBOM (necessário derivado do BOM)', () => {
+  const estoque = [
+    { id: 'E1', descricao: 'Perfil UE250X85X25X2', codigo: 'UE250', comprado: 1000 },
+    { id: 'E2', descricao: 'Chapa CH8', codigo: 'CH8', comprado: 500 },
+    { id: 'E3', descricao: 'Consumível sem BOM', codigo: 'DISCO', pedido: 300, comprado: 200 },
+  ];
+  const bom = [
+    { perfil: 'UE250X85X25X2', peso_teorico: 800 },
+    { perfil: 'UE250X85X25X2', peso_teorico: 400 },
+    { perfil: 'CH8', peso_teorico: 600 },
+  ];
+  const out = enriquecerNecessarioBOM(estoque, bom);
+  it('soma peso_teorico do BOM no item casado e recalcula falta', () => {
+    const e1 = out.find((i) => i.id === 'E1');
+    expect(e1.pedido).toBe(1200);        // 800 + 400
+    expect(e1.falta).toBe(200);          // 1200 - 1000
+    const e2 = out.find((i) => i.id === 'E2');
+    expect(e2.pedido).toBe(600);
+    expect(e2.falta).toBe(100);
+  });
+  it('item sem BOM casado permanece inalterado (não zera seed existente)', () => {
+    const e3 = out.find((i) => i.id === 'E3');
+    expect(e3.pedido).toBe(300);         // mantém o valor original
+    expect(e3.falta).toBeUndefined();    // não adiciona falta onde não havia
+  });
+  it('BOM vazio devolve o estoque como veio', () => {
+    expect(enriquecerNecessarioBOM(estoque, [])).toBe(estoque);
   });
 });
 
