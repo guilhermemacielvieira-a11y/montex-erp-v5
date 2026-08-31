@@ -21,6 +21,7 @@ import { toast } from 'sonner';
 import { estoqueApi, movEstoqueApi, supabase } from '@/api/supabaseClient';
 
 const N = (v) => { const n = parseFloat(String(v ?? '').replace(/[^\d,.-]/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+const r2 = (n) => Math.round(n * 100) / 100;
 const hojeLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const linhaVazia = () => ({ descricao: '', codigo: '', quantidade: '', unidade: 'UN', preco: '' });
 
@@ -180,8 +181,15 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
         let itemId;
         if (existente) {
           itemId = existente.id;
+          // Chegada = material recebido: soma no saldo (quantidade) E no `comprado`
+          // (o que os KPIs/relatórios leem como chegou/entregue), recalculando a
+          // `falta` (pedido − comprado). Assim cobertura e fabricabilidade refletem
+          // a chegada.
+          const novoComprado = (Number(existente.comprado) || 0) + qtd;
           await estoqueApi.update(existente.id, {
             quantidade: (Number(existente.quantidade) || 0) + qtd,
+            comprado: r2(novoComprado),
+            falta: Math.max(0, r2((Number(existente.pedido) || 0) - novoComprado)),
             ...(N(r.preco) > 0 ? { preco: N(r.preco) } : {}),
             ...(fornecedor.trim() ? { fornecedor: fornecedor.trim() } : {}),
             ultima_entrada: hoje,
@@ -193,6 +201,7 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
             codigo: (r.codigo || r.descricao).trim().slice(0, 40),
             descricao: r.descricao.trim(),
             quantidade: qtd,
+            comprado: qtd,
             unidade: r.unidade || 'UN',
             preco: N(r.preco),
             fornecedor: fornecedor.trim() || null,

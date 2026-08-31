@@ -13,6 +13,7 @@ import { estoqueApi, movEstoqueApi } from '@/api/supabaseClient';
 import AnexoDocumento from '@/components/ui/AnexoDocumento';
 
 const N = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
+const r2 = (n) => Math.round(n * 100) / 100;
 const hojeLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 export default function MovimentacaoModal({ open, item, tipo = 'entrada', obraAtual = null, onClose, onSaved }) {
@@ -37,11 +38,21 @@ export default function MovimentacaoModal({ open, item, tipo = 'entrada', obraAt
     setSalvando(true);
     try {
       const now = new Date().toISOString();
-      await estoqueApi.update(item.id, {
-        quantidade: novoSaldo,
-        ...(ehEntrada ? { ultima_entrada: hojeLocal() } : { ultima_saida: hojeLocal() }),
-        updated_at: now,
-      });
+      // ENTRADA = material recebido: além do saldo (quantidade), soma no `comprado`
+      // e recalcula `falta` (pedido − comprado). Os KPIs/relatórios de obra leem
+      // `comprado` (chegouItem/entregue) e `falta` — sem atualizá-los, cobertura e
+      // fabricabilidade NÃO refletiriam a chegada. SAÍDA (consumo) não altera o
+      // comprado, só o saldo.
+      const patch = { quantidade: novoSaldo, updated_at: now };
+      if (ehEntrada) {
+        const novoComprado = (Number(item.comprado) || 0) + q;
+        patch.comprado = r2(novoComprado);
+        patch.falta = Math.max(0, r2((Number(item.pedido) || 0) - novoComprado));
+        patch.ultima_entrada = hojeLocal();
+      } else {
+        patch.ultima_saida = hojeLocal();
+      }
+      await estoqueApi.update(item.id, patch);
       await movEstoqueApi.create({
         item_id: item.id,
         obra_id: item.obra_id || item.obraId || obraAtual || null,

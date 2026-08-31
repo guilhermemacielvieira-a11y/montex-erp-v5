@@ -468,6 +468,7 @@ export default function EstoquePageV2() {
       const t = busca.toLowerCase();
       movs = movs.filter(m =>
         (m.materialPerfil || '').toLowerCase().includes(t) ||
+        (m.material || '').toLowerCase().includes(t) ||
         (m.itemId || '').toLowerCase().includes(t) ||
         (m.motivo || '').toLowerCase().includes(t)
       );
@@ -483,6 +484,7 @@ export default function EstoquePageV2() {
       const termo = filtroMovMaterial.toLowerCase();
       movs = movs.filter(m =>
         m.materialPerfil?.toLowerCase().includes(termo) ||
+        m.material?.toLowerCase().includes(termo) ||
         m.itemId?.toLowerCase().includes(termo) ||
         m.motivo?.toLowerCase().includes(termo)
       );
@@ -503,7 +505,7 @@ export default function EstoquePageV2() {
     // Ordenar por data decrescente
     movs.sort((a, b) => new Date(b.data) - new Date(a.data));
     return movs;
-  }, [movimentacoesEstoque, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
+  }, [movimentacoesEstoque, filtroObra, busca, obraAtual, estoqueFiltrado, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
 
   // Resumo das movimentações
   const resumoMovimentacoes = useMemo(() => {
@@ -1251,7 +1253,7 @@ export default function EstoquePageV2() {
                     <span className="text-xs font-medium uppercase">Entradas</span>
                   </div>
                   <p className="text-2xl font-bold text-white">{resumoMovimentacoes.qtdEntradas}</p>
-                  <p className="text-xs text-slate-400">{(resumoMovimentacoes.totalEntrada / 1000).toFixed(1)}t recebidas</p>
+                  <p className="text-xs text-slate-400">{fmtPeso(resumoMovimentacoes.totalEntrada)} recebidas</p>
                 </div>
                 <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4">
                   <div className="flex items-center gap-2 text-red-400 mb-1">
@@ -1259,14 +1261,14 @@ export default function EstoquePageV2() {
                     <span className="text-xs font-medium uppercase">Saídas</span>
                   </div>
                   <p className="text-2xl font-bold text-white">{resumoMovimentacoes.qtdSaidas}</p>
-                  <p className="text-xs text-slate-400">{(resumoMovimentacoes.totalSaida / 1000).toFixed(1)}t consumidas</p>
+                  <p className="text-xs text-slate-400">{fmtPeso(resumoMovimentacoes.totalSaida)} consumidas</p>
                 </div>
                 <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
                   <div className="flex items-center gap-2 text-blue-400 mb-1">
                     <BarChart3 className="w-4 h-4" />
                     <span className="text-xs font-medium uppercase">Saldo</span>
                   </div>
-                  <p className="text-2xl font-bold text-white">{(resumoMovimentacoes.saldo / 1000).toFixed(1)}t</p>
+                  <p className="text-2xl font-bold text-white">{fmtPeso(resumoMovimentacoes.saldo)}</p>
                   <p className="text-xs text-slate-400">Entrada - Saída</p>
                 </div>
                 <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4">
@@ -1327,11 +1329,11 @@ export default function EstoquePageV2() {
                       <BarChart data={resumoMovimentacoes.porDia} margin={{ top: 5, right: 5, left: 5, bottom: 5 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                         <XAxis dataKey="dia" tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => v.slice(5)} />
-                        <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `${(v/1000).toFixed(0)}t`} />
+                        <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `${(v / 1000).toLocaleString('pt-BR')}k`} />
                         <Tooltip
                           contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #475569', borderRadius: 8 }}
                           labelStyle={{ color: '#fff' }}
-                          formatter={(v, name) => [`${(v/1000).toFixed(1)}t`, name === 'entradas' ? 'Entradas' : 'Saídas']}
+                          formatter={(v, name) => [fmtPeso(v), name === 'entradas' ? 'Entradas' : 'Saídas']}
                           labelFormatter={v => `Data: ${v}`}
                         />
                         <Bar dataKey="entradas" fill="#10b981" name="entradas" radius={[4, 4, 0, 0]} />
@@ -1429,7 +1431,7 @@ export default function EstoquePageV2() {
                       <div key={idx} className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/30">
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-white font-medium text-sm truncate">{mat.material}</span>
-                          <span className="text-red-400 font-mono text-sm">{(mat.quantidade / 1000).toFixed(1)}t</span>
+                          <span className="text-red-400 font-mono text-sm">{fmtPeso(mat.quantidade)}</span>
                         </div>
                         <div className="w-full bg-slate-700/50 rounded-full h-1.5">
                           <div
