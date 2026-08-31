@@ -99,10 +99,11 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
           <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
             <Factory className="w-4 h-4 text-emerald-400" /> Fabricabilidade — consegue × não consegue fabricar
           </div>
+          <p className="text-[10px] text-slate-500 mt-0.5">Aloca o material entregue às peças pendentes (Aguardando/Fabricação), por peso.</p>
           <div className="grid grid-cols-3 gap-2 mt-2">
             <Painel tone="text-emerald-400" label="✓ Consegue" value={fmtPeso(fab.resumo.pesoFabricavel)} sub={`${fmtNum(fab.resumo.nFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdFabricaveis)} un`} />
             <Painel tone="text-red-400" label="✗ Não consegue" value={fmtPeso(fab.resumo.pesoNaoFabricavel)} sub={`${fmtNum(fab.resumo.nNaoFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdNaoFabricaveis)} un`} />
-            <Painel tone="text-sky-400" label="A comprar" value={fmtPeso(fab.resumo.faltaComprarTotal)} sub={`${fmtNum(fab.resumo.nPerfisParciais)} perfis parciais`} />
+            <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="p/ liberar a fabricação" />
           </div>
           {/* barra empilhada */}
           <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-slate-700/60">
@@ -111,7 +112,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
             ))}
           </div>
           <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
-            <XCircle className="w-3 h-3 text-emerald-400" /> {fab.resumo.pctFabricavel}% do peso a fabricar liberado com o material já entregue · detalhe por marca no PDF.
+            <XCircle className="w-3 h-3 text-emerald-400" /> {fab.resumo.pctFabricavel}% do peso pendente (Aguardando/Fabricação) liberado com o material já entregue · detalhe por marca no PDF.
           </p>
         </div>
       )}
@@ -122,6 +123,9 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
         <Mini icon={CheckCircle2} label="Concluído" value={fmtPeso(resumo.pesoConcluido)} tone="text-emerald-400" />
         <Mini icon={Activity} label="Progresso" value={`${resumo.progressoPct}%`} tone="text-orange-400" />
       </div>
+      <p className="text-[10px] text-slate-500 mt-1.5">
+        Peso total = soma das peças cadastradas (pode diferir do peso contratual da obra) · Progresso = ponderado por etapa · Concluído = Enviado + Entregue.
+      </p>
 
       {/* Painel analítico: material faltante × peças impactadas (visão geral) */}
       {(bloqueio.nBloqueadas > 0 || bloqueio.nParciais > 0) && (() => {
@@ -132,11 +136,12 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
             <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
               <AlertTriangle className="w-4 h-4 text-red-400" /> Material faltante × peças impactadas
             </div>
+            <p className="text-[10px] text-slate-500 mt-0.5">Peças cujo perfil está sem material no estoque da obra (por status do perfil).</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-              <Painel tone="text-red-400" label="Não fabricável" value={fmtPeso(bloqueio.pesoBloqueado)} sub={`${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis`} />
+              <Painel tone="text-red-400" label="Perfil zerado" value={fmtPeso(bloqueio.pesoBloqueado)} sub={`${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis`} />
               <Painel tone="text-amber-400" label="Material parcial" value={fmtPeso(bloqueio.pesoParcial)} sub={`${fmtNum(bloqueio.nParciais)} pç · ${fmtNum(bloqueio.nPerfisParciais)} perfis`} />
-              <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="total por perfil" />
-              <Painel tone="text-slate-200" label="% peso impactado" value={`${pctImpacto}%`} sub={`de ${fmtPeso(resumo.totalPeso)}`} />
+              <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="mesmo valor acima" />
+              <Painel tone="text-slate-200" label="% peso impactado" value={`${pctImpacto}%`} sub={`de ${fmtPeso(resumo.totalPeso)} (obra)`} />
             </div>
             {bloqueio.perfisFaltando.length > 0 && (
               <p className="text-[11px] text-red-400/80 mt-2">Sem material: {bloqueio.perfisFaltando.slice(0, 8).join(', ')}{bloqueio.perfisFaltando.length > 8 ? '…' : ''}</p>
