@@ -209,17 +209,20 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
 
     // Tabela completa
     doc.setFontSize(11); doc.setFont(undefined, 'bold'); doc.text('Detalhe do material por perfil', M, y); y += 3; doc.setFont(undefined, 'normal');
+    // Colunas separadas (Falta / Cobertura / Status não colidem mais).
     const colsM = [
-      { k: 'perfil', label: 'Perfil', x: M, w: 46 },
-      { k: 'material', label: 'Material', x: M + 46, w: 30 },
-      { k: 'nec', label: 'Necessário', x: M + 76, w: 30, align: 'right' },
-      { k: 'ent', label: 'Entregue', x: M + 106, w: 28, align: 'right' },
-      { k: 'fal', label: 'Falta', x: M + 134, w: 26, align: 'right' },
-      { k: 'st', label: 'Status', x: M + 160, w: 30 },
+      { k: 'perfil', label: 'Perfil', x: M, w: 42 },
+      { k: 'material', label: 'Material', x: M + 42, w: 26 },
+      { k: 'nec', label: 'Necessário', x: M + 68, w: 26, align: 'right' },
+      { k: 'ent', label: 'Entregue', x: M + 94, w: 24, align: 'right' },
+      { k: 'fal', label: 'Falta', x: M + 118, w: 22, align: 'right' },
+      { k: 'cob', label: 'Cobertura', x: M + 142, w: 20, align: 'right' },
+      { k: 'st', label: 'Status', x: M + 164, w: 26 },
     ];
     y = drawTable(doc, colsM, material.linhas.map((l) => ({
       perfil: l.perfil, material: l.material,
       nec: fmtPeso(l.necessario), ent: fmtPeso(l.entregue), fal: fmtPeso(l.falta),
+      cob: `${l.coberturaPct}%`,
       st: (STATUS_MAT[l.status] || {}).txt || l.status,
     })), y);
   }
