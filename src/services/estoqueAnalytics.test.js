@@ -157,6 +157,16 @@ describe('enriquecerNecessarioBOM (necessário derivado do BOM)', () => {
     expect(e3.pedido).toBe(300);         // mantém o valor original
     expect(e3.falta).toBeUndefined();    // não adiciona falta onde não havia
   });
+  it('usa o MAIOR entre seed e BOM (BOM incompleto não reduz um seed maior)', () => {
+    const est = [{ id: 'X', descricao: 'UE250X85X25X2', codigo: 'UE250X85X25X2', comprado: 13000, pedido: 44000 }];
+    const bomBaixo = [{ perfil: 'UE250X85X25X2', peso_teorico: 1000 }]; // materiais_corte incompleto
+    const r = enriquecerNecessarioBOM(est, bomBaixo);
+    expect(r[0].pedido).toBe(44000);     // mantém o seed maior (não cai p/ 1000)
+    const bomAlto = [{ perfil: 'UE250X85X25X2', peso_teorico: 50000 }]; // BOM > seed
+    const r2 = enriquecerNecessarioBOM(est, bomAlto);
+    expect(r2[0].pedido).toBe(50000);    // usa o BOM maior
+    expect(r2[0].falta).toBe(37000);     // 50000 - 13000
+  });
   it('BOM vazio devolve o estoque como veio', () => {
     expect(enriquecerNecessarioBOM(estoque, [])).toBe(estoque);
   });

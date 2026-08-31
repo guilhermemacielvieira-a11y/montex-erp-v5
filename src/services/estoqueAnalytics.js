@@ -11,12 +11,14 @@ import { matchEstoqueItem } from './abastecimento';
 const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
 
-// Deriva o "necessário" (pedido) de cada item de estoque a partir do BOM real
-// (materiais_corte: peso_teorico por perfil), casando pelo matcher canônico
-// (matchEstoqueItem). O BOM é a fonte AUTORITATIVA e completa de necessário — a
-// coluna `estoque.pedido` era um seed manual parcial (cobria poucas obras). Puro:
-// não escreve no banco, só devolve novos itens com pedido/falta derivados.
-// Itens SEM linha de BOM casada mantêm o valor existente (não zera dado seedado).
+// Deriva o "necessário" (pedido) de cada item combinando o BOM real
+// (materiais_corte: peso_teorico por perfil, casado pelo matcher canônico) com o
+// seed `estoque.pedido`. Regra: necessário = MAIOR(seed, BOM). Nenhuma das fontes
+// é completa sozinha — o seed cobre poucas obras (mas, quando existe, costuma ser o
+// necessário total do projeto) e o materiais_corte cobre todas mas pode estar
+// INCOMPLETO por perfil (só o que já entrou na lista de corte). Usar o maior
+// preenche as obras sem seed via BOM SEM reduzir um seed maior (o que esconderia
+// faltas reais). Puro: não escreve no banco. Item sem BOM casado fica como está.
 // Aplicar sempre sobre estoque + BOM da MESMA obra (evita casar entre obras).
 export function enriquecerNecessarioBOM(estoque = [], materiaisCorte = []) {
   const necPorItem = new Map(); // itemId → Σ peso_teorico casado
@@ -28,7 +30,8 @@ export function enriquecerNecessarioBOM(estoque = [], materiaisCorte = []) {
   if (necPorItem.size === 0) return estoque || [];
   return (estoque || []).map((it) => {
     if (!necPorItem.has(it.id)) return it;
-    const pedido = necPorItem.get(it.id);
+    const pedido = Math.max(num(it.pedido), necPorItem.get(it.id));
+    if (pedido === num(it.pedido)) return it; // BOM não supera o seed → mantém
     return { ...it, pedido, falta: Math.max(0, r2(pedido - num(it.comprado))) };
   });
 }
