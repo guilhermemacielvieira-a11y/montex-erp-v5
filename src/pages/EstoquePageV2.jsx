@@ -68,7 +68,6 @@ const fmtMoedaCompact = (v) => {
 };
 const fmtPeso = (kg) => {
   const n = Number(kg) || 0;
-  if (Math.abs(n) >= 1000) return (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' t';
   return n.toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 };
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });

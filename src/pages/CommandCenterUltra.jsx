@@ -50,7 +50,7 @@ const OM = {
 const fmt = (v) => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
 const fmtPeso = (kg) => {
   if (kg == null) return '—';
-  return Math.abs(kg) >= 1000 ? `${(kg / 1000).toFixed(1)}t` : `${Math.round(kg)}kg`;
+  return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 };
 const fmtPct = (v) => v == null || isNaN(v) ? '—' : `${Math.round(v)}%`;
 

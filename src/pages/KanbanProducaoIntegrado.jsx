@@ -275,7 +275,7 @@ export default function KanbanProducaoIntegrado() {
   // Formatar peso
   const formatPeso = (kg) => {
     if (!kg || isNaN(kg)) return '0 kg';
-    return kg >= 1000 ? `${(kg / 1000).toFixed(1)}t` : `${kg.toLocaleString('pt-BR')} kg`;
+    return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
   };
 
   // Formatar valor

@@ -419,10 +419,7 @@ export default function MedicaoAutomaticaPage() {
   };
 
   const formatPeso = (kg) => {
-    if (kg >= 1000) {
-      return `${(kg / 1000).toFixed(2)}t`;
-    }
-    return `${kg.toLocaleString('pt-BR')} kg`;
+    return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
   };
 
   const handleCriarMedicao = () => {
@@ -857,7 +854,7 @@ export default function MedicaoAutomaticaPage() {
 
 function ProgressBar({ label, value, max, color }) {
   const percentage = Math.min((value / max) * 100, 100);
-  const formatPeso = (kg) => kg >= 1000 ? `${(kg / 1000).toFixed(1)}t` : `${kg.toLocaleString('pt-BR')} kg`;
+  const formatPeso = (kg) => `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
   return (
     <div>
       <div className="flex items-center justify-between mb-1">

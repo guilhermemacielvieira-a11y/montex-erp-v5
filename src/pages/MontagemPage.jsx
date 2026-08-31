@@ -27,8 +27,8 @@ import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal, MONTAGEM
 // ============================================
 const fmt = (v) => v == null || isNaN(v) ? '—' : Math.round(v).toLocaleString('pt-BR');
 const fmtPeso = (kg) => {
-  if (kg == null) return '0kg';
-  return Math.abs(kg) >= 1000 ? `${(kg / 1000).toFixed(2)} t` : `${Math.round(kg)} kg`;
+  if (kg == null) return '0 kg';
+  return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 };
 const fmtData = (d) => {
   if (!d) return '—';

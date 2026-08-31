@@ -36,8 +36,7 @@ const fmtR$ = (v) => v == null || isNaN(v) ? 'R$ —' : new Intl.NumberFormat('p
 const fmtR$k = (v) => v == null || isNaN(v) ? '—' : 'R$ ' + (Math.round(v / 1000)).toLocaleString('pt-BR') + 'k';
 const fmtPeso = (kg) => {
   if (kg == null || isNaN(kg)) return '—';
-  if (Math.abs(kg) >= 1000) return (kg / 1000).toFixed(1) + 't';
-  return Math.round(kg) + 'kg';
+  return (Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 };
 const fmtPct = (v) => v == null || isNaN(v) ? '—' : Math.round(v) + '%';
 const parseLocalDate = (s) => {
