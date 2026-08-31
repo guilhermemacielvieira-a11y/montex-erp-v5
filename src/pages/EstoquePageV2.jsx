@@ -226,7 +226,9 @@ export default function EstoquePageV2() {
   const [tabAtiva, setTabAtiva] = useState('visao-geral');
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [filtroSaude, setFiltroSaude] = useState('todos');
-  const [filtroObra, setFiltroObra] = useState('todas');
+  // Default = obra ATUAL (selecionada no cabeçalho): ao abrir, os KPIs já
+  // refletem a obra, sem misturar todas as obras. 'obra_atual' segue obraAtual.
+  const [filtroObra, setFiltroObra] = useState('obra_atual');
   const [flagSemPreco, setFlagSemPreco] = useState(false);
   const [flagSemMinimo, setFlagSemMinimo] = useState(false);
   const [busca, setBusca] = useState('');
@@ -237,10 +239,11 @@ export default function EstoquePageV2() {
   const [filtroMovMaterial, setFiltroMovMaterial] = useState('');
   const [filtroMovPeriodo, setFiltroMovPeriodo] = useState('todos');
 
-  const filtrosAtivos = busca || filtroCategoria !== 'todas' || filtroSaude !== 'todos' || filtroObra !== 'todas' || flagSemPreco || flagSemMinimo;
+  // 'obra_atual' é o default (escopo da obra), não conta como filtro ativo.
+  const filtrosAtivos = busca || filtroCategoria !== 'todas' || filtroSaude !== 'todos' || filtroObra !== 'obra_atual' || flagSemPreco || flagSemMinimo;
   const limparFiltros = () => {
     setBusca(''); setFiltroCategoria('todas'); setFiltroSaude('todos');
-    setFiltroObra('todas'); setFlagSemPreco(false); setFlagSemMinimo(false);
+    setFiltroObra('obra_atual'); setFlagSemPreco(false); setFlagSemMinimo(false);
   };
 
   // ─── MATERIAL NECESSÁRIO para a obra selecionada (vindo de materiais_corte) ──
