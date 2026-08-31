@@ -304,7 +304,7 @@ export default function EstoquePageV2() {
   const carregarMateriaisNecessarios = useCallback(async () => {
     if (!obraIdParaConsulta) {
       setMateriaisNecessarios([]);
-      return;
+      return [];
     }
     setCarregandoNecessarios(true);
     try {
@@ -316,9 +316,11 @@ export default function EstoquePageV2() {
         .order('marca', { ascending: true });
       if (error) throw error;
       setMateriaisNecessarios(data || []);
+      return data || []; // devolve o BOM fresco p/ geração do relatório em tempo real
     } catch (e) {
       console.error('[Estoque] Erro ao carregar materiais necessários:', e);
       setMateriaisNecessarios([]);
+      return [];
     } finally {
       setCarregandoNecessarios(false);
     }
@@ -593,13 +595,29 @@ export default function EstoquePageV2() {
 
   // Gera o Relatório de Estoque em PDF (3 páginas) do estoque JÁ FILTRADO,
   // no padrão do relatório de Produção (logo, KPIs, gráficos, rodapé Montex).
-  const gerarPDF = () => {
-    if (!estoqueFiltrado.length) { toast.error('Sem itens de estoque para o relatório (com os filtros atuais)'); return; }
+  const gerarPDF = async () => {
     setGerandoPDF(true);
     try {
+      // FIDELIDADE AO ONLINE: recarrega estoque + BOM do Supabase e gera a partir
+      // dos dados FRESCOS (não do estado em memória, que poderia estar defasado).
+      const freshEstoque = (await reloadEstoque?.()) || estoque || [];
+      const freshBOM = await carregarMateriaisNecessarios();
+      // Reaplica o escopo de obra (itens próprios; senão fábrica) + enriquecimento
+      // pelo BOM, espelhando estoquePorObra.
+      let escopo = freshEstoque;
+      if (obraIdParaConsulta) {
+        const proprios = freshEstoque.filter((it) => it.obraId === obraIdParaConsulta || it.obra_id === obraIdParaConsulta);
+        escopo = enriquecerNecessarioBOM(proprios.length ? proprios : freshEstoque.filter((it) => !it.obraId && !it.obra_id), freshBOM || []);
+      }
+      // Mesmos filtros/ordenação da tela.
+      const filtrado = ordenarEstoque(
+        filtrarEstoque(escopo, { busca, categoria: filtroCategoria, saude: filtroSaude, semPreco: flagSemPreco, semMinimo: flagSemMinimo }),
+        ordenarPor, ordenarDir,
+      );
+      if (!filtrado.length) { toast.error('Sem itens de estoque para o relatório (com os filtros atuais)'); return; }
       const obraInfo = obraAtualData ? { codigo: obraAtualData.codigo, nome: obraAtualData.nome, cliente: obraAtualData.cliente } : null;
-      const { paginas } = gerarRelatorioEstoquePDF(estoqueFiltrado, obraInfo, { logoDataUrl: LOGO_M_MAIN_B64 });
-      toast.success(`Relatório de estoque gerado (${paginas} páginas)`);
+      const { paginas } = gerarRelatorioEstoquePDF(filtrado, obraInfo, { logoDataUrl: LOGO_M_MAIN_B64 });
+      toast.success(`Relatório gerado (${paginas} páginas) — dados atualizados do online`);
     } catch (e) {
       toast.error('Erro ao gerar PDF: ' + (e?.message || e));
     } finally { setGerandoPDF(false); }

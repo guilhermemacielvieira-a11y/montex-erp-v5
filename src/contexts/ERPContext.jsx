@@ -690,12 +690,15 @@ export function ERPProvider({ children }) {
 
   // Recarrega estoque do Supabase (pull-to-refresh / sync cross-device).
   const reloadEstoque = useCallback(async () => {
-    if (dataSource !== 'supabase') return;
+    if (dataSource !== 'supabase') return null;
     try {
       const data = await estoqueApi.getAll();
-      dispatch({ type: 'RELOAD_ESTOQUE', payload: transformArray(data) });
+      const fresh = transformArray(data);
+      dispatch({ type: 'RELOAD_ESTOQUE', payload: fresh });
+      return fresh; // devolve o estoque fresco p/ quem precisa gerar já com o online
     } catch (err) {
       console.error('❌ Erro ao recarregar estoque:', err.message);
+      return null;
     }
   }, [dataSource]);
 
