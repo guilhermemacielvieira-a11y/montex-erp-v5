@@ -1,16 +1,22 @@
 // ============================================================
 // ESTOQUE MOBILE - Busca + movimentação (entrada/saída) + scanner
 // ============================================================
-// Estoque da FÁBRICA (global, não por obra). Lista com status de nível,
-// busca, filtro de alertas e SCANNER de material → sheet de movimentação:
+// Lista com saúde do item, busca, filtro de alertas e SCANNER de material
+// → sheet de movimentação:
 //   Entrada (+) → adicionarEstoque   |   Saída (−) → consumirEstoque
 // Escrita real no Supabase (estoqueApi.update via ERPContext).
+//
+// PARIDADE COM O DESKTOP (EstoquePageV2): respeita o filtro global por obra
+// com o MESMO recorte (estoque próprio da obra; sem próprio → itens de
+// fábrica cujo perfil está no BOM), "necessário" derivado do BOM
+// (enriquecerNecessarioBOM), saúde por `saudeItem`/SAUDE e KPIs por
+// `kpisEstoque` — os números batem com a página e os PDFs do desktop.
 // ============================================================
 import React, { useMemo, useState, useEffect } from 'react';
 import { toast } from 'react-hot-toast';
 import {
   Package, ScanLine, AlertTriangle, ChevronRight,
-  Plus, Minus, ArrowDownToLine, ArrowUpFromLine, Loader2,
+  Plus, Minus, ArrowDownToLine, ArrowUpFromLine, Loader2, Truck,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
@@ -22,21 +28,29 @@ import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { ensureOnline } from '../ui/online';
 import { useEstoque } from '@/contexts/ERPContext';
+import { useObraFiltro } from '../ObraContext';
+import { supabase, supabaseAdmin } from '@/api/supabaseClient';
+import { saudeItem, SAUDE, kpisEstoque, necessarioItem, chegouItem, faltaItem, temNecessidade, enriquecerNecessarioBOM } from '@/services/estoqueAnalytics';
+import { normalizar } from '@/services/abastecimento';
+import { fmtNum, fmtPeso } from '../ui/format';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 const fmt = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
 
+// Saúde do item = classificação canônica do ERP (services/estoqueAnalytics).
+// Barra: cor da saúde. "Alerta" = zerado/crítico/baixo (mesmo critério do KPI
+// "Alertas" da página desktop).
+const ALERTA = new Set(['zerado', 'critico', 'baixo']);
+const BAR = { zerado: 'bg-slate-500', critico: 'bg-red-500', baixo: 'bg-amber-500', atencao: 'bg-yellow-500', excesso: 'bg-blue-500', saudavel: 'bg-emerald-500', entregue: 'bg-green-500', sem_minimo: 'bg-slate-600' };
 function nivel(item) {
-  const q = Number(item.quantidade) || 0;
-  const min = Number(item.minimo) || 0;
-  if (q <= 0) return { key: 'zerado', label: 'Zerado', cls: 'bg-red-500/15 text-red-300 border-red-500/30', bar: 'bg-red-500' };
-  if (min && q <= min * 0.5) return { key: 'critico', label: 'Crítico', cls: 'bg-red-500/15 text-red-300 border-red-500/30', bar: 'bg-red-500' };
-  if (min && q <= min) return { key: 'baixo', label: 'Baixo', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30', bar: 'bg-amber-500' };
-  return { key: 'ok', label: 'OK', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30', bar: 'bg-emerald-500' };
+  const key = saudeItem(item);
+  const s = SAUDE[key] || SAUDE.sem_minimo;
+  return { key, label: s.label, cls: s.badge, bar: BAR[key] || 'bg-slate-600', alerta: ALERTA.has(key) };
 }
 
 export default function EstoqueMobile() {
   const { estoque = [], consumirEstoque, adicionarEstoque } = useEstoque?.() || {};
+  const { isTodas, obraSelecionada } = useObraFiltro();
   const [q, setQ] = useState('');
   const [soAlertas, setSoAlertas] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
@@ -47,24 +61,65 @@ export default function EstoqueMobile() {
   const [limite, setLimite] = useState(40);
   const qd = useDebounced(q, 250); // termo de busca com debounce (filtro pesado)
   // Reinicia a paginação ao mudar busca/filtro (senão herda o limite anterior).
-  useEffect(() => { setLimite(40); }, [qd, soAlertas]);
+  useEffect(() => { setLimite(40); }, [qd, soAlertas, obraSelecionada]);
+
+  // BOM (materiais_corte) da obra selecionada — mesma fonte que alimenta o
+  // "Necessário p/ Obra" e o PDF de Estoque no desktop.
+  const [materiaisCorte, setMateriaisCorte] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    const obraId = obraSelecionada?.id || null;
+    if (!obraId) { setMateriaisCorte([]); return; }
+    const client = supabaseAdmin || supabase;
+    client.from('materiais_corte')
+      .select('id,perfil,material,peso_teorico,obra_id')
+      .eq('obra_id', obraId)
+      .then(({ data }) => { if (alive) setMateriaisCorte(data || []); })
+      .catch(() => { if (alive) setMateriaisCorte([]); });
+    return () => { alive = false; };
+  }, [obraSelecionada]);
+
+  // Escopo por OBRA — espelho de `estoquePorObra` (EstoquePageV2):
+  //  - obra com estoque PRÓPRIO → só ele;
+  //  - sem próprio → itens de FÁBRICA (sem obra) cujo perfil está no BOM;
+  //  - "Todas" → tudo. Depois, necessário = MAIOR(seed, Σ BOM) por item.
+  const escopo = useMemo(() => {
+    const base = estoque || [];
+    if (isTodas || !obraSelecionada) return base;
+    const alvo = obraSelecionada.id;
+    const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
+    let sel = proprios;
+    if (!proprios.length) {
+      const perfisBOM = new Set(materiaisCorte.map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean));
+      sel = perfisBOM.size ? base.filter(it => {
+        if (it.obraId || it.obra_id) return false;
+        const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
+        for (const p of perfisBOM) if (chave.includes(p)) return true;
+        return false;
+      }) : [];
+    }
+    return enriquecerNecessarioBOM(sel, materiaisCorte);
+  }, [estoque, isTodas, obraSelecionada, materiaisCorte]);
 
   const lista = useMemo(() => {
-    let lst = estoque;
-    if (soAlertas) lst = lst.filter(i => nivel(i).key !== 'ok');
+    let lst = escopo;
+    if (soAlertas) lst = lst.filter(i => nivel(i).alerta);
     const QQ = norm(qd);
-    if (qd.trim()) lst = lst.filter(i => norm(`${i.descricao} ${i.codigo} ${i.material} ${i.categoria || i.tipo}`).includes(QQ));
+    if (qd.trim()) lst = lst.filter(i => norm(`${i.descricao} ${i.codigo} ${i.perfil} ${i.material} ${i.categoria || i.tipo}`).includes(QQ));
     return lst;
-  }, [estoque, qd, soAlertas]);
+  }, [escopo, qd, soAlertas]);
 
-  const nAlertas = useMemo(() => estoque.filter(i => nivel(i).key !== 'ok').length, [estoque]);
+  // KPIs canônicos (mesma função da página/PDF desktop)
+  const kpis = useMemo(() => kpisEstoque(escopo), [escopo]);
+  const nAlertas = kpis.alertas;
 
   const abrir = (item) => { tap('light'); setItemSel(item); setModo('entrada'); setQtd(1); };
 
   const onScan = (codigo) => {
     const alvo = norm(codigo);
-    const item = estoque.find(i => norm(i.codigo) === alvo)
-              || (alvo.length >= 3 ? estoque.find(i => norm(`${i.descricao} ${i.material} ${i.codigo}`).includes(alvo)) : null);
+    const acha = (lst) => lst.find(i => norm(i.codigo) === alvo)
+      || (alvo.length >= 3 ? lst.find(i => norm(`${i.descricao} ${i.material} ${i.codigo} ${i.perfil}`).includes(alvo)) : null);
+    const item = acha(escopo) || acha(estoque); // prioriza a obra; cai p/ global
     if (!item) { toast.error(`Material "${codigo}" não encontrado`); return; }
     tap('heavy');
     abrir(item);
@@ -99,10 +154,10 @@ export default function EstoqueMobile() {
   const novoSaldo = itemSel ? (Number(itemSel.quantidade) || 0) + (modo === 'saida' ? -qtd : qtd) : 0;
 
   return (
-    <MobileLayout title="Estoque">
+    <MobileLayout title="Estoque" obraFilter>
       {/* Busca + filtro */}
       <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2 sticky top-0 z-20">
-        <SearchBar value={q} onChange={setQ} placeholder="Buscar material, código..." />
+        <SearchBar value={q} onChange={setQ} placeholder="Buscar material, perfil, código..." />
         <button
           onClick={() => setSoAlertas(s => !s)}
           className={`w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition border ${soAlertas ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-slate-900 border-slate-800 text-slate-400'}`}
@@ -111,13 +166,37 @@ export default function EstoqueMobile() {
         </button>
       </div>
 
+      {/* KPIs — mesmos números da página de Estoque desktop (kpisEstoque) */}
+      <div className="px-4 pt-3 grid grid-cols-3 gap-2">
+        <Kpi label="Itens" value={fmtNum(kpis.nItens)} sub={`${fmtNum(kpis.alertas)} alerta(s)`} />
+        <Kpi label="Peso em estoque" value={fmtPeso(kpis.pesoTotal)} sub={isTodas ? 'todas as obras' : 'escopo da obra'} />
+        <Kpi label="Valor" value={'R$ ' + fmtNum(kpis.valorTotal)} sub={kpis.semPreco ? `${fmtNum(kpis.semPreco)} sem preço` : 'itens c/ preço'} tone="text-amber-300" />
+      </div>
+      {!isTodas && kpis.itensComNecessidade > 0 && (
+        <div className="mx-4 mt-2 bg-slate-900 border border-slate-800 rounded-2xl p-3">
+          <div className="flex items-center justify-between text-[11px]">
+            <span className="uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Material da obra (necessário × chegou)</span>
+            <span className="font-black text-slate-100">{kpis.coberturaPct != null ? fmtNum(kpis.coberturaPct, 0) : 0}%</span>
+          </div>
+          <div className="h-2 rounded-full bg-slate-800 overflow-hidden mt-2">
+            <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, kpis.coberturaPct || 0)}%` }} />
+          </div>
+          <div className="grid grid-cols-3 gap-2 mt-2 text-center">
+            <MiniStat label="Necessário" value={fmtPeso(kpis.totalNecessario)} />
+            <MiniStat label="Já chegou" value={fmtPeso(kpis.totalChegou)} tone="text-emerald-300" />
+            <MiniStat label="Falta" value={fmtPeso(kpis.totalFalta)} tone={kpis.totalFalta > 0 ? 'text-red-300' : 'text-slate-300'} sub={`${fmtNum(kpis.itensComFalta)} item(ns)`} />
+          </div>
+          {kpis.totalExcedente > 0 && <div className="text-[10px] text-slate-500 mt-1.5">Excedente (acima do necessário): {fmtPeso(kpis.totalExcedente)}</div>}
+        </div>
+      )}
+
       {/* Lista */}
       <div className="px-4 pt-3 space-y-2">
         {lista.length === 0 && (
           <EmptyState
             icon={Package}
             title="Nenhum item encontrado"
-            subtitle={(q || soAlertas) ? 'Ajuste a busca ou o filtro de alertas' : 'Sem itens no estoque'}
+            subtitle={(q || soAlertas) ? 'Ajuste a busca ou o filtro de alertas' : (isTodas ? 'Sem itens no estoque' : 'Esta obra não tem estoque próprio nem BOM cadastrado')}
             actionLabel={(q || soAlertas) ? 'Limpar busca e filtros' : undefined}
             onAction={(q || soAlertas) ? (() => { setQ(''); setSoAlertas(false); }) : undefined}
           />
@@ -125,7 +204,11 @@ export default function EstoqueMobile() {
         {lista.slice(0, limite).map(item => {
           const nvl = nivel(item);
           const min = Number(item.minimo) || 0;
-          const pct = min ? Math.min(100, Math.round(((Number(item.quantidade) || 0) / (min * 2)) * 100)) : 100;
+          const nec = temNecessidade(item) ? necessarioItem(item) : 0;
+          // Barra: cobertura (chegou/necessário) p/ item de obra; saldo/mínimo p/ fábrica
+          const pct = nec
+            ? Math.min(100, Math.round((Math.min(chegouItem(item), nec) / nec) * 100))
+            : (min ? Math.min(100, Math.round(((Number(item.quantidade) || 0) / (min * 2)) * 100)) : 100);
           return (
             <button
               key={item.id}
@@ -137,6 +220,11 @@ export default function EstoqueMobile() {
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm truncate">{item.descricao || item.codigo || item.id}</div>
                   <div className="text-[11px] text-slate-400 truncate">{item.categoria || item.tipo || '—'}{item.codigo ? ` · ${item.codigo}` : ''}</div>
+                  {nec > 0 && (
+                    <div className="text-[10px] text-slate-500 truncate">
+                      nec. {fmtPeso(nec)} · chegou {fmtPeso(chegouItem(item))}{faltaItem(item) > 0 ? <span className="text-red-300"> · falta {fmtPeso(faltaItem(item))}</span> : <span className="text-emerald-300"> · completo</span>}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="text-sm font-black">{fmt(item.quantidade)}<span className="text-[10px] text-slate-400 ml-0.5">{item.unidade || ''}</span></div>
@@ -232,5 +320,25 @@ export default function EstoqueMobile() {
         )}
       </Sheet>
     </MobileLayout>
+  );
+}
+
+function Kpi({ label, value, sub, tone = 'text-slate-100' }) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5">
+      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
+      <div className={`text-[13px] font-black mt-0.5 truncate ${tone}`}>{value}</div>
+      {sub && <div className="text-[9px] text-slate-500 truncate">{sub}</div>}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, sub, tone = 'text-slate-200' }) {
+  return (
+    <div className="bg-slate-800/50 rounded-lg py-1.5 px-1">
+      <div className="text-[8px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`text-[11px] font-bold truncate ${tone}`}>{value}</div>
+      {sub && <div className="text-[8px] text-slate-500">{sub}</div>}
+    </div>
   );
 }

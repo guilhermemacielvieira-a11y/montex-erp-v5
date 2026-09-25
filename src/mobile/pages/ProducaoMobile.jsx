@@ -17,7 +17,7 @@ import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
-import { Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2, ScanLine } from 'lucide-react';
+import { Factory, Wrench, PaintBucket, PackageCheck, Truck, ChevronRight, ArrowRight, Loader2, ScanLine, Weight, Activity, CheckCircle2, FileText } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Sheet from '../ui/Sheet';
 import Scanner from '../ui/Scanner';
@@ -28,23 +28,27 @@ import { useDebounced } from '../ui/useDebounced';
 import { tap, success } from '../ui/haptics';
 import { isOnline } from '../ui/online';
 import { enqueue } from '../ui/offlineQueue';
-import { useERP } from '@/contexts/ERPContext';
-import { useProducao } from '@/contexts/ERPContext';
+import { useERP, useProducao, useEstoque } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
+import { etapaPeca, pesoPeca, qtdPeca, resumoProducao, estadoProducao } from '@/services/relatorioProducao';
+import RelatorioProducaoCard from '@/components/kanban/RelatorioProducaoCard';
+import { fmtPeso, fmtNum } from '../ui/format';
 
 // Ordem do fluxo (etapas REAIS do banco — auditoria 11/06): fabricacao →
 // solda → pintura → expedido → enviado → entregue. 'aguardando' é o estado
-// inicial. 'entregue' (recebida na obra) estava fora da lista e as peças
-// nessa etapa caíam em 'Aguardando' na contagem.
+// inicial. Cores/rótulos espelham ETAPAS_REL (services/relatorioProducao),
+// a mesma paleta do Kanban desktop e dos PDFs — expedido = fila de embarque,
+// enviado = em obra. A etapa da peça é normalizada por `etapaPeca` (valores
+// legados como 'corte' viram 'aguardando' em vez de sumir da contagem).
 const ETAPAS = [
   { key: 'aguardando', label: 'Aguardando', icon: Factory, color: 'slate' },
   { key: 'fabricacao', label: 'Fabricação', icon: Wrench, color: 'blue' },
-  { key: 'solda', label: 'Solda', icon: Wrench, color: 'amber' },
-  { key: 'pintura', label: 'Pintura', icon: PaintBucket, color: 'purple' },
-  { key: 'expedido', label: 'Expedido', icon: PackageCheck, color: 'emerald' },
-  { key: 'enviado', label: 'Enviado', icon: Truck, color: 'green' },
-  { key: 'entregue', label: 'Entregue na obra', icon: PackageCheck, color: 'green' },
+  { key: 'solda', label: 'Solda', icon: Wrench, color: 'purple' },
+  { key: 'pintura', label: 'Pintura', icon: PaintBucket, color: 'amber' },
+  { key: 'expedido', label: 'Expedido (fila de embarque)', icon: PackageCheck, color: 'orange' },
+  { key: 'enviado', label: 'Enviado (em obra)', icon: Truck, color: 'yellow' },
+  { key: 'entregue', label: 'Entregue', icon: PackageCheck, color: 'green' },
 ];
 const ORDEM = ETAPAS.map(e => e.key);
 const proximaEtapa = (etapa) => {
@@ -53,14 +57,15 @@ const proximaEtapa = (etapa) => {
 };
 const labelDe = (key) => ETAPAS.find(e => e.key === key)?.label || key;
 
-const C_BG = { slate: 'bg-slate-700/30 border-slate-600', blue: 'bg-blue-500/15 border-blue-500/30', amber: 'bg-amber-500/15 border-amber-500/30', purple: 'bg-violet-500/15 border-violet-500/30', emerald: 'bg-emerald-500/15 border-emerald-500/30', green: 'bg-green-500/15 border-green-500/30' };
-const C_TXT = { slate: 'text-slate-300', blue: 'text-blue-300', amber: 'text-amber-300', purple: 'text-violet-300', emerald: 'text-emerald-300', green: 'text-green-300' };
+const C_BG = { slate: 'bg-slate-700/30 border-slate-600', blue: 'bg-blue-500/15 border-blue-500/30', amber: 'bg-amber-500/15 border-amber-500/30', purple: 'bg-violet-500/15 border-violet-500/30', orange: 'bg-orange-500/15 border-orange-500/30', yellow: 'bg-yellow-500/15 border-yellow-500/30', emerald: 'bg-emerald-500/15 border-emerald-500/30', green: 'bg-green-500/15 border-green-500/30' };
+const C_TXT = { slate: 'text-slate-300', blue: 'text-blue-300', amber: 'text-amber-300', purple: 'text-violet-300', orange: 'text-orange-300', yellow: 'text-yellow-300', emerald: 'text-emerald-300', green: 'text-green-300' };
 
 export default function ProducaoMobile() {
   const erp = useERP?.() || {};
   const { pecas = [], funcionarios = [] } = erp;
   const { moverPecaEtapa } = useProducao?.() || {};
-  const { matchObra, isTodas } = useObraFiltro();
+  const { estoque = [] } = useEstoque?.() || {};
+  const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   // Sem hasPermission (fallback) libera — mesmo critério do resto do app
   const podeApontar = !hasPermission || hasPermission('producao.lancar_avanco');
@@ -70,6 +75,7 @@ export default function ProducaoMobile() {
   const [funcId, setFuncId] = useState('');
   const [saving, setSaving] = useState(false);
   const [limite, setLimite] = useState(40);
+  const [relatorioOpen, setRelatorioOpen] = useState(false); // card de relatórios/fabricabilidade
   // --- Apontamento por bipagem (modo estação) ---
   const [apontarOpen, setApontarOpen] = useState(false); // sheet de config
   const [scanOpen, setScanOpen] = useState(false);       // scanner contínuo
@@ -79,36 +85,57 @@ export default function ProducaoMobile() {
   const qd = useDebounced(q, 250); // busca com debounce (filtra 1103+ peças)
   useEffect(() => { setLimite(40); }, [etapaSel, qd]);
 
+  // Escopo da OBRA (filtro global) — base dos KPIs e do relatório; a busca só
+  // afeta a lista/drill-down, nunca os totais.
+  const pecasObra = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
   const pecasFiltradas = useMemo(() => {
-    let lst = pecas.filter(matchObra);
+    let lst = pecasObra;
     if (qd.trim()) {
       const qq = qd.toUpperCase();
       lst = lst.filter(p => (p.marca || '').toUpperCase().includes(qq) || (p.id || '').toString().toUpperCase().includes(qq));
     }
     return lst;
-  }, [pecas, matchObra, qd]);
+  }, [pecasObra, qd]);
 
+  // Agregação por etapa com os MESMOS helpers do Kanban/PDF desktop:
+  //  - pesoPeca: peso_total da peça (o contexto já expõe `peso` = peso_total;
+  //    multiplicar por quantidade DOBRAVA o peso das marcas com qtd > 1);
+  //  - etapaPeca: normaliza etapas legadas p/ 'aguardando' (soma fecha 100%).
   const porEtapa = useMemo(() => {
     const m = {};
     for (const e of ETAPAS) m[e.key] = { conjuntos: 0, unidades: 0, peso: 0 };
+    let pesoTotal = 0;
     for (const p of pecasFiltradas) {
-      const e = (p.etapa || 'aguardando').toLowerCase();
-      if (!m[e]) continue;
+      const e = etapaPeca(p);
+      const w = pesoPeca(p);
       m[e].conjuntos += 1;
-      m[e].unidades += Number(p.quantidade) || 1;
-      m[e].peso += (Number(p.peso) || 0) * (Number(p.quantidade) || 1);
+      m[e].unidades += qtdPeca(p) || 1;
+      m[e].peso += w;
+      pesoTotal += w;
     }
-    return m;
+    return { m, pesoTotal };
   }, [pecasFiltradas]);
 
   const totalConjuntos = pecasFiltradas.length;
+  const totalUnidades = useMemo(() => Object.values(porEtapa.m).reduce((s, v) => s + v.unidades, 0), [porEtapa]);
+
+  // KPIs de paridade com o card "Relatório de Produção" do Kanban desktop
+  // (progresso ponderado por etapa, concluído = enviado+entregue, já fabricado
+  // = solda em diante). Mesma função → mesmo número nas duas versões.
+  const resumo = useMemo(() => resumoProducao(pecasObra), [pecasObra]);
+  const estado = useMemo(() => estadoProducao(pecasObra), [pecasObra]);
+  // Estoque da obra selecionada (mesmo recorte do Kanban desktop) p/ fabricabilidade
+  const estoqueObra = useMemo(
+    () => (obraSelecionada ? estoque.filter(e => (e.obraId || e.obra_id) === obraSelecionada.id) : []),
+    [estoque, obraSelecionada]
+  );
 
   // Lista de peças do drill-down: só renderiza quando há etapa selecionada ou busca
   // (evita montar 500+ linhas por padrão).
   const listaPecas = useMemo(() => {
     if (!etapaSel && !qd.trim()) return [];
     return pecasFiltradas
-      .filter(p => !etapaSel || (p.etapa || 'aguardando').toLowerCase() === etapaSel)
+      .filter(p => !etapaSel || etapaPeca(p) === etapaSel)
       .slice(0, 500);
   }, [pecasFiltradas, etapaSel, qd]);
 
@@ -174,15 +201,15 @@ export default function ProducaoMobile() {
       return;
     }
     // Prioridade: quem está na etapa anterior (apta) → depois quem já está no destino (dup)
-    const apta = candidatas.find(p => (p.etapa || 'aguardando').toLowerCase() === etapaAnterior && !apontadasRef.current.has(p.id));
+    const apta = candidatas.find(p => etapaPeca(p) === etapaAnterior && !apontadasRef.current.has(p.id));
     if (!apta) {
-      const jaNoDestino = candidatas.find(p => (p.etapa || 'aguardando').toLowerCase() === destino || apontadasRef.current.has(p.id));
+      const jaNoDestino = candidatas.find(p => etapaPeca(p) === destino || apontadasRef.current.has(p.id));
       if (jaNoDestino) {
         tap('light');
         toast(`${v} já apontada em ${labelDe(destino)}`, { icon: 'ℹ️' });
       } else {
         tap('heavy');
-        toast.error(`${v} está em ${labelDe((candidatas[0].etapa || 'aguardando').toLowerCase())} — esperado: ${labelDe(etapaAnterior)}`);
+        toast.error(`${v} está em ${labelDe(etapaPeca(candidatas[0]))} — esperado: ${labelDe(etapaAnterior)}`);
       }
       return;
     }
@@ -209,10 +236,31 @@ export default function ProducaoMobile() {
         <SearchBar value={q} onChange={setQ} placeholder="Buscar marca ou ID..." />
       </div>
 
+      {/* KPIs (mesma base do card de Relatório de Produção do desktop) */}
+      <div className="px-4 pt-3 grid grid-cols-2 gap-2">
+        <Kpi icon={Weight} label="Peso total" value={fmtPeso(resumo.totalPeso)} sub={`${fmtNum(resumo.totalPecas)} marcas · ${fmtNum(resumo.totalQtd)} un`} />
+        <Kpi icon={Activity} label="Progresso (ponderado)" value={`${fmtNum(resumo.progressoPct, 0)}%`} sub="por etapa × peso" tone="text-orange-300" />
+        <Kpi icon={Factory} label="Já fabricado" value={fmtPeso(estado.jaFabricado.peso)} sub={`solda em diante · ${fmtNum(estado.jaFabricado.pct, 0)}%`} tone="text-teal-300" />
+        <Kpi icon={CheckCircle2} label="Concluído" value={fmtPeso(resumo.pesoConcluido)} sub="enviado + entregue" tone="text-emerald-300" />
+      </div>
+      {/* Estado da produção (barra empilhada = mesma do desktop/PDF) */}
+      <div className="px-4 mt-2">
+        <div className="flex h-2 rounded-full overflow-hidden bg-slate-800">
+          {estado.estados.map(e => (
+            <div key={e.key} title={`${e.label}: ${fmtPeso(e.peso)} (${e.pct}%)`} style={{ width: `${estado.totalPeso > 0 ? (e.peso / estado.totalPeso) * 100 : 0}%`, background: e.cor }} />
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-slate-400">
+          {estado.estados.filter(e => e.peso > 0).map(e => (
+            <span key={e.key} className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: e.cor }} />{e.label} {fmtNum(e.pct, 0)}%</span>
+          ))}
+        </div>
+      </div>
+
       {/* Resumo */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
         <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
-          {totalConjuntos.toLocaleString('pt-BR')} conjuntos · {Object.values(porEtapa).reduce((s, v) => s + v.unidades, 0).toLocaleString('pt-BR')} un
+          {fmtNum(totalConjuntos)} conjuntos · {fmtNum(totalUnidades)} un · {fmtPeso(porEtapa.pesoTotal)}{qd.trim() ? ' (busca)' : ''}
         </div>
         {etapaSel && (
           <button onClick={() => setEtapaSel(null)} className="text-[11px] font-bold text-amber-400">Limpar filtro</button>
@@ -223,8 +271,9 @@ export default function ProducaoMobile() {
       <div className="px-4 space-y-2">
         {ETAPAS.map(e => {
           const Icon = e.icon;
-          const d = porEtapa[e.key] || { conjuntos: 0, unidades: 0, peso: 0 };
-          const pct = totalConjuntos ? Math.round((d.conjuntos / totalConjuntos) * 100) : 0;
+          const d = porEtapa.m[e.key] || { conjuntos: 0, unidades: 0, peso: 0 };
+          // % do PESO (mesma métrica da distribuição por etapa no desktop/PDF)
+          const pct = porEtapa.pesoTotal ? Math.round((d.peso / porEtapa.pesoTotal) * 100) : 0;
           const sel = etapaSel === e.key;
           return (
             <motion.button
@@ -241,7 +290,7 @@ export default function ProducaoMobile() {
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold">{e.label}</div>
                   <div className="text-[11px] text-slate-400">
-                    {d.conjuntos} conjuntos · {d.unidades} un · {(d.peso / 1000).toFixed(1)} t
+                    {fmtNum(d.conjuntos)} conjuntos · {fmtNum(d.unidades)} un · {fmtPeso(d.peso)}
                   </div>
                 </div>
                 <div className="text-right flex items-center gap-2">
@@ -287,7 +336,7 @@ export default function ProducaoMobile() {
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-bold truncate">{p.marca || p.id}</div>
                     <div className="text-[11px] text-slate-400 truncate">
-                      {p.tipo || '—'} · qtd {p.quantidade || 1} · {(Number(p.peso) || 0).toFixed(0)} kg
+                      {p.tipo || '—'} · qtd {qtdPeca(p) || 1} · {fmtPeso(pesoPeca(p))}
                     </div>
                   </div>
                   {np ? (
@@ -305,12 +354,39 @@ export default function ProducaoMobile() {
         </div>
       )}
 
-      {/* Link para kanban completo */}
+      {/* Relatórios (PDF) + fabricabilidade — mesmo card do Kanban desktop */}
       <div className="px-4 mt-4">
+        {obraSelecionada ? (
+          <>
+            <button
+              onClick={() => { setRelatorioOpen(o => !o); tap('light'); }}
+              className="w-full flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl active:scale-[.99] transition"
+            >
+              <div className="text-left">
+                <div className="text-sm font-semibold flex items-center gap-2"><FileText className="w-4 h-4 text-amber-400" /> Relatórios e fabricabilidade</div>
+                <div className="text-[11px] text-slate-400">PDF de produção · fabricabilidade × estoque · {obraSelecionada.codigo || obraSelecionada.nome}</div>
+              </div>
+              <ChevronRight className={`w-5 h-5 text-amber-400 transition ${relatorioOpen ? 'rotate-90' : ''}`} />
+            </button>
+            {relatorioOpen && (
+              <div className="mt-2 text-sm">
+                <RelatorioProducaoCard pecas={pecasObra} obra={obraSelecionada} estoque={estoqueObra} />
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="p-4 bg-slate-900/60 border border-dashed border-slate-800 rounded-2xl text-[11px] text-slate-400">
+            Selecione uma obra no filtro acima para gerar o <b>Relatório de Produção</b> e a <b>Fabricabilidade</b> (necessário × entregue) desta obra — mesmos PDFs do Kanban desktop.
+          </div>
+        )}
+      </div>
+
+      {/* Link para kanban completo */}
+      <div className="px-4 mt-3">
         <Link to="/m/kanban" className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl active:scale-[.99] transition">
           <div>
             <div className="text-sm font-semibold">Ver Kanban completo</div>
-            <div className="text-[11px] text-slate-400">Cards detalhados por etapa</div>
+            <div className="text-[11px] text-slate-400">Versão desktop (rolagem lateral) · abre na obra selecionada</div>
           </div>
           <ChevronRight className="w-5 h-5 text-amber-400" />
         </Link>
@@ -418,10 +494,10 @@ export default function ProducaoMobile() {
         {pecaSel && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
-              <Info label="Etapa atual" value={labelDe((pecaSel.etapa || 'aguardando').toLowerCase())} />
+              <Info label="Etapa atual" value={labelDe(etapaPeca(pecaSel))} />
               <Info label="Quantidade" value={String(pecaSel.quantidade || 1)} />
               <Info label="Tipo" value={pecaSel.tipo || '—'} />
-              <Info label="Peso" value={`${(Number(pecaSel.peso) || 0).toFixed(0)} kg`} />
+              <Info label="Peso" value={fmtPeso(pesoPeca(pecaSel))} />
             </div>
             {prox && funcionarios.length > 0 && (
               <div>
@@ -442,6 +518,16 @@ export default function ProducaoMobile() {
         )}
       </Sheet>
     </MobileLayout>
+  );
+}
+
+function Kpi({ icon: Icon, label, value, sub, tone = 'text-slate-100' }) {
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold"><Icon className="w-3.5 h-3.5" /> {label}</div>
+      <div className={`text-base font-black mt-0.5 ${tone}`}>{value}</div>
+      {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
+    </div>
   );
 }
 

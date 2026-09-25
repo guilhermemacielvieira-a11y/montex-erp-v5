@@ -15,7 +15,7 @@
 //   - Peso total = pesoTotal ?? peso*quantidade
 //   - Filtro global por obra (matchObra) em todos os datasets
 // ============================================================
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, Cell, LabelList,
@@ -28,25 +28,24 @@ import {
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
-import { loadConcluidasSmart, isMontada } from '@/utils/montagemSync';
+import { loadConcluidasSmart, subscribeConcluidas, isMontada } from '@/utils/montagemSync';
 import {
   isRecebida, valorMedicao, isDespesaPaga, isDespesaAberta, isDespesaAtrasada,
-  contratoPesoKg, contratoValor,
+  contratoPesoKg, contratoValor, pesoDe,
 } from '../dados';
 import { usePainelGlobal, kpisDe, futuroDe } from '../usePainelGlobal';
+import { fmtNum as fmtBR, fmtPeso, fmtPesoCurto, hojeLocalISO } from '../ui/format';
 
 // ── Helpers de formatação ──────────────────────────────────
-const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+// Peso SEMPRE em kg (padrão do ERP — PR #82); `fmtPeso`/`fmtPesoCurto` vêm da
+// fonte única mobile. `pesoDe` idem (../dados) — antes havia cópia local.
 const fmtMoney = (n) => 'R$ ' + fmtBR(n, 0);
-const fmtTon = (kg) => fmtBR((Number(kg) || 0) / 1000, 1) + ' t';
 const fmtMoneyShort = (n) => {
   const v = Number(n) || 0; const a = Math.abs(v);
   if (a >= 1e6) return (v / 1e6).toFixed(1).replace('.0', '') + 'M';
   if (a >= 1e3) return Math.round(v / 1e3) + 'k';
   return String(Math.round(v));
 };
-// Peso total da peça: prefere o campo agregado, cai p/ unitário×qtd (regra mobile)
-const pesoDe = (p) => Number(p.pesoTotal) || (Number(p.peso) || 0) * (Number(p.quantidade) || 1);
 
 // Paleta de etapas (etapas REAIS do banco — auditoria 11/06 incluiu 'entregue')
 const ETAPAS = [
@@ -121,6 +120,12 @@ export default function DashboardMobile() {
   const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
   // Montadas: entity_store/localStorage (independente da etapa — regra #6)
   const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(r => setConcluidas(r || {})) || {});
+  // Tempo real: montagem marcada em outro dispositivo/desktop/3D atualiza os
+  // KPIs aqui (mesmo canal usado pela MontagemMobile).
+  useEffect(() => {
+    const off = subscribeConcluidas(r => setConcluidas(r || {}));
+    return () => { try { off?.(); } catch { /* noop */ } };
+  }, []);
 
   // Datasets filtrados pela obra global
   const pecasF = useMemo(() => pecas.filter(matchObra), [pecas, matchObra]);
@@ -171,7 +176,7 @@ export default function DashboardMobile() {
     const desPend = despesas.filter(isDespesaAberta).reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const recPagas = receitas.filter(isRecebida).reduce((s, r) => s + valorMedicao(r), 0);
     const recPend = receitas.filter(r => !isRecebida(r)).reduce((s, r) => s + valorMedicao(r), 0);
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeLocalISO();
     const atrasadas = despesas.filter(d => isDespesaAtrasada(d, hoje));
     const desAtraso = atrasadas.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     const margem = (recPagas + recPend) - (desPagas + desPend);
@@ -300,9 +305,9 @@ export default function DashboardMobile() {
         {/* ── KPIs estratégicos (visão CEO) ───────────────── */}
         <div className="px-4 grid grid-cols-2 gap-2.5 mt-3">
           <KpiCard icon={Target} label="Avanço físico (obra)" value={`${pctAvancoFisico.toFixed(0)}%`}
-            sub={`${fmtTon(prod.pesoMontado)} / ${fmtTon(pesoContrato)}`} color="green" to="/m/montagem" />
-          <KpiCard icon={Factory} label="Produção (fábrica)" value={`${prod.pctProducao.toFixed(0)}%`}
-            sub={`${fmtTon(prod.pesoSaiu)} fora da fábrica`} color="blue" to="/m/producao" />
+            sub={`${fmtPeso(prod.pesoMontado)} / ${fmtPeso(pesoContrato)}`} color="green" to="/m/montagem" />
+          <KpiCard icon={Factory} label="Saiu da fábrica (peso)" value={`${prod.pctProducao.toFixed(0)}%`}
+            sub={`${fmtPeso(prod.pesoSaiu)} expedido ou além`} color="blue" to="/m/producao" />
           <KpiCard icon={fin.saldoReal >= 0 ? TrendingUp : TrendingDown} label="Lucro (recebido − pago)"
             value={fmtMoney(fin.saldoReal)} sub={`Projecao c/ pendencias ${fmtMoneyShort(fin.margem)}`}
             color={fin.saldoReal >= 0 ? 'green' : 'red'} to="/m/financeiro" />
@@ -376,9 +381,9 @@ export default function DashboardMobile() {
               </div>
             </div>
             <div className="flex-1 pl-3 space-y-2">
-              <GaugeRow label="Contratado" value={fmtTon(pesoContrato)} color="#64748b" />
-              <GaugeRow label="Em obra" value={fmtTon(prod.pesoCampo)} color="#eab308" />
-              <GaugeRow label="Montado" value={fmtTon(prod.pesoMontado)} color="#22c55e" />
+              <GaugeRow label="Contratado" value={fmtPeso(pesoContrato)} color="#64748b" />
+              <GaugeRow label="Em obra" value={fmtPeso(prod.pesoCampo)} color="#eab308" />
+              <GaugeRow label="Montado" value={fmtPeso(prod.pesoMontado)} color="#22c55e" />
               <GaugeRow label="Montagem em campo" value={`${prod.pctMontagem.toFixed(0)}%`} color="#22c55e" />
             </div>
           </div>
@@ -386,17 +391,17 @@ export default function DashboardMobile() {
 
         {/* ── Funil de produção por etapa ─────────────────── */}
         <SectionTitle icon={Layers} action={<Link to="/m/producao" className="text-[11px] font-bold text-amber-400 pr-4">Detalhes</Link>}>
-          Funil de produção (peso)
+          Funil de produção (peso em kg)
         </SectionTitle>
         <ChartCard>
           <ResponsiveContainer width="100%" height={Math.max(140, funilData.length * 34)}>
-            <BarChart data={funilData} layout="vertical" margin={{ top: 0, right: 36, left: 0, bottom: 0 }} barSize={16}>
+            <BarChart data={funilData} layout="vertical" margin={{ top: 0, right: 48, left: 0, bottom: 0 }} barSize={16}>
               <XAxis type="number" hide />
               <YAxis type="category" dataKey="label" width={72} tick={{ fontSize: 10, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
               <Tooltip cursor={{ fill: '#ffffff08' }} content={<DarkTooltip fmt={(v) => fmtBR(v) + ' kg'} />} />
               <Bar dataKey="peso" name="Peso" radius={[0, 6, 6, 0]}>
                 {funilData.map((e, i) => <Cell key={i} fill={e.color} />)}
-                <LabelList dataKey="peso" position="right" formatter={(v) => fmtTon(v)} style={{ fontSize: 9, fill: '#cbd5e1' }} />
+                <LabelList dataKey="peso" position="right" formatter={(v) => fmtPesoCurto(v)} style={{ fontSize: 9, fill: '#cbd5e1' }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -485,7 +490,7 @@ export default function DashboardMobile() {
             ))}
           </div>
           <div className="px-5 mt-1.5 text-[10px] text-slate-500">
-            Margem = medições (recebidas + a receber) − despesas não-canceladas, por obra.
+            Resultado = recebido − pago (realizado), por obra; previsão com pendências no Painel Global.
             Barras: <span className="text-emerald-400 font-semibold">faturado (R$)</span> x <span className="text-blue-400 font-semibold">avanço físico (kg montado)</span> — físico acima de faturado = medição a emitir.
           </div>
         </>)}
@@ -500,7 +505,7 @@ export default function DashboardMobile() {
                   <Pie data={tipoData} dataKey="peso" nameKey="name" cx="50%" cy="50%" innerRadius={38} outerRadius={64} paddingAngle={2} stroke="none">
                     {tipoData.map((e, i) => <Cell key={i} fill={TIPO_CORES[i % TIPO_CORES.length]} />)}
                   </Pie>
-                  <Tooltip content={<DarkTooltip fmt={(v) => fmtTon(v)} />} />
+                  <Tooltip content={<DarkTooltip fmt={(v) => fmtPeso(v)} />} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex-1 space-y-1.5">
@@ -508,7 +513,7 @@ export default function DashboardMobile() {
                   <div key={t.name} className="flex items-center gap-2 text-[11px]">
                     <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ background: TIPO_CORES[i % TIPO_CORES.length] }} />
                     <span className="text-slate-300 flex-1 truncate">{t.name}</span>
-                    <span className="text-slate-100 font-semibold">{fmtTon(t.peso)}</span>
+                    <span className="text-slate-100 font-semibold">{fmtPeso(t.peso)}</span>
                   </div>
                 ))}
               </div>
