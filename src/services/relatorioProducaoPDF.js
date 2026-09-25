@@ -6,7 +6,7 @@
 // React); usa jsPDF. Agregações em services/relatorioProducao.js (testado).
 // ============================================================
 import { jsPDF } from 'jspdf';
-import { resumoProducao, pecasPorEtapa, bloqueioFabricacao, estadoProducao } from './relatorioProducao';
+import { resumoProducao, pecasPorEtapa, bloqueioFabricacao, fabricabilidadePecas, estadoProducao } from './relatorioProducao';
 import { resumoMaterialObra } from './estoqueAnalytics';
 
 const STATUS_MAT = {
@@ -111,6 +111,7 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
   const grupos = pecasPorEtapa(pecas);
   const material = resumoMaterialObra(estoque || []);
   const bloqueio = bloqueioFabricacao(pecas, material.linhas);
+  const fab = fabricabilidadePecas(pecas, material.linhas);
   const cap = Number.isFinite(detalheCap) ? detalheCap : DETALHE_CAP;
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const M = 10; const W = 190;
@@ -281,32 +282,34 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     })), y);
   }
 
-  // ===== Peças com pendência de material — sem material (vermelho) / parcial (amarelo) =====
-  if (bloqueio.itens.length > 0) {
+  // ===== Peças travadas por material (base = fabricabilidade: só as unidades que não cabem) =====
+  if (fab.porPerfil.some((g) => g.pesoNaoFabricavel > 0)) {
     const red = [220, 38, 38];
     const amber = [180, 83, 9];
-    const corDe = (row) => (row._st === 'parcial' ? amber : red);
+    const green = [22, 163, 74];
+    const travados = fab.porPerfil.filter((g) => g.pesoNaoFabricavel > 0);
+    const corDe = (row) => (row._st === 'parcial' ? amber : row._st === 'ok' ? green : red);
     doc.addPage(); y = M;
     doc.setFillColor(239, 68, 68); doc.rect(M, y, W, 9, 'F');
     doc.setTextColor(255, 255, 255); doc.setFontSize(12); doc.setFont(undefined, 'bold');
-    doc.text('⚠ Peças com pendência de material', M + 3, y + 6);
+    doc.text('Peças travadas por falta de material', M + 3, y + 6);
     doc.setFont(undefined, 'normal'); y += 13;
     doc.setFontSize(8.5); doc.setTextColor(100, 116, 139);
-    doc.text('Peças em Aguardando/Fabricação cujo perfil ainda não chegou (integralmente) no estoque.', M, y); y += 5;
+    doc.text('Unidades em Aguardando/Fabricação que NÃO cabem no material entregue do perfil (após o consumo da produção atual).', M, y); y += 4;
+    doc.text('Peso de peça convertido em kg de PERFIL pelo BOM — por isso o "não consegue" fecha com o "falta comprar".', M, y); y += 5;
     // Legenda
     doc.setFillColor(220, 38, 38); doc.rect(M, y - 2.6, 3, 3, 'F');
     doc.setTextColor(51, 65, 85); doc.setFontSize(8);
-    doc.text('Vermelho = sem material (não é possível fabricar)', M + 5, y);
+    doc.text('Vermelho = perfil sem material (nenhuma unidade dá)', M + 5, y);
     doc.setFillColor(217, 119, 6); doc.rect(M + 95, y - 2.6, 3, 3, 'F');
-    doc.text('Amarelo = material parcial (parte já chegou)', M + 100, y); y += 6;
+    doc.text('Amarelo = parcial (parte das unidades dá, parte não)', M + 100, y); y += 6;
     // ===== Painel analítico: 4 indicadores da realidade geral =====
-    const pesoImpactado = bloqueio.pesoBloqueado + bloqueio.pesoParcial;
-    const pctImpacto = resumo.totalPeso > 0 ? Math.round((pesoImpactado / resumo.totalPeso) * 100) : 0;
+    const pctImpacto = resumo.totalPeso > 0 ? Math.round((fab.resumo.pesoNaoFabricavel / resumo.totalPeso) * 100) : 0;
     const painel = [
-      ['Não fabricável', `${fmtPeso(bloqueio.pesoBloqueado)}`, `${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis`, [220, 38, 38]],
-      ['Material parcial', `${fmtPeso(bloqueio.pesoParcial)}`, `${fmtNum(bloqueio.nParciais)} pç · ${fmtNum(bloqueio.nPerfisParciais)} perfis`, [180, 83, 9]],
-      ['Falta comprar', `${fmtPeso(bloqueio.faltaComprarTotal)}`, 'total por perfil', [37, 99, 235]],
-      ['% peso impactado', `${pctImpacto}%`, `de ${fmtPeso(resumo.totalPeso)}`, [15, 23, 42]],
+      ['Perfil zerado', `${fmtPeso(bloqueio.pesoBloqueado)}`, `${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis sem nada`, [220, 38, 38]],
+      ['Travadas (total)', `${fmtPeso(fab.resumo.pesoNaoFabricavel)}`, `${fmtNum(fab.resumo.qtdNaoFabricaveis)} un · ${fmtNum(travados.length)} perfis`, [180, 83, 9]],
+      ['Falta comprar', `${fmtPeso(fab.resumo.faltaComprarTotal)}`, 'kg de perfil p/ liberar tudo', [37, 99, 235]],
+      ['% peso travado', `${pctImpacto}%`, `de ${fmtPeso(resumo.totalPeso)}`, [15, 23, 42]],
     ];
     const pw = W / painel.length;
     painel.forEach((k, i) => {
@@ -318,25 +321,27 @@ export function montarRelatorioProducaoDoc(pecas, obra, { data, cliente, estoque
     });
     y += 22;
 
-    // ===== Tabela ANALÍTICA por perfil (material faltante → impacto em peças) =====
+    // ===== Tabela ANALÍTICA por perfil (balanço do perfil → unidades travadas) =====
     doc.setFontSize(10.5); doc.setFont(undefined, 'bold'); doc.setTextColor(15, 23, 42);
-    doc.text('Material faltante × peças impactadas (por perfil)', M, y); y += 3; doc.setFont(undefined, 'normal');
+    doc.text('Material faltante × peças travadas (por perfil, kg de perfil)', M, y); y += 3; doc.setFont(undefined, 'normal');
     const colsP = [
-      { k: 'perfil', label: 'Perfil', x: M, w: 40, colorFn: corDe, bold: true },
-      { k: 'material', label: 'Material', x: M + 40, w: 26 },
-      { k: 'st', label: 'Situação', x: M + 66, w: 30, colorFn: corDe, boldFn: () => true },
-      { k: 'nPecas', label: 'Peças', x: M + 96, w: 18, align: 'right' },
-      { k: 'peso', label: 'Peso travado', x: M + 114, w: 32, align: 'right', colorFn: corDe, bold: true },
-      { k: 'falta', label: 'Falta comprar', x: M + 146, w: 44, align: 'right', colorFn: corDe, bold: true },
+      { k: 'perfil', label: 'Perfil', x: M, w: 38, colorFn: corDe, bold: true },
+      { k: 'st', label: 'Situação', x: M + 38, w: 22, colorFn: corDe, boldFn: () => true },
+      { k: 'entregue', label: 'Entregue', x: M + 60, w: 24, align: 'right' },
+      { k: 'disponivel', label: 'Disponível', x: M + 84, w: 24, align: 'right' },
+      { k: 'demanda', label: 'Demanda', x: M + 108, w: 24, align: 'right' },
+      { k: 'falta', label: 'Falta comprar', x: M + 132, w: 26, align: 'right', colorFn: corDe, bold: true },
+      { k: 'nao', label: 'Travadas', x: M + 158, w: 32, align: 'right', colorFn: corDe, bold: true },
     ];
-    y = drawTable(doc, colsP, bloqueio.porPerfil.slice(0, cap).map((g) => ({
-      perfil: g.perfil, material: g.material,
-      st: g.status === 'parcial' ? '⚠ Parcial' : '✗ Sem material',
-      nPecas: fmtNum(g.nPecas), peso: fmtPeso(g.peso), falta: fmtPeso(g.faltaComprar),
+    y = drawTable(doc, colsP, travados.slice(0, cap).map((g) => ({
+      perfil: g.perfil,
+      st: g.status === 'parcial' ? 'Parcial' : 'Sem material',
+      entregue: fmtNum(g.entregue), disponivel: fmtNum(g.disponivel), demanda: fmtNum(g.demanda),
+      falta: fmtPeso(g.faltaComprar), nao: `${fmtNum(g.pesoNaoFabricavel)} kg · ${fmtNum(g.qtdNaoFabricavel)} un`,
       _st: g.status,
     })), y);
     doc.setFontSize(7.5); doc.setTextColor(100, 116, 139);
-    doc.text('Peso travado = peso das peças (Aguardando/Fabricação) que dependem do perfil. Falta comprar = kg do perfil ainda por chegar.', M, y + 1);
+    doc.text('Disponível = entregue - consumido (Solda+) · Demanda = kg de perfil das peças pendentes · Travadas = peso das unidades que não cabem.', M, y + 1);
   }
 
   // Detalhe por etapa (dados de produção)
