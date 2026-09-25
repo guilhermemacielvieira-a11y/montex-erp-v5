@@ -215,13 +215,30 @@ export function bloqueioFabricacao(pecas = [], materialLinhas = []) {
 // ============================================================
 // FABRICABILIDADE: reparte o material ENTREGUE de cada perfil entre o que a
 // PRODUÇÃO ATUAL já consumiu (peças em Solda em diante = "já fabricado") e o
-// que ainda pode fabricar. Passos por perfil:
-//   1. disponível = entregue − já consumido (peças já fabricadas). Não conta o
-//      mesmo aço duas vezes.
-//   2. ALOCA o disponível às peças pendentes (Aguardando/Fabricação) por peso.
-//      As que cabem CONSEGUEM ser fabricadas; o restante NÃO consegue.
+// que ainda pode fabricar.
+//
+// PESO DA PEÇA ≠ PESO DO PERFIL. Uma tesoura "UE200X75X25X3.04" de 530 kg tem
+// ~250 kg desse perfil (banzos) e o resto em diagonais, chapas e ligações de
+// OUTROS perfis. Comparar o peso da peça inteira com o kg entregue de UM
+// perfil superestimava o consumo e a demanda (W200X19.3 aparecia com 10 t
+// "não consegue" com o material 100% entregue). O BOM (materiais_corte →
+// `necessario` da linha de material) diz quanto do perfil a obra inteira
+// usa; a fração FATOR = necessário ÷ Σ peso das peças do perfil converte o
+// peso de cada peça em kg de perfil. Assim: Σ demanda = necessário, e a
+// leitura fecha com "falta comprar" (falta de perfil ⇔ peças que não dá).
+//
+// Passos por perfil:
+//   1. fator = min(1, necessário / Σ peso de TODAS as peças do perfil)
+//      (sem BOM → 1, comportamento antigo).
+//   2. disponível = entregue BRUTO (material fisicamente no estoque) −
+//      já consumido (peças Solda+ × fator).
+//   3. ALOCA o disponível às peças pendentes (Aguardando/Fabricação) POR
+//      UNIDADE, da mais leve p/ a mais pesada (libera o maior nº de peças).
+//      Um lote (marca com qtd > 1) pode ficar PARCIAL: parte consegue, parte
+//      não — não é mais tudo-ou-nada.
 // Trata CHAPARIA (chapas puxam do estoque agregado). `materialLinhas` vem de
-// resumoMaterialObra(estoque).linhas (perfil + entregue + falta + status).
+// resumoMaterialObra(estoque).linhas (perfil + necessario + entregue +
+// entregueBruto + falta + status).
 // ============================================================
 const CHAVE_CHAPARIA = '__CHAPARIA__';
 const ehPerfilChapa = (s) => /^\s*CH\d/i.test(String(s || '')); // CH8X130, CH2X1200.7, CH16X340…
@@ -229,29 +246,46 @@ const ehLinhaChaparia = (s) => /^\s*chaparia\s*$/i.test(String(s || ''));
 // "Já fabricado" = produção atual (passou da fabricação): Solda em diante.
 const jaFabricadoEtapa = (et) => et === 'solda' || et === 'pintura' || et === 'expedido' || et === 'enviado' || et === 'entregue';
 const pendenteEtapa = (et) => et === 'aguardando' || et === 'fabricacao';
+const EPS = 0.01;
 
 export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
-  // Pool de material entregue por perfil (chaparia agregada numa chave única).
-  const pool = new Map(); // chave → { disponivel, falta, perfil }
+  // Pool de material por perfil (chaparia agregada numa chave única).
+  // `bruto` = entregue fisicamente (sem o teto do necessário: o que está no
+  // pátio pode ser fabricado); `necessario` = BOM/pedido do perfil.
+  const pool = new Map(); // chave → { bruto, necessario, falta, perfil }
   (materialLinhas || []).forEach((l) => {
     const chaparia = ehLinhaChaparia(l.perfil);
     const chave = chaparia ? CHAVE_CHAPARIA : chavePerfil(l.perfil);
     if (!chave) return;
-    const acc = pool.get(chave) || { disponivel: 0, falta: 0, perfil: chaparia ? 'CHAPARIA' : l.perfil };
-    acc.disponivel += num(l.entregue); acc.falta += num(l.falta);
+    const acc = pool.get(chave) || { bruto: 0, necessario: 0, falta: 0, perfil: chaparia ? 'CHAPARIA' : l.perfil };
+    const bruto = l.entregueBruto !== undefined && l.entregueBruto !== null ? num(l.entregueBruto) : num(l.entregue);
+    acc.bruto += bruto; acc.necessario += num(l.necessario); acc.falta += num(l.falta);
     pool.set(chave, acc);
   });
   const chaveDe = (perfil) => (ehPerfilChapa(perfil) && pool.has(CHAVE_CHAPARIA)) ? CHAVE_CHAPARIA : chavePerfil(perfil);
 
-  // Material JÁ CONSUMIDO pela produção atual (Solda em diante) por perfil, e o
-  // total "já fabricado" (independe do material — é o que já foi produzido).
-  const consumidoPorChave = new Map(); // chave → kg já consumido
+  // Peso total das peças por perfil (todas as etapas) → base do FATOR.
+  const pesoPecasPorChave = new Map();
+  (pecas || []).forEach((p) => {
+    const k = chaveDe(pick(p, 'perfil') || '');
+    pesoPecasPorChave.set(k, num(pesoPecasPorChave.get(k)) + pesoPeca(p));
+  });
+  const fatorDe = (chave) => {
+    const info = pool.get(chave);
+    const soma = num(pesoPecasPorChave.get(chave));
+    if (!info || info.necessario <= 0 || soma <= 0) return 1;
+    return Math.min(1, info.necessario / soma);
+  };
+
+  // Material JÁ CONSUMIDO pela produção atual (Solda em diante) por perfil, em
+  // kg de PERFIL (peso × fator), e o total "já fabricado" (peso de peça).
+  const consumidoPorChave = new Map();
   const jaFab = [];
   (pecas || []).forEach((p) => {
     if (!jaFabricadoEtapa(etapaPeca(p))) return;
-    const perfil = pick(p, 'perfil') || '';
+    const chave = chaveDe(pick(p, 'perfil') || '');
     const peso = pesoPeca(p);
-    consumidoPorChave.set(chaveDe(perfil), num(consumidoPorChave.get(chaveDe(perfil))) + peso);
+    consumidoPorChave.set(chave, num(consumidoPorChave.get(chave)) + peso * fatorDe(chave));
     jaFab.push({ peso, quantidade: qtdPeca(p) });
   });
 
@@ -260,10 +294,12 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
   (pecas || []).forEach((p) => {
     if (!pendenteEtapa(etapaPeca(p))) return;
     const perfil = pick(p, 'perfil') || '';
+    const q = qtdPeca(p) || 1;
+    const peso = pesoPeca(p);
     const item = {
       marca: pick(p, 'marca', 'codigo') || '—', perfil,
       material: pick(p, 'material') || '', tipo: pick(p, 'tipo', 'peca') || '',
-      quantidade: qtdPeca(p), peso: pesoPeca(p), etapa: etapaPeca(p),
+      quantidade: q, peso, pesoUnit: q > 0 ? peso / q : peso, etapa: etapaPeca(p),
     };
     const chave = chaveDe(perfil);
     if (!grupos.has(chave)) grupos.set(chave, []);
@@ -272,19 +308,52 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
 
   const fabricaveis = [], naoFabricaveis = [], semInfo = [];
   const perfisParciais = new Set();
+  const porPerfil = []; // leitura por perfil: necessário × entregue × consumido × demanda × falta
   for (const [chave, pieces] of grupos) {
     const info = pool.get(chave);
     if (!info) { pieces.forEach((pc) => semInfo.push({ ...pc, status: 'sem_info' })); continue; }
-    // Entregue MENOS o já consumido pela produção atual = disponível p/ pendentes.
-    let disp = Math.max(0, num(info.disponivel) - num(consumidoPorChave.get(chave)));
-    const need = pieces.reduce((s, i) => s + i.peso, 0);
-    if (disp > 0 && disp < need - 0.01) perfisParciais.add(info.perfil);
-    // Aloca por peso ASC (libera o maior nº de peças possível).
-    [...pieces].sort((a, b) => a.peso - b.peso).forEach((pc) => {
-      if (pc.peso <= disp + 0.01) { disp = Math.max(0, disp - pc.peso); fabricaveis.push({ ...pc, status: 'fabricavel' }); }
-      else naoFabricaveis.push({ ...pc, status: 'faltando', faltaComprar: r2(info.falta) });
+    const fator = fatorDe(chave);
+    const consumido = num(consumidoPorChave.get(chave));
+    // Entregue (bruto) MENOS o já consumido pela produção atual = disponível p/ pendentes.
+    const disponivelIni = Math.max(0, info.bruto - consumido);
+    let disp = disponivelIni;
+    const demanda = pieces.reduce((s, i) => s + i.peso * fator, 0);
+    if (disp > 0 && disp < demanda - EPS) perfisParciais.add(info.perfil);
+    let pesoOk = 0, pesoNao = 0, qtdNao = 0;
+    // Aloca por UNIDADE, da mais leve p/ a mais pesada (libera o maior nº de peças).
+    [...pieces].sort((a, b) => a.pesoUnit - b.pesoUnit).forEach((pc) => {
+      const unitPerfil = pc.pesoUnit * fator; // kg de perfil por unidade
+      const cabem = unitPerfil <= 0 ? pc.quantidade : Math.min(pc.quantidade, Math.floor((disp + EPS) / unitPerfil));
+      const naoCabem = pc.quantidade - cabem;
+      if (cabem > 0) {
+        const peso = r2(pc.pesoUnit * cabem);
+        disp = Math.max(0, disp - cabem * unitPerfil);
+        pesoOk += peso;
+        fabricaveis.push({ ...pc, quantidade: cabem, peso, status: 'fabricavel', parcial: naoCabem > 0, quantidadeLote: pc.quantidade });
+      }
+      if (naoCabem > 0) {
+        const peso = r2(pc.pesoUnit * naoCabem);
+        pesoNao += peso; qtdNao += naoCabem;
+        naoFabricaveis.push({
+          ...pc, quantidade: naoCabem, peso, status: 'faltando', parcial: cabem > 0, quantidadeLote: pc.quantidade,
+          faltaComprar: r2(info.falta),
+          // kg de PERFIL que faltam p/ estas unidades (≈ o que comprar p/ liberá-las)
+          faltaPerfil: r2(naoCabem * unitPerfil),
+        });
+      }
+    });
+    porPerfil.push({
+      perfil: info.perfil, chave,
+      necessario: r2(info.necessario), entregue: r2(info.bruto), consumido: r2(consumido),
+      disponivel: r2(disponivelIni), demanda: r2(demanda), fator: Math.round(fator * 1000) / 1000,
+      faltaComprar: r2(info.falta),
+      pesoFabricavel: r2(pesoOk), pesoNaoFabricavel: r2(pesoNao), qtdNaoFabricavel: qtdNao,
+      // 'faltando' só quando NÃO há material nenhum p/ as pendentes; com algum
+      // disponível (mesmo que nenhuma unidade caiba) é 'parcial'.
+      status: pesoNao <= 0 ? 'ok' : (pesoOk > 0 || disponivelIni > 0) ? 'parcial' : 'faltando',
     });
   }
+  porPerfil.sort((a, b) => b.pesoNaoFabricavel - a.pesoNaoFabricavel || b.demanda - a.demanda);
   const byPeso = (a, b) => b.peso - a.peso;
   [fabricaveis, naoFabricaveis, semInfo].forEach((a) => a.sort(byPeso));
   const sumP = (a) => r2(a.reduce((s, i) => s + i.peso, 0));
@@ -292,20 +361,27 @@ export function fabricabilidadePecas(pecas = [], materialLinhas = []) {
   const pesoFab = sumP(fabricaveis), pesoNao = sumP(naoFabricaveis), pesoSem = sumP(semInfo);
   const total = pesoFab + pesoNao + pesoSem;
   const pesoJaFab = sumP(jaFab), qtdJaFab = sumQ(jaFab);
-  const faltaComprarTotal = r2([...pool.values()].reduce((s, g) => s + num(g.falta), 0));
+  // "Falta comprar" = falta dos perfis COM peças pendentes (mesma base do
+  // bloqueioFabricacao/card). O total de todos os perfis fica à parte.
+  const faltaComprarTotal = r2(porPerfil.reduce((s, g) => s + g.faltaComprar, 0));
+  const faltaComprarTodosPerfis = r2([...pool.values()].reduce((s, g) => s + num(g.falta), 0));
+  const faltaPerfilNao = r2(naoFabricaveis.reduce((s, i) => s + num(i.faltaPerfil), 0));
   return {
-    fabricaveis, naoFabricaveis, semInfo,
+    fabricaveis, naoFabricaveis, semInfo, porPerfil,
     perfisParciais: [...perfisParciais].sort(),
     resumo: {
       nFabricaveis: fabricaveis.length, nNaoFabricaveis: naoFabricaveis.length, nSemInfo: semInfo.length,
       nPerfisParciais: perfisParciais.size,
+      nPerfisNaoFabricaveis: porPerfil.filter((g) => g.pesoNaoFabricavel > 0).length,
       qtdFabricaveis: sumQ(fabricaveis), qtdNaoFabricaveis: sumQ(naoFabricaveis),
       pesoFabricavel: pesoFab, pesoNaoFabricavel: pesoNao, pesoSemInfo: pesoSem,
       // Produção atual (Solda em diante): material entregue já consumido.
       nJaFabricado: jaFab.length, qtdJaFabricado: qtdJaFab, pesoJaFabricado: pesoJaFab,
       // Total que o material entregue viabiliza: já fabricado + o que ainda dá.
       pesoViavelEntregue: r2(pesoJaFab + pesoFab),
-      pesoTotal: r2(total), faltaComprarTotal,
+      pesoTotal: r2(total), faltaComprarTotal, faltaComprarTodosPerfis,
+      // kg de PERFIL que faltam para as peças "não consegue" (explica o número).
+      faltaPerfilNaoFabricavel: faltaPerfilNao,
       pctFabricavel: total > 0 ? r2((pesoFab / total) * 100) : 0,
       pctNaoFabricavel: total > 0 ? r2((pesoNao / total) * 100) : 0,
     },

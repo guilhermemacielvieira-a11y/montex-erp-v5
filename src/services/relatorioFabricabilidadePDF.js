@@ -3,9 +3,9 @@
 // ============================================================
 // Cruza o estoque da obra (necessário × entregue) com as peças ainda não
 // fabricadas (aguardando/fabricação) e responde, por MARCA/PEÇA:
-//   ✓ CONSEGUE fabricar (material entregue)
-//   ⚠ PARCIAL (material incompleto)
-//   ✗ NÃO CONSEGUE fabricar (falta material) — com o quanto falta comprar
+//   CONSEGUE fabricar (material entregue)
+//   PARCIAL (material incompleto)
+//   NÃO CONSEGUE fabricar (falta material) — com o quanto falta comprar
 // Puro (sem React); usa jsPDF. Classificação em services/relatorioProducao.js.
 // ============================================================
 import { jsPDF } from 'jspdf';
@@ -37,7 +37,7 @@ function drawTable(doc, cols, rows, y, { margin = 10, width = 190, bottom = 285,
     cols.forEach((c) => {
       const raw = row[c.k] == null ? '' : String(row[c.k]);
       const txt = doc.splitTextToSize(raw, c.w - 2)[0] || '';
-      const col = c.color || [15, 23, 42];
+      const col = (c.colorFn && c.colorFn(row)) || c.color || [15, 23, 42];
       doc.setTextColor(col[0], col[1], col[2]);
       if (c.bold) doc.setFont(undefined, 'bold');
       doc.text(txt, c.align === 'right' ? c.x + c.w : c.x, y + 4.1, { align: c.align === 'right' ? 'right' : 'left' });
@@ -91,16 +91,17 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
   // Introdução
   doc.setTextColor(100, 116, 139); doc.setFontSize(8.5);
   doc.text('Do material recebido no estoque da obra (entregue), desconta o que a produção atual já consumiu (Solda', M, y);
-  doc.text('em diante = já fabricado) e aloca o restante às peças pendentes (Aguardando/Fabricação). As que cabem', M, y + 4);
-  doc.text('CONSEGUEM ser fabricadas; o restante NÃO consegue.', M, y + 8);
-  y += 15;
+  doc.text('em diante = já fabricado) e aloca o restante às peças pendentes (Aguardando/Fabricação), por unidade.', M, y + 4);
+  doc.text('O peso de cada peça é convertido em kg de PERFIL pelo BOM (uma tesoura de 530 kg usa ~250 kg do perfil', M, y + 8);
+  doc.text('principal; o resto é diagonal/chapa). Assim "não consegue" fecha com "falta comprar" (kg de perfil).', M, y + 12);
+  y += 19;
 
   // KPIs (já fabricado / consegue / não consegue / a comprar)
   const kpis = [
     ['Já fabricado', fmtPeso(R.pesoJaFabricado), `${fmtNum(R.nJaFabricado)} marcas · ${fmtNum(R.qtdJaFabricado)} un`, '#14b8a6'],
-    ['✓ Consegue (ainda)', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${R.pctFabricavel}%`, '#22c55e'],
-    ['✗ Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${R.pctNaoFabricavel}%`, '#ef4444'],
-    ['A comprar (total)', fmtPeso(R.faltaComprarTotal), `${fmtNum(R.nPerfisParciais)} perfis parciais`, '#0ea5e9'],
+    ['Consegue (ainda)', fmtPeso(R.pesoFabricavel), `${fmtNum(R.nFabricaveis)} marcas · ${R.pctFabricavel}%`, '#22c55e'],
+    ['Não consegue', fmtPeso(R.pesoNaoFabricavel), `${fmtNum(R.nNaoFabricaveis)} marcas · ${fmtNum(R.qtdNaoFabricaveis)} un · ${R.pctNaoFabricavel}%`, '#ef4444'],
+    ['Falta comprar', fmtPeso(R.faltaComprarTotal), `${fmtNum(R.nPerfisNaoFabricaveis)} perfil(is) travando peças`, '#0ea5e9'],
   ];
   const kw = W / kpis.length;
   kpis.forEach((kp, i) => {
@@ -126,23 +127,51 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
   doc.text(`Com o material entregue: já fabricado ${fmtPeso(R.pesoJaFabricado)} + ainda dá p/ fabricar ${fmtPeso(R.pesoFabricavel)} = ${fmtPeso(R.pesoViavelEntregue)}.`, M, y + 16);
   y += 21;
 
+  // ===== LEITURA POR PERFIL (necessário × entregue × consumido × demanda) =====
+  if ((fab.porPerfil || []).length) {
+    if (y > 230) { doc.addPage(); y = M; }
+    doc.setTextColor(15, 23, 42); doc.setFontSize(10.5); doc.setFont(undefined, 'bold');
+    doc.text('Balanço por perfil (kg de PERFIL)', M, y); y += 2; doc.setFont(undefined, 'normal');
+    doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+    doc.text('Disponível = entregue - consumido (Solda+) · Demanda = kg de perfil das peças pendentes · Falta = kg a comprar.', M, y + 3); y += 6;
+    const red = [220, 38, 38], green = [22, 163, 74], amber = [180, 83, 9];
+    const corSt = (row) => (row._st === 'ok' ? green : row._st === 'parcial' ? amber : red);
+    const colsP = [
+      { k: 'perfil', label: 'Perfil', x: M, w: 36, bold: true },
+      { k: 'necessario', label: 'Necessário', x: M + 36, w: 22, align: 'right' },
+      { k: 'entregue', label: 'Entregue', x: M + 58, w: 22, align: 'right' },
+      { k: 'consumido', label: 'Consumido', x: M + 80, w: 22, align: 'right' },
+      { k: 'disponivel', label: 'Disponível', x: M + 102, w: 22, align: 'right' },
+      { k: 'demanda', label: 'Demanda', x: M + 124, w: 22, align: 'right' },
+      { k: 'falta', label: 'Falta', x: M + 146, w: 20, align: 'right', bold: true, color: red },
+      { k: 'nao', label: 'Não consegue', x: M + 166, w: 24, align: 'right', bold: true, colorFn: corSt },
+    ];
+    const rowsP = fab.porPerfil.slice(0, cap).map((g) => ({
+      perfil: g.perfil, necessario: fmtNum(g.necessario), entregue: fmtNum(g.entregue), consumido: fmtNum(g.consumido),
+      disponivel: fmtNum(g.disponivel), demanda: fmtNum(g.demanda), falta: fmtNum(g.faltaComprar),
+      nao: g.pesoNaoFabricavel > 0 ? `${fmtNum(g.pesoNaoFabricavel)} kg · ${fmtNum(g.qtdNaoFabricavel)} un` : 'OK', _st: g.status,
+    }));
+    y = drawTable(doc, colsP, rowsP, y, { margin: M, width: W });
+    y += 2;
+  }
+
   // ===== NÃO CONSEGUE FABRICAR =====
   if (fab.naoFabricaveis.length) {
     const red = [220, 38, 38];
     y = secao(doc, y, M, W, {
-      titulo: '✗ NÃO consegue fabricar — falta material', cor: '#ef4444',
-      sub: 'Marcas cujo perfil está zerado no estoque da obra. Comprar o material para liberar a fabricação.',
+      titulo: 'NÃO consegue fabricar — falta material', cor: '#ef4444',
+      sub: 'Unidades que não cabem no material entregue do perfil (lotes podem ficar parciais: "x de y"). Falta = kg de perfil a comprar p/ liberar estas unidades.',
       cap,
       cols: [
         { k: 'marca', label: 'Marca', x: M, w: 26, bold: true, color: red },
         { k: 'perfil', label: 'Perfil (faltante)', x: M + 26, w: 36, bold: true, color: red },
         { k: 'material', label: 'Material', x: M + 62, w: 26 },
         { k: 'tipo', label: 'Tipo', x: M + 88, w: 26 },
-        { k: 'qtd', label: 'Qtd', x: M + 114, w: 14, align: 'right' },
-        { k: 'peso', label: 'Peso', x: M + 128, w: 26, align: 'right' },
-        { k: 'falta', label: 'Falta comprar', x: M + 154, w: 36, align: 'right', bold: true, color: red },
+        { k: 'qtd', label: 'Qtd', x: M + 114, w: 18, align: 'right' },
+        { k: 'peso', label: 'Peso', x: M + 132, w: 24, align: 'right' },
+        { k: 'falta', label: 'Falta (perfil)', x: M + 156, w: 34, align: 'right', bold: true, color: red },
       ],
-      rows: fab.naoFabricaveis.map((p) => ({ marca: p.marca, perfil: p.perfil, material: p.material, tipo: p.tipo, qtd: fmtNum(p.quantidade), peso: fmtPeso(p.peso), falta: fmtPeso(p.faltaComprar) })),
+      rows: fab.naoFabricaveis.map((p) => ({ marca: p.marca, perfil: p.perfil, material: p.material, tipo: p.tipo, qtd: p.parcial ? `${fmtNum(p.quantidade)} de ${fmtNum(p.quantidadeLote)}` : fmtNum(p.quantidade), peso: fmtPeso(p.peso), falta: fmtPeso(p.faltaPerfil) })),
     });
   }
 
@@ -160,18 +189,18 @@ export function montarRelatorioFabricabilidadeDoc(pecas, obra, { data, cliente, 
   if (fab.fabricaveis.length) {
     const green = [22, 163, 74];
     y = secao(doc, y, M, W, {
-      titulo: '✓ CONSEGUE fabricar — material disponível', cor: '#22c55e',
-      sub: 'Marcas cujo material do perfil está entregue no estoque da obra. Liberadas para fabricar.',
+      titulo: 'CONSEGUE fabricar — material disponível', cor: '#22c55e',
+      sub: 'Unidades cobertas pelo material entregue do perfil (após o consumo da produção atual). Liberadas para fabricar.',
       cap,
       cols: [
         { k: 'marca', label: 'Marca', x: M, w: 30, bold: true, color: green },
         { k: 'perfil', label: 'Perfil', x: M + 30, w: 40 },
         { k: 'material', label: 'Material', x: M + 70, w: 34 },
         { k: 'tipo', label: 'Tipo', x: M + 104, w: 34 },
-        { k: 'qtd', label: 'Qtd', x: M + 138, w: 16, align: 'right' },
-        { k: 'peso', label: 'Peso', x: M + 154, w: 36, align: 'right' },
+        { k: 'qtd', label: 'Qtd', x: M + 138, w: 20, align: 'right' },
+        { k: 'peso', label: 'Peso', x: M + 158, w: 32, align: 'right' },
       ],
-      rows: fab.fabricaveis.map((p) => ({ marca: p.marca, perfil: p.perfil, material: p.material, tipo: p.tipo, qtd: fmtNum(p.quantidade), peso: fmtPeso(p.peso) })),
+      rows: fab.fabricaveis.map((p) => ({ marca: p.marca, perfil: p.perfil, material: p.material, tipo: p.tipo, qtd: p.parcial ? `${fmtNum(p.quantidade)} de ${fmtNum(p.quantidadeLote)}` : fmtNum(p.quantidade), peso: fmtPeso(p.peso) })),
     });
   }
 

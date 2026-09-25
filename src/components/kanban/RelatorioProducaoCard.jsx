@@ -121,12 +121,12 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
           <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
             <Factory className="w-4 h-4 text-emerald-400" /> Fabricabilidade — já fabricado × ainda dá para fabricar
           </div>
-          <p className="text-[10px] text-slate-500 mt-0.5">Do material entregue: desconta o que a produção atual já consumiu (Solda em diante) e aloca o restante às peças pendentes (Aguardando/Fabricação).</p>
+          <p className="text-[10px] text-slate-500 mt-0.5">Do material entregue: desconta o que a produção atual já consumiu (Solda em diante) e aloca o restante às peças pendentes (Aguardando/Fabricação), por unidade. Peso de peça é convertido em kg de perfil pelo BOM (uma tesoura de 530 kg usa ~250 kg do perfil principal) — por isso "não consegue" fecha com "falta comprar".</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
             <Painel tone="text-teal-300" label="◐ Já fabricado (atual)" value={fmtPeso(fab.resumo.pesoJaFabricado)} sub={`${fmtNum(fab.resumo.nJaFabricado)} marcas · ${fmtNum(fab.resumo.qtdJaFabricado)} un`} />
             <Painel tone="text-emerald-400" label="✓ Consegue (ainda)" value={fmtPeso(fab.resumo.pesoFabricavel)} sub={`${fmtNum(fab.resumo.nFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdFabricaveis)} un`} />
-            <Painel tone="text-red-400" label="✗ Não consegue" value={fmtPeso(fab.resumo.pesoNaoFabricavel)} sub={`${fmtNum(fab.resumo.nNaoFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdNaoFabricaveis)} un`} />
-            <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="p/ liberar a fabricação" />
+            <Painel tone="text-red-400" label="✗ Não consegue" value={fmtPeso(fab.resumo.pesoNaoFabricavel)} sub={`${fmtNum(fab.resumo.nNaoFabricaveis)} marcas · ${fmtNum(fab.resumo.qtdNaoFabricaveis)} un · ${fmtNum(fab.resumo.pctNaoFabricavel)}% do pendente`} />
+            <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(fab.resumo.faltaComprarTotal)} sub={`${fmtNum(fab.resumo.nPerfisNaoFabricaveis)} perfil(is) travando peças`} />
           </div>
           {/* barra empilhada (peças pendentes) */}
           <div className="flex h-2 rounded-full overflow-hidden mt-2 bg-slate-700/60">
@@ -135,7 +135,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
             ))}
           </div>
           <p className="text-[10px] text-slate-500 mt-1.5 flex items-center gap-1">
-            <XCircle className="w-3 h-3 text-emerald-400" /> Com o material entregue: já fabricado {fmtPeso(fab.resumo.pesoJaFabricado)} + ainda dá p/ fabricar {fmtPeso(fab.resumo.pesoFabricavel)} = {fmtPeso(fab.resumo.pesoViavelEntregue)} · {fab.resumo.pctFabricavel}% do peso pendente liberado · detalhe no PDF.
+            <XCircle className="w-3 h-3 text-emerald-400" /> Com o material entregue: já fabricado {fmtPeso(fab.resumo.pesoJaFabricado)} + ainda dá p/ fabricar {fmtPeso(fab.resumo.pesoFabricavel)} = {fmtPeso(fab.resumo.pesoViavelEntregue)} · {fmtNum(fab.resumo.pctFabricavel)}% do peso pendente liberado · comprando {fmtPeso(fab.resumo.faltaComprarTotal)} de perfil libera o restante · detalhe por perfil no PDF.
           </p>
         </div>
       )}
@@ -150,26 +150,32 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
         Peso total = soma das peças cadastradas (pode diferir do peso contratual da obra) · Progresso = ponderado por etapa · Concluído = Enviado + Entregue.
       </p>
 
-      {/* Painel analítico: material faltante × peças impactadas (visão geral) */}
-      {(bloqueio.nBloqueadas > 0 || bloqueio.nParciais > 0) && (() => {
-        const pesoImpactado = bloqueio.pesoBloqueado + bloqueio.pesoParcial;
-        const pctImpacto = resumo.totalPeso > 0 ? Math.round((pesoImpactado / resumo.totalPeso) * 100) : 0;
+      {/* Painel analítico: material faltante × peças impactadas (por perfil, base da fabricabilidade) */}
+      {fab.porPerfil.some((g) => g.pesoNaoFabricavel > 0) && (() => {
+        const travados = fab.porPerfil.filter((g) => g.pesoNaoFabricavel > 0);
+        const pctImpacto = resumo.totalPeso > 0 ? Math.round((fab.resumo.pesoNaoFabricavel / resumo.totalPeso) * 100) : 0;
         return (
           <div className="mt-3 rounded-lg border border-slate-600/50 bg-slate-900/40 p-3">
             <div className="flex items-center gap-2 text-xs text-slate-300 font-semibold">
-              <AlertTriangle className="w-4 h-4 text-red-400" /> Material faltante × peças impactadas
+              <AlertTriangle className="w-4 h-4 text-red-400" /> Material faltante × peças travadas (por perfil)
             </div>
-            <p className="text-[10px] text-slate-500 mt-0.5">Peças cujo perfil está sem material no estoque da obra (por status do perfil).</p>
+            <p className="text-[10px] text-slate-500 mt-0.5">Só as unidades que de fato não cabem no material entregue (o restante do perfil continua liberado).</p>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mt-2">
-              <Painel tone="text-red-400" label="Perfil zerado" value={fmtPeso(bloqueio.pesoBloqueado)} sub={`${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis`} />
-              <Painel tone="text-amber-400" label="Material parcial" value={fmtPeso(bloqueio.pesoParcial)} sub={`${fmtNum(bloqueio.nParciais)} pç · ${fmtNum(bloqueio.nPerfisParciais)} perfis`} />
-              <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(bloqueio.faltaComprarTotal)} sub="mesmo valor acima" />
-              <Painel tone="text-slate-200" label="% peso impactado" value={`${pctImpacto}%`} sub={`de ${fmtPeso(resumo.totalPeso)} (obra)`} />
+              <Painel tone="text-red-400" label="Perfil zerado" value={fmtPeso(bloqueio.pesoBloqueado)} sub={`${fmtNum(bloqueio.nBloqueadas)} pç · ${fmtNum(bloqueio.nPerfisFaltando)} perfis sem nada entregue`} />
+              <Painel tone="text-amber-400" label="Travadas (total)" value={fmtPeso(fab.resumo.pesoNaoFabricavel)} sub={`${fmtNum(fab.resumo.qtdNaoFabricaveis)} un · ${fmtNum(travados.length)} perfis`} />
+              <Painel tone="text-sky-400" label="Falta comprar" value={fmtPeso(fab.resumo.faltaComprarTotal)} sub="kg de perfil p/ liberar tudo" />
+              <Painel tone="text-slate-200" label="% peso travado" value={`${pctImpacto}%`} sub={`de ${fmtPeso(resumo.totalPeso)} (obra)`} />
             </div>
-            {bloqueio.perfisFaltando.length > 0 && (
-              <p className="text-[11px] text-red-400/80 mt-2">Sem material: {bloqueio.perfisFaltando.slice(0, 8).join(', ')}{bloqueio.perfisFaltando.length > 8 ? '…' : ''}</p>
-            )}
-            <p className="text-[10px] text-slate-500 mt-1">Detalhamento por perfil (peso travado + falta comprar) no PDF.</p>
+            <div className="mt-2 space-y-1">
+              {travados.slice(0, 6).map((g) => (
+                <div key={g.chave} className="flex items-center gap-2 text-[11px]">
+                  <span className="w-36 truncate text-slate-300 font-semibold">{g.perfil}</span>
+                  <span className="text-slate-500">entregue {fmtPeso(g.entregue)} · falta <span className="text-sky-400">{fmtPeso(g.faltaComprar)}</span></span>
+                  <span className="ml-auto text-red-400 font-semibold">{fmtPeso(g.pesoNaoFabricavel)} · {fmtNum(g.qtdNaoFabricavel)} un travadas</span>
+                </div>
+              ))}
+              {travados.length > 6 && <p className="text-[10px] text-slate-500">… e mais {travados.length - 6} perfis no PDF.</p>}
+            </div>
           </div>
         );
       })()}

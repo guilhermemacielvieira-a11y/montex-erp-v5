@@ -208,6 +208,65 @@ describe('fabricabilidadePecas (desconta já fabricado do entregue → consegue 
   });
 });
 
+describe('fabricabilidadePecas — peso de peça ≠ peso de perfil (fator BOM) e lotes parciais', () => {
+  // Caso real (obra 2025-36): vigas-mestras "W200X19.3" pesam 23.602 kg no
+  // total, mas o BOM só usa 11.352 kg desse perfil (o resto é diagonal/chapa).
+  // Material 100% entregue (falta 0) → NADA pode ficar "não consegue".
+  const materialBOM = [
+    { perfil: 'W200X19.3', necessario: 11352.3, entregue: 11352.3, entregueBruto: 11862, falta: 0, status: 'entregue' },
+    { perfil: 'UE250X85X25X2', necessario: 1000, entregue: 800, entregueBruto: 800, falta: 200, status: 'parcial' },
+  ];
+  const pcs = [
+    { marca: 'VM8A', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 13399.1, etapa: 'enviado' },   // já fabricada (consome × fator)
+    { marca: 'VM10A', perfil: 'W200X19.3', quantidade: 1, pesoTotal: 5000, etapa: 'aguardando' },
+    { marca: 'VM16A', perfil: 'W200X19.3', quantidade: 2, pesoTotal: 5202.9, etapa: 'aguardando' },
+    // UE250: 1.000 kg de perfil p/ peças que pesam 1.000 kg (fator 1), 800 entregues,
+    // lote de 10 un × 100 kg → 8 cabem, 2 não (parcial), coerente com falta 200.
+    { marca: 'TC88C', perfil: 'UE250X85X25X2', quantidade: 10, pesoTotal: 1000, etapa: 'aguardando' },
+  ];
+  const f = fabricabilidadePecas(pcs, materialBOM);
+  it('material 100% entregue → todas as peças do perfil conseguem (mesmo com peso de peça > kg do perfil)', () => {
+    expect(f.naoFabricaveis.filter((x) => x.perfil === 'W200X19.3')).toHaveLength(0);
+    expect(f.fabricaveis.map((x) => x.marca).sort()).toEqual(['TC88C', 'VM10A', 'VM16A']);
+  });
+  it('fator = necessário ÷ Σ peso das peças do perfil (≤ 1)', () => {
+    const w = f.porPerfil.find((g) => g.perfil === 'W200X19.3');
+    expect(w.fator).toBeCloseTo(11352.3 / 23602, 2);
+    expect(w.consumido).toBeCloseTo(13399.1 * (11352.3 / 23602), 0);
+    expect(w.entregue).toBe(11862); // bruto: o que está no pátio
+    expect(w.status).toBe('ok');
+  });
+  it('lote parcial: aloca por UNIDADE — 8 de 10 cabem, 2 não (≈ falta de perfil)', () => {
+    const ok = f.fabricaveis.find((x) => x.marca === 'TC88C');
+    const nao = f.naoFabricaveis.find((x) => x.marca === 'TC88C');
+    expect(ok.quantidade).toBe(8); expect(ok.peso).toBe(800); expect(ok.parcial).toBe(true);
+    expect(nao.quantidade).toBe(2); expect(nao.peso).toBe(200); expect(nao.quantidadeLote).toBe(10);
+    expect(nao.faltaPerfil).toBe(200);
+    expect(f.resumo.faltaPerfilNaoFabricavel).toBe(200);
+  });
+  it('"falta comprar" = só perfis com peças pendentes (mesma base do card) e o total geral à parte', () => {
+    expect(f.resumo.faltaComprarTotal).toBe(200);
+    expect(f.resumo.faltaComprarTodosPerfis).toBe(200);
+    const f2 = fabricabilidadePecas(pcs, [...materialBOM, { perfil: 'HP250X62', necessario: 2578, entregue: 0, entregueBruto: 0, falta: 2578, status: 'faltando' }]);
+    expect(f2.resumo.faltaComprarTotal).toBe(200);          // HP sem peça pendente não entra
+    expect(f2.resumo.faltaComprarTodosPerfis).toBe(2778);
+  });
+  it('resumo por perfil ordena pelo peso "não consegue"', () => {
+    expect(f.porPerfil[0].perfil).toBe('UE250X85X25X2');
+    expect(f.porPerfil[0].pesoNaoFabricavel).toBe(200);
+    expect(f.porPerfil[0].qtdNaoFabricavel).toBe(2);
+    expect(f.resumo.nPerfisNaoFabricaveis).toBe(1);
+  });
+  it('sem BOM (linha só com entregue/falta) → fator 1, comportamento antigo', () => {
+    const g = fabricabilidadePecas(
+      [{ marca: 'A', perfil: 'X1', quantidade: 1, pesoTotal: 100, etapa: 'aguardando' }],
+      [{ perfil: 'X1', entregue: 50, falta: 50, status: 'parcial' }],
+    );
+    expect(g.porPerfil[0].fator).toBe(1);
+    expect(g.naoFabricaveis).toHaveLength(1);
+  });
+});
+
 describe('pecasPorEtapa', () => {
   const g = pecasPorEtapa(pecas);
   it('agrupa por etapa e omite etapas vazias', () => {
