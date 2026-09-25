@@ -24,6 +24,7 @@ import { enqueue } from '../ui/offlineQueue';
 import { useERP, useExpedicao } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
+import { fmtPeso } from '../ui/format';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
@@ -208,7 +209,7 @@ export default function ExpedicaoMobile() {
                 {ok ? <CheckCircle2 className="w-7 h-7 text-emerald-400 flex-shrink-0" /> : <Circle className="w-7 h-7 text-slate-500 flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm">{i.marca}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{i.tipo || '—'} · {i.peso.toFixed(0)} kg</div>
+                  <div className="text-[11px] text-slate-400 truncate">{i.tipo || '—'} · {fmtPeso(i.peso)}</div>
                 </div>
                 {ok && <span className="text-[10px] font-bold text-emerald-400">CONFERIDA</span>}
               </button>

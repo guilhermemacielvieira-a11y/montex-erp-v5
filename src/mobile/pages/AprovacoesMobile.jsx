@@ -22,6 +22,7 @@ import { confirmarBiometria } from '../ui/biometric';
 import { ensureOnline } from '../ui/online';
 import { useMedicoes, useOrcamentos, useCompras } from '@/contexts/ERPContext';
 import { valorMedicao } from '../dados';
+import { hojeLocalISO } from '../ui/format';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 
@@ -105,7 +106,7 @@ export default function AprovacoesMobile() {
 
   const recusarOrc = (o) => executar(
     `orc-rec:${o.id}`, `Recusar orçamento ${o.numero || ''}`.trim(),
-    () => updateOrcamento(o.id, { status: 'recusado', data_aprovacao: new Date().toISOString().slice(0, 10) }),
+    () => updateOrcamento(o.id, { status: 'recusado', data_aprovacao: hojeLocalISO() }),
     `Orçamento ${o.numero || ''} recusado`.replace('  ', ' '), 'Falha ao recusar orçamento'
   );
 

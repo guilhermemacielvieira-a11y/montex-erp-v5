@@ -10,6 +10,8 @@ import { AlertCircle, Package, PackageCheck, Truck, Hammer, CheckCircle2 } from 
 import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from './ObraContext';
+import { saudeItem, kpisEstoque } from '@/services/estoqueAnalytics';
+import { hojeLocalISO } from './ui/format';
 
 // Predicados compartilhados com AprovacoesMobile (manter em sincronia)
 const medPendente = (m) => ['pendente', 'aguardando'].includes(String(m?.status || '').toLowerCase());
@@ -20,14 +22,14 @@ const cmpPendente = (c) => String(c?.status || '').toLowerCase() === 'pendente';
 export function useAlertas() {
   const erp = useERP?.() || {};
   const { lancamentosDespesas = [], estoque = [], pecas = [], expedicoes = [], medicoes = [], orcamentos = [], compras = [] } = erp;
-  const { matchObra } = useObraFiltro();
+  const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
   const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
   const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
 
   return useMemo(() => {
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = hojeLocalISO(); // data LOCAL (toISOString = UTC → vira amanhã após 21h)
     const list = [];
 
     // Aprovações pendentes (gestor) — primeiro da lista: é decisão, não aviso
@@ -53,10 +55,22 @@ export function useAlertas() {
         title: `${atrasadas.length} despesa(s) em atraso`, sub: 'R$ ' + total.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), to: '/m/despesas' });
     }
 
-    const estCrit = estoque.filter(i => { const q = Number(i.quantidade) || 0, m = Number(i.minimo) || 0; return m > 0 && q <= m; });
+    // Reposição: mesma classificação de saúde do Estoque desktop (saudeItem).
+    // 'zerado' fica de fora do sino (itens de obra ainda não entregues são
+    // zerados por natureza — 70 de 117 no banco — e afogariam o badge).
+    const estCrit = estoque.filter(i => ['critico', 'baixo'].includes(saudeItem(i)));
     if (estCrit.length) {
       list.push({ id: 'est', icon: Package, color: 'amber', count: estCrit.length,
         title: `${estCrit.length} item(ns) com estoque baixo`, sub: 'Repor materiais', to: '/m/estoque' });
+    }
+    // Material faltando p/ a OBRA selecionada (necessário × chegou — kpisEstoque)
+    if (!isTodas && obraSelecionada) {
+      const k = kpisEstoque(estoque.filter(i => (i.obraId || i.obra_id) === obraSelecionada.id));
+      if (k.itensComFalta > 0) {
+        list.push({ id: 'falta', icon: Package, color: 'red', count: k.itensComFalta,
+          title: `${k.itensComFalta} material(is) faltando p/ a obra`,
+          sub: `${(k.totalFalta || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg a chegar · cobertura ${k.coberturaPct != null ? Math.round(k.coberturaPct) : 0}%`, to: '/m/estoque' });
+      }
     }
 
     const pecasObra = pecas.filter(matchObra);
@@ -79,5 +93,5 @@ export function useAlertas() {
     }
 
     return list;
-  }, [lancamentosDespesas, estoque, pecas, expedicoes, medicoes, orcamentos, matchObra, podeMed, podeOrc]);
+  }, [lancamentosDespesas, estoque, pecas, expedicoes, medicoes, orcamentos, compras, matchObra, podeMed, podeOrc, podeCmp, isTodas, obraSelecionada]);
 }

@@ -13,7 +13,8 @@ import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart, isMontada } from '@/utils/montagemSync';
-import { isRecebida, valorMedicao, isDespesaPaga, isDespesaCancelada, isDespesaAtrasada, isEmFabrica, saiuDaFabrica, isEmObra, etapaDe } from '../dados';
+import { isRecebida, valorMedicao, isDespesaPaga, isDespesaCancelada, isDespesaAtrasada, isEmFabrica, isEmObra, etapaDe } from '../dados';
+import { hojeLocalISO } from '../ui/format';
 
 const fmtBR = (n, dec = 0) => (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 const fmtMoney = (n) => 'R$ ' + fmtBR(n, 0);
@@ -54,13 +55,16 @@ export default function HomeMobile() {
   const [concluidas, setConcluidas] = useState(() => loadConcluidasSmart(r => setConcluidas(r || {})) || {});
 
   const stats = useMemo(() => {
-    const hojeStr = new Date().toISOString().slice(0, 10);
+    const hojeStr = hojeLocalISO(); // data LOCAL
     const aPagar = despesas.filter(d => !isDespesaPaga(d) && !isDespesaCancelada(d));
     // "Obras ativas" reflete o filtro: 1 quando uma obra está selecionada
     const obrasAtivas = isTodas ? obras.filter(o => o.status !== 'concluida' && o.status !== 'cancelada').length : 1;
     // Montadas = entity_store (fonte de verdade da montagem)
     const pecasMontadas = pecasFiltradas.filter(p => isMontada(concluidas[String(p.id)])).length;
-    const pecasProducao = pecasFiltradas.filter(p => isEmFabrica(p) || saiuDaFabrica(p)).length;
+    // "Em produção" = ocupando a fábrica (fabricação/solda/pintura) — mesmo
+    // recorte "Em processo" do relatório desktop. Antes somava também as peças
+    // já expedidas/entregues, e o KPI não batia com o Kanban.
+    const pecasProducao = pecasFiltradas.filter(isEmFabrica).length;
     const desPendentes = aPagar.length;
     const desValor = aPagar.reduce((s, d) => s + (Number(d.valor) || 0), 0);
     // A receber = medições ainda não recebidas (status real do banco é 'paga')
@@ -103,7 +107,7 @@ export default function HomeMobile() {
   const kpiCards = [
     (perm('obras.view') || perm('projetos.view')) && { icon: Building2, label: 'Obras ativas', value: stats.obrasAtivas, color: 'amber', to: '/m/obras' },
     (perm('montagem.view') || perm('producao.view')) && { icon: Hammer, label: 'Peças montadas', value: fmtBR(stats.pecasMontadas), color: 'green', to: '/m/montagem' },
-    perm('producao.view') && { icon: Factory, label: 'Em produção', value: fmtBR(stats.pecasProducao), color: 'blue', to: '/m/producao' },
+    perm('producao.view') && { icon: Factory, label: 'Em produção', value: fmtBR(stats.pecasProducao), sub: 'fabricação · solda · pintura', color: 'blue', to: '/m/producao' },
     perm('financeiro.view') && { icon: Wallet, label: 'A pagar', value: fmtMoney(stats.desValor), sub: `${stats.desPendentes} título(s)`, color: 'red', to: '/m/despesas' },
   ].filter(Boolean);
 

@@ -81,14 +81,24 @@ function Fullscreen3D({ children }) {
   );
 }
 
+// Páginas desktop no celular: NÃO há escala real (transform sem scale). Grids
+// largos (Kanban com 6 colunas, tabelas) estouravam a viewport e o layout
+// inteiro ficava cortado à direita sem como rolar. Agora o conteúdo fica num
+// container com rolagem HORIZONTAL própria (o corpo da página não estoura) e
+// um aviso curto explica que é a versão desktop.
 function DesktopWrap({ title, children }) {
   return (
     <MobileLayout title={title} back>
       <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando…</div>}>
         <div className="px-2 py-2">
-          {/* Wrapper que escala o conteúdo desktop */}
-          <div className="origin-top-left transform" style={{ minWidth: '100%' }}>
-            {children}
+          <div className="mx-1 mb-2 text-[10px] text-slate-500 flex items-center gap-1.5">
+            <span className="px-1.5 py-px rounded bg-slate-800 border border-slate-700 font-bold text-slate-300">DESKTOP</span>
+            Tela completa da versão desktop · deslize para o lado para ver tudo
+          </div>
+          <div className="overflow-x-auto overscroll-x-contain -mx-2 px-2">
+            <div className="min-w-full w-max max-w-none">
+              {children}
+            </div>
           </div>
         </div>
       </Suspense>

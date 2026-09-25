@@ -7,6 +7,7 @@ import { TrendingUp, TrendingDown, Receipt, Wallet, AlertCircle, PieChart, Chevr
 import MobileLayout from '../MobileLayout';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
+import { hojeLocalISO } from '../ui/format';
 import { isRecebida, valorMedicao, isDespesaPaga, isDespesaAberta, isDespesaAtrasada, vencimentoDe } from '../dados';
 
 const fmtMoney = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
@@ -26,7 +27,7 @@ export default function FinanceiroMobile() {
 
   // Atraso por DATA de vencimento (não só status==='atrasado', que muitos lançamentos não têm).
   // Predicados da fonte única ../dados (medição recebida = 'paga' no banco!).
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = hojeLocalISO(); // data LOCAL (UTC vira amanhã após 21h)
   const vencOf = vencimentoDe;
   const isAtrasada = (d) => isDespesaAtrasada(d, hojeStr);
 

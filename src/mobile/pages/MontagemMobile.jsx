@@ -25,6 +25,8 @@ import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { loadConcluidasSmart, saveConcluidasSmart, subscribeConcluidas, getMontadasCount, isMontada } from '@/utils/montagemSync';
 import { toast } from 'react-hot-toast';
+import { fmtPeso, hojeLocalISO } from '../ui/format';
+import { pesoPeca } from '@/services/relatorioProducao';
 
 // Normaliza marca p/ matching robusto (maiúsculas, sem espaços) — alinhado ao 3D/ERP.
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
@@ -187,11 +189,11 @@ export default function MontagemMobile() {
       .map(p => {
         const c = concluidas[String(p.id)] || {};
         const dt = c.montadoEm ? new Date(c.montadoEm).toLocaleString('pt-BR') : '';
-        return [p.marca || p.id, p.tipo || '', (Number(p.peso) || 0).toFixed(0), p.quantidade || 1, dt, c.origem || '', c.fotoUrl || ''];
+        return [p.marca || p.id, p.tipo || '', Math.round(pesoPeca(p)), p.quantidade || 1, dt, c.origem || '', c.fotoUrl || ''];
       });
     if (!rows.length) { toast('Nenhuma peça montada para exportar'); return; }
     const obraSlug = (obraSelecionada?.nome || 'geral').replace(/\s+/g, '_').slice(0, 30);
-    const dia = new Date().toISOString().slice(0, 10);
+    const dia = hojeLocalISO();
     downloadCsv(`montagem_${obraSlug}_${dia}.csv`, ['Marca', 'Tipo', 'Peso (kg)', 'Qtd', 'Montada em', 'Origem', 'Foto'], rows);
     toast.success(`${rows.length} peça(s) exportada(s)`);
   };
@@ -259,7 +261,7 @@ export default function MontagemMobile() {
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm">{p.marca || '—'}</div>
                 <div className="text-[11px] text-slate-400 truncate">
-                  {p.tipo || ''} · qtd {p.quantidade || 1} · {(Number(p.peso) || 0).toFixed(0)} kg
+                  {p.tipo || ''} · qtd {p.quantidade || 1} · {fmtPeso(pesoPeca(p))}
                 </div>
               </div>
               <div className="flex flex-col items-end gap-0.5">
@@ -341,7 +343,7 @@ export default function MontagemMobile() {
             <div className="grid grid-cols-2 gap-3">
               <Info label="Tipo" value={pecaSel.tipo || '—'} />
               <Info label="Quantidade" value={String(qtdTotal)} />
-              <Info label="Peso" value={`${(Number(pecaSel.peso) || 0).toFixed(0)} kg`} />
+              <Info label="Peso" value={fmtPeso(pesoPeca(pecaSel))} />
               <Info label="Etapa" value={pecaSel.etapa || '—'} />
             </div>
             {/* EDIÇÃO: unidades montadas (peças com mais de 1 unidade) */}

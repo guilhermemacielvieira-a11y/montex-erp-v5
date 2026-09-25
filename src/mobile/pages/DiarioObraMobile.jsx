@@ -24,8 +24,9 @@ import { uploadFoto } from '../ui/upload';
 import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
 import { useERP } from '@/contexts/ERPContext';
 import { useObraFiltro } from '../ObraContext';
+import { hojeLocalISO } from '../ui/format';
 
-const hojeISO = () => new Date().toISOString().slice(0, 10);
+const hojeISO = () => hojeLocalISO(); // data LOCAL (não UTC)
 const URL_RE = /https?:\/\/\S+/g;
 const fmtKg = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 const TURNOS = [

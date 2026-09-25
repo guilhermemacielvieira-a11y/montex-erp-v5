@@ -20,15 +20,20 @@ import { useERP, useMedicoes } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { valorMedicao } from '../dados';
+import { hojeLocalISO } from '../ui/format';
 import { supabase } from '@/api/supabaseClient';
 
 const fmtMoney = (n) => 'R$ ' + (Number(n) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtKg = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 }) + ' kg';
 
+// Status reais do banco: recebida = 'paga' (feminino — ver ../dados). Sem a
+// chave, a medição recebida caía no estilo de 'pendente' (âmbar).
 const STATUS = {
   pendente: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  aguardando: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
   aprovada: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
   pago: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  paga: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
 };
 
 // Upload best-effort para o bucket 'uploads' (mesmo do base44Client). Não bloqueia.
@@ -110,7 +115,7 @@ export default function MedicaoMobile() {
       }
       const obraObj = obras.find(o => o.id === obraId);
       const nMed = medicoes.filter(m => (m.obraId || m.obra_id) === obraId).length + 1;
-      const hoje = new Date().toISOString().slice(0, 10);
+      const hoje = hojeLocalISO(); // data LOCAL (UTC viraria amanhã após 21h)
       const medicao = {
         id: `med-${Date.now()}`,
         numero: `MED-${String(nMed).padStart(3, '0')}`,
