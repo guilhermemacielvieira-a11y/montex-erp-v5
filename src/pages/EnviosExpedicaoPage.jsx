@@ -2,7 +2,8 @@ import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
 import { exportToExcel, exportRomaneioPDF, exportFilaEmbarquePDF } from '@/utils/exportUtils';
-import { useExpedicao, useObras } from '../contexts/ERPContext';
+import { useExpedicao, useObras, useERP } from '../contexts/ERPContext';
+import PrevisaoCargasCard from '../components/expedicao/PrevisaoCargasCard';
 import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { pecasApi } from '../api/supabaseClient';
 import { transformPecaArray } from '../contexts/transforms';
@@ -39,6 +40,8 @@ export default function EnviosExpedicaoPage() {
   // ==== DADOS DO ERP CONTEXT ====
   const { expedicoes, addExpedicao, updateExpedicao, deleteExpedicao } = useExpedicao();
   const { obras } = useObras();
+  // Peças completas do ERP (paginadas) — base da previsão de cargas por obra
+  const { pecas: pecasErp = [] } = useERP?.() || {};
 
   // ==== FILTRO DE OBRA ====
   const [obraFiltro, setObraFiltro] = useState('todas');
@@ -514,6 +517,14 @@ export default function EnviosExpedicaoPage() {
           </div>
         ))}
       </div>
+
+      {/* Previsão de cargas (carreta) por obra — histórico de romaneios × peso a enviar */}
+      <PrevisaoCargasCard
+        pecas={pecasErp}
+        expedicoes={expedicoes || []}
+        obras={obras || []}
+        obraIds={obraFiltro === 'todas' ? null : (GRUPOS_OBRAS[obraFiltro] ? GRUPOS_OBRAS[obraFiltro].obraIds : [obraFiltro])}
+      />
 
       {/* Tabs */}
       <Tabs.Root value={abaAtiva} onValueChange={setAbaAtiva} className="flex flex-col flex-1 overflow-hidden">
