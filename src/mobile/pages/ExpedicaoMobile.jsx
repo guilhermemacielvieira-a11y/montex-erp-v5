@@ -25,6 +25,7 @@ import { useERP, useExpedicao } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { fmtPeso } from '../ui/format';
+import PrevisaoCargasMobile from '../components/PrevisaoCargasMobile';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
@@ -47,14 +48,14 @@ const idsDoRomaneio = (rom) => {
 };
 
 export default function ExpedicaoMobile() {
-  const { pecas = [] } = useERP?.() || {};
+  const { pecas = [], obras = [] } = useERP?.() || {};
   const { expedicoes = [], updateExpedicao } = useExpedicao?.() || {};
   const { hasPermission } = useAuth() || {};
   // Conferir/despachar é EDIÇÃO de expedição: exige expedicao.edit. Quem só tem
   // expedicao.view (viewer) acompanha os romaneios em modo leitura, sem bipar
   // nem despachar. Sem hasPermission (fallback) libera.
   const podeDespacharExp = !hasPermission || hasPermission('expedicao.edit');
-  const { matchObra } = useObraFiltro();
+  const { matchObra, isTodas, obraSelecionada, setObraFiltro } = useObraFiltro();
 
   const [selId, setSelId] = useState(null);     // romaneio aberto
   const [scanOpen, setScanOpen] = useState(false);
@@ -278,6 +279,15 @@ export default function ExpedicaoMobile() {
   // ---------- LISTA ----------
   return (
     <MobileLayout title="Expedição" obraFilter>
+      {/* Previsão de cargas de carreta (mesma lógica do desktop) */}
+      <PrevisaoCargasMobile
+        pecas={pecas}
+        expedicoes={expedicoes}
+        obras={obras}
+        obraSelecionada={obraSelecionada}
+        isTodas={isTodas}
+        onSelectObra={(id) => { tap('light'); setObraFiltro(id); }}
+      />
       <div className="px-4 pt-3 pb-2">
         <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
           {romaneios.length} romaneio(s)
