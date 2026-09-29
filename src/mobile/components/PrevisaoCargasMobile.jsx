@@ -7,7 +7,9 @@
 // ============================================================
 import React, { useMemo, useState } from 'react';
 import { Truck, ChevronRight, ChevronDown } from 'lucide-react';
-import { previsaoCargasObra, previsaoCargasTodas } from '@/services/previsaoCargas';
+import { previsaoCargasObra, previsaoCargasTodas, CLASSES_CARGA, PARAMS_CARGA_PADRAO } from '@/services/previsaoCargas';
+const LABEL_CLASSE = Object.fromEntries(CLASSES_CARGA.map((c) => [c.key, c.label]));
+const VOLUMOSA = new Set(CLASSES_CARGA.filter((c) => c.volumosa).map((c) => c.key));
 import { fmtPeso, fmtNum } from '../ui/format';
 
 const fmtData = (iso) => (iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '—');
@@ -28,12 +30,12 @@ export default function PrevisaoCargasMobile({ pecas = [], expedicoes = [], obra
           <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center"><Truck className="w-4 h-4 text-blue-300" /></div>
           <div>
             <div className="text-sm font-bold">Cargas restantes (carreta)</div>
-            <div className="text-[10px] text-slate-400">pela média das últimas expedições × peso a enviar</div>
+            <div className="text-[10px] text-slate-400">peças × carreta {fmtNum(PARAMS_CARGA_PADRAO.pesoMax / 1000)} t · {PARAMS_CARGA_PADRAO.alturaMax.toLocaleString('pt-BR')} m · calibrado pelos romaneios</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {unica && !unica.concluida && <span className="text-xl font-black text-blue-300">≈ {fmtNum(unica.cargasMedia)}</span>}
-          {todas && <span className="text-xl font-black text-blue-300">≈ {fmtNum(todas.totais.cargasMedia)}</span>}
+          {unica && !unica.concluida && <span className="text-xl font-black text-blue-300">≈ {fmtNum(unica.volume.cargasCalibradas)}</span>}
+          {todas && <span className="text-xl font-black text-blue-300">≈ {fmtNum(todas.totais.cargasVolume)}</span>}
           <ChevronDown className={`w-4 h-4 text-slate-500 transition ${aberto ? '' : '-rotate-90'}`} />
         </div>
       </button>
@@ -45,10 +47,19 @@ export default function PrevisaoCargasMobile({ pecas = [], expedicoes = [], obra
           <div className="px-3.5 pb-3.5">
             <div className="grid grid-cols-2 gap-2">
               <Mini label="A transportar" value={fmtPeso(unica.restante.restante)} sub={`fila ${fmtPeso(unica.restante.fila)} · fábrica ${fmtPeso(unica.restante.emFabrica)}`} />
-              <Mini label="Capacidade de referência" value={fmtPeso(unica.capacidade)} sub={unica.fonte === 'obra' ? `média das últimas ${fmtNum(unica.historico.recentes.length)} cargas` : unica.fonte === 'global' ? 'média geral (sem romaneio)' : '—'} />
-              <Mini label="Se carga cheia" value={unica.historico.maxCarga ? `≈ ${fmtNum(unica.cargasCheia)} cargas` : '—'} sub={unica.historico.maxCarga ? `maior ${fmtPeso(unica.historico.maxCarga)}` : ''} tone="text-emerald-300" />
-              <Mini label="Prontas na fila" value={`${fmtNum(unica.cargasFila)} carga(s)`} sub={unica.ritmoDias ? `ritmo 1 carga / ${unica.ritmoDias} d` : 'sem ritmo ainda'} tone="text-orange-300" />
+              <Mini label="Ocupação (carretas)" value={unica.volume.restante.carretas.toLocaleString('pt-BR')} sub={`gargalo ${unica.volume.restante.gargalo === 'volume' ? 'volume' : 'peso'} · mín. ${fmtNum(unica.volume.cargasOtimizadas)} cargas se 100%`} tone="text-emerald-300" />
+              <Mini label="Cargas reais (últimas)" value={unica.volume.nHist ? `${fmtNum(unica.volume.ocupacaoMediaHist * 100)}% cheias` : '—'} sub={unica.volume.nHist ? `${fmtNum(unica.volume.nHist)} romaneio(s) · por kg: ≈ ${fmtNum(unica.cargasMedia)}` : `por kg/carga ≈ ${fmtNum(unica.cargasMedia)}`} />
+              <Mini label="Prontas na fila" value={`${fmtNum(unica.volume.cargasFila)} carga(s)`} sub={unica.ritmoDias ? `ritmo 1 carga / ${unica.ritmoDias} d` : 'sem ritmo ainda'} tone="text-orange-300" />
             </div>
+            {unica.volume.restante.classes.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {unica.volume.restante.classes.slice(0, 5).map((c) => (
+                  <span key={c.classe} className={`text-[10px] border rounded-lg px-2 py-1 ${VOLUMOSA.has(c.classe) ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-slate-800 border-slate-700 text-slate-300'}`}>
+                    {LABEL_CLASSE[c.classe] || c.classe} {fmtPeso(c.peso)} → {c.fracao.toLocaleString('pt-BR')} carreta(s)
+                  </span>
+                ))}
+              </div>
+            )}
             {unica.previsaoTermino && (
               <div className="text-[11px] text-violet-300 mt-2">Previsão de término ≈ <b>{fmtData(unica.previsaoTermino)}</b> ({fmtNum(unica.diasRestantes)} dias, última carga {fmtData(unica.historico.ultimaData)})</div>
             )}
@@ -77,10 +88,10 @@ export default function PrevisaoCargasMobile({ pecas = [], expedicoes = [], obra
               <div className="flex-1 min-w-0">
                 <div className="text-[12px] font-semibold truncate">{l.obra?.nome || l.obraId}</div>
                 <div className="text-[10px] text-slate-400 truncate">
-                  {fmtPeso(l.restante.restante)} a enviar · {l.historico.n ? `${fmtPeso(l.historico.mediaRecente)}/carga` : 'média geral'}{l.previsaoTermino ? ` · ~${fmtData(l.previsaoTermino)}` : ''}
+                  {fmtPeso(l.restante.restante)} a enviar · {l.volume.restante.carretas.toLocaleString('pt-BR')} carretas ({l.volume.restante.gargalo || '—'}){l.volume.nHist ? ` · ${fmtNum(l.volume.ocupacaoMediaHist * 100)}% cheias` : ''}{l.previsaoTermino ? ` · ~${fmtData(l.previsaoTermino)}` : ''}
                 </div>
               </div>
-              <div className="text-base font-black text-blue-300">≈ {fmtNum(l.cargasMedia)}</div>
+              <div className="text-base font-black text-blue-300">≈ {fmtNum(l.volume.cargasCalibradas)}</div>
               <ChevronRight className="w-4 h-4 text-slate-500" />
             </button>
           ))}

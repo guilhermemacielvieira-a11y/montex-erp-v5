@@ -2,7 +2,7 @@
 // Previsão de cargas (carreta) — ancorado em dados reais (obra 2025-36)
 // ============================================================
 import { describe, it, expect } from 'vitest';
-import { historicoCargasObra, mediaGlobalCargas, restanteObra, previsaoCargasObra, previsaoCargasTodas } from './previsaoCargas';
+import { historicoCargasObra, mediaGlobalCargas, restanteObra, previsaoCargasObra, previsaoCargasTodas, classeCarga, ocupacaoPecas, ocupacaoRomaneio, modeloVolumeObra, PARAMS_CARGA_PADRAO } from './previsaoCargas';
 
 // 9 romaneios reais da obra-003 (peso_total, data_expedicao) + 1 de outra obra
 const expedicoes = [
@@ -114,5 +114,112 @@ describe('previsaoCargasTodas', () => {
   it('totais somam as linhas', () => {
     expect(t.totais.restante).toBe(104130 + 100000);
     expect(t.totais.cargasMedia).toBe(t.linhas[0].cargasMedia + t.linhas[1].cargasMedia);
+  });
+});
+
+// ============================================================
+// MODELO PEÇAS/VOLUME — carreta 20 t · altura 4,40 m
+// ============================================================
+describe('classeCarga — tipo da peça → classe de carga', () => {
+  it('reconhece tipos reais do banco (com acento e variações)', () => {
+    expect(classeCarga({ tipo: 'TESOURA' })).toBe('TESOURA');
+    expect(classeCarga({ tipo: 'VIGA-MESTRA' })).toBe('VIGA_MESTRA');
+    expect(classeCarga({ tipo: 'TERÇA-TAP' })).toBe('TERCA');
+    expect(classeCarga({ tipo: 'TIRANTE FLEXÍVEL' })).toBe('TIRANTE');
+    expect(classeCarga({ tipo: 'MÃO-FRANCESA' })).toBe('MAO_FRANCESA');
+    expect(classeCarga({ tipo: 'CHUMBADOR' })).toBe('MIUDEZA');
+    expect(classeCarga({ tipo: 'TRELIÇA' })).toBe('TRELICA');
+    expect(classeCarga({ tipo: 'QUADRO MASTER' })).toBe('OUTROS');
+  });
+  it('sem tipo → prefixo da marca (TS = tesoura, VM = viga-mestra, C = coluna, TC = terça)', () => {
+    expect(classeCarga({ marca: 'TS44A' })).toBe('TESOURA');
+    expect(classeCarga({ marca: 'VM10A' })).toBe('VIGA_MESTRA');
+    expect(classeCarga({ marca: 'C1A' })).toBe('COLUNA');
+    expect(classeCarga({ marca: 'TC88C' })).toBe('TERCA');
+  });
+});
+
+describe('ocupacaoPecas — enche por PESO ou por VOLUME', () => {
+  it('tesouras: 9.000 kg lotam a carreta pelo volume (gargalo volume, só 45% do peso)', () => {
+    const o = ocupacaoPecas([{ tipo: 'TESOURA', pesoTotal: 9000 }]);
+    expect(o.porVolume).toBe(1); expect(o.porPeso).toBe(0.45); expect(o.carretas).toBe(1); expect(o.gargalo).toBe('volume');
+  });
+  it('terças: 20 t batem o peso antes do volume (gargalo peso)', () => {
+    const o = ocupacaoPecas([{ tipo: 'TERÇA', pesoTotal: 20000 }]);
+    expect(o.porPeso).toBe(1); expect(o.porVolume).toBeCloseTo(20000 / 22000, 2); expect(o.gargalo).toBe('peso');
+  });
+  it('carga mista soma frações por classe; classes ordenadas pela fração', () => {
+    const o = ocupacaoPecas([{ tipo: 'TESOURA', pesoTotal: 4500 }, { tipo: 'TERÇA', pesoTotal: 11000 }, { tipo: 'TIRANTE', pesoTotal: 3000 }]);
+    expect(o.porVolume).toBeCloseTo(0.5 + 0.5 + 0.1, 2);
+    expect(o.classes[0].classe).toBe('TESOURA');
+    expect(o.classes.map((c) => c.classe)).toEqual(['TESOURA', 'TERCA', 'TIRANTE']);
+  });
+  it('parâmetros editáveis (capVol/pesoMax) sobrepõem o padrão', () => {
+    const o = ocupacaoPecas([{ tipo: 'TESOURA', pesoTotal: 9000 }], { capVol: { TESOURA: 18000 }, pesoMax: 10000 });
+    expect(o.porVolume).toBe(0.5); expect(o.porPeso).toBe(0.9); expect(o.gargalo).toBe('peso');
+    expect(PARAMS_CARGA_PADRAO.pesoMax).toBe(20000); expect(PARAMS_CARGA_PADRAO.alturaMax).toBe(4.4);
+  });
+});
+
+describe('ocupacaoRomaneio — ocupação real de uma carga já feita', () => {
+  const byId = new Map([
+    ['A', { id: 'A', tipo: 'TESOURA', pesoTotal: 4500, quantidade: 1 }],
+    ['B', { id: 'B', tipo: 'TERÇA', pesoTotal: 2200, quantidade: 10 }],
+  ]);
+  it('usa as peças do romaneio (fração enviada em parciais)', () => {
+    const rom = { peso_total: 5600, pecas: [{ id: 'A', qtd_enviada: 1, qtd_total: 1 }, { id: 'B', qtd_enviada: 5, qtd_total: 10 }] };
+    const o = ocupacaoRomaneio(rom, byId);
+    expect(o.peso).toBe(5600);                       // 4500 + 2200×½
+    expect(o.porVolume).toBeCloseTo(0.5 + 0.05, 2);
+    expect(o.cobertura).toBe(1);
+  });
+  it('peças não localizadas → só pelo peso do romaneio (cobertura 0)', () => {
+    const o = ocupacaoRomaneio({ peso_total: 10000, pecas: [{ id: 'ZZ' }] }, byId);
+    expect(o.carretas).toBe(0.5); expect(o.cobertura).toBe(0);
+  });
+});
+
+describe('modeloVolumeObra — calibração pela prática (mediana das cargas reais)', () => {
+  const obra = { id: 'o' };
+  const pecas = [
+    { id: 't1', obraId: 'o', tipo: 'TESOURA', etapa: 'enviado', pesoTotal: 6000 },   // CARGA A (0,67 carreta)
+    { id: 't2', obraId: 'o', tipo: 'TESOURA', etapa: 'enviado', pesoTotal: 4500 },   // CARGA B (0,50)
+    { id: 'c1', obraId: 'o', tipo: 'CHAPA', etapa: 'enviado', pesoTotal: 400 },      // CARGA C (0,02 → ignorada)
+    { id: 'p1', obraId: 'o', tipo: 'TESOURA', etapa: 'aguardando', pesoTotal: 18000 }, // pendente: 2 carretas pelo volume
+    { id: 'p2', obraId: 'o', tipo: 'TERÇA', etapa: 'expedido', pesoTotal: 11000 },     // fila: 0,55 peso / 0,5 volume
+  ];
+  const exps = [
+    { id: 'A', obra_id: 'o', data_expedicao: '2026-09-01', peso_total: 6000, pecas: [{ id: 't1' }] },
+    { id: 'B', obra_id: 'o', data_expedicao: '2026-09-05', peso_total: 4500, pecas: [{ id: 't2' }] },
+    { id: 'C', obra_id: 'o', data_expedicao: '2026-09-06', peso_total: 400, pecas: [{ id: 'c1' }] },
+  ];
+  const p = previsaoCargasObra({ pecas, expedicoes: exps, obra });
+  const v = p.volume;
+  it('ocupação restante e da fila (gargalo por classe)', () => {
+    expect(v.restante.porVolume).toBeCloseTo(2 + 0.5, 2);
+    expect(v.restante.porPeso).toBeCloseTo(29000 / 20000, 2);
+    expect(v.restante.gargalo).toBe('volume');
+    expect(v.cargasOtimizadas).toBe(3);
+    expect(v.fila.carretas).toBeCloseTo(0.55, 2); expect(v.cargasFila).toBe(1);
+  });
+  it('mediana das cargas reais ≥ 25% (a chapa de 400 kg fica fora) → calibra', () => {
+    expect(v.nHist).toBe(2); expect(v.nIgnoradas).toBe(1);
+    expect(v.ocupacaoMediaHist).toBeCloseTo((0.67 + 0.5) / 2, 1);
+    expect(v.cargasCalibradas).toBe(Math.ceil(2.5 / v.ocupacaoMediaHist - 0.005));
+    expect(v.cargasCalibradas).toBeGreaterThan(v.cargasOtimizadas);
+  });
+  it('sem histórico → calibrado = otimizado', () => {
+    const m = modeloVolumeObra({ pecas, obra, hist: { recentes: [] } });
+    expect(m.ocupacaoMediaHist).toBe(0); expect(m.cargasCalibradas).toBe(m.cargasOtimizadas);
+  });
+  it('prática carregando MAIS que o modelo (ocupação > 1) reduz as cargas previstas', () => {
+    const pecas2 = [{ id: 'x', obraId: 'o', tipo: 'TESOURA', etapa: 'enviado', pesoTotal: 13500 }, { id: 'y', obraId: 'o', tipo: 'TESOURA', etapa: 'aguardando', pesoTotal: 27000 }];
+    const m = previsaoCargasObra({ pecas: pecas2, expedicoes: [{ id: 'A', obra_id: 'o', data_expedicao: '2026-09-01', peso_total: 13500, pecas: [{ id: 'x' }] }], obra }).volume;
+    expect(m.ocupacaoMediaHist).toBe(1.5); expect(m.cargasOtimizadas).toBe(3); expect(m.cargasCalibradas).toBe(2);
+  });
+  it('previsaoCargasTodas soma cargas por volume nos totais', () => {
+    const t = previsaoCargasTodas({ pecas, expedicoes: exps, obras: [obra] });
+    expect(t.totais.cargasVolume).toBe(v.cargasCalibradas);
+    expect(t.totais.cargasOtimizadas).toBe(3);
   });
 });
