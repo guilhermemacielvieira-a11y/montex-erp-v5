@@ -160,7 +160,6 @@ const navigationCategories = [
     step: 4,
     items: [
       { name: 'Envios', href: 'EnviosExpedicaoPage', icon: Truck, badge: 'LIVE', badgeColor: 'bg-cyan-500/20 text-cyan-400' },
-      { name: 'Romaneios Integrado', href: 'ExpedicaoIntegrado', icon: ClipboardList },
     ]
   },
   {
