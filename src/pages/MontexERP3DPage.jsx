@@ -10,6 +10,7 @@ import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
 import { useAuth } from '../lib/AuthContext';
 import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
+import { subscribeLocalKeys } from '../utils/localSync';
 import { parseIFCFile, IFC_TYPES } from '../utils/ifcParser';
 
 // Ícones SVG inline (evitam dependência de lucide-react sem impactar bundle)
@@ -782,25 +783,18 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
   );
 
   // Listener: sincroniza quando MontagemPage marca/desmarca peca
-  useEffect(() => {
-    const handler = (e) => {
-      if (e.key === MONTAGEM_LS_KEY || e.key === null) {
-        setConcluidasMontagem(loadConcluidasFromLS());
-      }
-    };
-    window.addEventListener('storage', handler);
-    // Poll a cada 3s para detectar mudancas na mesma aba (storage event nao dispara local)
-    const interval = setInterval(() => {
-      const fresh = loadConcluidasFromLS();
-      setConcluidasMontagem(prev => {
-        const pks = Object.keys(prev);
-        const fks = Object.keys(fresh);
-        if (pks.length !== fks.length || pks.some(k => !fresh[k])) return fresh;
-        return prev;
-      });
-    }, 3000);
-    return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
-  }, []);
+  // CustomEvent (mesma aba) + storage (outras abas) + fallback lento de 30s
+  // (antes: poll de 3s porque o storage event nao dispara na mesma aba)
+  useEffect(() => subscribeLocalKeys([MONTAGEM_LS_KEY], (_key, origem) => {
+    const fresh = loadConcluidasFromLS();
+    if (origem !== 'fallback') { setConcluidasMontagem(fresh); return; }
+    setConcluidasMontagem(prev => {
+      const pks = Object.keys(prev);
+      const fks = Object.keys(fresh);
+      if (pks.length !== fks.length || pks.some(k => !fresh[k])) return fresh;
+      return prev;
+    });
+  }), []);
 
   const fileInputRef = useRef(null);
 

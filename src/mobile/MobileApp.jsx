@@ -20,22 +20,25 @@ import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
 import MobileLayout from './MobileLayout';
 import HomeMobile from './pages/HomeMobile';
-import ProducaoMobile from './pages/ProducaoMobile';
-import MontagemMobile from './pages/MontagemMobile';
-import FinanceiroMobile from './pages/FinanceiroMobile';
-import ExpedicaoMobile from './pages/ExpedicaoMobile';
-import EstoqueMobile from './pages/EstoqueMobile';
-import MedicaoMobile from './pages/MedicaoMobile';
-import PerfilMobile from './pages/PerfilMobile';
-import ConfiguracoesMobile from './pages/ConfiguracoesMobile';
-import NotificacoesMobile from './pages/NotificacoesMobile';
-import GaleriaMobile from './pages/GaleriaMobile';
-import DashboardMobile from './pages/DashboardMobile';
-import AprovacoesMobile from './pages/AprovacoesMobile';
-import DiarioObraMobile from './pages/DiarioObraMobile';
-import PainelGlobalMobile from './pages/PainelGlobalMobile';
-import UsuariosMobile from './pages/UsuariosMobile';
-import MaisMobile from './pages/MaisMobile';
+// Páginas mobile sob demanda (code-splitting): antes eram estáticas e
+// arrastavam recharts/jsPDF para o bundle inicial (inclusive no desktop,
+// pois o App importa MobileApp estaticamente). HomeMobile segue estática.
+const ProducaoMobile = lazy(() => import('./pages/ProducaoMobile'));
+const MontagemMobile = lazy(() => import('./pages/MontagemMobile'));
+const FinanceiroMobile = lazy(() => import('./pages/FinanceiroMobile'));
+const ExpedicaoMobile = lazy(() => import('./pages/ExpedicaoMobile'));
+const EstoqueMobile = lazy(() => import('./pages/EstoqueMobile'));
+const MedicaoMobile = lazy(() => import('./pages/MedicaoMobile'));
+const PerfilMobile = lazy(() => import('./pages/PerfilMobile'));
+const ConfiguracoesMobile = lazy(() => import('./pages/ConfiguracoesMobile'));
+const NotificacoesMobile = lazy(() => import('./pages/NotificacoesMobile'));
+const GaleriaMobile = lazy(() => import('./pages/GaleriaMobile'));
+const DashboardMobile = lazy(() => import('./pages/DashboardMobile'));
+const AprovacoesMobile = lazy(() => import('./pages/AprovacoesMobile'));
+const DiarioObraMobile = lazy(() => import('./pages/DiarioObraMobile'));
+const PainelGlobalMobile = lazy(() => import('./pages/PainelGlobalMobile'));
+const UsuariosMobile = lazy(() => import('./pages/UsuariosMobile'));
+const MaisMobile = lazy(() => import('./pages/MaisMobile'));
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -156,7 +159,9 @@ export default function MobileApp() {
           <SyncManager />
           <DeepLinkHandler />
           <DesktopHintBanner />
-          <MobileRoutes />
+          <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando…</div>}>
+            <MobileRoutes />
+          </Suspense>
           <InstallPrompt />
           {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).
               Escopo mobile, tema escuro, abaixo do header. */}

@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { useObras } from '../../contexts/ERPContext';
-import { STATUS_OBRA } from '../../data/database';
+import { STATUS_OBRA } from '../../data/constants';
 
 const statusConfig = {
   [STATUS_OBRA.ORCAMENTO]: { label: 'Orçamento', color: 'text-gray-400', bg: 'bg-gray-500/20', icon: Clock },

@@ -39,7 +39,7 @@ import {
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
-import { useERP } from '../contexts/ERPContext';
+import { useERP, useEnsureLoaded } from '../contexts/ERPContext';
 import {
   CATEGORIAS_DISPONIVEIS, classificarCategoria,
   itemQtd, itemValorUnit, itemValorTotal, itemUnidade,
@@ -76,6 +76,7 @@ function KPI({ icon: Icon, label, value, sub, color = 'from-amber-500 to-orange-
 // ── Página ──────────────────────────────────────────────────
 export default function MateriaisPage() {
   const { notasFiscais = [], obras = [] } = useERP();
+  useEnsureLoaded('notasFiscais'); // tabela fora do boot do ERPContext
 
   // Filtros
   const [busca, setBusca] = useState('');

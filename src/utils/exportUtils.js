@@ -1,17 +1,21 @@
 import jsPDF from 'jspdf';
-import { utils as XLSXUtils, write as XLSXWrite } from 'xlsx';
-import html2canvas from 'html2canvas';
+// xlsx e html2canvas são carregados sob demanda (dynamic import) dentro das
+// funções de export — evita arrastar ~150 KB gzip para o bundle das páginas
+// que só importam este módulo. jsPDF continua estático porque exportRomaneioPDF/
+// exportFilaEmbarquePDF/exportToPDF são síncronas (callers usam o retorno).
 
 // ========================================
 // EXCEL EXPORT
 // ========================================
-export function exportToExcel(data, columns, filename) {
+export async function exportToExcel(data, columns, filename) {
   if (!data || data.length === 0) {
     console.warn('No data to export');
     return;
   }
 
   try {
+    const XLSX = await import('xlsx');
+    const XLSXUtils = XLSX.utils;
     const wb = XLSXUtils.book_new();
     const headers = columns.map(col => col.header);
     const formattedData = data.map(row => {
@@ -35,7 +39,8 @@ export function exportToExcel(data, columns, filename) {
     ws['!cols'] = columnWidths;
     XLSXUtils.book_append_sheet(wb, ws, 'Dados');
     const filenameWithExt = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`;
-    XLSXWrite(wb, { bookType: 'xlsx', type: 'binary', filename: filenameWithExt });
+    // writeFile dispara o download no browser (XLSX.write só retornava o binário).
+    XLSX.writeFile(wb, filenameWithExt, { bookType: 'xlsx' });
     return true;
   } catch (error) {
     console.error('Error exporting to Excel:', error);
@@ -187,6 +192,7 @@ export async function exportElementToPDF(elementId, filename) {
       console.warn(`Element with id "${elementId}" not found`);
       return false;
     }
+    const { default: html2canvas } = await import('html2canvas');
     const canvas = await html2canvas(element, { scale: 2, useCORS: true, backgroundColor: '#ffffff' });
     const imgData = canvas.toDataURL('image/png');
     const doc = new jsPDF({

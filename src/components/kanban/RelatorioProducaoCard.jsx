@@ -11,8 +11,7 @@ import toast from 'react-hot-toast';
 import { FileDown, Loader2, Package, Weight, Activity, CheckCircle2, AlertTriangle, Factory, XCircle } from 'lucide-react';
 import { resumoProducao, bloqueioFabricacao, fabricabilidadePecas, estadoProducao } from '@/services/relatorioProducao';
 import { resumoMaterialObra, enriquecerNecessarioBOM } from '@/services/estoqueAnalytics';
-import { gerarRelatorioProducaoPDF } from '@/services/relatorioProducaoPDF';
-import { gerarRelatorioFabricabilidadePDF } from '@/services/relatorioFabricabilidadePDF';
+// Geradores de PDF (jsPDF ~150 KB gzip) carregados sob demanda no clique.
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
 
 const fmtNum = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
@@ -72,6 +71,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
     if (!pecas.length) { toast.error('Sem peças para gerar o relatório'); return; }
     setGerando(true);
     try {
+      const { gerarRelatorioProducaoPDF } = await import('@/services/relatorioProducaoPDF');
       const { paginas } = gerarRelatorioProducaoPDF(pecas, obra, { estoque: estoqueBOM, logoDataUrl });
       toast.success(`Relatório PDF gerado (${paginas} páginas)`);
     } catch (e) {
@@ -84,6 +84,7 @@ export default function RelatorioProducaoCard({ pecas = [], obra = null, estoque
     if (!(estoque || []).length) { toast.error('Sem estoque cadastrado para esta obra'); return; }
     setGerandoFab(true);
     try {
+      const { gerarRelatorioFabricabilidadePDF } = await import('@/services/relatorioFabricabilidadePDF');
       const { paginas } = gerarRelatorioFabricabilidadePDF(pecas, obra, { estoque: estoqueBOM, logoDataUrl });
       toast.success(`Relatório de fabricabilidade gerado (${paginas} páginas)`);
     } catch (e) {

@@ -21,6 +21,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useObras, useProducao, useEquipes } from '../contexts/ERPContext';
 import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
+import { subscribeLocalKeys } from '../utils/localSync';
 
 // ============================================
 // HELPERS
@@ -321,27 +322,20 @@ export default function MontagemPage() {
   }));
 
   // Sync em tempo real com MontexERP3DPage e outras abas/dispositivos
-  // - storage event: capta mudanças de OUTRAS abas (mas não da mesma)
-  // - poll 3s: capta mudanças NA MESMA aba (3D no mesmo browser) + auto-pull remoto
+  // - CustomEvent (notifyLocalChange em saveConcluidasLocal): MESMA aba (3D no mesmo browser)
+  // - storage event: OUTRAS abas
+  // - fallback 30s: gravações legadas que não notificam (antes: poll de 3s)
   // MESMO PADRÃO usado em MontexERP3DPage para garantir consistência bidirecional.
-  React.useEffect(() => {
-    const handler = (e) => {
-      if (e.key === MONTAGEM_LS_KEY || e.key === null) {
-        setConcluidas(loadConcluidasLocal());
-      }
-    };
-    window.addEventListener('storage', handler);
-    const interval = setInterval(() => {
-      const fresh = loadConcluidasLocal();
-      setConcluidas(prev => {
-        const pks = Object.keys(prev || {});
-        const fks = Object.keys(fresh || {});
-        if (pks.length !== fks.length || pks.some(k => !fresh[k])) return fresh;
-        return prev;
-      });
-    }, 3000);
-    return () => { window.removeEventListener('storage', handler); clearInterval(interval); };
-  }, []);
+  React.useEffect(() => subscribeLocalKeys([MONTAGEM_LS_KEY], (_key, origem) => {
+    const fresh = loadConcluidasLocal();
+    if (origem !== 'fallback') { setConcluidas(fresh); return; }
+    setConcluidas(prev => {
+      const pks = Object.keys(prev || {});
+      const fks = Object.keys(fresh || {});
+      if (pks.length !== fks.length || pks.some(k => !fresh[k])) return fresh;
+      return prev;
+    });
+  }), []);
 
   // setConcluida aceita: (pecaId, true|false) [legado: tudo/nada]
   //                ou: (pecaId, N, qtdTotal)  [parcial: N de qtdTotal]
