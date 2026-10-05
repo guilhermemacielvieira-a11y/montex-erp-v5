@@ -216,9 +216,8 @@ const navigationCategories = [
     color: 'text-purple-400',
     activeColor: 'bg-purple-500/15 border-purple-500/40',
     items: [
-      { name: 'BI Estratégico', href: 'BIEstrategico', icon: Globe, badge: 'C-LEVEL', badgeColor: 'bg-purple-500/20 text-purple-400' },
-      { name: 'BI Tático', href: 'BITatico', icon: TrendingUp, badge: 'MGR', badgeColor: 'bg-indigo-500/20 text-indigo-400' },
-      { name: 'BI Operacional', href: 'BIOperacional', icon: Activity, badge: 'LIVE', badgeColor: 'bg-violet-500/20 text-violet-400' },
+      { name: 'BI 360', href: 'BI360', icon: Globe, badge: '360', badgeColor: 'bg-purple-500/20 text-purple-400' },
+      { name: 'Radar de Alertas', href: 'RadarAlertas', icon: Activity, badge: 'LIVE', badgeColor: 'bg-rose-500/20 text-rose-300' },
     ]
   },
   {

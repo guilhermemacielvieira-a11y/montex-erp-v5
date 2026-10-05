@@ -169,7 +169,7 @@ export default function RadarAlertasPage() {
               Escopo: {rotuloEscopo(escopoObra, obras)}
             </span>
             <span className="text-slate-400">
-              {atualizadoEm ? `Atualizado às ${atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Carregando dados…'}
+              {atualizadoEm ? `Atualizado às ${atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : carregando ? 'Carregando dados…' : 'Histórico indisponível'}
             </span>
             <span className="text-slate-400">· {totalAbertos} aberto(s){totalReincidentes ? ` · ${totalReincidentes} reincidente(s)` : ''}</span>
           </div>

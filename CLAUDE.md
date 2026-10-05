@@ -17,6 +17,7 @@ ERP de gestão para o **Grupo MONTEX** (fabricação de estruturas metálicas em
 - **Financeiro:** GestaoFinanceiraObra (GFO), DespesasPage, ReceitasPage, PainelFinanceiroGlobal
 - **Visualização:** MontexERP3DPage (IFC integrado ao ERP)
 - **Dashboards:** VisaoGeralPage (HUD sci-fi), DashboardPremium (BI), CommandCenterUltrawide (NEXUS), CommandCenterUltra (OMEGA)
+- **BI:** `BI360` (abas Executivo/Obras/Produção/Financeiro/Suprimentos) + `RadarAlertas` — motor puro em `src/services/bi/` (testado), dados via `useBIData` (escopo do topo, `producao_historico` paginado). ZERO dado fictício. BI Estratégico/Tático/Operacional antigos redirecionam para o BI 360.
 
 ---
 

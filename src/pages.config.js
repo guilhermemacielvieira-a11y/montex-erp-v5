@@ -83,9 +83,13 @@ const EnviosExpedicaoPage = lazy(() => import('./pages/EnviosExpedicaoPage'));
 
 // ===== BI & ANALYTICS =====
 const DashboardBI = lazy(() => import('./pages/DashboardBI'));
-const BIOperacional = lazy(() => import('./pages/BIOperacional'));
-const BITatico = lazy(() => import('./pages/BITatico'));
-const BIEstrategico = lazy(() => import('./pages/BIEstrategico'));
+// BI 360 substitui BI Estratégico/Tático/Operacional (dados fictícios); as URLs
+// antigas redirecionam para a aba correspondente.
+const BI360Page = lazy(() => import('./pages/BI360Page'));
+const RadarAlertasPage = lazy(() => import('./pages/RadarAlertasPage'));
+const RedirectBIEstrategico = () => createElement(Navigate, { to: '/BI360?aba=executivo', replace: true });
+const RedirectBITatico = () => createElement(Navigate, { to: '/BI360?aba=obras', replace: true });
+const RedirectBIOperacional = () => createElement(Navigate, { to: '/BI360?aba=producao', replace: true });
 const CommandCenterUltrawide = lazy(() => import('./pages/CommandCenterUltrawide'));
 const CommandCenterUltra = lazy(() => import('./pages/CommandCenterUltra'));
 
@@ -180,9 +184,11 @@ export const PAGES = {
 
     // BI & Analytics
     "DashboardBI": DashboardBI,
-    "BIOperacional": BIOperacional,
-    "BITatico": BITatico,
-    "BIEstrategico": BIEstrategico,
+    "BI360": BI360Page,
+    "RadarAlertas": RadarAlertasPage,
+    "BIOperacional": RedirectBIOperacional, // redirect → BI 360 (Produção)
+    "BITatico": RedirectBITatico,           // redirect → BI 360 (Obras)
+    "BIEstrategico": RedirectBIEstrategico, // redirect → BI 360 (Executivo)
     "CommandCenterUltrawide": CommandCenterUltrawide,
     "CommandCenterUltra": CommandCenterUltra,
 
