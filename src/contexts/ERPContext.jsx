@@ -71,6 +71,8 @@ import {
   checkConnection
 } from '@/api/supabaseClient';
 import { matchEstoqueItem, montarNovoItemEstoque } from '@/services/abastecimento';
+import { validarTransicao } from '@/services/fluxoEtapas';
+import { moverEtapa as moverEtapaRpc, movimentarEstoque } from '@/api/producaoRpc';
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -432,42 +434,68 @@ export function ERPProvider({ children }) {
   }, [dataSource]);
 
   // ===== AÇÕES - ESTOQUE =====
-  const consumirEstoque = useCallback(async (itemId, quantidade, obraId) => {
-    dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade, obraId } });
+  // Saldo de estoque: delta ATÔMICO no banco via RPC `movimentar_estoque`
+  // (UPDATE quantidade = quantidade + delta com lock + movimentação na mesma
+  // transação). Antes era read-modify-write absoluto com o saldo da TELA →
+  // duas saídas simultâneas perdiam uma (lost update). Em erro, desfaz o
+  // otimista e relança. Saída que deixaria saldo negativo é rejeitada no banco.
+  const aplicarSaldoServidor = useCallback((itemId, res) => {
+    if (res?.item) {
+      dispatch({ type: ACTIONS.UPDATE_ESTOQUE, payload: { id: itemId, data: { quantidade: Number(res.item.quantidade) || 0, pesoKg: res.item.peso_kg } } });
+    }
+  }, []);
+
+  const consumirEstoque = useCallback(async (itemId, quantidade, obraId, opts = {}) => {
+    const qtd = Math.abs(Number(quantidade) || 0);
+    if (!qtd) return null;
+    dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade: qtd, obraId } });
     if (dataSource === 'supabase') {
       try {
-        const item = state.estoque.find(e => e.id === itemId);
-        if (item) {
-          await estoqueApi.update(itemId, {
-            quantidade: (item.quantidade || 0) - quantidade,
-            reservado: Math.max(0, (item.reservado || 0) - quantidade)
-          });
-          console.log(`✅ Estoque ${itemId} consumido no Supabase`);
-        }
+        const res = await movimentarEstoque(itemId, -qtd, {
+          tipo: 'saida',
+          origem: opts.origem || 'manual',
+          motivo: opts.motivo || 'Saída de estoque',
+          responsavel: opts.responsavel,
+          obraId,
+          ref: opts.ref,
+        });
+        aplicarSaldoServidor(itemId, res);
+        console.log(`✅ Estoque ${itemId} consumido no Supabase (saldo ${res?.saldo_novo})`);
+        return res;
       } catch (err) {
+        dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade: qtd } }); // rollback
         console.error('❌ Erro ao consumir estoque no Supabase:', err.message);
         throw err;
       }
     }
-  }, [dataSource, state.estoque]);
+    return null;
+  }, [dataSource, aplicarSaldoServidor]);
 
-  const adicionarEstoque = useCallback(async (itemId, quantidade, compraId) => {
-    dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade, compraId } });
+  const adicionarEstoque = useCallback(async (itemId, quantidade, compraId, opts = {}) => {
+    const qtd = Math.abs(Number(quantidade) || 0);
+    if (!qtd) return null;
+    dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade: qtd, compraId } });
     if (dataSource === 'supabase') {
       try {
-        const item = state.estoque.find(e => e.id === itemId);
-        if (item) {
-          await estoqueApi.update(itemId, {
-            quantidade: (item.quantidade || 0) + quantidade
-          });
-          console.log(`✅ Estoque ${itemId} adicionado no Supabase`);
-        }
+        const res = await movimentarEstoque(itemId, qtd, {
+          tipo: 'entrada',
+          origem: opts.origem || (compraId ? 'compra' : 'manual'),
+          motivo: opts.motivo || (compraId ? `Entrada compra ${compraId}` : 'Entrada de estoque'),
+          responsavel: opts.responsavel,
+          ref: compraId || opts.ref,
+          contaComprado: opts.contaComprado ?? !!compraId,
+        });
+        aplicarSaldoServidor(itemId, res);
+        console.log(`✅ Estoque ${itemId} adicionado no Supabase (saldo ${res?.saldo_novo})`);
+        return res;
       } catch (err) {
+        dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade: qtd } }); // rollback
         console.error('❌ Erro ao adicionar estoque no Supabase:', err.message);
         throw err;
       }
     }
-  }, [dataSource, state.estoque]);
+    return null;
+  }, [dataSource, aplicarSaldoServidor]);
 
   const reservarEstoque = useCallback(async (itemId, quantidade, obraId) => {
     dispatch({ type: ACTIONS.RESERVAR_ESTOQUE, payload: { itemId, quantidade, obraId } });
@@ -489,46 +517,48 @@ export function ERPProvider({ children }) {
   }, [dataSource, state.estoque]);
 
   // ===== AÇÕES - PRODUÇÃO =====
-  const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId) => {
+  // Move a peça INTEIRA de etapa. Persistência ATÔMICA via RPC `mover_etapa`
+  // (valida o fluxo no banco: 1 etapa por vez; voltar só com opts.force;
+  // enviado/entregue só via Expedição). Otimista com ROLLBACK: se o banco
+  // rejeitar, a peça volta ao estado anterior, mostra toast.error e relança.
+  // opts: { force, etapaFuncionario, data, silencioso }
+  const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId, opts = {}) => {
+    const anterior = state.pecas.find(p => p.id === pecaId) || null;
+    if (anterior) {
+      const check = validarTransicao(anterior.etapa, novaEtapa, { force: !!opts.force });
+      if (!check.ok) {
+        if (!opts.silencioso) toast.error(check.motivo);
+        const e = new Error(check.motivo);
+        e.code = 'TRANSICAO_INVALIDA';
+        throw e;
+      }
+    }
+
     dispatch({ type: ACTIONS.MOVER_PECA_ETAPA, payload: { pecaId, novaEtapa, funcionarioId } });
 
-    // Persistir no Supabase
     if (dataSource === 'supabase') {
       try {
-        const updateData = { etapa: novaEtapa };
-        const agora = new Date().toISOString();
-        // Mapear etapa final para status
-        if (novaEtapa === 'expedido') {
-          updateData.status = 'concluido';
-          updateData.data_fim_real = agora;
-        } else if (novaEtapa !== 'aguardando') {
-          updateData.status = 'em_producao';
-          // Registrar data de início na primeira vez que entra em produção
-          const pecaAtual = state.pecas.find(p => p.id === pecaId);
-          if (pecaAtual && !pecaAtual.dataInicio) {
-            updateData.data_inicio = agora;
-          }
+        const res = await moverEtapaRpc(pecaId, novaEtapa, {
+          funcionario: funcionarioId,
+          force: !!opts.force,
+          etapaFuncionario: opts.etapaFuncionario,
+          data: opts.data,
+        });
+        // Reconcilia com a linha devolvida pelo banco (fonte de verdade)
+        if (res?.peca) {
+          const [fresca] = transformPecaArray([res.peca]);
+          if (fresca) dispatch({ type: ACTIONS.UPDATE_PECA, payload: { id: pecaId, data: fresca } });
         }
-        if (funcionarioId) {
-          updateData.responsavel = funcionarioId;
-          // Registrar funcionário responsável por etapa específica
-          if (novaEtapa === 'fabricacao') {
-            updateData.funcionario_fabricacao = funcionarioId;
-          } else if (novaEtapa === 'solda') {
-            updateData.funcionario_solda = funcionarioId;
-          } else if (novaEtapa === 'pintura') {
-            updateData.funcionario_pintura = funcionarioId;
-          } else if (novaEtapa === 'expedido') {
-            updateData.funcionario_expedido = funcionarioId;
-          }
-        }
-
-        // Filtrar apenas campos validos antes de enviar ao Supabase
-        const safeData = pecaToSupabase({ id: pecaId, ...updateData });
-        await pecasApi.update(pecaId, safeData);
         console.log(`✅ Peça ${pecaId} → ${novaEtapa} (func: ${funcionarioId || 'N/A'}) salva no Supabase`);
       } catch (err) {
+        // Offline: mantém o otimista (o chamador enfileira p/ sincronizar).
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) throw err;
+        // ROLLBACK do otimista
+        if (anterior) {
+          dispatch({ type: 'RESTORE_PECA', payload: anterior });
+        }
         console.error('❌ Erro ao salvar etapa no Supabase:', err.message);
+        if (!opts.silencioso) toast.error(`Não foi possível mover a peça: ${err.message}`);
         throw err;
       }
     }
@@ -1039,22 +1069,36 @@ export function ERPProvider({ children }) {
           let itemId = item.item_id || item.itemId || null;
           const est = (itemId ? estoqueAtual.find((e) => e.id === itemId) : null)
             || (perfil ? matchEstoqueItem(estoqueAtual, perfil) : null);
-          let saldoAnterior = null, saldoNovo = null;
+          const nf = compra?.notaFiscal || compra?.documentoOrigem || null;
+          const motivo = `Recebimento compra ${compraId} — ${item.descricao || material || ''}`.trim();
           if (est) {
-            saldoAnterior = Number(est.quantidade) || 0;
-            saldoNovo = saldoAnterior + qtd;
-            itemId = est.id;
-            // Recebimento = material chegou: sobe saldo E `comprado` (o que os KPIs
-            // leem como chegou/entregue), recalculando `falta` (pedido − comprado).
-            const novoComprado = (Number(est.comprado) || 0) + qtd;
-            await estoqueApi.update(est.id, {
-              quantidade: saldoNovo,
-              comprado: Math.round(novoComprado * 100) / 100,
-              falta: Math.max(0, Math.round(((Number(est.pedido) || 0) - novoComprado) * 100) / 100),
-              ultima_entrada: hoje,
-              updated_at: now,
-            }).catch((e) => console.error('⚠️ Falha ao atualizar saldo do estoque:', e.message));
-          } else if (perfil || material) {
+            if (!(qtd > 0)) continue;
+            // Item existente: delta ATÔMICO (saldo + comprado/falta + movimentação
+            // na MESMA transação) — sem read-modify-write do saldo da tela.
+            try {
+              await movimentarEstoque(est.id, qtd, {
+                tipo: 'entrada',
+                origem: 'compra',
+                setor: 'suprimentos',
+                motivo,
+                notaFiscal: nf,
+                custoUnitario: custo,
+                obraId: compra?.obraId || null,
+                contaComprado: true,
+                materialPerfil: perfil || undefined,
+                material: material || undefined,
+                peso: item.peso || qtd,
+              });
+              est.quantidade = (Number(est.quantidade) || 0) + qtd; // p/ próximos itens do lote
+            } catch (e) {
+              console.error('⚠️ Falha ao dar entrada no estoque:', e.message);
+              toast.error(`Entrada de ${item.descricao || perfil || 'item'} no estoque falhou: ${e.message}`);
+            }
+            continue;
+          }
+
+          let saldoAnterior = null, saldoNovo = null;
+          if (perfil || material) {
             // Perfil NOVO (sem item no estoque): cria o item de fábrica para o
             // material recebido aparecer no saldo. Best-effort.
             const novoItem = montarNovoItemEstoque(item, compra, { hoje, nowISO: now });
@@ -1082,8 +1126,8 @@ export function ERPProvider({ children }) {
             material_perfil: perfil || null,
             material,
             custo_unitario: custo || null,
-            motivo: `Recebimento compra ${compraId} — ${item.descricao || material || ''}`.trim(),
-            nota_fiscal: compra?.notaFiscal || compra?.documentoOrigem || null,
+            motivo,
+            nota_fiscal: nf,
             obra_id: compra?.obraId || null,
             setor: 'suprimentos',
             origem: 'compra',

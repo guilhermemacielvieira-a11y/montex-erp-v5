@@ -24,20 +24,30 @@ export function producaoReducer(state, action) {
 
     case ACTIONS.MOVER_PECA_ETAPA: {
       const { pecaId, novaEtapa, funcionarioId } = action.payload;
+      if (!novaEtapa) return state;
       const now = new Date().toISOString();
+      const sufixo = novaEtapa.charAt(0).toUpperCase() + novaEtapa.slice(1);
 
       return {
         ...state,
-        pecas: state.pecas.map(p =>
-          p.id === pecaId
-            ? {
-                ...p,
-                etapa: novaEtapa,
-                [`data${novaEtapa.charAt(0).toUpperCase() + novaEtapa.slice(1)}`]: now,
-                [`funcionario${novaEtapa.charAt(0).toUpperCase() + novaEtapa.slice(1)}`]: funcionarioId
-              }
-            : p
-        )
+        pecas: state.pecas.map(p => {
+          if (p.id !== pecaId) return p;
+          const next = { ...p, etapa: novaEtapa, [`data${sufixo}`]: now };
+          // Só sobrescreve o funcionário da etapa quando informado (antes
+          // gravava `undefined` e apagava o responsável já registrado).
+          if (funcionarioId) next[`funcionario${sufixo}`] = funcionarioId;
+          return next;
+        })
+      };
+    }
+
+    // Restaura a peça inteira (rollback de atualização otimista que falhou no banco)
+    case 'RESTORE_PECA': {
+      const peca = action.payload;
+      if (!peca?.id) return state;
+      return {
+        ...state,
+        pecas: state.pecas.map(p => (p.id === peca.id ? peca : p))
       };
     }
 

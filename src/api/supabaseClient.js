@@ -184,11 +184,15 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
       let offset = 0;
       // Loop de segurança: máximo 50 páginas (= 50k linhas)
       for (let i = 0; i < 50; i++) {
-        const { data, error } = await client
+        // Desempate ESTÁVEL por id: sem ele, linhas com o mesmo valor de
+        // `orderBy` (ex.: mesma data/marca) podem trocar de posição entre
+        // requests e ser puladas/duplicadas na fronteira das páginas.
+        let query = client
           .from(tableName)
           .select('*')
-          .order(orderBy, { ascending })
-          .range(offset, offset + PAGE_SIZE - 1);
+          .order(orderBy, { ascending });
+        if (orderBy !== 'id') query = query.order('id', { ascending: true });
+        const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
         allData.push(...data);
@@ -218,6 +222,7 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
           .from(tableName)
           .select('*')
           .eq(field, value)
+          .order('id', { ascending: true }) // ordem estável p/ paginar sem pular/duplicar
           .range(offset, offset + PAGE_SIZE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
