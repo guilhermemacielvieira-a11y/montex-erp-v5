@@ -197,7 +197,7 @@ const navigationCategories = [
     activeColor: 'bg-emerald-500/15 border-emerald-500/40',
     items: [
       { name: 'Gestão Financeira Obra', href: 'GestaoFinanceiraObra', icon: DollarSign, badge: 'DRE', badgeColor: 'bg-emerald-500/20 text-emerald-400' },
-      { name: 'Painel Financeiro', href: 'FinanceiroPage', icon: DollarSign },
+      { name: 'Financeiro da Obra', href: 'FinanceiroPage', icon: DollarSign },
       { name: 'Receitas', href: 'ReceitasPage', icon: Wallet },
       { name: 'Despesas', href: 'DespesasPage', icon: Receipt },
       { name: 'Metas Financeiras', href: 'MetasFinanceirasPage', icon: Flag },

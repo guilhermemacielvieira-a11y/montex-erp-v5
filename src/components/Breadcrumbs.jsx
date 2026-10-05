@@ -19,7 +19,7 @@ const ROUTE_MAP = {
   '/ProducaoFuncionarioPage': { label: 'Produção por Funcionário', parent: '/ProducaoPage' },
   '/EstoquePageV2': { label: 'Estoque', parent: '/' },
   '/ComprasPage': { label: 'Compras', parent: '/EstoquePageV2' },
-  '/FinanceiroPage': { label: 'Financeiro', parent: '/' },
+  '/FinanceiroPage': { label: 'Financeiro da Obra', parent: '/' },
   '/DespesasPage': { label: 'Despesas', parent: '/FinanceiroPage' },
   '/ReceitasPage': { label: 'Receitas', parent: '/FinanceiroPage' },
   '/MetasFinanceirasPage': { label: 'Metas Financeiras', parent: '/FinanceiroPage' },

@@ -1,13 +1,16 @@
-// MONTEX ERP Premium - Painel Financeiro Geral
-// Consolida: Despesas Gerais (lancamentos sem obra) + Receitas (medições de obras)
-// Financeiro Fábrica - Visão unificada da saúde financeira da empresa
+// MONTEX ERP Premium - Financeiro da Obra (Receita × Despesa)
+// Analisa SOMENTE a obra selecionada: medições + receitas manuais vinculadas
+// à obra × despesas lançadas na obra (lancamentos_despesas.obra_id).
+//
+// PREMISSA (CLAUDE.md, "1b. Premissas do financeiro"): esta tela NÃO é o caixa
+// da empresa e NÃO se mistura com o Painel Financeiro Global. Ela não lê nem
+// grava lançamentos do Painel Global; despesas sem obra (fábrica) não entram.
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
   DollarSign,
   TrendingUp,
   Plus,
-  Wallet,
   Receipt,
   ArrowUpRight,
   ArrowDownRight,
@@ -34,6 +37,7 @@ import {
   Cell,
   Legend,
 } from 'recharts';
+import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -71,26 +75,16 @@ import {
 
 // ERPContext
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
-import { deleteReceitaManual, useReceitasManuais } from '../utils/receitasSync';
+import {
+  atualizarReceitaManual, criarReceitasManuais, deleteReceitaManual, useReceitasManuais,
+} from '../utils/receitasSync';
+import {
+  despesaCancelada, despesaPaga, medicaoRecebida, medicaoReconhecida,
+  normalizeStatusReceita, receitaCancelada, receitaRecebida,
+} from '../utils/financeiroStatus';
+import { formatCurrency, formatDate, hojeLocalISO, parseLocalDate } from '../utils/financeiroCalc';
 
 // ========== HELPERS ==========
-const formatCurrency = (value) => {
-  return new Intl.NumberFormat('pt-BR', {
-    style: 'currency',
-    currency: 'BRL',
-    minimumFractionDigits: 0
-  }).format(value || 0);
-};
-
-const formatDate = (date) => {
-  if (!date || date === '-') return '-';
-  try {
-    return new Date(date).toLocaleDateString('pt-BR');
-  } catch {
-    return '-';
-  }
-};
-
 const ETAPA_LABELS = {
   fabricacao: 'Fabricação',
   montagem: 'Montagem',
@@ -112,60 +106,57 @@ const CORES_CATEGORIAS = {
   'Outros': '#64748b',
 };
 
+const obraDe = (x) => x?.obraId || x?.obra_id || null;
+const tempo = (d) => parseLocalDate(d)?.getTime() || 0;
+
+// Vencido e ainda não quitado → atrasado (datas locais)
+const vencido = (dataVenc) => {
+  const d = parseLocalDate(dataVenc && dataVenc !== '-' ? dataVenc : null);
+  if (!d || isNaN(d.getTime())) return false;
+  const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+  return d < hoje;
+};
+
 export default function FinanceiroPage() {
   // ===== DADOS DO SUPABASE =====
   const { lancamentosDespesas, addLancamento, updateLancamento, deleteLancamento } = useLancamentos();
   const { medicoes: todasMedicoes } = useMedicoes();
-  const { obras } = useObras();
+  const { obras, obraAtual } = useObras();
 
   // ===== ESTADOS =====
-  const [activeTab, setActiveTab] = useState('geral');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [filtroObra, setFiltroObra] = useState('geral'); // 'geral' | 'fabrica' | obraId
+  const [obraSelecionada, setObraSelecionada] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
-  const [receitasTick, setReceitasTick] = useState(0);
   const [formData, setFormData] = useState({
     tipo: 'despesa', descricao: '', valor: '', categoria: '',
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente',
     parcelas: 1, intervaloDias: 30,
   });
 
-  // ===== MAPA DE OBRAS =====
-  const obrasMap = useMemo(() => {
-    const map = {};
-    (obras || []).forEach(o => { map[o.id] = o.nome || o.name || o.id; });
-    return map;
-  }, [obras]);
+  // Obra analisada: escolha do usuário > obra atual do ERP > primeira obra
+  const filtroObra = useMemo(() => {
+    const ids = new Set((obras || []).map(o => o.id));
+    if (obraSelecionada && ids.has(obraSelecionada)) return obraSelecionada;
+    if (obraAtual && ids.has(obraAtual)) return obraAtual;
+    return obras?.[0]?.id || null;
+  }, [obras, obraAtual, obraSelecionada]);
 
-  // 🔧 Helper auto-detecção de Atrasado (parse local p/ evitar timezone)
-  const computeStatusEfetivo = (statusBruto, dataVenc, tipo) => {
-    const isPago = tipo === 'receita'
-      ? ['recebido','pago','paga','faturado','confirmado'].includes(statusBruto)
-      : statusBruto === 'pago';
-    if (isPago) return statusBruto;
-    if (!dataVenc || dataVenc === '-') return statusBruto || 'pendente';
-    try {
-      const m = String(dataVenc).match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const d = m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(dataVenc);
-      d.setHours(0,0,0,0);
-      const hoje = new Date(); hoje.setHours(0,0,0,0);
-      if (d < hoje) return 'atrasado';
-    } catch {}
-    return statusBruto || 'pendente';
-  };
+  const obraInfo = useMemo(() => (obras || []).find(o => o.id === filtroObra) || null, [obras, filtroObra]);
+  const obraNome = obraInfo?.nome || obraInfo?.name || filtroObra || '-';
+  const contratoValor = Number(obraInfo?.contratoValorTotal ?? obraInfo?.contrato_valor_total ?? obraInfo?.valorContrato ?? 0) || 0;
 
-  // ===== DESPESAS GERAIS (sem obraId = Financeiro Fábrica) =====
-  const despesasGerais = useMemo(() => {
-    if (!lancamentosDespesas || lancamentosDespesas.length === 0) return [];
-    return lancamentosDespesas
-      .filter(l => !l.obraId && !l.obra_id)
+  // ===== DESPESAS DA OBRA (lancamentos_despesas com obra_id = obra) =====
+  const despesasObra = useMemo(() => {
+    if (!filtroObra) return [];
+    return (lancamentosDespesas || [])
+      .filter(l => obraDe(l) === filtroObra && !despesaCancelada(l.status))
       .map(l => {
         const venc = l.dataVencimento || l.vencimento || '-';
-        const statusBruto = l.status || 'pendente';
+        const pago = despesaPaga(l.status);
         return {
           id: l.id,
           tipo: 'despesa',
@@ -173,77 +164,61 @@ export default function FinanceiroPage() {
           descricao: l.descricao || l.nome || '-',
           fornecedor: l.fornecedor || '-',
           categoria: l.categoria || 'Outros',
-          valor: l.valor || 0,
-          status: statusBruto,
-          statusEfetivo: computeStatusEfetivo(statusBruto, venc, 'despesa'),
+          valor: Number(l.valor) || 0,
+          status: l.status || 'pendente',
+          quitado: pago,
+          atrasado: !pago && vencido(venc),
           formaPagto: l.formaPagto || '-',
           vencimento: venc,
-          origem: 'Despesa Fábrica',
-          origemObra: false,
+          origem: 'despesa',
         };
       });
-  }, [lancamentosDespesas]);
+  }, [lancamentosDespesas, filtroObra]);
 
-  // ===== RECEITAS: MEDIÇÕES (Supabase) + MANUAIS (localStorage) + OVERRIDES =====
-  const RECEITAS_STORAGE_KEY = 'montex_receitas_gerais';
-  const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
-
-  // Receitas de medições (Supabase) com overrides do ReceitasPage
+  // ===== RECEITAS DA OBRA: MEDIÇÕES =====
+  // Reconhecida (aprovada/faturada/paga) conta como receita; prevista/em
+  // análise aparece na lista mas fica fora dos totais; rejeitada some.
+  // 'faturado' NÃO é recebido (nota emitida ≠ dinheiro em caixa).
   const receitasMedicoes = useMemo(() => {
-    if (!todasMedicoes || todasMedicoes.length === 0) return [];
-    // Carregar overrides de edições feitas no ReceitasPage
-    let overrides = {};
-    try { overrides = JSON.parse(localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '{}'); } catch (e) {}
+    if (!filtroObra) return [];
+    return (todasMedicoes || [])
+      .filter(m => obraDe(m) === filtroObra && !receitaCancelada(m.status))
+      .map(m => {
+        const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
+        const venc = m.dataVencimento || m.data_vencimento || m.dataMedicao || m.data_medicao || '-';
+        const recebido = medicaoRecebida(m.status);
+        const prevista = !medicaoReconhecida(m.status);
+        return {
+          id: m.id,
+          tipo: 'receita',
+          data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
+          descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
+          fornecedor: obraNome,
+          categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
+          valor: Number(m.valorBruto ?? m.valor_bruto ?? 0) || 0,
+          status: m.status || 'aguardando',
+          quitado: recebido,
+          prevista,
+          atrasado: !recebido && !prevista && vencido(venc),
+          formaPagto: '-',
+          vencimento: venc,
+          numero: m.numero,
+          etapaLabel,
+          origem: 'medicao',
+        };
+      });
+  }, [todasMedicoes, filtroObra, obraNome]);
 
-    return todasMedicoes.map(m => {
-      const obraId = m.obraId || m.obra_id;
-      const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
-      const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
-      const baseReceita = {
-        id: m.id,
-        tipo: 'receita',
-        data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
-        descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
-        fornecedor: obraNome,
-        categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
-        valor: m.valorBruto || m.valor_bruto || 0,
-        valorLiquido: m.valorLiquido || m.valor_liquido || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
-        formaPagto: '-',
-        vencimento: m.dataMedicao || m.data_medicao || '-',
-        numero: m.numero,
-        etapa: m.etapa,
-        etapaLabel,
-        origem: `Obra: ${obraNome}`,
-        origemObra: true,
-        obraId,
-        obraNome,
-      };
-      // Aplicar overrides do ReceitasPage (edições locais)
-      if (overrides[m.id]) {
-        const ov = overrides[m.id];
-        if (ov.descricao) baseReceita.descricao = ov.descricao;
-        if (ov.valor !== undefined) baseReceita.valor = ov.valor;
-        if (ov.status) baseReceita.status = ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(ov.status) ? 'recebido' : ov.status;
-        if (ov.categoria) baseReceita.categoria = ov.categoria;
-        if (ov.cliente) baseReceita.fornecedor = ov.cliente;
-        if (ov.vencimento) baseReceita.vencimento = ov.vencimento;
-        if (ov.formaPagto && ov.formaPagto !== '-') baseReceita.formaPagto = ov.formaPagto;
-      }
-      // ✨ Auto-detecção: recebível vencido vira atrasado
-      baseReceita.statusEfetivo = computeStatusEfetivo(baseReceita.status, baseReceita.vencimento, 'receita');
-      return baseReceita;
-    });
-  }, [todasMedicoes, obrasMap]);
-
-  // Receitas manuais (tabela receitas_manuais — cadastradas no ReceitasPage)
+  // ===== RECEITAS DA OBRA: MANUAIS (receitas_manuais.obra_id = obra) =====
   const { receitas: receitasManuaisFonte } = useReceitasManuais();
   const receitasManuais = useMemo(() => {
-    try {
-      return (receitasManuaisFonte || []).filter(r => r.status !== 'cancelado').map(r => {
-        // 'faturado' NÃO é recebido (nota emitida ≠ dinheiro em caixa)
-        const statusBruto = r.status === 'recebido' ? 'recebido' : 'pendente';
+    if (!filtroObra) return [];
+    return (receitasManuaisFonte || [])
+      .filter(r => obraDe(r) === filtroObra && !receitaCancelada(r.status))
+      .map(r => {
         const venc = r.vencimento || '-';
+        const status = normalizeStatusReceita(r.status);
+        const recebido = receitaRecebida(status);
         return {
           id: r.id,
           tipo: 'receita',
@@ -251,86 +226,63 @@ export default function FinanceiroPage() {
           descricao: r.descricao || '-',
           fornecedor: r.cliente || '-',
           categoria: r.categoria || 'Outros',
-          valor: r.valor || 0,
-          status: statusBruto,
-          statusEfetivo: computeStatusEfetivo(statusBruto, venc, 'receita'),
+          valor: Number(r.valor) || 0,
+          status,
+          quitado: recebido,
+          // 'aberto' ainda não é receita reconhecida; faturado/recebido sim
+          prevista: status === 'aberto',
+          atrasado: !recebido && vencido(venc),
           formaPagto: r.formaPagto || '-',
           vencimento: venc,
-          origem: 'Receita Manual',
-          origemObra: false,
+          origem: 'receita_manual',
         };
       });
-    } catch (e) {
-      return [];
-    }
-  }, [receitasTick, receitasManuaisFonte]);
+  }, [receitasManuaisFonte, filtroObra]);
 
+  // ===== MOVIMENTAÇÕES DA OBRA =====
+  const todasMovimentacoes = useMemo(() => (
+    [...despesasObra, ...receitasMedicoes, ...receitasManuais]
+      .sort((a, b) => tempo(b.data) - tempo(a.data))
+  ), [despesasObra, receitasMedicoes, receitasManuais]);
 
-  // ===== OPÇÕES DE OBRAS PARA O SELETOR =====
-  const opcoesObra = useMemo(() => {
-    const opcoes = [
-      { value: 'geral', label: 'Visão Geral (Todas)' },
-      { value: 'fabrica', label: 'Financeiro Fábrica (Despesas)' },
-    ];
-    (obras || []).forEach(o => {
-      opcoes.push({ value: o.id, label: o.nome || o.name || o.id });
-    });
-    return opcoes;
-  }, [obras]);
-
-  // ===== TODAS AS MOVIMENTAÇÕES CONSOLIDADAS (com filtro de obra) =====
-  const todasMovimentacoes = useMemo(() => {
-    let despesas = despesasGerais;
-    let receitas = [...receitasMedicoes, ...receitasManuais];
-
-    if (filtroObra === 'fabrica') {
-      // Somente despesas da fábrica + receitas manuais (sem obraId)
-      receitas = receitasManuais;
-    } else if (filtroObra !== 'geral') {
-      // Filtra por obra específica
-      despesas = []; // Despesas gerais não pertencem a nenhuma obra
-      receitas = receitasMedicoes.filter(r => r.obraId === filtroObra);
-    }
-    // 'geral' mostra tudo (medições + manuais)
-
-    return [...despesas, ...receitas]
-      .sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
-  }, [despesasGerais, receitasMedicoes, receitasManuais, filtroObra]);
-
-  // ===== FILTRO DE PERÍODO =====
+  // ===== FILTRO DE PERÍODO (datas locais) =====
   const filtrarPorPeriodo = useCallback((lista) => {
     if (filtroPeriodo === 'geral') return lista;
-    const hoje = new Date();
-    const inicio = new Date();
-    if (filtroPeriodo === 'semanal') inicio.setDate(hoje.getDate() - 7);
-    else if (filtroPeriodo === 'mensal') inicio.setMonth(hoje.getMonth() - 1);
-    else if (filtroPeriodo === 'trimestral') inicio.setMonth(hoje.getMonth() - 3);
+    const hoje = new Date(); hoje.setHours(23, 59, 59, 999);
+    const inicio = new Date(); inicio.setHours(0, 0, 0, 0);
+    if (filtroPeriodo === 'semanal') inicio.setDate(inicio.getDate() - 7);
+    else if (filtroPeriodo === 'mensal') inicio.setMonth(inicio.getMonth() - 1);
+    else if (filtroPeriodo === 'trimestral') inicio.setMonth(inicio.getMonth() - 3);
     return lista.filter(m => {
-      const d = new Date(m.data || m.vencimento);
-      return d >= inicio && d <= hoje;
+      const d = parseLocalDate(m.data || (m.vencimento !== '-' ? m.vencimento : null));
+      return d && d >= inicio && d <= hoje;
     });
   }, [filtroPeriodo]);
 
   // ===== DADOS DO PERÍODO =====
   const movimentacoesPeriodo = useMemo(() => filtrarPorPeriodo(todasMovimentacoes), [todasMovimentacoes, filtrarPorPeriodo]);
 
-  // ===== KPIs =====
+  // ===== KPIs (receita reconhecida × despesa da obra) =====
   const kpis = useMemo(() => {
-    const receitas = movimentacoesPeriodo.filter(m => m.tipo === 'receita');
+    const soma = (l) => l.reduce((s, m) => s + (m.valor || 0), 0);
+    const receitas = movimentacoesPeriodo.filter(m => m.tipo === 'receita' && !m.prevista);
+    const previstas = movimentacoesPeriodo.filter(m => m.tipo === 'receita' && m.prevista);
     const despesas = movimentacoesPeriodo.filter(m => m.tipo === 'despesa');
-    const totalReceitas = receitas.reduce((s, m) => s + (m.valor || 0), 0);
-    const totalDespesas = despesas.reduce((s, m) => s + (m.valor || 0), 0);
-    const receitasRecebidas = receitas.filter(m => ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(m.status)).reduce((s, m) => s + (m.valor || 0), 0);
-    const receitasPendentes = receitas.filter(m => m.status === 'pendente' || m.status === 'aprovado').reduce((s, m) => s + (m.valor || 0), 0);
-    const despesasPagas = despesas.filter(m => m.status === 'pago').reduce((s, m) => s + (m.valor || 0), 0);
-    const despesasPendentes = despesas.filter(m => m.status === 'pendente').reduce((s, m) => s + (m.valor || 0), 0);
+    const totalReceitas = soma(receitas);
+    const totalDespesas = soma(despesas);
+    const receitasRecebidas = soma(receitas.filter(m => m.quitado));
+    const receitasPendentes = totalReceitas - receitasRecebidas;
+    const despesasPagas = soma(despesas.filter(m => m.quitado));
+    const despesasPendentes = totalDespesas - despesasPagas;
     const lucro = totalReceitas - totalDespesas;
     const margem = totalReceitas > 0 ? (lucro / totalReceitas * 100) : 0;
     return {
       totalReceitas, totalDespesas, lucro, margem,
       receitasRecebidas, receitasPendentes,
       despesasPagas, despesasPendentes,
-      qtdReceitas: receitas.length, qtdDespesas: despesas.length,
+      saldoCaixaObra: receitasRecebidas - despesasPagas,
+      totalPrevisto: soma(previstas),
+      qtdReceitas: receitas.length + previstas.length, qtdDespesas: despesas.length,
       qtdTotal: movimentacoesPeriodo.length,
     };
   }, [movimentacoesPeriodo]);
@@ -348,12 +300,13 @@ export default function FinanceiroPage() {
     }));
   }, [movimentacoesPeriodo]);
 
-  // Evolução mensal
+  // Evolução mensal (somente receitas reconhecidas × despesas)
   const evolucaoMensal = useMemo(() => {
     const meses = {};
     movimentacoesPeriodo.forEach(m => {
-      const d = new Date(m.data || m.vencimento);
-      if (isNaN(d.getTime())) return;
+      if (m.prevista) return;
+      const d = parseLocalDate(m.data || (m.vencimento !== '-' ? m.vencimento : null));
+      if (!d || isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
       if (!meses[key]) meses[key] = { mes: label, key, receitas: 0, despesas: 0 };
@@ -372,141 +325,162 @@ export default function FinanceiroPage() {
       lista = lista.filter(m =>
         (m.descricao || '').toLowerCase().includes(s) ||
         (m.fornecedor || '').toLowerCase().includes(s) ||
-        (m.origem || '').toLowerCase().includes(s)
+        (m.categoria || '').toLowerCase().includes(s)
       );
     }
     return filtrarPorPeriodo(lista);
   }, [todasMovimentacoes, filtroTipo, searchTerm, filtrarPorPeriodo]);
 
   // ===== HANDLERS =====
+  const formVazio = { tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', parcelas: 1, intervaloDias: 30 };
+
   const handleNova = () => {
     setEditando(null);
-    setFormData({ tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', parcelas: 1, intervaloDias: 30 });
+    setFormData(formVazio);
     setDialogOpen(true);
   };
 
   const handleEditar = (mov) => {
-    if (mov.origemObra) {
-      // Receitas de obra não podem ser editadas aqui
-      return;
-    }
+    // Medições são geridas na Gestão Financeira da Obra
+    if (mov.origem === 'medicao') return;
     setEditando(mov);
+    const quitado = mov.quitado;
     setFormData({
       tipo: mov.tipo || 'despesa',
       descricao: mov.descricao || '',
       valor: String(mov.valor || ''),
       categoria: mov.categoria || '',
-      fornecedor: mov.fornecedor || '',
+      fornecedor: mov.fornecedor && mov.fornecedor !== '-' ? mov.fornecedor : '',
       vencimento: mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : '',
-      formaPagto: mov.formaPagto || '',
-      status: mov.status || 'pendente',
+      formaPagto: mov.formaPagto && mov.formaPagto !== '-' ? mov.formaPagto : '',
+      status: quitado ? 'pago' : (mov.tipo === 'receita' && mov.status === 'faturado' ? 'faturado' : 'pendente'),
+      parcelas: 1, intervaloDias: 30,
     });
     setDialogOpen(true);
   };
 
+  // Status do form → vocabulário de cada tabela (preserva a escolha do usuário)
+  const statusReceitaDoForm = (s) => (s === 'pago' ? 'recebido' : s === 'faturado' ? 'faturado' : 'aberto');
+  const statusDespesaDoForm = (s) => (s === 'pago' ? 'pago' : 'pendente');
+
   const handleSalvar = async () => {
-    if (!formData.descricao || !formData.valor) {
+    if (!filtroObra) { toast.error('Selecione uma obra'); return; }
+    const valorNum = parseFloat(formData.valor);
+    if (!formData.descricao || !(valorNum > 0)) {
+      toast.error('Informe descrição e valor');
       return;
     }
-    if (editando) {
-      try {
-        await updateLancamento(editando.id, {
-          descricao: formData.descricao,
-          fornecedor: formData.fornecedor || '-',
-          categoria: formData.categoria || 'Outros',
-          valor: parseFloat(formData.valor),
-          formaPagto: formData.formaPagto || '-',
-          vencimento: formData.vencimento || '',
-          status: formData.status || 'pendente',
-        });
-      } catch (err) {
-        console.error('Erro ao atualizar:', err);
-      }
-    } else {
-      // Pode ter parcelas/recorrência
-      const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
-      const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
-      const valorNum = parseFloat(formData.valor);
-
-      try {
-        if (qtdParcelas === 1) {
-          await addLancamento({
-            id: `FIN-${Date.now()}`,
-            tipo: formData.tipo || 'despesa',
+    const hoje = hojeLocalISO();
+    const ehReceita = formData.tipo === 'receita';
+    try {
+      if (editando) {
+        if (editando.origem === 'receita_manual') {
+          await atualizarReceitaManual(editando.id, {
+            obraId: filtroObra,
+            descricao: formData.descricao,
+            cliente: formData.fornecedor || null,
+            categoria: formData.categoria || 'Outros',
+            valor: valorNum,
+            formaPagto: formData.formaPagto || null,
+            data: editando.data || hoje,
+            vencimento: formData.vencimento || null,
+            status: statusReceitaDoForm(formData.status),
+          });
+        } else {
+          await updateLancamento(editando.id, {
             descricao: formData.descricao,
             fornecedor: formData.fornecedor || '-',
             categoria: formData.categoria || 'Outros',
             valor: valorNum,
             formaPagto: formData.formaPagto || '-',
-            data: formData.vencimento || new Date().toISOString().split('T')[0],
-            dataEmissao: new Date().toISOString().split('T')[0],
             vencimento: formData.vencimento || '',
-            status: formData.status || 'pendente',
-            obraId: null,
+            status: statusDespesaDoForm(formData.status),
           });
+        }
+        toast.success('Movimentação atualizada');
+      } else {
+        // Parcelas (vencimentos a partir da 1ª parcela, datas locais)
+        const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+        const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+        let vencimentos = [formData.vencimento || ''];
+        if (qtdParcelas > 1) {
+          const base = parseLocalDate(formData.vencimento);
+          if (!base || isNaN(base.getTime())) { toast.error('Defina o vencimento da 1ª parcela'); return; }
+          vencimentos = Array.from({ length: qtdParcelas }, (_, i) => hojeLocalISO(
+            new Date(base.getFullYear(), base.getMonth(), base.getDate() + i * intervalo)
+          ));
+        }
+        const recorrenciaId = qtdParcelas > 1 ? `FIN-REC-${Date.now()}` : null;
+        const sufixo = (i) => (qtdParcelas > 1 ? ` (Parc ${i + 1}/${qtdParcelas})` : '');
+
+        if (ehReceita) {
+          await criarReceitasManuais(vencimentos.map((venc, i) => ({
+            id: `REC-${Date.now()}-${i + 1}-${Math.floor(Math.random() * 9999)}`,
+            obraId: filtroObra,
+            descricao: `${formData.descricao}${sufixo(i)}`,
+            cliente: formData.fornecedor || null,
+            categoria: formData.categoria || 'Outros',
+            valor: valorNum,
+            formaPagto: formData.formaPagto || null,
+            data: venc || hoje,
+            vencimento: venc || null,
+            status: statusReceitaDoForm(formData.status),
+            recorrenciaId,
+          })));
         } else {
-          const baseStr = formData.vencimento;
-          if (!baseStr) {
-            console.error('Defina o vencimento da 1ª parcela');
-            return;
-          }
-          const m = baseStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-          if (!m) return;
-          const baseY = parseInt(m[1]), baseM = parseInt(m[2]) - 1, baseD = parseInt(m[3]);
-          const recorrenciaId = `FIN-REC-${Date.now()}`;
-          for (let i = 0; i < qtdParcelas; i++) {
-            const d = new Date(baseY, baseM, baseD + (i * intervalo));
-            const yyyy = d.getFullYear();
-            const mm = String(d.getMonth() + 1).padStart(2, '0');
-            const dd = String(d.getDate()).padStart(2, '0');
-            const venc = `${yyyy}-${mm}-${dd}`;
+          for (let i = 0; i < vencimentos.length; i++) {
+            const venc = vencimentos[i];
             await addLancamento({
-              id: `FIN-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
-              tipo: formData.tipo || 'despesa',
-              descricao: `${formData.descricao} (Parc ${i + 1}/${qtdParcelas})`,
+              id: `FIN-${Date.now()}-${i + 1}-${Math.floor(Math.random() * 9999)}`,
+              tipo: 'despesa',
+              descricao: `${formData.descricao}${sufixo(i)}`,
               fornecedor: formData.fornecedor || '-',
               categoria: formData.categoria || 'Outros',
               valor: valorNum,
               formaPagto: formData.formaPagto || '-',
-              data: venc,
-              dataEmissao: new Date().toISOString().split('T')[0],
+              data: venc || hoje,
+              dataEmissao: hoje,
               vencimento: venc,
-              status: 'pendente',
-              obraId: null,
-              recorrenciaId,
-              parcelaIdx: i + 1,
-              parcelaTotal: qtdParcelas,
+              status: statusDespesaDoForm(formData.status),
+              obraId: filtroObra,
+              ...(recorrenciaId ? { recorrenciaId, parcelaIdx: i + 1, parcelaTotal: qtdParcelas } : {}),
             });
           }
         }
-      } catch (err) {
-        console.error('Erro ao criar:', err);
+        toast.success(qtdParcelas > 1 ? `${qtdParcelas} parcelas lançadas em ${obraNome}` : `Lançado em ${obraNome}`);
       }
+      setDialogOpen(false);
+      setEditando(null);
+    } catch (err) {
+      console.error('Erro ao salvar:', err);
+      toast.error('Não foi possível salvar', { description: err?.message });
     }
-    setDialogOpen(false);
-    setEditando(null);
   };
 
   const handleApagar = async (id) => {
     const mov = todasMovimentacoes.find(m => m.id === id);
     try {
-      if (mov && mov.tipo === 'receita' && mov.origem === 'Receita Manual') {
-        await deleteReceitaManual(id);     // receita manual: localStorage + nuvem + tombstone
-        setReceitasTick(t => t + 1);
-      } else {
-        await deleteLancamento(id);        // despesa: tabela lancamentos_despesas
+      if (mov?.origem === 'receita_manual') {
+        await deleteReceitaManual(id);
+      } else if (mov?.origem === 'despesa') {
+        await deleteLancamento(id);
       }
+      toast.success('Movimentação apagada');
     } catch (err) {
       console.error('Erro ao apagar:', err);
+      toast.error('Não foi possível apagar', { description: err?.message });
     }
     setDeleteConfirmId(null);
   };
 
   // ===== CATEGORIAS DISPONÍVEIS =====
-  const categoriasDisponiveis = [
+  const categoriasDespesa = [
     'Matéria Prima', 'Mão de Obra', 'Energia/Utilidades', 'Manutenção',
     'Transporte', 'Administrativo', 'Impostos', 'Outros'
   ];
+  const categoriasReceita = ['Adiantamento', 'Serviço Avulso', 'Material Faturado', 'Outros'];
+  const categoriasDisponiveis = formData.tipo === 'receita' ? categoriasReceita : categoriasDespesa;
+
 
   return (
     <div className="space-y-6">
@@ -517,12 +491,15 @@ export default function FinanceiroPage() {
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
               <DollarSign className="h-6 w-6 text-white" />
             </div>
-            Painel Financeiro
+            Financeiro da Obra
           </h1>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium border border-emerald-500/30">
-              <Wallet className="h-3.5 w-3.5 mr-1" />
-              {filtroObra === 'geral' ? 'Visão Geral' : filtroObra === 'fabrica' ? 'Financeiro Fábrica' : (obrasMap[filtroObra] || 'Obra')}
+              <Building2 className="h-3.5 w-3.5 mr-1" />
+              {obraNome}
+            </span>
+            <span className="text-slate-500 text-xs" title="Esta análise considera apenas a obra selecionada e não altera o Painel Financeiro Global (caixa da empresa).">
+              Receita × Despesa só desta obra · não entra no Painel Global
             </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{kpis.qtdTotal} lançamentos</span>
@@ -533,7 +510,7 @@ export default function FinanceiroPage() {
           </div>
         </div>
 
-        <Button className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600" onClick={handleNova}>
+        <Button className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600" onClick={handleNova} disabled={!filtroObra}>
           <Plus className="h-4 w-4 mr-2" />
           Nova Movimentação
         </Button>
@@ -544,12 +521,13 @@ export default function FinanceiroPage() {
         <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-white">{editando ? 'Editar Movimentação' : 'Nova Movimentação'}</DialogTitle>
+            <p className="text-xs text-slate-400">Obra: <span className="text-emerald-400">{obraNome}</span></p>
           </DialogHeader>
           <div className="space-y-4 pt-4">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-slate-300">Tipo</Label>
-                <Select value={formData.tipo} onValueChange={(v) => setFormData({...formData, tipo: v})}>
+                <Select value={formData.tipo} disabled={!!editando} onValueChange={(v) => setFormData({...formData, tipo: v, categoria: '', status: 'pendente'})}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
                     <SelectItem value="despesa">Despesa</SelectItem>
@@ -562,9 +540,9 @@ export default function FinanceiroPage() {
                 <Select value={formData.status} onValueChange={(v) => setFormData({...formData, status: v})}>
                   <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="pendente">Pendente</SelectItem>
-                    <SelectItem value="pago">Pago/Recebido</SelectItem>
-                    <SelectItem value="atrasado">Atrasado</SelectItem>
+                    <SelectItem value="pendente">{formData.tipo === 'receita' ? 'Em aberto' : 'Pendente'}</SelectItem>
+                    {formData.tipo === 'receita' && <SelectItem value="faturado">Faturado</SelectItem>}
+                    <SelectItem value="pago">{formData.tipo === 'receita' ? 'Recebido' : 'Pago'}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -666,14 +644,14 @@ export default function FinanceiroPage() {
         {/* Seletor de Obra / Visão */}
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-slate-400" />
-          <span className="text-sm text-slate-400 mr-1">Visualizar:</span>
-          <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[240px] bg-slate-800 border-slate-700 text-sm">
-              <SelectValue placeholder="Selecione a visão" />
+          <span className="text-sm text-slate-400 mr-1">Obra:</span>
+          <Select value={filtroObra || undefined} onValueChange={setObraSelecionada}>
+            <SelectTrigger className="w-[260px] bg-slate-800 border-slate-700 text-sm">
+              <SelectValue placeholder="Selecione a obra" />
             </SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
-              {opcoesObra.map(o => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              {(obras || []).map(o => (
+                <SelectItem key={o.id} value={o.id}>{o.nome || o.name || o.id}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -714,9 +692,12 @@ export default function FinanceiroPage() {
                 <ArrowUpRight className="h-5 w-5 text-emerald-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Receitas</p>
+                <p className="text-sm text-slate-400">Receitas da obra</p>
                 <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpis.totalReceitas)}</p>
-                <p className="text-xs text-slate-500">{kpis.qtdReceitas} lançamentos</p>
+                <p className="text-xs text-slate-500">
+                  {contratoValor > 0 ? `${(kpis.totalReceitas / contratoValor * 100).toFixed(1)}% do contrato` : `${kpis.qtdReceitas} lançamentos`}
+                  {kpis.totalPrevisto > 0 && ` · previsto ${formatCurrency(kpis.totalPrevisto)}`}
+                </p>
               </div>
             </div>
           </CardContent>
@@ -729,7 +710,7 @@ export default function FinanceiroPage() {
                 <ArrowDownRight className="h-5 w-5 text-red-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Despesas</p>
+                <p className="text-sm text-slate-400">Despesas da obra</p>
                 <p className="text-xl font-bold text-red-400">{formatCurrency(kpis.totalDespesas)}</p>
                 <p className="text-xs text-slate-500">{kpis.qtdDespesas} lançamentos</p>
               </div>
@@ -744,7 +725,7 @@ export default function FinanceiroPage() {
                 <TrendingUp className="h-5 w-5 text-blue-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Lucro</p>
+                <p className="text-sm text-slate-400">Resultado da obra</p>
                 <p className={cn("text-xl font-bold", kpis.lucro >= 0 ? "text-blue-400" : "text-red-400")}>
                   {formatCurrency(kpis.lucro)}
                 </p>
@@ -764,6 +745,7 @@ export default function FinanceiroPage() {
                 <p className="text-sm text-slate-400">A Receber</p>
                 <p className="text-xl font-bold text-amber-400">{formatCurrency(kpis.receitasPendentes)}</p>
                 <p className="text-xs text-slate-500">A pagar: {formatCurrency(kpis.despesasPendentes)}</p>
+                <p className={cn("text-xs", kpis.saldoCaixaObra >= 0 ? "text-slate-400" : "text-red-400")}>Saldo realizado: {formatCurrency(kpis.saldoCaixaObra)}</p>
               </div>
             </div>
           </CardContent>
@@ -851,7 +833,7 @@ export default function FinanceiroPage() {
                   <TableHead className="text-slate-400">Tipo</TableHead>
                   <TableHead className="text-slate-400">Data</TableHead>
                   <TableHead className="text-slate-400">Descrição</TableHead>
-                  <TableHead className="text-slate-400">Fornecedor/Obra</TableHead>
+                  <TableHead className="text-slate-400">Fornecedor/Cliente</TableHead>
                   <TableHead className="text-slate-400">Categoria</TableHead>
                   <TableHead className="text-slate-400 text-right">Valor</TableHead>
                   <TableHead className="text-slate-400">Status</TableHead>
@@ -875,18 +857,12 @@ export default function FinanceiroPage() {
                     <TableCell className="text-slate-300 text-sm">{formatDate(mov.data)}</TableCell>
                     <TableCell className="text-white font-medium max-w-[220px]">
                       <span className="truncate block">{mov.descricao}</span>
-                      {mov.origemObra && mov.numero && (
+                      {mov.origem === 'medicao' && mov.numero && (
                         <span className="text-xs text-emerald-500">Medição #{mov.numero} • {mov.etapaLabel}</span>
                       )}
                     </TableCell>
                     <TableCell className="text-sm">
-                      {mov.origemObra ? (
-                        <span className="text-blue-400 flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />{mov.obraNome}
-                        </span>
-                      ) : (
-                        <span className="text-slate-300">{mov.fornecedor || '-'}</span>
-                      )}
+                      <span className="text-slate-300">{mov.fornecedor || '-'}</span>
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline" className="border-slate-600 text-xs" style={{ color: CORES_CATEGORIAS[mov.categoria] || '#64748b' }}>
@@ -894,28 +870,30 @@ export default function FinanceiroPage() {
                         {mov.categoria || '-'}
                       </Badge>
                     </TableCell>
-                    <TableCell className={cn("text-right font-semibold", mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400")}>
+                    <TableCell className={cn("text-right font-semibold", mov.prevista ? "text-slate-500" : mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400")}>
                       {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
                     </TableCell>
                     <TableCell>
                       {(() => {
-                        const stEf = mov.statusEfetivo || mov.status;
-                        const isPago = ['recebido', 'pago', 'paga', 'faturado', 'confirmado'].includes(stEf);
-                        const isAtrasado = stEf === 'atrasado';
+                        const faturado = mov.tipo === 'receita' && !mov.quitado && !mov.prevista && !mov.atrasado;
                         return (
                           <Badge className={cn("border text-xs",
-                            isPago ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                            isAtrasado ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse' :
+                            mov.quitado ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                            mov.atrasado ? 'bg-red-500/20 text-red-300 border-red-500/40' :
+                            mov.prevista ? 'bg-slate-500/20 text-slate-400 border-slate-500/30' :
+                            faturado ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30' :
                             'bg-amber-500/20 text-amber-400 border-amber-500/30'
                           )}>
-                            {isPago ? (mov.tipo === 'receita' ? 'Recebido' : 'Pago') :
-                             isAtrasado ? 'Atrasado' : 'Pendente'}
+                            {mov.quitado ? (mov.tipo === 'receita' ? 'Recebido' : 'Pago') :
+                             mov.atrasado ? 'Atrasado' :
+                             mov.prevista ? 'Prevista' :
+                             faturado ? 'A receber' : 'Pendente'}
                           </Badge>
                         );
                       })()}
                     </TableCell>
                     <TableCell>
-                      {!mov.origemObra ? (
+                      {mov.origem !== 'medicao' ? (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-400 hover:text-white">
@@ -932,7 +910,7 @@ export default function FinanceiroPage() {
                           </DropdownMenuContent>
                         </DropdownMenu>
                       ) : (
-                        <span className="text-slate-600 text-xs">Auto</span>
+                        <span className="text-slate-500 text-xs" title="Medições são editadas na Gestão Financeira da Obra">GFO</span>
                       )}
                     </TableCell>
                   </TableRow>
@@ -940,7 +918,7 @@ export default function FinanceiroPage() {
                 {movimentacoesFiltradas.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-slate-500 py-8">
-                      Nenhuma movimentação encontrada.
+                      {filtroObra ? 'Nenhuma movimentação desta obra no período.' : 'Selecione uma obra.'}
                     </TableCell>
                   </TableRow>
                 )}
