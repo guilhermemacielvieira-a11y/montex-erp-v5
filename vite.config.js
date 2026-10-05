@@ -19,35 +19,29 @@ export default defineConfig({
     port: 5174,
   },
   build: {
-    // Code-splitting de vendors pesados. Isso reduz o chunk inicial (index-*.js)
-    // de ~1.3MB para ~600KB e permite que rotas que não usam Three.js/charts/etc
-    // não baixem esses bundles. TTI menor em mobile e desktop.
+    // Code-splitting (v5.3): o manualChunks antigo jogava todo node_modules
+    // restante em "vendor-misc", o que criava chunks circulares
+    // (vendor-radix↔vendor-misc, vendor-misc↔vendor-d3) e fazia o entry
+    // pré-carregar vendor-pdf (jsPDF) e vendor-recharts em TODA página.
+    // Agora só o núcleo React (sempre necessário, muda pouco → cache longo)
+    // e libs-folha pesadas sem dependências compartilhadas recebem chunk
+    // nomeado; o resto fica com o particionamento automático do Rollup,
+    // que agrupa cada lib conforme as rotas (dynamic imports) que a usam.
+    // Assim jsPDF/xlsx/three/web-ifc/recharts/d3 só baixam nas rotas que
+    // os importam.
     chunkSizeWarningLimit: 800,
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
-          // Core framework — sempre necessário
           if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'vendor-react';
-          if (/[\\/]node_modules[\\/]react-router/.test(id)) return 'vendor-router';
-          // 3D / IFC — só usado em MontexERP3DPage
-          if (/[\\/]node_modules[\\/](three|web-ifc)/.test(id)) return 'vendor-three';
-          // Charts — usado em vários dashboards
-          if (/[\\/]node_modules[\\/]recharts/.test(id)) return 'vendor-recharts';
-          if (/[\\/]node_modules[\\/]chart\.js/.test(id)) return 'vendor-chartjs';
-          if (/[\\/]node_modules[\\/]d3/.test(id)) return 'vendor-d3';
-          // PDF / Excel — usado em exports e importações
-          if (/[\\/]node_modules[\\/](jspdf|html2canvas|html2pdf)/.test(id)) return 'vendor-pdf';
-          if (/[\\/]node_modules[\\/](xlsx|exceljs|sheetjs)/.test(id)) return 'vendor-xlsx';
-          // Supabase / data
-          if (/[\\/]node_modules[\\/](@supabase|@tanstack)/.test(id)) return 'vendor-data';
-          // Animation
-          if (/[\\/]node_modules[\\/]framer-motion/.test(id)) return 'vendor-motion';
-          // UI primitivas (Radix + lucide + dnd)
-          if (/[\\/]node_modules[\\/]@radix-ui/.test(id)) return 'vendor-radix';
-          if (/[\\/]node_modules[\\/](lucide-react|@hello-pangea|react-dnd|react-day-picker|react-hot-toast|react-quill|embla-carousel)/.test(id)) return 'vendor-ui';
-          // Restante (lodash, utils etc): bundle padrão de vendor
-          return 'vendor-misc';
+          // Supabase SDK: grande e estável — chunk próprio para cache longo
+          if (/[\\/]node_modules[\\/]@supabase[\\/]/.test(id)) return 'vendor-supabase';
+          // 3D / IFC — folhas sem dependências de outras libs; só MontexERP3DPage
+          if (/[\\/]node_modules[\\/]three[\\/]/.test(id)) return 'vendor-three';
+          if (/[\\/]node_modules[\\/]web-ifc[\\/]/.test(id)) return 'vendor-web-ifc';
+          if (/[\\/]node_modules[\\/]xlsx[\\/]/.test(id)) return 'vendor-xlsx';
+          return undefined;
         },
       },
     },

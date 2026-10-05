@@ -9,7 +9,7 @@
  */
 
 import { ACTIONS } from '../actions';
-import { STATUS_OBRA } from '../../data/database';
+import { STATUS_OBRA } from '../../data/constants';
 
 export function obrasReducer(state, action) {
   switch (action.type) {

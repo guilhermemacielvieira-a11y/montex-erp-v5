@@ -17,8 +17,7 @@ import {
   ETAPAS_PRODUCAO,
   STATUS_CORTE,
   STATUS_EXPEDICAO,
-  getEstatisticasGerais
-} from '../data/database';
+} from '../data/constants';
 
 // Tipos de ações, transformadores e reducer combinado
 import { ACTIONS } from './actions';
@@ -1546,8 +1545,23 @@ export function ERPProvider({ children }) {
     return state.medicoes.filter(m => m.obraId === obraIdAtiva);
   }, [state.medicoes, obraIdAtiva]);
 
+  // Antes chamava getEstatisticasGerais() de data/database (calculado sobre
+  // os dados MOCK e arrastando ~350 KB de mock para o bundle inicial).
+  // Mesmo shape, agora a partir do estado real.
   const estatisticasGerais = useMemo(() => {
-    return getEstatisticasGerais();
+    const obras = state.obras || [];
+    const estoque = state.estoque || [];
+    const obrasAtivas = obras.filter(o => ![STATUS_OBRA.CONCLUIDA, STATUS_OBRA.CANCELADA, STATUS_OBRA.ORCAMENTO].includes(o.status));
+    return {
+      totalObras: obras.length,
+      obrasAtivas: obrasAtivas.length,
+      pesoTotalKg: obrasAtivas.reduce((acc, o) => acc + (Number(o.pesoTotal) || 0), 0),
+      valorTotalContratos: obrasAtivas.reduce((acc, o) => acc + (Number(o.valorContrato) || 0), 0),
+      funcionariosAtivos: (state.funcionarios || []).filter(f => f.ativo).length,
+      equipesAtivas: (state.equipes || []).filter(e => e.obraAtual).length,
+      itensEstoque: estoque.length,
+      alertasEstoque: estoque.filter(e => (e.quantidadeAtual ?? e.quantidade ?? 0) <= (e.quantidadeMinima ?? e.minimo ?? 0)).length,
+    };
   }, [state.obras, state.funcionarios, state.equipes, state.estoque]);
 
   const alertasEstoque = useMemo(() => {

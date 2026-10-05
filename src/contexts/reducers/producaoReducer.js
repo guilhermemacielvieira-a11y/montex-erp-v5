@@ -10,7 +10,7 @@
  */
 
 import { ACTIONS } from '../actions';
-import { ETAPAS_PRODUCAO, STATUS_CORTE } from '../../data/database';
+import { ETAPAS_PRODUCAO, STATUS_CORTE } from '../../data/constants';
 
 export function producaoReducer(state, action) {
   switch (action.type) {
