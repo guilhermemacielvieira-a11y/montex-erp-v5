@@ -56,7 +56,7 @@ const Projetos = lazy(() => import('../pages/Projetos'));
 const Clientes = lazy(() => import('../pages/Clientes'));
 const EquipesPage = lazy(() => import('../pages/EquipesPage'));
 const OrcamentosPage = lazy(() => import('../pages/OrcamentosPage'));
-const Relatorios = lazy(() => import('../pages/Relatorios'));
+const Relatorios = lazy(() => import('../pages/CentralRelatoriosPage'));
 const DashboardPremium = lazy(() => import('../pages/DashboardPremium'));
 const AnaliseProducaoPage = lazy(() => import('../pages/AnaliseProducaoPage'));
 const DiarioProducaoPage = lazy(() => import('../pages/DiarioProducaoPage'));

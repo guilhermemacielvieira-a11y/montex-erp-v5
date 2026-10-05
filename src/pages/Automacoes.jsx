@@ -234,9 +234,9 @@ export default function AutomacoesPage() {
       </section>
 
       <Tabs value={aba} onValueChange={setAba}>
-        <TabsList className="bg-slate-900 border border-slate-800">
+        <TabsList className="bg-slate-900 border border-slate-800 max-w-full h-auto flex-wrap">
           <TabsTrigger value="automacoes"><ListChecks className="h-4 w-4 mr-1.5" aria-hidden />Automações ({automacoes.length})</TabsTrigger>
-          <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" aria-hidden />Histórico de execuções</TabsTrigger>
+          <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" aria-hidden />Histórico<span className="hidden sm:inline">&nbsp;de execuções</span></TabsTrigger>
         </TabsList>
 
         <TabsContent value="automacoes" className="mt-4">

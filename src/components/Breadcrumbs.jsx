@@ -25,7 +25,6 @@ const ROUTE_MAP = {
   '/AnaliseCustosPage': { label: 'Análise de Custos', parent: '/FinanceiroPage' },
   '/CentrosCustoPage': { label: 'Centros de Custo', parent: '/FinanceiroPage' },
   '/DREPage': { label: 'DRE', parent: '/FinanceiroPage' },
-  '/RelatoriosFinanceiros': { label: 'Relatórios Financeiros', parent: '/FinanceiroPage' },
   '/GestaoObrasPage': { label: 'Gestão de Obras', parent: '/' },
   '/GestaoFinanceiraObra': { label: 'Financeiro da Obra', parent: '/GestaoObrasPage' },
   '/MultiObrasPage': { label: 'Multi-Obras', parent: '/GestaoObrasPage' },
@@ -41,11 +40,10 @@ const ROUTE_MAP = {
   '/Relatorios': { label: 'Relatórios', parent: '/' },
   '/Copiloto': { label: 'Copiloto MONTEX', parent: '/' },
   '/InsightsIA': { label: 'Insights IA', parent: '/' },
-  '/GerenciadorRelatorios': { label: 'Gerenciador', parent: '/Relatorios' },
-  '/AgendamentosRelatorios': { label: 'Agendamentos', parent: '/Relatorios' },
+  '/CentralRelatorios': { label: 'Central de Relatórios', parent: '/' },
+  '/CentralTarefas': { label: 'Central de Tarefas', parent: '/' },
   '/UsuariosPage': { label: 'Usuários', parent: '/' },
   '/Automacoes': { label: 'Automações', parent: '/' },
-  '/Tarefas': { label: 'Tarefas', parent: '/' },
   '/Projetos': { label: 'Projetos', parent: '/' },
 };
 

@@ -29,8 +29,8 @@ import {
 const pages = [
   { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, keywords: ['início', 'home', 'principal'] },
   { name: 'Projetos', href: 'Projetos', icon: Building2, keywords: ['obras', 'construção'] },
-  { name: 'Colaboração', href: 'ColaboracaoProjetos', icon: Users, keywords: ['equipe', 'time'] },
-  { name: 'Tarefas', href: 'Tarefas', icon: CheckSquare, keywords: ['atividades', 'todo'] },
+  { name: 'Central de Tarefas', href: 'CentralTarefas', icon: CheckSquare, keywords: ['atividades', 'todo', 'tarefas', 'colaboração', 'mural', 'equipe'] },
+  { name: 'Central de Relatórios', href: 'CentralRelatorios', icon: FileSearch, keywords: ['relatórios', 'pdf', 'agendamento', 'exportar'] },
   { name: 'Produção', href: 'AtualizacaoProducaoIndependente', icon: Package, keywords: ['fabricação', 'montagem'] },
   { name: 'Orçamentos', href: 'Orcamentos', icon: Calculator, keywords: ['propostas', 'cotações'] },
   { name: 'Insights IA', href: 'InsightsIA', icon: FileSearch, keywords: ['análises', 'reports', 'sugestões', 'ia'] },

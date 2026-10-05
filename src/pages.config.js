@@ -62,7 +62,6 @@ const MetasFinanceirasPage = lazy(() => import('./pages/MetasFinanceirasPage'));
 const PainelFinanceiroGlobal = lazy(() => import('./pages/PainelFinanceiroGlobal'));
 const AnaliseCustosPage = lazy(() => import('./pages/AnaliseCustosPage'));
 const CentrosCustoPage = lazy(() => import('./pages/CentrosCustoPage'));
-const RelatoriosFinanceiros = lazy(() => import('./pages/RelatoriosFinanceiros'));
 const DREPage = lazy(() => import('./pages/DREPage'));
 
 // ===== ORÇAMENTOS (canônico: OrcamentosPage) =====
@@ -109,20 +108,23 @@ const DetalhamentosPage = lazy(() => import('./pages/DetalhamentosPage'));
 const MontexERP3DPage = lazy(() => import('./pages/MontexERP3DPage'));
 
 // ===== RELATÓRIOS & FERRAMENTAS =====
-const Relatorios = lazy(() => import('./pages/Relatorios'));
+// Fase 3: Central de Tarefas (Tarefas + Colaboração) e Central de Relatórios
+// (Relatórios, Gerenciador, Agendamentos, Relatórios Financeiros).
+const CentralTarefasPage = lazy(() => import('./pages/CentralTarefasPage'));
+const CentralRelatoriosPage = lazy(() => import('./pages/CentralRelatoriosPage'));
+const RedirectCentralTarefas = () => createElement(Navigate, { to: '/CentralTarefas', replace: true });
+const RedirectMural = () => createElement(Navigate, { to: '/CentralTarefas?visao=mural', replace: true });
+const RedirectCentralRelatorios = () => createElement(Navigate, { to: '/CentralRelatorios', replace: true });
+const RedirectAgendamentos = () => createElement(Navigate, { to: '/CentralRelatorios?aba=agendamentos', replace: true });
 // Colaboração & IA (Fase 2): Copiloto substitui Chatbot/Analisador; Insights IA
 // substitui Sugestões IA/Relatórios IA (regras fixas e números aleatórios).
 const CopilotoPage = lazy(() => import('./pages/CopilotoPage'));
 const InsightsIAPage = lazy(() => import('./pages/InsightsIAPage'));
 const RedirectCopiloto = () => createElement(Navigate, { to: '/Copiloto', replace: true });
 const RedirectInsightsIA = () => createElement(Navigate, { to: '/InsightsIA', replace: true });
-const GerenciadorRelatorios = lazy(() => import('./pages/GerenciadorRelatorios'));
-const AgendamentosRelatorios = lazy(() => import('./pages/AgendamentosRelatorios'));
 
 // ===== OUTROS =====
-const Tarefas = lazy(() => import('./pages/Tarefas'));
 const Automacoes = lazy(() => import('./pages/Automacoes'));
-const ColaboracaoProjetos = lazy(() => import('./pages/ColaboracaoProjetos'));
 const MultiObrasPage = lazy(() => import('./pages/MultiObrasPage'));
 const GestaoObrasPage = lazy(() => import('./pages/GestaoObrasPage'));
 const VendasPage = lazy(() => import('./pages/VendasPage'));
@@ -169,7 +171,7 @@ export const PAGES = {
     "PainelFinanceiroGlobal": PainelFinanceiroGlobal,
     "AnaliseCustosPage": AnaliseCustosPage,
     "CentrosCustoPage": CentrosCustoPage,
-    "RelatoriosFinanceiros": RelatoriosFinanceiros,
+    "RelatoriosFinanceiros": RedirectCentralRelatorios, // redirect → Central de Relatórios
     "DREPage": DREPage,
 
     // Orçamentos (canônico: OrcamentosPage)
@@ -210,19 +212,21 @@ export const PAGES = {
     "MontexERP3DPage": MontexERP3DPage,
 
     // Relatórios & Ferramentas
-    "Relatorios": Relatorios,
+    "CentralTarefas": CentralTarefasPage,
+    "CentralRelatorios": CentralRelatoriosPage,
+    "Relatorios": RedirectCentralRelatorios, // redirect
     "Copiloto": CopilotoPage,
     "InsightsIA": InsightsIAPage,
     "RelatoriosIA": RedirectInsightsIA, // redirect → Insights IA
-    "GerenciadorRelatorios": GerenciadorRelatorios,
-    "AgendamentosRelatorios": AgendamentosRelatorios,
+    "GerenciadorRelatorios": RedirectCentralRelatorios, // redirect
+    "AgendamentosRelatorios": RedirectAgendamentos, // redirect
     "Analisador": RedirectCopiloto, // redirect → Copiloto
     "SugestoesIAPage": RedirectInsightsIA, // redirect → Insights IA
 
     // Outros
-    "Tarefas": Tarefas,
+    "Tarefas": RedirectCentralTarefas, // redirect
     "Automacoes": Automacoes,
-    "ColaboracaoProjetos": ColaboracaoProjetos,
+    "ColaboracaoProjetos": RedirectMural, // redirect
     "Chatbot": RedirectCopiloto, // redirect → Copiloto
     "MultiObrasPage": MultiObrasPage,
     "GestaoObrasPage": GestaoObrasPage,
