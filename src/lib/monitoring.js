@@ -12,7 +12,6 @@
 
 const DSN = import.meta.env.VITE_SENTRY_DSN;
 // Injetado pelo Vite (define em vite.config.js): SHA do commit no Vercel.
-// eslint-disable-next-line no-undef
 const RELEASE = (typeof __APP_RELEASE__ !== 'undefined' && __APP_RELEASE__) || undefined;
 
 let sentry = null;          // módulo @sentry/react depois de carregado
@@ -93,7 +92,7 @@ export function isMonitoringEnabled() {
 
 function runOrQueue(fn) {
   if (!DSN) return;
-  if (sentry) { try { fn(sentry); } catch (_) { /* nunca quebrar o app */ } return; }
+  if (sentry) { try { fn(sentry); } catch { /* nunca quebrar o app */ } return; }
   if (pending.length < MAX_PENDING) pending.push(fn);
 }
 
@@ -118,7 +117,7 @@ export function initMonitoring() {
       sentry = S;
       while (pending.length) {
         const fn = pending.shift();
-        try { fn(S); } catch (_) { /* ignore */ }
+        try { fn(S); } catch { /* ignore */ }
       }
       return S;
     })
