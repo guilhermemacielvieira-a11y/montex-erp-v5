@@ -92,6 +92,10 @@ import {
   calcularEstoquePorTipo
 } from '../data/obraFinanceiraDatabase';
 import { useObras, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { useReceitasManuais } from '../utils/receitasSync';
+import { statusReceitaParaMedicao } from '../utils/financeiroStatus';
+import { hojeLocalISO, parseLocalDate } from '../utils/financeiroCalc';
+import { parseCSVLancamentos, deduplicarLancamentos } from '../utils/importLancamentosCSV';
 
 // Formatação monetária brasileira completa (ex: 2.700.000,00)
 const formatMoney = (valor) => {
@@ -241,6 +245,8 @@ export default function GestaoFinanceiraObra() {
   const [obraFiltro, setObraFiltro] = useState(OBRA_MODELO.id);
   // Tick para forçar re-leitura do localStorage (receitas editadas em outras abas/páginas)
   const [receitasRefreshTick, setReceitasRefreshTick] = useState(0);
+  // Receitas manuais — mesma fonte da ReceitasPage (tabela receitas_manuais)
+  const { receitas: receitasManuaisTabela } = useReceitasManuais();
 
   // 🐛 BUG fix: quando o select de obraFiltro muda, sincronizar o objeto `obra`
   // — todos os filtros usam `obra.id` mas o select só mudava `obraFiltro`.
@@ -272,8 +278,10 @@ export default function GestaoFinanceiraObra() {
           numero: obraReal.contratoNumero || `CT-${obraReal.codigo || obraReal.id}`,
           dataInicio: obraReal.dataInicio || OBRA_MODELO.contrato?.dataInicio || '',
           dataPrevisaoTermino: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || OBRA_MODELO.contrato?.dataPrevisaoTermino || '',
-          valorTotal: valorContrato || OBRA_MODELO.contrato?.valorTotal || 0,
-          pesoTotal: pesoContrato || OBRA_MODELO.contrato?.pesoTotal || 0,
+          // SEM fallback para o contrato do modelo (R$ 2,7 mi da Belo Vale):
+          // obra sem contrato cadastrado mostra "Contrato não cadastrado".
+          valorTotal: valorContrato || 0,
+          pesoTotal: pesoContrato || 0,
         },
         valorContrato,
         pesoTotal: pesoContrato,
@@ -318,8 +326,8 @@ export default function GestaoFinanceiraObra() {
       const novosDoSupabase = lancamentosDaObra.filter(l => !idsEstaticos.has(l.id)).map(l => ({
         id: l.id,
         tipo: l.tipo || 'despesa',
-        data: l.dataEmissao || l.data || l.createdAt || new Date().toISOString().split('T')[0],
-        dataEmissao: l.dataEmissao || l.data || new Date().toISOString().split('T')[0],
+        data: l.dataEmissao || l.data || l.createdAt || hojeLocalISO(),
+        dataEmissao: l.dataEmissao || l.data || hojeLocalISO(),
         dataVencimento: l.dataVencimento || null,
         dataPagamento: l.dataPagamento || null,
         descricao: l.descricao || l.nome || '-',
@@ -369,7 +377,8 @@ export default function GestaoFinanceiraObra() {
         valorBruto: valorOverride !== null ? valorOverride : (m.valorBruto || m.valor_bruto),
         valorLiquido: valorOverride !== null ? valorOverride : (m.valorLiquido || m.valor_liquido),
         descricao: ov.descricao || m.descricao,
-        status: ov.status || m.status,
+        // Override da ReceitasPage usa vocabulário canônico → converte p/ medição
+        status: ov.status ? statusReceitaParaMedicao(ov.status, m.status) : m.status,
         _editadoLocal: true,
       };
     }).filter(m => {
@@ -411,17 +420,17 @@ export default function GestaoFinanceiraObra() {
       };
     });
 
-    // 🔗 LER LOCALSTORAGE: receitas manuais + overrides de receitas de Obra
-    let receitasManuaisLS = [];
+    // 🔗 Overrides de receitas de Obra (localStorage). Receitas MANUAIS vêm da
+    // tabela receitas_manuais (antes lia a chave errada 'montex_receitas_manuais',
+    // enquanto a ReceitasPage gravava em 'montex_receitas_gerais').
     let overridesLS = {};
     try {
-      receitasManuaisLS = JSON.parse(localStorage.getItem('montex_receitas_manuais') || '[]');
       overridesLS = JSON.parse(localStorage.getItem('montex_receitas_overrides') || '{}');
     } catch (e) { /* localStorage falhou */ }
 
-    // Receitas MANUAIS vinculadas a esta obra
-    const receitasManuaisVinculadas = receitasManuaisLS
-      .filter(r => r.obraId === obra.id)
+    // Receitas MANUAIS vinculadas a esta obra (canceladas fora)
+    const receitasManuaisVinculadas = (receitasManuaisTabela || [])
+      .filter(r => r.obraId === obra.id && r.status !== 'cancelado')
       .map(r => ({
         id: `RECMAN-${r.id}`,
         numero: 0,
@@ -433,8 +442,10 @@ export default function GestaoFinanceiraObra() {
         dataMedicao: r.data || r.vencimento || '',
         dataReferencia: r.vencimento || '',
         valorBruto: parseFloat(r.valor) || 0,
-        valorLiquido: parseFloat(r.valor) || 0,
-        status: r.status === 'paga' ? 'pago' : (r.status || 'pendente'),
+        valorLiquido: parseFloat(r.valorLiquido ?? r.valor) || 0,
+        dataPagamento: r.dataRecebimento || null,
+        // recebido → paga · faturado → faturada · aberto → aguardando
+        status: statusReceitaParaMedicao(r.status),
         descricao: r.descricao || 'Receita manual',
         observacao: `Vinculada via ReceitasPage · ${r.cliente || ''}`,
         retencoes: {},
@@ -460,12 +471,12 @@ export default function GestaoFinanceiraObra() {
     const estaticasDaObra = estaticasComOverride.filter(m => m._obraIdFinal === obra.id);
 
     setMedicoes([...estaticasDaObra, ...novosDoSupabase, ...receitasManuaisVinculadas]);
-  }, [todasMedicoes, obra.id, receitasRefreshTick]);
+  }, [todasMedicoes, obra.id, receitasRefreshTick, receitasManuaisTabela]);
 
   // Force-refresh quando a aba é focalizada ou localStorage muda (ex: receita editada em outra aba)
   React.useEffect(() => {
     const handleStorage = (e) => {
-      if (!e || ['montex_receitas_manuais', 'montex_receitas_overrides'].includes(e.key)) {
+      if (!e || ['montex_receitas_overrides'].includes(e.key)) {
         setReceitasRefreshTick(t => t + 1);
       }
     };
@@ -520,9 +531,13 @@ export default function GestaoFinanceiraObra() {
     [lancamentos]
   );
 
-  // Calcular saldo do contrato (abatendo medições lançadas como receitas)
+  // Situação do contrato. NÃO mistura receita com custo:
+  //   saldo a medir = contrato − medido (bruto)
+  //   resultado     = recebido (líquido) − despesas pagas
   const saldoContrato = useMemo(() => {
-    const valorContrato = obra.contrato?.valorTotal || 2700000;
+    // Sem fallback fixo (antes R$ 2.700.000): obra sem contrato → "Contrato não cadastrado"
+    const valorContrato = Number(obra.contrato?.valorTotal) || 0;
+    const contratoCadastrado = valorContrato > 0;
     // 🔧 FIX: filtrar medições pela obra atual (antes somava TODAS, incluindo Belo Vale estático)
     const medicoesDaObra = medicoes.filter(m => {
       // 🔧 FIX P0 (auditoria 2026-07-28): medições PREVISTAS/REJEITADAS não abatem saldo de contrato
@@ -533,48 +548,39 @@ export default function GestaoFinanceiraObra() {
       if (!mObraId) return obra.id === OBRA_MODELO.id;
       return mObraId === obra.id;
     });
-    let totalMedicoesBruto = medicoesDaObra.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
-    let totalMedicoesLiquido = medicoesDaObra.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
-
-    // 🔗 FALLBACK: ler receitas manuais DIRETO do localStorage e somar (caso state esteja desatualizado)
-    // Isso garante que receita criada/editada com vínculo aparece imediatamente após salvar.
-    try {
-      const receitasManuaisLS = JSON.parse(localStorage.getItem('montex_receitas_manuais') || '[]');
-      const idsJaContados = new Set(medicoesDaObra.map(m => m.id));
-      receitasManuaisLS.forEach(r => {
-        if (r.obraId !== obra.id) return;
-        const virtualId = `RECMAN-${r.id}`;
-        if (idsJaContados.has(virtualId)) return; // já foi contado via state
-        const valor = parseFloat(r.valor) || 0;
-        totalMedicoesBruto += valor;
-        totalMedicoesLiquido += valor;
-      });
-    } catch (e) { /* ignore */ }
+    const totalMedicoesBruto = medicoesDaObra.reduce((sum, m) => sum + (m.valorBruto || 0), 0);
+    const totalMedicoesLiquido = medicoesDaObra.reduce((sum, m) => sum + (m.valorLiquido || 0), 0);
+    // Recebido = medições pagas (líquido quando houver, senão bruto)
+    const recebido = medicoesDaObra
+      .filter(m => ['paga', 'pago', 'recebido'].includes(m.status))
+      .reduce((sum, m) => sum + (m.valorLiquido || m.valorBruto || 0), 0);
 
     // Total de despesas pagas
     const despesasPagas = lancamentos
       .filter(l => l.obraId === obra.id && l.status === 'pago')
       .reduce((sum, l) => sum + l.valor, 0);
-    // Saldo restante = Contrato - Receitas (Medições) - Despesas Pagas
-    const saldoRestante = valorContrato - totalMedicoesBruto - despesasPagas;
-    const percentualExecutado = valorContrato > 0 ? ((totalMedicoesBruto + despesasPagas) / valorContrato) * 100 : 0;
-    const percentualRestante = 100 - percentualExecutado;
-    const percentualDespesas = valorContrato > 0 ? (despesasPagas / valorContrato) * 100 : 0;
-    const percentualMedido = valorContrato > 0 ? (totalMedicoesBruto / valorContrato) * 100 : 0;
+    const saldoAMedir = contratoCadastrado ? valorContrato - totalMedicoesBruto : 0;
+    const pct = (v) => (contratoCadastrado ? (v / valorContrato) * 100 : 0);
+    const percentualMedido = pct(totalMedicoesBruto);
+    const resultado = recebido - despesasPagas;
     return {
       valorContrato,
+      contratoCadastrado,
       receitasRealizadas: totalMedicoesBruto,
       receitasLiquidas: totalMedicoesLiquido,
+      recebido,
       despesasPagas,
-      saldoRestante,
-      percentualExecutado,
-      percentualDespesas,
+      saldoAMedir,
+      saldoRestante: saldoAMedir, // compat: "saldo" = quanto falta MEDIR do contrato
+      percentualExecutado: percentualMedido,
+      percentualDespesas: pct(despesasPagas),
       percentualMedido,
-      percentualRestante,
-      resultado: totalMedicoesLiquido - despesasPagas,
-      margemReal: totalMedicoesLiquido > 0 ? ((totalMedicoesLiquido - despesasPagas) / totalMedicoesLiquido) * 100 : 0,
+      percentualRestante: contratoCadastrado ? 100 - percentualMedido : 0,
+      resultado,
+      margemReal: recebido > 0 ? (resultado / recebido) * 100 : 0,
     };
-  }, [obra, lancamentos, medicoes, receitasRefreshTick]);
+  }, [obra, lancamentos, medicoes]);
+
 
   // Calcular composição do contrato dinâmica (puxando dos lançamentos reais)
   const composicaoCalculada = useMemo(() => {
@@ -717,17 +723,33 @@ export default function GestaoFinanceiraObra() {
   // Adicionar lançamento - persiste no Supabase
   const [lancParaExcluir, setLancParaExcluir] = useState(null);
 
+  // Rollback do estado GLOBAL (ERPContext) após falha de escrita otimista.
+  // O contexto aplica a mudança antes do Supabase e não desfaz em erro; como
+  // a GFO re-deriva `lancamentos`/`medicoes` do contexto, revertemos lá também
+  // (a nova chamada pode falhar de novo no banco — ignorado, o estado local
+  // volta ao valor anterior de qualquer forma).
+  const reverterNoContexto = useCallback((fn) => {
+    try { Promise.resolve(fn()).catch(() => {}); } catch { /* noop */ }
+  }, []);
+  const pick = (obj, keys) => keys.reduce((acc, k) => { acc[k] = obj?.[k] ?? null; return acc; }, {});
+
   const confirmarExclusao = useCallback(async () => {
     if (!lancParaExcluir) return;
     const id = lancParaExcluir;
     setLancParaExcluir(null);
+    const anteriorLocal = lancamentos.find(l => l.id === id);
+    const anteriorCtx = (lancamentosSupabase || []).find(l => l.id === id);
     setLancamentos(prev => prev.filter(l => l.id !== id));
     try {
       await deleteLancamentoCtx(id);
+      toast.success('Lançamento excluído');
     } catch (err) {
       console.error('Erro ao excluir lancamento:', err);
+      toast.error('Erro ao excluir lançamento — alteração desfeita: ' + (err?.message || 'desconhecido'));
+      if (anteriorLocal) setLancamentos(prev => (prev.some(l => l.id === id) ? prev : [...prev, anteriorLocal]));
+      if (anteriorCtx) reverterNoContexto(() => addLancamentoCtx(anteriorCtx));
     }
-  }, [lancParaExcluir, deleteLancamentoCtx]);
+  }, [lancParaExcluir, lancamentos, lancamentosSupabase, deleteLancamentoCtx, addLancamentoCtx, reverterNoContexto]);
 
   // Estado para modal de importacao NF
   const [showImportNF, setShowImportNF] = useState(false);
@@ -742,8 +764,8 @@ export default function GestaoFinanceiraObra() {
         id: novoLanc.id || `lanc-${Date.now()}`,
         obraId: obra.id,                                 // força obra atual (sobrescreve qualquer obraId do form)
         obra_id: obra.id,                                 // snake_case também (compatibilidade)
-        data: novoLanc.dataEmissao || new Date().toISOString().split('T')[0],
-        dataEmissao: novoLanc.dataEmissao || new Date().toISOString().split('T')[0],
+        data: novoLanc.dataEmissao || hojeLocalISO(),
+        dataEmissao: novoLanc.dataEmissao || hojeLocalISO(),
         nf: novoLanc.notaFiscal || novoLanc.nf || null,
         notaFiscal: novoLanc.notaFiscal || novoLanc.nf || null,
         status: novoLanc.status || STATUS_LANCAMENTO.PENDENTE,  // preserva escolha do form
@@ -762,15 +784,20 @@ export default function GestaoFinanceiraObra() {
     } catch (err) {
       console.error('[GFO] Erro ao salvar lançamento:', err);
       toast.error('Erro ao salvar: ' + (err.message || 'desconhecido'));
+      // Rollback: o lançamento não foi persistido
+      setLancamentos(prev => prev.filter(l => l.id !== lancamento.id));
+      reverterNoContexto(() => deleteLancamentoCtx(lancamento.id));
     }
-  }, [obra.id, addLancamentoCtx]);
+  }, [obra.id, addLancamentoCtx, deleteLancamentoCtx, reverterNoContexto]);
 
   // Atualizar status lançamento - persiste no Supabase
   const atualizarStatusLancamento = useCallback(async (id, novoStatus) => {
     const updateData = {
       status: novoStatus,
-      dataPagamento: novoStatus === STATUS_LANCAMENTO.PAGO ? new Date().toISOString() : undefined
+      dataPagamento: novoStatus === STATUS_LANCAMENTO.PAGO ? hojeLocalISO() : undefined
     };
+    const anteriorLocal = lancamentos.find(l => l.id === id);
+    const anteriorCtx = (lancamentosSupabase || []).find(l => l.id === id);
     setLancamentos(prev => prev.map(l =>
       l.id === id ? { ...l, ...updateData } : l
     ));
@@ -779,21 +806,30 @@ export default function GestaoFinanceiraObra() {
       await updateLancamentoCtx(id, updateData);
     } catch (err2) {
       console.error('Erro ao atualizar lançamento:', err2);
+      toast.error('Erro ao alterar status — alteração desfeita: ' + (err2?.message || 'desconhecido'));
+      if (anteriorLocal) setLancamentos(prev => prev.map(l => (l.id === id ? anteriorLocal : l)));
+      if (anteriorCtx) reverterNoContexto(() => updateLancamentoCtx(id, pick(anteriorCtx, ['status', 'dataPagamento'])));
     }
-  }, [updateLancamentoCtx]);
+  }, [lancamentos, lancamentosSupabase, updateLancamentoCtx, reverterNoContexto]);
 
   // Editar lançamento completo - persiste no Supabase
   const editarLancamento = useCallback(async (lancAtualizado) => {
     const { id, ...dados } = lancAtualizado;
+    const anteriorLocal = lancamentos.find(l => l.id === id);
+    const anteriorCtx = (lancamentosSupabase || []).find(l => l.id === id);
     setLancamentos(prev => prev.map(l => l.id === id ? { ...l, ...dados } : l));
     setEditandoLancamento(null);
     setShowNovoLancamento(false);
     try {
       await updateLancamentoCtx(id, dados);
+      toast.success('Lançamento atualizado');
     } catch (err3) {
       console.error('Erro ao editar lançamento:', err3);
+      toast.error('Erro ao editar lançamento — alteração desfeita: ' + (err3?.message || 'desconhecido'));
+      if (anteriorLocal) setLancamentos(prev => prev.map(l => (l.id === id ? anteriorLocal : l)));
+      if (anteriorCtx) reverterNoContexto(() => updateLancamentoCtx(id, pick(anteriorCtx, Object.keys(dados))));
     }
-  }, [updateLancamentoCtx]);
+  }, [lancamentos, lancamentosSupabase, updateLancamentoCtx, reverterNoContexto]);
 
   // Adicionar medição manual - persiste no Supabase
   const adicionarMedicao = useCallback(async (novaMedicao) => {
@@ -806,33 +842,49 @@ export default function GestaoFinanceiraObra() {
     setShowNovaMedicao(false);
     try {
       await addMedicaoCtx(medicao);
+      toast.success('Medição salva');
     } catch (err) {
       console.error('Erro ao salvar medição:', err);
+      toast.error('Erro ao salvar medição — não foi gravada: ' + (err?.message || 'desconhecido'));
+      setMedicoes(prev => prev.filter(m => m.id !== medicao.id));
+      reverterNoContexto(() => deleteMedicaoCtx(medicao.id));
     }
-  }, [obra.id, addMedicaoCtx]);
+  }, [obra.id, addMedicaoCtx, deleteMedicaoCtx, reverterNoContexto]);
 
   // Editar medição existente - persiste no Supabase
   const editarMedicao = useCallback(async (medicaoAtualizada) => {
     const { id, ...dados } = medicaoAtualizada;
+    const anteriorLocal = medicoes.find(m => m.id === id);
+    const anteriorCtx = (todasMedicoes || []).find(m => m.id === id);
     setMedicoes(prev => prev.map(m => m.id === id ? { ...m, ...dados } : m));
     setEditandoMedicao(null);
     setShowNovaMedicao(false);
     try {
       await updateMedicaoCtx(id, dados);
+      toast.success('Medição atualizada');
     } catch (err) {
       console.error('Erro ao editar medição:', err);
+      toast.error('Erro ao editar medição — alteração desfeita: ' + (err?.message || 'desconhecido'));
+      if (anteriorLocal) setMedicoes(prev => prev.map(m => (m.id === id ? anteriorLocal : m)));
+      if (anteriorCtx) reverterNoContexto(() => updateMedicaoCtx(id, pick(anteriorCtx, Object.keys(dados))));
     }
-  }, [updateMedicaoCtx]);
+  }, [medicoes, todasMedicoes, updateMedicaoCtx, reverterNoContexto]);
 
   // Excluir medição - persiste no Supabase
   const excluirMedicao = useCallback(async (id) => {
+    const anteriorLocal = medicoes.find(m => m.id === id);
+    const anteriorCtx = (todasMedicoes || []).find(m => m.id === id);
     setMedicoes(prev => prev.filter(m => m.id !== id));
     try {
       await deleteMedicaoCtx(id);
+      toast.success('Medição excluída');
     } catch (err) {
       console.error('Erro ao excluir medição:', err);
+      toast.error('Erro ao excluir medição — alteração desfeita: ' + (err?.message || 'desconhecido'));
+      if (anteriorLocal) setMedicoes(prev => (prev.some(m => m.id === id) ? prev : [...prev, anteriorLocal]));
+      if (anteriorCtx) reverterNoContexto(() => addMedicaoCtx(anteriorCtx));
     }
-  }, [deleteMedicaoCtx]);
+  }, [medicoes, todasMedicoes, deleteMedicaoCtx, addMedicaoCtx, reverterNoContexto]);
 
   // Abrir edição de uma medição
   const abrirEdicaoMedicao = useCallback((med) => {
@@ -853,50 +905,56 @@ export default function GestaoFinanceiraObra() {
     setImportFile(file);
     const reader = new FileReader();
     reader.onload = (evt) => {
-      const text = evt.target.result;
-      const lines = text.split('\n').filter(l => l.trim());
-      if (lines.length < 2) return;
-      const headers = lines[0].split(';').map(h => h.trim().toLowerCase());
-      const rows = lines.slice(1).map((line, idx) => {
-        const cols = line.split(';').map(c => c.trim());
-        const obj = {};
-        headers.forEach((h, i) => { obj[h] = cols[i] || ''; });
-        return {
-          id: `IMP-${Date.now()}-${idx}`,
-          descricao: obj['descricao'] || obj['descrição'] || obj['historico'] || obj['histórico'] || '',
-          valor: parseFloat((obj['valor'] || obj['debito'] || obj['débito'] || '0').replace(/[^\d,.-]/g, '').replace(',', '.')) || 0,
-          data: obj['data'] || obj['dt_lancamento'] || obj['data_emissao'] || new Date().toISOString().split('T')[0],
-          dataVencimento: obj['vencimento'] || obj['data_vencimento'] || '',
-          tipo: (obj['tipo'] || 'despesa').toLowerCase().includes('receita') ? TIPO_LANCAMENTO.RECEITA || 'receita' : TIPO_LANCAMENTO.DESPESA || 'despesa',
-          categoria: obj['categoria'] || CATEGORIA_DESPESA.OUTROS || 'outros',
-          fornecedor: obj['fornecedor'] || '',
-          notaFiscal: obj['nota_fiscal'] || obj['nf'] || '',
-          observacao: obj['observacao'] || obj['observação'] || '',
-          formaPagto: obj['forma_pagto'] || obj['pagamento'] || '',
-          setor: obj['setor'] || '',
-          status: STATUS_LANCAMENTO.PENDENTE || 'pendente',
-        };
-      }).filter(r => r.descricao && r.valor > 0);
-      setImportData(rows);
+      // Parser testado (utils/importLancamentosCSV): '1.234,56' → 1234.56,
+      // dd/mm/yyyy → ISO, coluna status preservada (senão pendente).
+      const parsed = parseCSVLancamentos(evt.target.result);
+      // Dedup contra os lançamentos já existentes da obra (data+valor+descrição)
+      const { unicos, duplicados } = deduplicarLancamentos(parsed, lancamentos);
+      if (parsed.length === 0) {
+        toast.error('Nenhum lançamento válido no arquivo (verifique cabeçalho, separador ";" e valores)');
+        return;
+      }
+      if (duplicados.length > 0) {
+        toast.info(`${duplicados.length} linha(s) ignorada(s): já existem lançamentos com mesma data, valor e descrição`);
+      }
+      setImportData(unicos);
       setShowImportacao(true);
     };
     reader.readAsText(file, 'UTF-8');
-  }, []);
+  }, [lancamentos]);
 
   const confirmarImportacao = useCallback(async () => {
-    for (const item of importData) {
-      const lancamento = { ...item, obraId: obra.id };
-      setLancamentos(prev => [...prev, lancamento]);
+    // Revalida duplicidade no momento da confirmação e persiste ANTES de
+    // atualizar o estado local (só entra na tela o que o banco aceitou).
+    const { unicos } = deduplicarLancamentos(importData, lancamentos);
+    const salvos = [];
+    const falhas = [];
+    for (const item of unicos) {
+      const lancamento = { ...item, obraId: obra.id, obra_id: obra.id };
       try {
         await addLancamentoCtx(lancamento);
+        salvos.push(lancamento);
       } catch (errImp) {
         console.error('Erro ao importar lançamento:', errImp);
+        falhas.push({ item: lancamento, erro: errImp?.message || 'erro' });
+        reverterNoContexto(() => deleteLancamentoCtx(lancamento.id));
       }
+    }
+    if (salvos.length > 0) {
+      setLancamentos(prev => {
+        const ids = new Set(prev.map(l => l.id));
+        return [...prev, ...salvos.filter(l => !ids.has(l.id))];
+      });
+      toast.success(`${salvos.length} lançamento(s) importado(s)`);
+    }
+    if (falhas.length > 0) {
+      toast.error(`${falhas.length} lançamento(s) não foram gravados: ${falhas[0].erro}`);
     }
     setShowImportacao(false);
     setImportData([]);
     setImportFile(null);
-  }, [importData, obra.id, addLancamentoCtx]);
+  }, [importData, lancamentos, obra.id, addLancamentoCtx, deleteLancamentoCtx, reverterNoContexto]);
+
 
   return (
     <div className="min-h-screen text-slate-100" style={{ background: 'linear-gradient(180deg, #060A14 0%, #080E1C 50%, #0A1020 100%)' }}>
@@ -953,9 +1011,13 @@ export default function GestaoFinanceiraObra() {
 
             <div className="text-right mr-2">
               <p className="text-xs text-slate-400">Valor do Contrato</p>
-              <p className="text-2xl font-bold text-white">
-                R$ {formatMoney(obra.contrato.valorTotal)}
-              </p>
+              {saldoContrato.contratoCadastrado ? (
+                <p className="text-2xl font-bold text-white">
+                  R$ {formatMoney(obra.contrato.valorTotal)}
+                </p>
+              ) : (
+                <p className="text-base font-semibold text-amber-400">Contrato não cadastrado</p>
+              )}
             </div>
             <button className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700/50
                            text-slate-300 rounded-xl hover:bg-slate-700/50 transition-colors">
@@ -980,10 +1042,16 @@ export default function GestaoFinanceiraObra() {
             {/* Valor Contrato */}
             <div className="text-center">
               <p className="text-xs text-slate-400 mb-1">Valor Contrato</p>
-              <p className="text-xl font-bold text-white">
-                R$ {formatMoney(saldo.valorContrato)}
-              </p>
-              <p className="text-xs text-slate-500">100%</p>
+              {saldoContrato.contratoCadastrado ? (
+                <>
+                  <p className="text-xl font-bold text-white">
+                    R$ {formatMoney(saldoContrato.valorContrato)}
+                  </p>
+                  <p className="text-xs text-slate-500">100%</p>
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-amber-400 mt-2">Contrato não cadastrado</p>
+              )}
             </div>
 
             {/* Seta */}
@@ -1025,7 +1093,7 @@ export default function GestaoFinanceiraObra() {
               <p className="text-xl font-bold text-red-400">
                 R$ {formatMoney(totalPago)}
               </p>
-              <p className="text-xs text-red-500">{((totalPago / saldo.valorContrato) * 100).toFixed(1)}%</p>
+              <p className="text-xs text-red-500">{saldoContrato.contratoCadastrado ? `${((totalPago / saldoContrato.valorContrato) * 100).toFixed(1)}% do contrato` : '—'}</p>
             </div>
 
             {/* Seta */}
@@ -1042,19 +1110,34 @@ export default function GestaoFinanceiraObra() {
                 boxShadow: '0 4px 24px rgba(0,0,0,0.25), inset 0 1px 0 rgba(139,92,246,0.1)',
               }}
             >
-              <p className="text-xs text-purple-300 mb-1">SALDO CONTRATO</p>
+              <p className="text-xs text-purple-300 mb-1" title="Contrato − valor já medido (não desconta despesas)">SALDO A MEDIR</p>
               <p className="text-xl font-bold text-purple-400">
-                R$ {formatMoney(saldoContrato.saldoRestante)}
+                {saldoContrato.contratoCadastrado ? `R$ ${formatMoney(saldoContrato.saldoAMedir)}` : '—'}
               </p>
-              <p className="text-xs text-purple-500">{saldoContrato.percentualRestante.toFixed(1)}% restante</p>
+              <p className="text-xs text-purple-500">
+                {saldoContrato.contratoCadastrado ? `${saldoContrato.percentualRestante.toFixed(1)}% do contrato` : 'Contrato não cadastrado'}
+              </p>
             </div>
+          </div>
+
+          {/* Resultado de caixa — separado do saldo do contrato (não mistura receita com custo) */}
+          <div className="mt-4 flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+            <span className="text-slate-400" title="Medições recebidas (líquido) − despesas pagas">
+              Resultado de caixa (recebido − despesas pagas):{' '}
+              <strong className={saldoContrato.resultado >= 0 ? 'text-cyan-400' : 'text-amber-400'}>
+                R$ {formatMoney(saldoContrato.resultado)}
+              </strong>
+            </span>
+            <span className="text-slate-500 text-xs">
+              Recebido: R$ {formatMoney(saldoContrato.recebido)} · Despesas pagas: R$ {formatMoney(saldoContrato.despesasPagas)}
+            </span>
           </div>
 
           {/* Barra de progresso geral */}
           <div className="mt-6">
             <div className="flex items-center justify-between text-xs text-slate-400 mb-2">
-              <span>Progresso Financeiro</span>
-              <span>{saldoContrato.percentualExecutado.toFixed(1)}% executado</span>
+              <span>Medição do Contrato</span>
+              <span>{saldoContrato.contratoCadastrado ? `${saldoContrato.percentualMedido.toFixed(1)}% medido` : 'Contrato não cadastrado'}</span>
             </div>
             <div
               className="h-4 rounded-full overflow-hidden flex"
@@ -1065,28 +1148,21 @@ export default function GestaoFinanceiraObra() {
             >
               <motion.div
                 initial={{ width: 0 }}
-                animate={{ width: `${saldoContrato.percentualDespesas}%` }}
-                className="bg-red-500 h-full"
-                title="Despesas Pagas"
-                style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)' }}
-              />
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${saldoContrato.percentualMedido}%` }}
+                animate={{ width: `${Math.min(100, saldoContrato.percentualMedido)}%` }}
                 className="bg-emerald-500 h-full"
-                title="Receitas (Medições Pagas)"
+                title="Valor medido"
                 style={{ boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.15)' }}
               />
             </div>
             <div className="flex items-center gap-4 mt-2 text-xs">
               <span className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-red-500 rounded" /> Despesas Pagas ({saldoContrato.percentualDespesas.toFixed(1)}%)
+                <div className="w-3 h-3 bg-emerald-500 rounded" /> Medido ({saldoContrato.percentualMedido.toFixed(1)}%)
               </span>
               <span className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-emerald-500 rounded" /> Receitas ({saldoContrato.percentualMedido.toFixed(1)}%)
+                <div className="w-3 h-3 bg-slate-600 rounded" /> A medir ({saldoContrato.percentualRestante.toFixed(1)}%)
               </span>
-              <span className="flex items-center gap-1">
-                <div className="w-3 h-3 bg-slate-600 rounded" /> Saldo Restante ({saldoContrato.percentualRestante.toFixed(1)}%)
+              <span className="flex items-center gap-1 text-slate-500">
+                Despesas pagas = {saldoContrato.percentualDespesas.toFixed(1)}% do contrato (custo, não abate o saldo)
               </span>
             </div>
           </div>
@@ -1128,9 +1204,9 @@ export default function GestaoFinanceiraObra() {
           />
           <KPICard
             icon={Wallet}
-            label="Saldo Contrato"
-            value={`R$ ${formatMoney(saldoContrato.saldoRestante)}`}
-            subvalue={`${saldoContrato.percentualRestante.toFixed(1)}% restante`}
+            label="Saldo a Medir"
+            value={saldoContrato.contratoCadastrado ? `R$ ${formatMoney(saldoContrato.saldoAMedir)}` : '—'}
+            subvalue={saldoContrato.contratoCadastrado ? `${saldoContrato.percentualRestante.toFixed(1)}% do contrato` : 'Contrato não cadastrado'}
             color="purple"
           />
           {/* Card Pedidos Futuros removido */}
@@ -1418,7 +1494,9 @@ export default function GestaoFinanceiraObra() {
                 </h3>
                 <div className="text-right">
                   <p className="text-xs text-slate-400">Obra: {obra.nome}</p>
-                  <p className="text-sm text-cyan-400 font-medium">Contrato: R$ {formatMoney(obra.contrato.valorTotal)}</p>
+                  <p className="text-sm text-cyan-400 font-medium">
+                    {saldoContrato.contratoCadastrado ? `Contrato: R$ ${formatMoney(obra.contrato.valorTotal)}` : 'Contrato não cadastrado'}
+                  </p>
                 </div>
               </div>
 
@@ -1460,7 +1538,7 @@ export default function GestaoFinanceiraObra() {
                     R$ {formatMoney(dreObra.custos.realizados)}
                   </p>
                   <p className="text-xs text-red-500 mt-1">
-                    {((dreObra.custos.realizados / obra.contrato.valorTotal) * 100).toFixed(1)}% do contrato
+                    {saldoContrato.contratoCadastrado ? `${((dreObra.custos.realizados / saldoContrato.valorContrato) * 100).toFixed(1)}% do contrato` : '—'}
                   </p>
                 </div>
 
@@ -1497,14 +1575,15 @@ export default function GestaoFinanceiraObra() {
                   }}
                 >
                   <p className="text-xs text-purple-300 flex items-center gap-1 mb-2">
-                    <Wallet className="w-3 h-3" /> SALDO DO CONTRATO
+                    <Wallet className="w-3 h-3" /> SALDO A MEDIR
                   </p>
                   <p className="text-2xl font-bold text-purple-400">
-                    R$ {formatMoney(saldoContrato.saldoRestante)}
+                    {saldoContrato.contratoCadastrado ? `R$ ${formatMoney(saldoContrato.saldoAMedir)}` : '—'}
                   </p>
                   <p className="text-xs text-purple-500 mt-1">
-                    {saldoContrato.percentualRestante.toFixed(1)}% restante
+                    {saldoContrato.contratoCadastrado ? `${saldoContrato.percentualRestante.toFixed(1)}% do contrato (contrato − medido)` : 'Contrato não cadastrado'}
                   </p>
+
                 </div>
               </div>
             </motion.div>
@@ -1789,7 +1868,7 @@ export default function GestaoFinanceiraObra() {
                     sortAccessor: (l) => l.dataVencimento || '',
                     render: (l) => (
                       <span className="text-slate-400">
-                        {l.dataVencimento ? new Date(l.dataVencimento).toLocaleDateString('pt-BR') : '-'}
+                        {l.dataVencimento ? (parseLocalDate(l.dataVencimento)?.toLocaleDateString('pt-BR') || '-') : '-'}
                       </span>
                     ),
                   },
@@ -2590,8 +2669,8 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
     setor: editando?.setor || setores[0]?.nome || '',
     etapa: editando?.etapa || ETAPA_MEDICAO.FABRICACAO,
     pesoMedido: editando?.pesoMedido || '',
-    dataReferencia: editando?.dataReferencia || new Date().toISOString().split('T')[0],
-    dataMedicao: editando?.dataMedicao || new Date().toISOString().split('T')[0],
+    dataReferencia: editando?.dataReferencia || hojeLocalISO(),
+    dataMedicao: editando?.dataMedicao || hojeLocalISO(),
     status: editando?.status || STATUS_MEDICAO.AGUARDANDO,
     observacao: editando?.observacao || '',
     // Campos avulsos
@@ -3037,7 +3116,7 @@ function NovoLancamentoForm({ categorias, setores, lancamentoInicial, onSubmit, 
     descricao: lancamentoInicial?.descricao || '',
     fornecedor: lancamentoInicial?.fornecedor || '',
     notaFiscal: lancamentoInicial?.notaFiscal || lancamentoInicial?.nf || '',
-    dataEmissao: lancamentoInicial?.dataEmissao || lancamentoInicial?.data || new Date().toISOString().split('T')[0],
+    dataEmissao: lancamentoInicial?.dataEmissao || lancamentoInicial?.data || hojeLocalISO(),
     dataVencimento: lancamentoInicial?.dataVencimento || '',
     valor: lancamentoInicial?.valor || 0,
     setor: lancamentoInicial?.setor || '',

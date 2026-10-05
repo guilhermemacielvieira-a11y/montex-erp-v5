@@ -107,3 +107,19 @@ export const medicaoPrevista = (status) => {
 };
 /** Medição efetivamente recebida em caixa. */
 export const medicaoRecebida = (status) => receitaRecebida(status);
+
+/**
+ * Converte um status de RECEITA (canônico ou legado) para o vocabulário de
+ * MEDIÇÃO usado pela GFO (STATUS_MEDICAO): recebido → 'paga',
+ * faturado → 'faturada' (ou mantém 'aprovada'/'faturada' original),
+ * cancelado → 'rejeitada', aberto → mantém o status original da medição
+ * (ou 'aguardando' quando não houver).
+ */
+export function statusReceitaParaMedicao(status, original) {
+  const canon = normalizeStatusReceita(status);
+  const orig = limpar(original);
+  if (canon === STATUS_RECEITA.RECEBIDO) return 'paga';
+  if (canon === STATUS_RECEITA.CANCELADO) return 'rejeitada';
+  if (canon === STATUS_RECEITA.FATURADO) return ['aprovada', 'faturada'].includes(orig) ? orig : 'faturada';
+  return orig || 'aguardando';
+}

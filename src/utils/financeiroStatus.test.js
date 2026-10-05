@@ -2,8 +2,20 @@ import { describe, it, expect } from 'vitest';
 import {
   normalizeStatusReceita, normalizeStatusDespesa,
   receitaRecebida, despesaPaga, despesaCancelada, receitaCancelada,
-  medicaoReconhecida, medicaoPrevista,
+  medicaoReconhecida, medicaoPrevista, statusReceitaParaMedicao,
 } from '@/utils/financeiroStatus';
+
+describe('statusReceitaParaMedicao', () => {
+  it('converte canônico → vocabulário de medição', () => {
+    expect(statusReceitaParaMedicao('recebido')).toBe('paga');
+    expect(statusReceitaParaMedicao('paga')).toBe('paga');
+    expect(statusReceitaParaMedicao('faturado')).toBe('faturada');
+    expect(statusReceitaParaMedicao('faturado', 'aprovada')).toBe('aprovada');
+    expect(statusReceitaParaMedicao('cancelado')).toBe('rejeitada');
+    expect(statusReceitaParaMedicao('aberto', 'em_analise')).toBe('em_analise');
+    expect(statusReceitaParaMedicao('aberto')).toBe('aguardando');
+  });
+});
 
 describe('normalizeStatusReceita', () => {
   it('variantes de recebido', () => {
