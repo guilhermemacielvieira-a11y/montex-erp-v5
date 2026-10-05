@@ -326,6 +326,7 @@ export const equipesApi = createCrud('equipes', 'nome');
 export const movEstoqueApi = createCrud('movimentacoes_estoque', 'data');
 export const medicoesApi = createCrud('medicoes', 'created_at');
 export const lancamentosApi = createCrud('lancamentos_despesas', 'data_emissao');
+export const receitasManuaisApi = createCrud('receitas_manuais', 'data_emissao');
 export const croquisApi = createCrud('croquis', 'marca');
 export const detalhamentosApi = createCrud('detalhamentos', 'numero');
 export const materiaisCorteApi = createCrud('materiais_corte', 'marca');

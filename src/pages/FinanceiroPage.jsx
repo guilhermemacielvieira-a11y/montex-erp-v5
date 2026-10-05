@@ -71,7 +71,7 @@ import {
 
 // ERPContext
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
-import { deleteReceitaManual } from '../utils/receitasSync';
+import { deleteReceitaManual, useReceitasManuais } from '../utils/receitasSync';
 
 // ========== HELPERS ==========
 const formatCurrency = (value) => {
@@ -236,12 +236,13 @@ export default function FinanceiroPage() {
     });
   }, [todasMedicoes, obrasMap]);
 
-  // Receitas manuais do localStorage (cadastradas no ReceitasPage)
+  // Receitas manuais (tabela receitas_manuais — cadastradas no ReceitasPage)
+  const { receitas: receitasManuaisFonte } = useReceitasManuais();
   const receitasManuais = useMemo(() => {
     try {
-      const salvas = JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]');
-      return salvas.map(r => {
-        const statusBruto = ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente');
+      return (receitasManuaisFonte || []).filter(r => r.status !== 'cancelado').map(r => {
+        // 'faturado' NÃO é recebido (nota emitida ≠ dinheiro em caixa)
+        const statusBruto = r.status === 'recebido' ? 'recebido' : 'pendente';
         const venc = r.vencimento || '-';
         return {
           id: r.id,
@@ -262,7 +263,8 @@ export default function FinanceiroPage() {
     } catch (e) {
       return [];
     }
-  }, [receitasTick]);
+  }, [receitasTick, receitasManuaisFonte]);
+
 
   // ===== OPÇÕES DE OBRAS PARA O SELETOR =====
   const opcoesObra = useMemo(() => {
