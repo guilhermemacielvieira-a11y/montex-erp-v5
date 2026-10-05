@@ -19,18 +19,31 @@ import * as Dialog from '@radix-ui/react-dialog';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Select from '@radix-ui/react-select';
 import { LancamentoProducaoModal } from '../components/kanban/LancamentoProducaoModal';
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogFooter,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogCancel, AlertDialogAction,
+} from '@/components/ui/alert-dialog';
+import {
+  normalizarStatusRomaneio, hojeLocalISO, escapeHtml, planejarRomaneio,
+  calcularReservasRomaneios, isRomaneioDespachado,
+} from '@/services/romaneio';
 
 // ========================================
 // CONSTANTES
 // ========================================
 
+// ids = valores gravados no banco (SEMPRE minúsculos — CHECK constraint em expedicoes.status)
 const STATUS_ENVIO = [
-  { id: 'PREPARANDO', nome: 'Preparando', cor: '#f59e0b', icon: Package },
-  { id: 'AGUARDANDO_TRANSPORTE', nome: 'Aguard. Transporte', cor: '#8b5cf6', icon: Package },
-  { id: 'EM_TRANSITO', nome: 'Em Trânsito', cor: '#3b82f6', icon: Truck },
-  { id: 'ENTREGUE', nome: 'Entregue', cor: '#10b981', icon: CheckCircle2 },
-  { id: 'PROBLEMA', nome: 'Problema', cor: '#ef4444', icon: AlertCircle },
+  { id: 'preparando', nome: 'Preparando', cor: '#f59e0b', icon: Package },
+  { id: 'aguardando_transporte', nome: 'Aguard. Transporte', cor: '#8b5cf6', icon: Package },
+  { id: 'em_transito', nome: 'Em Trânsito', cor: '#3b82f6', icon: Truck },
+  { id: 'entregue', nome: 'Entregue', cor: '#10b981', icon: CheckCircle2 },
+  { id: 'problema', nome: 'Problema', cor: '#ef4444', icon: AlertCircle },
 ];
+const statusDe = (e) => normalizarStatusRomaneio(e?.status) || 'preparando';
+const numeroDe = (e) => e?.numero || e?.numeroRomaneio || e?.numero_romaneio || 'Sem número';
+const pesoDe = (e) => parseFloat(e?.pesoTotal ?? e?.peso_total) || 0;
+const novoEnvioVazio = () => ({ numero: '', data: hojeLocalISO(), transportadora: '', motorista: '', placa: '', observacoes: '' });
 
 // ========================================
 // COMPONENTE PRINCIPAL
@@ -54,11 +67,8 @@ export default function EnviosExpedicaoPage() {
   }, [obraFiltro]);
   const isGrupoExp = !!GRUPOS_OBRAS[obraFiltro];
 
-  // Obra ativa para criação de envios (fallback se nenhuma selecionada)
-  const obraAtiva = useMemo(() => {
-    if (obraFiltro && obraFiltro !== 'todas') return obras?.find(o => o.id === obraFiltro) || null;
-    return obras?.find(o => o.status === 'em_producao' || o.status === 'ativo') || obras?.[0] || null;
-  }, [obras, obraFiltro]);
+  // A obra do romaneio é SEMPRE derivada das peças selecionadas (planejarRomaneio)
+  // — nunca do filtro da tela (com "todas" ou grupo TEMEC isso gravava a obra errada).
 
   // ==== ESTADO LOCAL ====
   const [pecasExpedidasRaw, setPecasExpedidasRaw] = useState([]);
@@ -71,14 +81,11 @@ export default function EnviosExpedicaoPage() {
   const [modalAberto, setModalAberto] = useState(false);
   const [pecasSelecionadas, setPecasSelecionadas] = useState([]);
   const [quantidadesEnvio, setQuantidadesEnvio] = useState({});
-  const [novoEnvio, setNovoEnvio] = useState({
-    numero: '',
-    data: new Date().toISOString().split('T')[0],
-    transportadora: '',
-    motorista: '',
-    placa: '',
-    observacoes: '',
-  });
+  const [novoEnvio, setNovoEnvio] = useState(novoEnvioVazio);
+  // Exclusão de romaneio: confirmação via AlertDialog (não window.confirm)
+  const [envioExcluir, setEnvioExcluir] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
+  const [criandoEnvio, setCriandoEnvio] = useState(false);
   const [modalEditarAberto, setModalEditarAberto] = useState(false);
   const [editandoEnvioId, setEditandoEnvioId] = useState(null);
   // Modal lançamento de produção por funcionário
@@ -101,9 +108,9 @@ export default function EnviosExpedicaoPage() {
       toast.success('Envio atualizado com sucesso!');
       setModalEditarAberto(false);
       setEditandoEnvioId(null);
-      setNovoEnvio({ numero: '', data: new Date().toISOString().split('T')[0], transportadora: '', motorista: '', placa: '', observacoes: '' });
+      setNovoEnvio(novoEnvioVazio());
     } catch (err) {
-      toast.error('Erro ao atualizar envio');
+      toast.error(`Erro ao atualizar envio: ${err?.message || err}`);
       console.error(err);
     }
   }, [editandoEnvioId, novoEnvio, updateExpedicao]);
@@ -126,25 +133,17 @@ export default function EnviosExpedicaoPage() {
       // Inclui peças com etapa 'enviado'/'entregue' E também peças parcialmente enviadas (etapa='expedido' mas com qtd enviada em expedições)
       const enviadasDiretas = todasPecas.filter(p => p.etapa === 'enviado' || p.etapa === 'entregue');
 
-      // Calcular envios parciais para peças que ainda estão como 'expedido'
-      const qtdEnviadaParcial = {};
-      (expedicoes || []).forEach(exp => {
-        const detalhes = exp.pecas_detalhes || exp.pecasDetalhes ||
-          (Array.isArray(exp.pecas) ? exp.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
-        detalhes.forEach(d => {
-          const id = String(d.id);
-          qtdEnviadaParcial[id] = (qtdEnviadaParcial[id] || 0) + (d.qtd_enviada || d.qtdEnviada || 0);
-        });
-      });
+      // Reservas por romaneio (services/romaneio.js):
+      //  - reservada: unidades já em algum romaneio ativo → saem da Fila de Embarque
+      //    (romaneio em preparação mantém a peça 'expedido', mas ela já tem dono);
+      //  - enviadaLegado: parciais pré-split de romaneios JÁ DESPACHADOS (a peça
+      //    original ficou 'expedido', mas essas unidades já saíram da fábrica).
+      const { reservada, enviadaLegado } = calcularReservasRomaneios(expedicoes || []);
 
-      // Adicionar peças 'expedido' que tiveram envio parcial à lista de enviadas (com qtd parcial)
       const enviadasParciais = expedidas
-        .filter(p => {
-          const jaEnviada = qtdEnviadaParcial[String(p.id)] || 0;
-          return jaEnviada > 0; // tem pelo menos 1 unidade já enviada
-        })
+        .filter(p => (enviadaLegado[String(p.id)] || 0) > 0)
         .map(p => {
-          const jaEnviada = qtdEnviadaParcial[String(p.id)] || 0;
+          const jaEnviada = enviadaLegado[String(p.id)] || 0;
           const total = parseInt(p.quantidade) || 1;
           const pesoOriginal = parseFloat(p.peso) || 0;
           const pesoParcial = total > 0 ? (pesoOriginal / total) * jaEnviada : 0;
@@ -153,36 +152,16 @@ export default function EnviosExpedicaoPage() {
 
       setPecasEnviadasRaw([...enviadasDiretas, ...enviadasParciais]);
 
-      // Calcular quantidade já enviada por peça (somando todas as expedições)
-      const qtdEnviadaPorPeca = {};
-      (expedicoes || []).forEach(exp => {
-        const detalhes = exp.pecas_detalhes || exp.pecasDetalhes ||
-          (Array.isArray(exp.pecas) ? exp.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
-        detalhes.forEach(d => {
-          const id = String(d.id);
-          qtdEnviadaPorPeca[id] = (qtdEnviadaPorPeca[id] || 0) + (d.qtd_enviada || d.qtdEnviada || 0);
-        });
-        // Para peças sem detalhes (expedições antigas), considerar totalmente enviadas
-        const ids = Array.isArray(exp.pecas_ids) ? exp.pecas_ids : [];
-        ids.forEach(id => {
-          const idStr = String(typeof id === 'object' ? (id.id || id) : id);
-          if (!(idStr in qtdEnviadaPorPeca)) {
-            qtdEnviadaPorPeca[idStr] = Infinity; // marca como totalmente enviada
-          }
-        });
-      });
-
-      // Filtrar peças com quantidade restante > 0 e ajustar quantidade disponível
+      // Fila = peças 'expedido' com quantidade ainda não reservada em romaneio
       const pecasAguardando = expedidas
         .map(p => {
-          const jaEnviada = qtdEnviadaPorPeca[String(p.id)] || 0;
+          const jaReservada = reservada[String(p.id)] || 0;
           const total = parseInt(p.quantidade) || 1;
-          const restante = total - jaEnviada;
-          if (restante <= 0) return null; // totalmente enviada
-          // Ajustar peso proporcional à quantidade restante
+          const restante = total - jaReservada;
+          if (restante <= 0) return null; // totalmente reservada/enviada
           const pesoOriginal = parseFloat(p.peso) || 0;
           const pesoRestante = total > 0 ? (pesoOriginal / total) * restante : 0;
-          return { ...p, quantidade: restante, peso: pesoRestante, _qtdOriginal: total, _qtdJaEnviada: jaEnviada };
+          return { ...p, quantidade: restante, peso: pesoRestante, _qtdOriginal: total, _qtdJaEnviada: jaReservada };
         })
         .filter(Boolean);
 
@@ -224,9 +203,9 @@ export default function EnviosExpedicaoPage() {
   // ==== KPIs ====
   const kpis = useMemo(() => {
     const total = expedicoesFiltradas.length;
-    const emTransito = expedicoesFiltradas.filter(e => (e.status || '').toUpperCase() === 'EM_TRANSITO').length;
-    const entregues = expedicoesFiltradas.filter(e => (e.status || '').toUpperCase() === 'ENTREGUE').length;
-    const pesoTotal = expedicoesFiltradas.reduce((sum, e) => sum + (parseFloat(e.peso_total || e.pesoTotal) || 0), 0);
+    const emTransito = expedicoesFiltradas.filter(e => statusDe(e) === 'em_transito').length;
+    const entregues = expedicoesFiltradas.filter(e => statusDe(e) === 'entregue').length;
+    const pesoTotal = expedicoesFiltradas.reduce((sum, e) => sum + pesoDe(e), 0);
     const prontas = pecasExpedidas.length;
     return { total, emTransito, entregues, pesoTotal, prontas };
   }, [expedicoesFiltradas, pecasExpedidas]);
@@ -246,7 +225,7 @@ export default function EnviosExpedicaoPage() {
   // ==== ENVIOS FILTRADOS ====
   const enviosFiltrados = useMemo(() => {
     let lista = expedicoesFiltradas;
-    if (filtroStatus !== 'todos') lista = lista.filter(e => (e.status || '').toUpperCase() === filtroStatus);
+    if (filtroStatus !== 'todos') lista = lista.filter(e => statusDe(e) === filtroStatus);
     if (busca) {
       const b = busca.toLowerCase();
       lista = lista.filter(e =>
@@ -266,10 +245,36 @@ export default function EnviosExpedicaoPage() {
         setQuantidadesEnvio(q => { const n = { ...q }; delete n[peca.id]; return n; });
         return prev.filter(p => p.id !== peca.id);
       }
+      // Um romaneio = uma obra: bloqueia misturar peças de obras diferentes
+      const obraNova = peca.obraId || peca.obra_id;
+      const obraAtual = prev.length ? (prev[0].obraId || prev[0].obra_id) : null;
+      if (obraAtual && obraNova !== obraAtual) {
+        const nome = obras?.find(o => o.id === obraAtual)?.nome || obraAtual;
+        toast.error(`Este romaneio já tem peças da obra ${nome}. Um romaneio não pode misturar obras.`);
+        return prev;
+      }
       const qty = parseInt(peca.quantidade) || 1;
       setQuantidadesEnvio(q => ({ ...q, [peca.id]: qty }));
       return [...prev, peca];
     });
+  }, [obras]);
+
+  // ==== SELECIONAR LOTE (todas da fila) ====
+  // Um romaneio = uma obra: com filtro "Todas"/grupo, só seleciona em lote se
+  // as peças forem de uma única obra.
+  const selecionarLote = useCallback((lista) => {
+    const obrasLote = [...new Set((lista || []).map(p => p.obraId || p.obra_id))];
+    if (obrasLote.length > 1) {
+      toast.error('As peças da fila são de obras diferentes. Filtre uma obra ou selecione as peças de uma única obra.');
+      setPecasSelecionadas([]);
+      setQuantidadesEnvio({});
+      return false;
+    }
+    setPecasSelecionadas([...(lista || [])]);
+    const qtds = {};
+    (lista || []).forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
+    setQuantidadesEnvio(qtds);
+    return true;
   }, []);
 
   // ==== ATUALIZAR QUANTIDADE DE ENVIO POR PEÇA ====
@@ -279,63 +284,84 @@ export default function EnviosExpedicaoPage() {
   }, []);
 
   // ==== CRIAR ENVIO ====
+  // Transacional (RPC criar_romaneio): valida obra única/etapa/qtd, faz split dos
+  // parciais e grava o romaneio. Peças continuam 'expedido' até o DESPACHO.
   const criarEnvio = useCallback(async () => {
-    if (pecasSelecionadas.length === 0) {
-      toast.error('Selecione pelo menos uma peça');
-      return;
-    }
+    if (criandoEnvio) return;
     if (!novoEnvio.data) {
       toast.error('Informe a data do envio');
       return;
     }
+    const plano = planejarRomaneio(pecasSelecionadas, quantidadesEnvio);
+    if (!plano.ok) {
+      toast.error(plano.erro);
+      return;
+    }
+    const obra = obras?.find(o => o.id === plano.obraId) || null;
+    setCriandoEnvio(true);
     try {
-      // Calcular peso proporcional baseado na quantidade selecionada
-      const pesoTotal = pecasSelecionadas.reduce((sum, p) => {
-        const qtyOriginal = parseInt(p.quantidade) || 1;
-        const qtyEnvio = quantidadesEnvio[p.id] || qtyOriginal;
-        const pesoUnitario = qtyOriginal > 0 ? (parseFloat(p.peso) || 0) / qtyOriginal : 0;
-        return sum + (pesoUnitario * qtyEnvio);
-      }, 0);
-      const qtdTotal = pecasSelecionadas.reduce((sum, p) => sum + (quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1), 0);
-
-      // Montar detalhes de quantidades por peça (para peças parciais)
-      const pecasDetalhes = pecasSelecionadas.map(p => ({
-        id: p.id,
-        qtd_enviada: quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1,
-        qtd_total: parseInt(p.quantidade) || 1,
-      }));
-
-      const pecasIds = pecasSelecionadas.map(p => p.id);
-      const expedicao = {
+      const pecasDetalhes = plano.itens.map(i => ({ id: i.id, qtd_enviada: i.qtd, qtd_total: i.qtdDisponivel }));
+      const result = await addExpedicao({
         numero: novoEnvio.numero || `ENV-${Date.now()}`,
         data_envio: novoEnvio.data,
         transportadora: novoEnvio.transportadora || null,
         motorista: novoEnvio.motorista || null,
         placa: novoEnvio.placa || null,
         observacoes: novoEnvio.observacoes || null,
-        status: 'PREPARANDO',
-        pecas_ids: pecasIds,
-        pecas: pecasIds, // compatibilidade com ERPContext.addExpedicao
+        status: 'preparando',
         pecas_detalhes: pecasDetalhes,
-        peso_total: pesoTotal,
-        quantidade_total: qtdTotal,
-        obra_id: obraAtiva?.id || null,
-        obra_nome: obraAtiva?.nome || null,
-      };
-      await addExpedicao(expedicao);
-      const parciais = pecasDetalhes.filter(d => d.qtd_enviada < d.qtd_total);
-      const msgParcial = parciais.length > 0 ? ` (${parciais.length} envio(s) parcial(is))` : '';
-      toast.success(`Envio criado com ${pecasSelecionadas.length} peça(s) — ${pesoTotal.toFixed(2)}kg${msgParcial}`);
+        obra_nome: obra?.nome || null,
+      });
+      const pesoTotal = parseFloat(result?.expedicao?.peso_total) || 0;
+      const parciais = plano.itens.filter(i => i.parcial).length;
+      const msgParcial = parciais > 0 ? ` (${parciais} envio(s) parcial(is))` : '';
+      toast.success(`Romaneio criado com ${plano.itens.length} peça(s) — ${pesoTotal.toFixed(2)}kg${msgParcial}. Peças seguem na Fila até o despacho.`);
       setModalAberto(false);
       setPecasSelecionadas([]);
       setQuantidadesEnvio({});
-      setNovoEnvio({ numero: '', data: new Date().toISOString().split('T')[0], transportadora: '', motorista: '', placa: '', observacoes: '' });
-      await carregarPecasExpedidas();
+      setNovoEnvio(novoEnvioVazio());
     } catch (err) {
       console.error('Erro ao criar envio:', err);
-      toast.error('Erro ao criar envio');
+      toast.error(`Erro ao criar envio: ${err?.message || err}`);
+    } finally {
+      setCriandoEnvio(false);
     }
-  }, [pecasSelecionadas, novoEnvio, obraAtiva, addExpedicao, carregarPecasExpedidas, quantidadesEnvio]);
+  }, [criandoEnvio, pecasSelecionadas, novoEnvio, obras, addExpedicao, quantidadesEnvio]);
+
+  // ==== MUDAR STATUS (despacho) ====
+  // em_transito/entregue → peças 'enviado'; demais → peças de volta a 'expedido'.
+  const mudarStatusEnvio = useCallback(async (envio, novoStatus) => {
+    const atual = statusDe(envio);
+    if (normalizarStatusRomaneio(novoStatus) === atual) return;
+    const tid = `status-${envio.id}`;
+    try {
+      toast.loading('Atualizando romaneio...', { id: tid });
+      await updateExpedicao(envio.id, { status: novoStatus });
+      const msg = isRomaneioDespachado(novoStatus)
+        ? 'Romaneio despachado — peças agora Em Obra'
+        : (isRomaneioDespachado(atual) ? 'Romaneio voltou — peças retornaram à Fila de Embarque' : 'Status do romaneio atualizado');
+      toast.success(msg, { id: tid });
+    } catch (err) {
+      console.error('Erro ao mudar status do romaneio:', err);
+      toast.error(`Erro ao mudar status: ${err?.message || err}`, { id: tid });
+    }
+  }, [updateExpedicao]);
+
+  // ==== EXCLUIR ENVIO (confirmado no AlertDialog) ====
+  const confirmarExclusao = useCallback(async () => {
+    if (!envioExcluir || excluindo) return;
+    setExcluindo(true);
+    try {
+      await deleteExpedicao(envioExcluir.id);
+      toast.success('Envio excluído — peças voltaram para a Fila de Embarque');
+      setEnvioExcluir(null);
+    } catch (err) {
+      console.error('Erro ao excluir envio:', err);
+      toast.error(`Erro ao excluir envio: ${err?.message || err}`);
+    } finally {
+      setExcluindo(false);
+    }
+  }, [envioExcluir, excluindo, deleteExpedicao]);
 
   // ==== GERAR ROMANEIO ====
   const gerarRomaneio = useCallback(async (envio) => {
@@ -378,8 +404,8 @@ export default function EnviosExpedicaoPage() {
         const pesoTot = pesoUnit * qtyEnv;
         return `<tr>
           <td style="text-align:center">${idx + 1}</td>
-          <td><strong>${p.marca || p.nome || p.codigo || '-'}</strong></td>
-          <td>${(p.tipo || p.perfil || p.descricao || '-').toUpperCase()}</td>
+          <td><strong>${escapeHtml(p.marca || p.nome || p.codigo || '-')}</strong></td>
+          <td>${escapeHtml(String(p.tipo || p.perfil || p.descricao || '-').toUpperCase())}</td>
           <td style="text-align:center">${qtyEnv}</td>
           <td style="text-align:right">${pesoUnit.toFixed(1)}</td>
           <td style="text-align:right"><strong>${pesoTot.toFixed(1)}</strong></td>
@@ -387,7 +413,7 @@ export default function EnviosExpedicaoPage() {
       }).join('');
 
       const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-      <title>Romaneio - ${numero}</title>
+      <title>Romaneio - ${escapeHtml(numero)}</title>
       <style>
         body{font-family:Arial,sans-serif;margin:20px;color:#333}
         h1{color:#1a56db;border-bottom:2px solid #1a56db;padding-bottom:8px;font-size:22px}
@@ -405,14 +431,14 @@ export default function EnviosExpedicaoPage() {
       <h1>🚛 Romaneio de Embarque</h1>
       <div class="info">
         <div>
-          <p><strong>Número:</strong> ${numero}</p>
-          <p><strong>Data:</strong> ${dataFormatada}</p>
-          <p><strong>Transportadora:</strong> ${envio.transportadora || '-'}</p>
+          <p><strong>Número:</strong> ${escapeHtml(numero)}</p>
+          <p><strong>Data:</strong> ${escapeHtml(dataFormatada)}</p>
+          <p><strong>Transportadora:</strong> ${escapeHtml(envio.transportadora || '-')}</p>
         </div>
         <div>
-          <p><strong>Motorista:</strong> ${envio.motorista || '-'}</p>
-          <p><strong>Placa:</strong> ${envio.placa || '-'}</p>
-          <p><strong>Obra:</strong> ${obraNome}</p>
+          <p><strong>Motorista:</strong> ${escapeHtml(envio.motorista || '-')}</p>
+          <p><strong>Placa:</strong> ${escapeHtml(envio.placa || '-')}</p>
+          <p><strong>Obra:</strong> ${escapeHtml(obraNome)}</p>
         </div>
       </div>
       <table>
@@ -431,7 +457,7 @@ export default function EnviosExpedicaoPage() {
       <div class="totais">
         <strong>Total de Peças:</strong> ${pecasCompletas.length} conjunto(s) &nbsp;|&nbsp; <strong>Peso Total:</strong> ${pesoTotal.toFixed(2)} kg
       </div>
-      ${envio.observacoes ? `<p style="margin-top:12px"><strong>Obs:</strong> ${envio.observacoes}</p>` : ''}
+      ${envio.observacoes ? `<p style="margin-top:12px"><strong>Obs:</strong> ${escapeHtml(envio.observacoes)}</p>` : ''}
       <div class="footer">
         <div>Assinatura do Motorista</div>
         <div>Assinatura do Responsável</div>
@@ -705,7 +731,7 @@ export default function EnviosExpedicaoPage() {
           ) : (
             <div className="space-y-3">
               {enviosFiltrados.map(envio => {
-                const statusInfo = STATUS_ENVIO.find(s => s.id === (envio.status || '').toUpperCase()) || STATUS_ENVIO[0];
+                const statusInfo = STATUS_ENVIO.find(s => s.id === statusDe(envio)) || STATUS_ENVIO[0];
                 return (
                   <motion.div key={envio.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }}
                     className="bg-gray-900 rounded-lg p-4 border border-gray-800 hover:border-blue-500 transition-colors">
@@ -775,7 +801,7 @@ export default function EnviosExpedicaoPage() {
                         }} className="border-teal-700 text-teal-400 hover:text-teal-300 hover:bg-teal-900/30" title="Gerar Romaneio PDF">
                           <FileDown className="w-4 h-4" />
                         </Button>
-                        <Select.Root value={envio.status} onValueChange={(val) => updateExpedicao(envio.id, { status: val })}>
+                        <Select.Root value={statusDe(envio)} onValueChange={(val) => mudarStatusEnvio(envio, val)}>
                           <Select.Trigger className="flex items-center gap-1 bg-gray-800 border border-gray-700 text-white px-2 py-1 rounded text-xs">
                             <Select.Value />
                             <ChevronDown className="w-3 h-3" />
@@ -795,7 +821,7 @@ export default function EnviosExpedicaoPage() {
                         <Button variant="outline" size="sm" onClick={() => {
                           setNovoEnvio({
                             numero: envio.numero || envio.numeroRomaneio || envio.numero_romaneio || '',
-                            data: envio.data_envio || envio.dataExpedicao || envio.data_expedicao || new Date().toISOString().split('T')[0],
+                            data: envio.data_envio || envio.dataExpedicao || envio.data_expedicao || hojeLocalISO(),
                             transportadora: envio.transportadora || '',
                             motorista: envio.motorista || '',
                             placa: envio.placa || '',
@@ -806,12 +832,7 @@ export default function EnviosExpedicaoPage() {
                         }} className="border-blue-700 text-blue-400 hover:text-blue-300 hover:bg-blue-900/30" title="Editar Envio">
                           <Edit3 className="w-4 h-4" />
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => {
-                          if (window.confirm('Tem certeza que deseja excluir este envio?')) {
-                            deleteExpedicao(envio.id);
-                            toast.success('Envio excluído com sucesso');
-                          }
-                        }} className="border-red-700 text-red-400 hover:text-red-300 hover:bg-red-900/30" title="Excluir Envio">
+                        <Button variant="outline" size="sm" onClick={() => setEnvioExcluir(envio)} className="border-red-700 text-red-400 hover:text-red-300 hover:bg-red-900/30" title="Excluir Envio">
                           <Trash2 className="w-4 h-4" />
                         </Button>
                       </div>
@@ -984,10 +1005,7 @@ export default function EnviosExpedicaoPage() {
                   <Button size="sm" className="bg-purple-600 hover:bg-purple-700 text-xs h-7"
                     onClick={() => {
                       setModalAberto(true);
-                      setPecasSelecionadas([...pecasExpedidas]);
-                      const qtds = {};
-                      pecasExpedidas.forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
-                      setQuantidadesEnvio(qtds);
+                      selecionarLote(pecasExpedidas);
                     }}>
                     <Plus className="w-3 h-3 mr-1" /> Criar Envio
                   </Button>
@@ -1001,20 +1019,20 @@ export default function EnviosExpedicaoPage() {
                 <Truck className="w-5 h-5 text-blue-400" />
                 <h3 className="font-semibold text-white">Em Trânsito</h3>
                 <span className="ml-auto text-xs rounded-full px-2 py-0.5 font-bold bg-blue-500/20 text-blue-400">
-                  {expedicoesFiltradas.filter(e => e.status === 'EM_TRANSITO').length}
+                  {expedicoesFiltradas.filter(e => statusDe(e) === 'em_transito').length}
                 </span>
               </div>
               <p className="text-xs text-gray-500 mb-3">Envios criados a partir do romaneio expedido</p>
               <div className="space-y-2 max-h-64 overflow-y-auto">
-                {expedicoesFiltradas.filter(e => e.status === 'EM_TRANSITO').length === 0 ? (
+                {expedicoesFiltradas.filter(e => statusDe(e) === 'em_transito').length === 0 ? (
                   <p className="text-gray-600 text-xs text-center py-4">Nenhum envio em trânsito</p>
-                ) : expedicoesFiltradas.filter(e => e.status === 'EM_TRANSITO').map(e => (
+                ) : expedicoesFiltradas.filter(e => statusDe(e) === 'em_transito').map(e => (
                   <div key={e.id} className="bg-gray-800 rounded p-2 text-xs border-l-2 border-blue-500">
                     <div className="flex justify-between items-start">
                       <div>
-                        <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
-                        <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}kg · {(e.pecas_ids || []).length} peça(s)</p>
+                        <p className="font-medium text-white">{numeroDe(e)}</p>
+                        <p className="text-gray-400">{e.destino || e.obraNome || e.obra_nome || '-'}</p>
+                        <p className="text-gray-500">{pesoDe(e).toFixed(2)}kg · {(Array.isArray(e.pecas) ? e.pecas : (e.pecas_ids || [])).length} peça(s)</p>
                         {e.transportadora && <p className="text-gray-500 mt-0.5">{e.transportadora}</p>}
                       </div>
                       <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-blue-400 hover:text-blue-300"
@@ -1029,10 +1047,7 @@ export default function EnviosExpedicaoPage() {
                 {pecasExpedidas.length > 0 && (
                   <button onClick={() => {
                       setModalAberto(true);
-                      setPecasSelecionadas([...pecasExpedidas]);
-                      const qtds = {};
-                      pecasExpedidas.forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
-                      setQuantidadesEnvio(qtds);
+                      selecionarLote(pecasExpedidas);
                     }}
                     className="text-blue-400 hover:text-blue-300 flex items-center gap-1">
                     <Plus className="w-3 h-3" /> Novo envio a partir do romaneio
@@ -1044,8 +1059,8 @@ export default function EnviosExpedicaoPage() {
 
           {/* Status secundários: Entregue e Problema */}
           <div className="grid grid-cols-2 gap-6 mb-6">
-            {STATUS_ENVIO.filter(s => s.id === 'ENTREGUE' || s.id === 'PROBLEMA').map(status => {
-              const enviosDoStatus = expedicoesFiltradas.filter(e => e.status === status.id);
+            {STATUS_ENVIO.filter(s => s.id === 'entregue' || s.id === 'problema').map(status => {
+              const enviosDoStatus = expedicoesFiltradas.filter(e => statusDe(e) === status.id);
               return (
                 <div key={status.id} className="bg-gray-900 rounded-lg p-4 border border-gray-800">
                   <div className="flex items-center gap-2 mb-3">
@@ -1059,9 +1074,9 @@ export default function EnviosExpedicaoPage() {
                   <div className="space-y-2">
                     {enviosDoStatus.map(e => (
                       <div key={e.id} className="bg-gray-800 rounded p-2 text-xs">
-                        <p className="font-medium text-white">{e.numero || 'Sem número'}</p>
-                        <p className="text-gray-400">{e.obra_nome || '-'}</p>
-                        <p className="text-gray-500">{(parseFloat(e.peso_total) || 0).toFixed(2)}kg</p>
+                        <p className="font-medium text-white">{numeroDe(e)}</p>
+                        <p className="text-gray-400">{e.destino || e.obraNome || e.obra_nome || '-'}</p>
+                        <p className="text-gray-500">{pesoDe(e).toFixed(2)}kg</p>
                       </div>
                     ))}
                     {enviosDoStatus.length === 0 && (
@@ -1177,10 +1192,7 @@ export default function EnviosExpedicaoPage() {
                         setPecasSelecionadas([]);
                         setQuantidadesEnvio({});
                       } else {
-                        setPecasSelecionadas([...pecasExpedidas]);
-                        const qtds = {};
-                        pecasExpedidas.forEach(p => { qtds[p.id] = parseInt(p.quantidade) || 1; });
-                        setQuantidadesEnvio(qtds);
+                        selecionarLote(pecasExpedidas);
                       }
                     }}
                     className="w-full text-left text-sm text-blue-400 hover:text-blue-300 py-1 flex items-center gap-2">
@@ -1255,7 +1267,7 @@ export default function EnviosExpedicaoPage() {
                 <Button variant="outline" className="border-gray-600 text-gray-300">Cancelar</Button>
               </Dialog.Close>
               <Button onClick={criarEnvio}
-                disabled={pecasSelecionadas.length === 0}
+                disabled={pecasSelecionadas.length === 0 || criandoEnvio}
                 className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50">
                 <Truck className="w-4 h-4 mr-2" />
                 Criar Envio ({pecasSelecionadas.reduce((s, p) => s + (quantidadesEnvio[p.id] || parseInt(p.quantidade) || 1), 0)} un de {pecasSelecionadas.length} peça(s))
@@ -1318,6 +1330,30 @@ export default function EnviosExpedicaoPage() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
+
+      {/* Confirmação de exclusão de romaneio */}
+      <AlertDialog open={!!envioExcluir} onOpenChange={(open) => { if (!open && !excluindo) setEnvioExcluir(null); }}>
+        <AlertDialogContent className="bg-gray-900 border border-gray-700 text-white">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir romaneio {envioExcluir ? numeroDe(envioExcluir) : ''}?</AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-400">
+              As peças deste romaneio voltam para a Fila de Embarque (etapa Expedido) e envios
+              parciais são reunidos à peça original. {envioExcluir && isRomaneioDespachado(envioExcluir.status)
+                ? 'ATENÇÃO: este romaneio já foi despachado — as peças deixarão de constar como Em Obra.'
+                : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindo} className="border-gray-600 text-gray-300 bg-transparent">Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={excluindo}
+              onClick={(e) => { e.preventDefault(); confirmarExclusao(); }}
+              className="bg-red-600 hover:bg-red-700 text-white">
+              {excluindo ? 'Excluindo...' : 'Excluir'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Modal Lançamento de Produção por Funcionário */}
       <LancamentoProducaoModal

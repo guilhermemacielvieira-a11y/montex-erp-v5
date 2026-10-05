@@ -34,6 +34,7 @@ const STATUS = {
   aguardando_transporte: { label: 'Aguardando transporte', cls: 'bg-orange-500/15 text-orange-300 border-orange-500/30' },
   em_transito: { label: 'Em trânsito', cls: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
   entregue: { label: 'Entregue', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
+  problema: { label: 'Problema', cls: 'bg-red-500/15 text-red-300 border-red-500/30' },
 };
 const statusInfo = (s) => STATUS[String(s || 'preparando').toLowerCase()] || STATUS.preparando;
 const podeDespachar = (s) => ['preparando', 'aguardando_transporte'].includes(String(s || '').toLowerCase());
@@ -134,8 +135,9 @@ export default function ExpedicaoMobile() {
     if (!romaneio || !updateExpedicao) return;
     if (!podeDespacharExp) { toast.error('Sem permissão para despachar romaneio'); return; }
     if (!isOnline()) {
-      // Offline: aplica otimisticamente + enfileira (updateExpedicao é idempotente).
-      updateExpedicao(romaneio.id, { status: 'em_transito' })?.catch(() => {});
+      // Offline: só enfileira. O SyncManager reenvia updateExpedicao ao reconectar,
+      // que chama a RPC despachar_romaneio (status em_transito + peças → 'enviado'
+      // na mesma transação). Sem estado otimista: nada de erro engolido.
       enqueue('updateExpedicao', [romaneio.id, { status: 'em_transito' }], `Despacho ${romaneio.numeroRomaneio || romaneio.id}`);
       tap('medium');
       toast.success('Despacho salvo offline — sincroniza ao reconectar');
@@ -156,7 +158,7 @@ export default function ExpedicaoMobile() {
       toast.success(`Romaneio ${romaneio.numeroRomaneio || romaneio.id} despachado`);
       setDespachar(false); setSelId(null); setConf({}); setFotoCarga(null);
     } catch (err) {
-      toast.error('Falha ao despachar romaneio');
+      toast.error(`Falha ao despachar romaneio: ${err?.message || err}`);
       console.error('[ExpedicaoMobile] updateExpedicao falhou:', err);
     } finally {
       setSaving(false);

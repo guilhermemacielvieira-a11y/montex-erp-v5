@@ -834,14 +834,16 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
 
         const { data: expData } = await supabase
           .from('expedicoes')
-          .select('id, numero_romaneio, status, peso_total, pecas, data_expedicao, destino')
+          .select('*')
           .eq('obra_id', obraAtual);
 
-        setExpedicoes(expData || []);
+        // Ignora romaneios excluídos (soft-delete via excluir_romaneio)
+        const expAtivas = (expData || []).filter(e => !e.deleted_at);
+        setExpedicoes(expAtivas);
 
         // Mapear: id da peca -> status da expedicao (mantido como override secundario)
         const expedicaoStatusMap = new Map();
-        (expData || []).forEach(exp => {
+        expAtivas.forEach(exp => {
           const expStatus = mapExpedicaoStatus(exp.status);
           const pecasArr = Array.isArray(exp.pecas) ? exp.pecas : [];
           pecasArr.forEach(p => {

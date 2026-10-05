@@ -71,6 +71,8 @@ import {
   checkConnection
 } from '@/api/supabaseClient';
 import { matchEstoqueItem, montarNovoItemEstoque } from '@/services/abastecimento';
+import { criarRomaneio, despacharRomaneio, excluirRomaneio } from '@/api/expedicaoRpc';
+import { montarPayloadCriarRomaneio, normalizarStatusRomaneio, hojeLocalISO, STATUS_ROMANEIO } from '@/services/romaneio';
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -737,229 +739,104 @@ export function ERPProvider({ children }) {
   }, [dataSource, reloadLancamentos, reloadMedicoes, reloadPecas]);
 
   // ===== AÇÕES - EXPEDIÇÃO =====
+  // REGRA DO FLUXO (migração 2026100530_expedicao_romaneio_transacional.sql):
+  //  • Criar romaneio NÃO move peças: continuam 'expedido' (Fila de Embarque),
+  //    reservadas no romaneio; envio parcial vira split próprio (ainda 'expedido').
+  //  • Despacho (em_transito/entregue) → peças 'enviado' (Em Obra / Auto-Pull da
+  //    MontagemPage). Voltar para preparando/aguardando/problema → 'expedido'.
+  //  • Tudo via RPC transacional: sem estado otimista, sem erro engolido. Em
+  //    sucesso recarrega peças + romaneios do banco; em falha lança o erro (a
+  //    página mostra o toast com a mensagem).
   const addExpedicao = useCallback(async (expedicao) => {
-    dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });
-
-    // Determinar quais peças foram totalmente enviadas vs parcialmente enviadas
-    const detalhes = expedicao.pecas_detalhes || [];
-    // Number() obrigatório: strings comparam lexicograficamente ('5' < '10' = false)
-    const pecasParciais = new Set(
-      detalhes
-        .filter(d => Number(d.qtd_enviada) < Number(d.qtd_total))
-        .map(d => String(d.id))
-    );
-
-    // Só muda etapa para ENVIADO se a peça foi TOTALMENTE enviada
-    // Peças com envio parcial permanecem como 'expedido' na fila de embarque
-    expedicao.pecas.forEach(pecaId => {
-      if (!pecasParciais.has(String(pecaId))) {
-        dispatch({
-          type: ACTIONS.UPDATE_PECA,
-          payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.ENVIADO || 'enviado' } }
-        });
-      }
+    const detalhes = expedicao.pecas_detalhes || expedicao.pecasDetalhes
+      || (expedicao.pecas || expedicao.pecas_ids || []).map(id => ({ id }));
+    const payload = montarPayloadCriarRomaneio({
+      id: expedicao.id || null,
+      numero: expedicao.numero || expedicao.numero_romaneio || expedicao.numeroRomaneio,
+      data: expedicao.data_envio || expedicao.dataEnvio || expedicao.data_expedicao || hojeLocalISO(),
+      status: expedicao.status || 'preparando',
+      transportadora: expedicao.transportadora,
+      motorista: expedicao.motorista,
+      placa: expedicao.placa,
+      observacoes: expedicao.observacoes,
+      destino: expedicao.obra_nome || expedicao.obraNome || null,
+      itens: detalhes.map(d => ({
+        id: typeof d === 'object' ? d.id : d,
+        qtd: typeof d === 'object' ? (d.qtd ?? d.qtd_enviada ?? d.qtdEnviada) : undefined,
+      })),
     });
 
-    // Persistir no Supabase
-    if (dataSource === 'supabase') {
-      try {
-        // SPLIT AUTOMÁTICO DE ENVIO PARCIAL (fluxo Expedição→Montagem):
-        // se o romaneio leva 5 de 10 unidades, cria peça split com qtd=5 e
-        // etapa='enviado' (entra no Auto-Pull da MontagemPage) e reduz a
-        // original para 5 em 'expedido' (continua na Fila de Embarque).
-        // Mesmo padrão de split do Kanban (LancamentoProducaoModal).
-        const idRemap = new Map(); // id original -> id do split enviado
-        for (const d of detalhes) {
-          const qtdEnviada = parseInt(d.qtd_enviada) || 0;
-          if (!pecasParciais.has(String(d.id)) || qtdEnviada <= 0) continue;
-          try {
-            const orig = await pecasApi.getById(d.id);
-            if (!orig) continue;
-            const qtdOrig = Math.max(1, parseInt(orig.quantidade) || 1);
-            const restante = qtdOrig - qtdEnviada;
-            if (restante <= 0) {
-              // Banco diz que não sobra nada: trata como envio total
-              await pecasApi.update(d.id, { etapa: 'enviado', status: 'enviado' });
-              continue;
-            }
-            const agora = new Date().toISOString();
-            const pesoUnit = (orig.peso_total || 0) / qtdOrig;
-            const splitId = `${d.id}__split_enviado_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
-            await pecasApi.create({
-              ...orig,
-              id: splitId,
-              quantidade: qtdEnviada,
-              peso_total: pesoUnit * qtdEnviada,
-              etapa: 'enviado',
-              status: 'enviado',
-              created_at: agora,
-              updated_at: agora,
-            });
-            try {
-              await pecasApi.update(d.id, {
-                quantidade: restante,
-                peso_total: pesoUnit * restante,
-                updated_at: agora,
-              });
-            } catch (updErr) {
-              // ROLLBACK: sem reduzir a original, o split duplicaria unidades
-              // (5 'enviado' + 10 'expedido'). Remove o split e mantém o
-              // comportamento antigo (peça inteira na fila) para esta peça.
-              await pecasApi.delete(splitId).catch(() => {});
-              throw updErr;
-            }
-            idRemap.set(String(d.id), splitId);
-          } catch (splitErr) {
-            console.error(`⚠️ Erro no split parcial da peça ${d.id}:`, splitErr.message);
-            toast.error(`Envio parcial da peça ${d.id} não registrado — ela permanece inteira na Fila de Embarque`);
-          }
-        }
-
-        // Mapeamento específico para a tabela expedicoes do Supabase
-        const record = {
-          id: expedicao.id || `EXP-${Date.now()}`,
-          obra_id: expedicao.obra_id || expedicao.obraId || null,
-          numero_romaneio: expedicao.numero || expedicao.numero_romaneio || null,
-          data_expedicao: expedicao.data_envio || expedicao.dataEnvio || new Date().toISOString().split('T')[0],
-          status: (expedicao.status || 'preparando').toLowerCase(),
-          transportadora: expedicao.transportadora || null,
-          motorista: expedicao.motorista || null,
-          placa: expedicao.placa || null,
-          peso_total: expedicao.peso_total || expedicao.pesoTotal || 0,
-          // Parciais splitadas apontam para o id do split (envio TOTAL daquela
-          // linha) — evita dupla contagem na lista de Envios e no despacho.
-          pecas: (expedicao.pecas_detalhes || []).map(d => {
-              const splitId = idRemap.get(String(d.id));
-              if (splitId) {
-                return { id: splitId, qtd_enviada: d.qtd_enviada, qtd_total: d.qtd_enviada, id_original: d.id };
-              }
-              return { id: d.id, qtd_enviada: d.qtd_enviada, qtd_total: d.qtd_total };
-            }),
-          destino: expedicao.obra_nome || expedicao.obraNome || null,
-          observacoes: expedicao.observacoes || null,
-        };
-        await expedicoesApi.create(record);
-        // Atualizar etapa das peças no Supabase — só marca 'enviado' se envio total
-        // (parciais já foram resolvidas via split acima)
-        for (const pecaId of (expedicao.pecas || [])) {
-          if (!pecasParciais.has(String(pecaId))) {
-            await pecasApi.update(pecaId, { etapa: 'enviado', status: 'enviado' }).catch(() => {});
-          }
-        }
-        // Recarrega peças para o state refletir splits/reduções
-        if (idRemap.size > 0) await reloadPecas().catch(() => {});
-        console.log(`✅ Expedição ${record.id} criada no Supabase (${idRemap.size} split(s) parciais)`);
-      } catch (err) {
-        console.error('❌ Erro ao criar expedição no Supabase:', err.message);
-        throw err;
-      }
+    if (dataSource !== 'supabase') {
+      // Modo local/mock: só registra o romaneio (peças continuam 'expedido').
+      const local = {
+        ...expedicao,
+        id: payload.id || `EXP-${Date.now()}`,
+        numeroRomaneio: payload.numero_romaneio,
+        dataExpedicao: payload.data_expedicao,
+        status: payload.status,
+        pecas: payload.pecas.map(p => ({ id: p.id, qtd_enviada: p.qtd, qtd_total: p.qtd })),
+      };
+      dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: local });
+      return { expedicao: local, splits: [] };
     }
 
-    // Add notification for shipment
+    const result = await criarRomaneio(payload);
+    await Promise.all([reloadPecas(), reloadExpedicoes()]);
+    console.log(`✅ Romaneio ${result?.expedicao?.id} criado (${result?.splits?.length || 0} split(s) parciais)`);
+
     if (window.__notificationDispatch) {
-      const numPecas = expedicao.pecas?.length || 0;
+      const numPecas = payload.pecas.length;
       window.__notificationDispatch({
         type: 'shipping',
-        title: `Romaneio #${expedicao.id} expedido`,
-        message: `${numPecas} peça${numPecas !== 1 ? 's' : ''} foram despachadas para ${expedicao.obraId || 'obra'}. Prazo: 2-3 dias úteis.`,
+        title: `Romaneio ${result?.expedicao?.numero_romaneio || result?.expedicao?.id || ''} criado`,
+        message: `${numPecas} peça${numPecas !== 1 ? 's' : ''} reservada${numPecas !== 1 ? 's' : ''} para ${result?.expedicao?.destino || result?.expedicao?.obra_id || 'obra'}. Peças seguem na Fila de Embarque até o despacho.`,
         icon: 'Truck'
       });
     }
-  }, [dataSource, reloadPecas]);
+    return result;
+  }, [dataSource, reloadPecas, reloadExpedicoes]);
 
-  const updateExpedicao = useCallback(async (id, data) => {
-    dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data } });
-
-    const statusUpper = (data.status || '').toUpperCase();
-
-    if (dataSource === 'supabase') {
-      // 1) PERSISTIR O STATUS DA EXPEDIÇÃO PRIMEIRO.
-      //    Esta é a fonte de verdade do badge na Lista de Envios. Precisa ser
-      //    gravada ANTES de qualquer atualização de peças, senão um envio com
-      //    muitas peças (ex: ENV-08 com 106) demora ~15-30s no loop e, se a
-      //    página for recarregada antes do fim, o status nunca era salvo e
-      //    voltava para "Preparando". (bug de não-persistência)
-      try {
-        const snakeData = reverseTransformRecord(data);
-        delete snakeData.id;
-        await expedicoesApi.update(id, snakeData);
-        console.log(`✅ Expedição ${id} atualizada no Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
-        throw err;
-      }
+  const updateExpedicao = useCallback(async (id, data = {}) => {
+    const { status, motivoProblema, motivo_problema, ...resto } = data || {};
+    const novoStatus = status != null ? normalizarStatusRomaneio(status) : null;
+    if (novoStatus != null && !STATUS_ROMANEIO.includes(novoStatus)) {
+      throw new Error(`Status de romaneio inválido: ${status}`);
     }
 
-    // 2) Se status mudou para ENTREGUE ou EM_TRANSITO, atualizar etapa das peças
-    //    REGRA DO FLUXO: peças SEMPRE vão para 'enviado' quando expedição é
-    //    despachada (status ENTREGUE/EM_TRANSITO). Isso é o gatilho do Auto-Pull
-    //    da MontagemPage (etapa='enviado' = Aguardando Montagem em campo).
-    //    NÃO usar etapa='entregue' aqui — isso tira a peça do escopo do módulo
-    //    de Montagem e quebra os KPIs (peso embarcado vira "fora de escopo").
-    //    "Montado" é gerenciado SEPARADAMENTE via entity_store/localStorage na
-    //    MontagemPage (NÃO altera etapa do banco).
-    if (statusUpper === 'ENTREGUE' || statusUpper === 'EM_TRANSITO') {
-      // Buscar a expedição para pegar os IDs das peças
-      const exp = state.expedicoes.find(e => e.id === id);
-      if (exp) {
-        const pecasIds = exp.pecas_ids || exp.pecasIds || exp.pecas || [];
-        // ENVIO PARCIAL: peças com qtd_enviada < qtd_total NÃO podem virar
-        // 'enviado' por inteiro (inflaria as unidades disponíveis na Montagem
-        // e o EM_OBRA do 3D). Romaneios novos já resolvem parciais via split
-        // no addExpedicao; aqui protege os legados.
-        const rawDetalhes = exp.pecas_detalhes || exp.pecasDetalhes
-          || (Array.isArray(exp.pecas) ? exp.pecas : []);
-        const parciais = new Set(
-          rawDetalhes
-            .filter(p => p && typeof p === 'object'
-              && p.qtd_enviada != null && p.qtd_total != null
-              && Number(p.qtd_enviada) < Number(p.qtd_total))
-            .map(p => String(p.id))
-        );
-        const ids = pecasIds
-          .map(p => typeof p === 'object' ? (p.id || p) : p)
-          .filter(Boolean)
-          .filter(pid => !parciais.has(String(pid)));
-        // SEMPRE 'enviado' — independente de EM_TRANSITO ou ENTREGUE.
-        // Romaneio "Entregue" significa que saiu da fábrica e chegou em obra;
-        // peça vai para "Aguardando Montagem" no fluxo da MontagemPage.
-        const novaEtapa = 'enviado';
-
-        // Atualizar no state local
-        ids.forEach(pecaId => {
-          dispatch({
-            type: ACTIONS.UPDATE_PECA,
-            payload: { id: pecaId, data: { etapa: novaEtapa } }
-          });
-        });
-
-        // Atualizar no Supabase — UMA única query (PATCH ... WHERE id IN (...))
-        // em vez de N updates sequenciais. Mais rápido e atômico por chunk.
-        if (dataSource === 'supabase' && ids.length) {
-          try {
-            await pecasApi.updateMany(ids, { etapa: novaEtapa, status: novaEtapa });
-            console.log(`✅ ${ids.length} peças atualizadas para etapa '${novaEtapa}' (Auto-Pull MontagemPage)`);
-          } catch (err) {
-            // Não relança: o status da expedição (passo 1) já foi salvo.
-            console.error('⚠️ Erro ao atualizar etapa das peças:', err.message);
-          }
-        }
-      }
+    if (dataSource !== 'supabase') {
+      dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data: { ...resto, ...(novoStatus ? { status: novoStatus } : {}) } } });
+      return;
     }
-  }, [dataSource, state.expedicoes]);
+
+    // 1) Campos cadastrais (número, data, transportadora, motorista, placa, obs).
+    //    Status/peças/datas de despacho/soft-delete NUNCA vão por aqui — só pelas RPCs.
+    const snakeData = reverseTransformRecord(resto);
+    ['id', 'status', 'pecas', 'pecas_ids', 'pecas_detalhes', 'obra_id', 'peso_total',
+      'deleted_at', 'data_saida', 'data_entrega', 'created_at', 'updated_at'].forEach(k => delete snakeData[k]);
+    if (Object.keys(snakeData).length > 0) {
+      await expedicoesApi.update(id, snakeData);
+    }
+
+    // 2) Status → RPC de despacho (move as peças na mesma transação)
+    if (novoStatus) {
+      const res = await despacharRomaneio(id, novoStatus, motivoProblema ?? motivo_problema ?? null);
+      console.log(`✅ Romaneio ${id} → ${novoStatus} (${res?.pecas_movidas ?? 0} peça(s) movida(s))`);
+      await Promise.all([reloadPecas(), reloadExpedicoes()]);
+    } else {
+      await reloadExpedicoes();
+    }
+  }, [dataSource, reloadPecas, reloadExpedicoes]);
 
   const deleteExpedicao = useCallback(async (id) => {
-    dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
-    if (dataSource === 'supabase') {
-      try {
-        await expedicoesApi.delete(id);
-        console.log(`✅ Expedição ${id} deletada do Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao deletar expedição no Supabase:', err.message);
-        throw err;
-      }
+    if (dataSource !== 'supabase') {
+      dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
+      return;
     }
-  }, [dataSource]);
+    const res = await excluirRomaneio(id);
+    console.log(`✅ Romaneio ${id} excluído (${res?.pecas_retornadas ?? 0} peça(s) de volta à fila, ${res?.splits_reunidos ?? 0} split(s) reunido(s))`);
+    await Promise.all([reloadPecas(), reloadExpedicoes()]);
+    return res;
+  }, [dataSource, reloadPecas, reloadExpedicoes]);
 
   // ===== AÇÕES - COMPRAS =====
   const addCompra = useCallback(async (compra) => {

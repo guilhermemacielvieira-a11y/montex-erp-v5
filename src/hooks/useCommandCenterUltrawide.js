@@ -659,7 +659,9 @@ export const useCommandCenterUltrawide = (obraId) => {
   const fetchCampo = useCallback(async () => {
     if (!obraId) { setCampo(prev => ({ ...prev, totalEnvios: 0, enviosDetalhados: [] })); return; }
     try {
-      const { data, error } = await supabase.from('expedicoes').select('*').eq('obra_id', obraId);
+      const { data: dataRaw, error } = await supabase.from('expedicoes').select('*').eq('obra_id', obraId);
+      // Ignora romaneios excluídos (soft-delete via excluir_romaneio)
+      const data = Array.isArray(dataRaw) ? dataRaw.filter(e => !e.deleted_at) : dataRaw;
 
       if (error) {
         console.warn('Error fetching expedicoes:', error);

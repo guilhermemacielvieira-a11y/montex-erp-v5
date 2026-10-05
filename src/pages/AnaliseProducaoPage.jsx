@@ -464,10 +464,10 @@ export default function AnaliseProducaoPage() {
         try {
           const { data: exps } = await supabase
             .from('expedicoes')
-            .select('id, status, pecas, peso_total, obra_id')
+            .select('*')
             .in('obra_id', obraIdsEfetivos)
-            .eq('status', 'ENTREGUE');
-          const entregues = exps || [];
+            .in('status', ['entregue', 'ENTREGUE']); // status normalizado p/ minúsculo (migração 2026100530)
+          const entregues = (exps || []).filter(e => !e.deleted_at); // ignora romaneios excluídos (soft-delete)
           const ids = new Set();
           let pesoEnt = 0;
           entregues.forEach(exp => {

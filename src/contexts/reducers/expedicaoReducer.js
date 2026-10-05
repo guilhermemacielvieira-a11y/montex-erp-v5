@@ -34,7 +34,8 @@ export function expedicaoReducer(state, action) {
     case 'RELOAD_EXPEDICOES':
       return {
         ...state,
-        expedicoes: action.payload
+        // Romaneios soft-deletados (excluir_romaneio) nunca entram no estado
+        expedicoes: (action.payload || []).filter(e => !e?.deletedAt && !e?.deleted_at)
       };
 
     default:
