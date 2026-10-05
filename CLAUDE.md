@@ -19,6 +19,7 @@ ERP de gestão para o **Grupo MONTEX** (fabricação de estruturas metálicas em
 - **Dashboards:** VisaoGeralPage (HUD sci-fi), DashboardPremium (BI), CommandCenterUltrawide (NEXUS), CommandCenterUltra (OMEGA)
 - **BI:** `BI360` (abas Executivo/Obras/Produção/Financeiro/Suprimentos) + `RadarAlertas` — motor puro em `src/services/bi/` (testado), dados via `useBIData` (escopo do topo, `producao_historico` paginado). ZERO dado fictício. BI Estratégico/Tático/Operacional antigos redirecionam para o BI 360.
 - **IA:** `Copiloto` (chat com ferramentas executadas no navegador sobre o motor do BI) e `InsightsIA` (análise executiva estruturada). Tudo via Edge Function `ia-copiloto` (Claude; secret `ANTHROPIC_API_KEY`, modelo `IA_COPILOTO_MODEL`, limite `IA_LIMITE_DIARIO`, uso em `ia_uso`). NUNCA chamar a API do Claude direto do navegador. `base44.integrations.Core.InvokeLLM` é um shim para essa função.
+- **Colaboração & automação:** `CentralTarefas` (tabela `tarefas` + `colaboracao_mensagens`), `CentralRelatorios` (`relatorios_historico`/`relatorios_agendamentos`), `Automacoes` (`automacoes`/`automacoes_log`/`automacoes_disparos`). Motor no servidor: Edge Function `motor-automacoes` via pg_cron `montex-motor-automacoes` (de hora em hora, header x-push-key do Vault). Sino lê `notificacoes`. Use `src/api/colaboracaoApi.js` (NÃO o shim base44, que mascarava erros).
 
 ---
 

@@ -204,7 +204,7 @@ const navigationCategories = [
       { name: 'Painel Financeiro Global', href: 'PainelFinanceiroGlobal', icon: Globe, badge: 'NEW', badgeColor: 'bg-purple-500/20 text-purple-300' },
       { name: 'Análise de Custos', href: 'AnaliseCustosPage', icon: PieChart },
       { name: 'Centros de Custo', href: 'CentrosCustoPage', icon: Building2 },
-      { name: 'Relatórios Financeiros', href: 'RelatoriosFinanceiros', icon: FileBarChart, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
+      { name: 'Relatórios', href: 'CentralRelatorios', icon: FileBarChart },
       { name: 'Vendas', href: 'VendasPage', icon: TrendingUp, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
     ]
   },
@@ -244,12 +244,9 @@ const navigationCategories = [
     items: [
       { name: 'Copiloto MONTEX', href: 'Copiloto', icon: MessageSquare, badge: 'IA', badgeColor: 'bg-pink-500/20 text-pink-400' },
       { name: 'Insights IA', href: 'InsightsIA', icon: Sparkles, badge: 'IA', badgeColor: 'bg-pink-500/20 text-pink-400' },
-      { name: 'Tarefas', href: 'Tarefas', icon: CheckSquare },
-      { name: 'Colaboração', href: 'ColaboracaoProjetos', icon: Users },
-      { name: 'Relatórios', href: 'Relatorios', icon: FileBarChart, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
-      { name: 'Gerenciador Relatórios', href: 'GerenciadorRelatorios', icon: FileBarChart },
-      { name: 'Agendamento Relatórios', href: 'AgendamentosRelatorios', icon: FileBarChart },
-      { name: 'Automações', href: 'Automacoes', icon: Zap },
+      { name: 'Central de Tarefas', href: 'CentralTarefas', icon: CheckSquare },
+      { name: 'Central de Relatórios', href: 'CentralRelatorios', icon: FileBarChart },
+      { name: 'Automações', href: 'Automacoes', icon: Zap, badge: 'AUTO', badgeColor: 'bg-emerald-500/20 text-emerald-400' },
     ]
   },
   {

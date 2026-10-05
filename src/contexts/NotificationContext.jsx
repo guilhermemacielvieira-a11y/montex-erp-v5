@@ -1,11 +1,23 @@
 /**
  * MONTEX ERP Premium - Notification Context
  *
- * Context global para gerenciamento de notificações persistentes
- * com histórico, leitura e categorização
+ * Sino de notificações do topo com dados REAIS:
+ *  - Persistidas: tabela `notificacoes` (motor de automações, relatórios
+ *    agendados etc.) via listarNotificacoes() + realtime (ouvirTabela).
+ *    Leitura gravada em `notificacoes_lidas` via marcarLidas() (otimista,
+ *    com rollback em erro). "Remover"/"Limpar" só OCULTAM localmente
+ *    (nunca apagam do banco) — ids ocultos ficam no localStorage por usuário.
+ *  - Locais: avisos efêmeros em memória disparados pelo ERPContext via
+ *    window.__notificationDispatch / addNotification (perdem-se ao recarregar).
+ *
+ * IMPORTANTE: este Provider fica ACIMA do AuthProvider/Router (src/main.jsx),
+ * então não pode chamar useAuth() aqui. A identidade do usuário é informada
+ * pelo NotificationCenter (que está dentro do AuthProvider) através de
+ * `definirUsuario({ id, authId, role })`. Sem usuário → nada é carregado.
  */
 
-import React, { createContext, useContext, useState, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { listarNotificacoes, marcarLidas, ouvirTabela } from '@/api/colaboracaoApi';
 
 // ========================================
 // TIPOS DE NOTIFICAÇÕES
@@ -21,6 +33,63 @@ export const NOTIFICATION_TYPES = {
   FINANCIAL: 'financial'
 };
 
+// Severidade persistida → tipo visual + ícone + rótulo
+export const SEVERIDADE_VISUAL = {
+  critico: { type: NOTIFICATION_TYPES.ERROR, icon: 'AlertTriangle', label: 'Crítico' },
+  alto: { type: NOTIFICATION_TYPES.WARNING, icon: 'AlertTriangle', label: 'Alto' },
+  medio: { type: NOTIFICATION_TYPES.WARNING, icon: 'Clock', label: 'Médio' },
+  info: { type: NOTIFICATION_TYPES.INFO, icon: 'Info', label: 'Info' }
+};
+
+const MAX_LOCAIS = 100;
+const MAX_OCULTAS = 500;
+const chaveOcultas = (uid) => `montex_notif_ocultas_${uid || 'anon'}`;
+
+function lerOcultas(uid) {
+  try {
+    const raw = localStorage.getItem(chaveOcultas(uid));
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(arr) ? arr.map(String) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+function gravarOcultas(uid, set) {
+  try {
+    localStorage.setItem(chaveOcultas(uid), JSON.stringify([...set].slice(-MAX_OCULTAS)));
+  } catch { /* quota/privado: oculta só nesta sessão */ }
+}
+
+/** Notificação persistida (linha do banco) → formato do sino. */
+function mapearPersistida(n) {
+  const vis = SEVERIDADE_VISUAL[n.severidade] || SEVERIDADE_VISUAL.info;
+  return {
+    id: `db-${n.id}`,
+    dbId: n.id,
+    persistida: true,
+    type: vis.type,
+    icon: vis.icon,
+    severidade: n.severidade || 'info',
+    severidadeLabel: vis.label,
+    title: n.titulo || 'Notificação',
+    message: n.mensagem || '',
+    link: n.link || null,
+    obraId: n.obra_id || null,
+    origem: n.origem || null,
+    timestamp: n.created_at ? new Date(n.created_at) : new Date(),
+    read: !!n.lida
+  };
+}
+
+/** Destino: destino_role null ou = role do usuário; destino_user null ou = id do usuário. */
+function visivelPara(n, usuario) {
+  if (n.destino_role && n.destino_role !== usuario.role) return false;
+  const du = n.destino_user;
+  if (du && du !== usuario.id && du !== usuario.authId) return false;
+  return true;
+}
+
 // ========================================
 // CONTEXTO
 // ========================================
@@ -28,191 +97,197 @@ export const NOTIFICATION_TYPES = {
 const NotificationContext = createContext(null);
 
 // ========================================
-// MOCK INITIAL NOTIFICATIONS
-// ========================================
-
-const createMockNotifications = () => {
-  const now = new Date();
-  return [
-    {
-      id: 'notif-1',
-      type: NOTIFICATION_TYPES.PRODUCTION,
-      title: 'Corte da peça CL-001 concluído',
-      message: 'A peça CL-001 passou com sucesso pela etapa de corte e está pronta para montagem.',
-      timestamp: new Date(now.getTime() - 5 * 60000), // 5 min ago
-      read: false,
-      icon: 'Scissors',
-      link: '/KanbanCortePage'
-    },
-    {
-      id: 'notif-2',
-      type: NOTIFICATION_TYPES.WARNING,
-      title: 'Material pendente: Chapa 3/8"',
-      message: 'Material com código CH-001 precisa de 2.500 kg e está com entrega prevista para hoje.',
-      timestamp: new Date(now.getTime() - 15 * 60000), // 15 min ago
-      read: false,
-      icon: 'AlertTriangle',
-      link: '/EstoquePage'
-    },
-    {
-      id: 'notif-3',
-      type: NOTIFICATION_TYPES.SHIPPING,
-      title: 'Romaneio #45 expedido para obra SUPER LUNA',
-      message: 'Carregamento de 45 peças foi despachado para a obra SUPER LUNA. Prazo de entrega: 2 dias.',
-      timestamp: new Date(now.getTime() - 30 * 60000), // 30 min ago
-      read: false,
-      icon: 'Truck',
-      link: '/EnviosExpedicaoPage'
-    },
-    {
-      id: 'notif-4',
-      type: NOTIFICATION_TYPES.FINANCIAL,
-      title: 'Meta financeira de janeiro atingida',
-      message: 'Sua meta financeira foi atingida! Total arrecadado em janeiro: R$ 450.000,00.',
-      timestamp: new Date(now.getTime() - 1 * 3600000), // 1 hour ago
-      read: true,
-      icon: 'DollarSign',
-      link: '/MetasFinanceirasPage'
-    },
-    {
-      id: 'notif-5',
-      type: NOTIFICATION_TYPES.WARNING,
-      title: 'Equipe Alfa com 3 peças atrasadas',
-      message: 'A equipe Alfa tem 3 peças em atraso na produção. Revisar cronograma.',
-      timestamp: new Date(now.getTime() - 2 * 3600000), // 2 hours ago
-      read: true,
-      icon: 'AlertTriangle',
-      link: '/ProducaoFuncionarioPage'
-    },
-    {
-      id: 'notif-6',
-      type: NOTIFICATION_TYPES.INFO,
-      title: 'Novo orçamento recebido',
-      message: 'Novo orçamento recebido para o projeto "Galpão Industrial" no valor de R$ 1.2M.',
-      timestamp: new Date(now.getTime() - 4 * 3600000), // 4 hours ago
-      read: true,
-      icon: 'Package',
-      link: '/OrcamentosPage'
-    },
-    {
-      id: 'notif-7',
-      type: NOTIFICATION_TYPES.SUCCESS,
-      title: 'Compra PO-2024-001 confirmada',
-      message: 'Sua compra de materiais foi confirmada pelo fornecedor. Data de entrega: 03/02/2024.',
-      timestamp: new Date(now.getTime() - 6 * 3600000), // 6 hours ago
-      read: true,
-      icon: 'CheckCircle',
-      link: '/EstoquePage'
-    },
-    {
-      id: 'notif-8',
-      type: NOTIFICATION_TYPES.PRODUCTION,
-      title: 'Peça MN-045 passou na inspeção',
-      message: 'Peça MN-045 passou na inspeção final de qualidade. Pronta para expedição.',
-      timestamp: new Date(now.getTime() - 1 * 86400000), // 1 day ago
-      read: true,
-      icon: 'CheckCircle',
-      link: '/ProducaoPage'
-    },
-    {
-      id: 'notif-9',
-      type: NOTIFICATION_TYPES.FINANCIAL,
-      title: 'Fatura #INV-2024-0089 vencida',
-      message: 'Fatura para o cliente ACME Corp está vencida há 2 dias. Valor: R$ 15.000,00.',
-      timestamp: new Date(now.getTime() - 1 * 86400000), // 1 day ago
-      read: true,
-      icon: 'AlertTriangle',
-      link: '/ReceitasPage'
-    },
-    {
-      id: 'notif-10',
-      type: NOTIFICATION_TYPES.INFO,
-      title: 'Backup automático concluído',
-      message: 'Backup dos dados foi concluído com sucesso. Próximo backup agendado para 06/02/2024.',
-      timestamp: new Date(now.getTime() - 2 * 86400000), // 2 days ago
-      read: true,
-      icon: 'CheckCircle',
-      link: null
-    }
-  ];
-};
-
-// ========================================
 // PROVIDER
 // ========================================
 
 export function NotificationProvider({ children }) {
-  const [notifications, setNotifications] = useState(createMockNotifications());
+  // Avisos locais (efêmeros, em memória)
+  const [locais, setLocais] = useState([]);
+  // Linhas cruas do banco (sem filtro de destino)
+  const [persistidasRaw, setPersistidasRaw] = useState([]);
+  // Ids de persistidas lidas de forma otimista (ainda não confirmadas)
+  const [lidasOtimistas, setLidasOtimistas] = useState(() => new Set());
+  // Ids de persistidas ocultas localmente
+  const [ocultas, setOcultas] = useState(() => new Set());
+  // Identidade (informada pelo NotificationCenter, que tem acesso ao useAuth)
+  const [usuario, setUsuario] = useState(null);
 
-  // Add notification
-  const addNotification = useCallback((notification) => {
-    const newNotification = {
-      id: `notif-${Date.now()}`,
-      timestamp: new Date(),
-      read: false,
-      ...notification
+  const uid = usuario?.authId || usuario?.id || null;
+
+  const definirUsuario = useCallback((u) => {
+    setUsuario((prev) => {
+      const novo = u && (u.id || u.authId) ? { id: u.id || null, authId: u.authId || null, role: u.role || null } : null;
+      if (!prev && !novo) return prev;
+      if (prev && novo && prev.id === novo.id && prev.authId === novo.authId && prev.role === novo.role) return prev;
+      return novo;
+    });
+  }, []);
+
+  // Carrega ids ocultos do usuário atual
+  useEffect(() => {
+    setOcultas(uid ? lerOcultas(uid) : new Set());
+  }, [uid]);
+
+  // Carga + realtime das persistidas (somente com usuário logado)
+  const avisouFalha = useRef(false);
+  useEffect(() => {
+    if (!uid) {
+      setPersistidasRaw([]);
+      return undefined;
+    }
+    let ativo = true;
+    let timer = null;
+
+    const carregar = async () => {
+      try {
+        const lista = await listarNotificacoes({ limite: 100 });
+        if (!ativo) return;
+        setPersistidasRaw(Array.isArray(lista) ? lista : []);
+        avisouFalha.current = false;
+      } catch (err) {
+        // Sem sessão / RLS / rede: fica vazio, sem toast (evita spam). Loga 1x.
+        if (!ativo) return;
+        if (!avisouFalha.current) {
+          console.warn('[Notificações] não foi possível carregar:', err?.message || err);
+          avisouFalha.current = true;
+        }
+      }
     };
 
-    setNotifications(prev => [newNotification, ...prev].slice(0, 100)); // Keep last 100
+    carregar();
+
+    let desligar = () => {};
+    try {
+      desligar = ouvirTabela('notificacoes', () => {
+        // debounce: rajadas do motor de automações viram 1 recarga
+        clearTimeout(timer);
+        timer = setTimeout(carregar, 600);
+      });
+    } catch (err) {
+      console.warn('[Notificações] realtime indisponível:', err?.message || err);
+    }
+
+    return () => {
+      ativo = false;
+      clearTimeout(timer);
+      try { desligar(); } catch { /* noop */ }
+    };
+  }, [uid]);
+
+  // Persistidas visíveis para este usuário, já mapeadas
+  const persistidas = useMemo(() => {
+    if (!usuario) return [];
+    return persistidasRaw
+      .filter((n) => visivelPara(n, usuario))
+      .map(mapearPersistida)
+      .filter((n) => !ocultas.has(String(n.dbId)))
+      .map((n) => (lidasOtimistas.has(n.dbId) ? { ...n, read: true } : n));
+  }, [persistidasRaw, usuario, ocultas, lidasOtimistas]);
+
+  const notifications = useMemo(() => {
+    const todas = [...persistidas, ...locais];
+    todas.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return todas;
+  }, [persistidas, locais]);
+
+  // Ref para os handlers lerem o estado atual sem re-criar callbacks
+  const notifsRef = useRef(notifications);
+  notifsRef.current = notifications;
+
+  // Add notification (aviso local efêmero)
+  const addNotification = useCallback((notification) => {
+    const newNotification = {
+      id: `notif-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: new Date(),
+      read: false,
+      ...notification,
+      persistida: false
+    };
+    setLocais((prev) => [newNotification, ...prev].slice(0, MAX_LOCAIS));
     return newNotification.id;
   }, []);
 
-  // Mark single notification as read
+  // Marca persistidas como lidas (otimista + rollback)
+  const marcarPersistidas = useCallback(async (dbIds) => {
+    if (!dbIds.length) return;
+    setLidasOtimistas((prev) => {
+      const s = new Set(prev);
+      dbIds.forEach((id) => s.add(id));
+      return s;
+    });
+    try {
+      await marcarLidas(dbIds);
+      // Confirmado: grava no raw e libera o otimista
+      const set = new Set(dbIds);
+      setPersistidasRaw((prev) => prev.map((n) => (set.has(n.id) ? { ...n, lida: true } : n)));
+    } catch (err) {
+      console.warn('[Notificações] falha ao marcar como lida:', err?.message || err);
+    } finally {
+      // Sucesso: raw já tem lida=true; erro: rollback (volta a não lida)
+      setLidasOtimistas((prev) => {
+        const s = new Set(prev);
+        dbIds.forEach((id) => s.delete(id));
+        return s;
+      });
+    }
+  }, []);
+
   const markAsRead = useCallback((id) => {
-    setNotifications(prev =>
-      prev.map(n => n.id === id ? { ...n, read: true } : n)
-    );
-  }, []);
+    const alvo = notifsRef.current.find((n) => n.id === id);
+    if (alvo?.persistida) {
+      if (!alvo.read) marcarPersistidas([alvo.dbId]);
+      return;
+    }
+    setLocais((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+  }, [marcarPersistidas]);
 
-  // Mark all notifications as read
   const markAllAsRead = useCallback(() => {
-    setNotifications(prev =>
-      prev.map(n => ({ ...n, read: true }))
-    );
-  }, []);
+    const ids = notifsRef.current.filter((n) => n.persistida && !n.read).map((n) => n.dbId);
+    marcarPersistidas(ids);
+    setLocais((prev) => prev.map((n) => (n.read ? n : { ...n, read: true })));
+  }, [marcarPersistidas]);
 
-  // Remove single notification
+  const ocultar = useCallback((dbIds) => {
+    if (!dbIds.length) return;
+    setOcultas((prev) => {
+      const s = new Set(prev);
+      dbIds.forEach((id) => s.add(String(id)));
+      gravarOcultas(uid, s);
+      return s;
+    });
+  }, [uid]);
+
+  // Remove: local some; persistida só é ocultada (não apaga do banco)
   const removeNotification = useCallback((id) => {
-    setNotifications(prev =>
-      prev.filter(n => n.id !== id)
-    );
-  }, []);
+    const alvo = notifsRef.current.find((n) => n.id === id);
+    if (alvo?.persistida) {
+      ocultar([alvo.dbId]);
+      return;
+    }
+    setLocais((prev) => prev.filter((n) => n.id !== id));
+  }, [ocultar]);
 
-  // Clear all notifications
   const clearAll = useCallback(() => {
-    setNotifications([]);
-  }, []);
+    ocultar(notifsRef.current.filter((n) => n.persistida).map((n) => n.dbId));
+    setLocais([]);
+  }, [ocultar]);
 
-  // Get unread count
-  const unreadCount = useMemo(() => {
-    return notifications.filter(n => !n.read).length;
-  }, [notifications]);
+  const unreadCount = useMemo(() => notifications.filter((n) => !n.read).length, [notifications]);
 
-  // Group notifications by time
+  // Agrupa por dia (fuso local)
   const groupedNotifications = useMemo(() => {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterday = new Date(today.getTime() - 86400000);
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+    const groups = { today: [], yesterday: [], earlier: [] };
 
-    const groups = {
-      today: [],
-      yesterday: [],
-      earlier: []
-    };
-
-    notifications.forEach(notif => {
-      const notifDate = new Date(notif.timestamp);
-      const notifDay = new Date(notifDate.getFullYear(), notifDate.getMonth(), notifDate.getDate());
-
-      if (notifDay.getTime() === today.getTime()) {
-        groups.today.push(notif);
-      } else if (notifDay.getTime() === yesterday.getTime()) {
-        groups.yesterday.push(notif);
-      } else {
-        groups.earlier.push(notif);
-      }
+    notifications.forEach((notif) => {
+      const d = new Date(notif.timestamp);
+      const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+      if (dia === today.getTime()) groups.today.push(notif);
+      else if (dia === yesterday.getTime()) groups.yesterday.push(notif);
+      else groups.earlier.push(notif);
     });
-
     return groups;
   }, [notifications]);
 
@@ -224,8 +299,10 @@ export function NotificationProvider({ children }) {
     markAsRead,
     markAllAsRead,
     removeNotification,
-    clearAll
-  }), [notifications, unreadCount, groupedNotifications, addNotification, markAsRead, markAllAsRead, removeNotification, clearAll]);
+    clearAll,
+    definirUsuario,
+    usuarioNotificacoes: usuario
+  }), [notifications, unreadCount, groupedNotifications, addNotification, markAsRead, markAllAsRead, removeNotification, clearAll, definirUsuario, usuario]);
 
   return (
     <NotificationContext.Provider value={value}>

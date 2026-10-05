@@ -1,436 +1,313 @@
-import React, { useState } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { base44 } from '@/api/base44Client';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+// ============================================================
+// Automações — motor REAL (Fase 3)
+// ============================================================
+// Cadastro em `automacoes` (Supabase). O motor (Edge Function
+// `motor-automacoes`) roda de hora em hora via pg_cron e dispara cada
+// ocorrência uma única vez por automação (dedup em automacoes_disparos).
+// Aqui: listar/criar/editar/excluir, ativar/desativar, Testar (simula,
+// nada é enviado), Executar agora (age de verdade) e o histórico do log.
+// Fluxos de aprovação ficaram fora desta fase.
+// ============================================================
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { Zap, Plus, Sparkles, Activity, Bell, AlertTriangle, PlayCircle, RefreshCw, Loader2, ListChecks, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  Zap,
-  Plus,
-  Edit,
-  Trash2,
-  Power,
-  GitBranch,
-  Clock,
-  Activity,
-  FileCheck
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import AutomacaoModal from '@/components/automacoes/AutomacaoModal';
-import FluxoAprovacaoModal from '@/components/automacoes/FluxoAprovacaoModal';
-import LogsAutomacao from '@/components/automacoes/LogsAutomacao';
-import ListaSolicitacoes from '@/components/automacoes/ListaSolicitacoes';
-import { toast } from 'sonner';
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useObras } from '@/contexts/ERPContext';
+import {
+  listarAutomacoes, salvarAutomacao, excluirAutomacao, listarLogAutomacoes, executarAutomacoes,
+} from '@/api/colaboracaoApi';
+import AutomacaoCard from '@/components/automacoes2/AutomacaoCard';
+import AutomacaoEditor from '@/components/automacoes2/AutomacaoEditor';
+import HistoricoExecucoes from '@/components/automacoes2/HistoricoExecucoes';
+import ModelosDialog from '@/components/automacoes2/ModelosDialog';
+import { TesteDialog, ExecutarDialog } from '@/components/automacoes2/ResultadoDialogs';
 
-const TIPO_GATILHO_LABELS = {
-  mudanca_status_projeto: 'Mudança de Status - Projeto',
-  mudanca_status_orcamento: 'Mudança de Status - Orçamento',
-  conclusao_item_producao: 'Conclusão de Item de Produção',
-  aprovacao_orcamento: 'Aprovação de Orçamento',
-  atraso_projeto: 'Projeto Atrasado',
-  estoque_baixo: 'Estoque Baixo',
-  conclusao_etapa: 'Conclusão de Etapa'
-};
+const LIMITE_LOG = 500;
+const DIA_MS = 24 * 60 * 60 * 1000;
 
-const TIPO_DOCUMENTO_LABELS = {
-  orcamento: 'Orçamento',
-  relatorio: 'Relatório',
-  projeto: 'Projeto',
-  movimentacao_financeira: 'Movimentação Financeira'
-};
+function Indicador({ icone: Icone, rotulo, valor, cor, dica }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-3 flex items-center gap-3 min-w-0" title={dica}>
+      <div className={`rounded-lg p-2 ${cor.bg}`}><Icone className={`h-5 w-5 ${cor.fg}`} aria-hidden /></div>
+      <div className="min-w-0">
+        <p className="text-[11px] uppercase tracking-wide text-slate-400 truncate">{rotulo}</p>
+        <p className="text-xl font-bold text-slate-100 tabular-nums">{valor}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function AutomacoesPage() {
-  const [modalAutomacaoOpen, setModalAutomacaoOpen] = useState(false);
-  const [modalFluxoOpen, setModalFluxoOpen] = useState(false);
-  const [automacaoEditando, setAutomacaoEditando] = useState(null);
-  const [fluxoEditando, setFluxoEditando] = useState(null);
-  const queryClient = useQueryClient();
+  const { obras = [], obraAtual } = useObras();
 
-  const { data: automacoes = [], isLoading: loadingAutomacoes } = useQuery({
-    queryKey: ['automacoes'],
-    queryFn: () => base44.entities.Automacao.list('-created_date', 100)
-  });
+  const [automacoes, setAutomacoes] = useState([]);
+  const [logs, setLogs] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [carregandoLog, setCarregandoLog] = useState(false);
+  const [erroLista, setErroLista] = useState('');
+  const [erroLog, setErroLog] = useState('');
+  const [aba, setAba] = useState('automacoes');
 
-  const { data: fluxos = [], isLoading: loadingFluxos } = useQuery({
-    queryKey: ['fluxos_aprovacao'],
-    queryFn: () => base44.entities.FluxoAprovacao.list('-created_date', 100)
-  });
+  const [editor, setEditor] = useState({ aberto: false, inicial: null });
+  const [modelosAberto, setModelosAberto] = useState(false);
+  const [paraExcluir, setParaExcluir] = useState(null);
+  const [excluindo, setExcluindo] = useState(false);
+  const [ocupado, setOcupado] = useState({}); // { [id]: 'teste'|'manual'|'toggle' }
+  const [teste, setTeste] = useState(null); // { nome, resultado }
+  const [execucao, setExecucao] = useState(null); // { automacao, resultado? }
+  const [executando, setExecutando] = useState(false);
 
-  const { data: solicitacoes = [] } = useQuery({
-    queryKey: ['solicitacoes_aprovacao'],
-    queryFn: () => base44.entities.SolicitacaoAprovacao.list('-created_date', 100)
-  });
-
-  const toggleAutomacaoMutation = useMutation({
-    mutationFn: ({ id, ativa }) => base44.entities.Automacao.update(id, { ativa }),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['automacoes']);
-      toast.success('Automação atualizada');
+  const carregarAutomacoes = useCallback(async () => {
+    try {
+      setAutomacoes(await listarAutomacoes());
+      setErroLista('');
+    } catch (e) {
+      setErroLista(e?.message || String(e));
     }
-  });
+  }, []);
 
-  const deleteAutomacaoMutation = useMutation({
-    mutationFn: (id) => base44.entities.Automacao.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['automacoes']);
-      toast.success('Automação excluída');
+  const carregarLog = useCallback(async () => {
+    setCarregandoLog(true);
+    try {
+      setLogs(await listarLogAutomacoes({ limite: LIMITE_LOG }));
+      setErroLog('');
+    } catch (e) {
+      setErroLog(e?.message || String(e));
+    } finally {
+      setCarregandoLog(false);
     }
-  });
+  }, []);
 
-  const deleteFluxoMutation = useMutation({
-    mutationFn: (id) => base44.entities.FluxoAprovacao.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries(['fluxos_aprovacao']);
-      toast.success('Fluxo excluído');
+  const recarregarTudo = useCallback(async () => {
+    await Promise.all([carregarAutomacoes(), carregarLog()]);
+  }, [carregarAutomacoes, carregarLog]);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => { await recarregarTudo(); if (vivo) setCarregando(false); })();
+    // O motor roda sozinho; atualiza o painel a cada minuto com a aba visível.
+    const t = setInterval(() => { if (document.visibilityState === 'visible') recarregarTudo(); }, 60000);
+    return () => { vivo = false; clearInterval(t); };
+  }, [recarregarTudo]);
+
+  const nomeObra = useMemo(() => {
+    const m = {};
+    obras.forEach((o) => { m[o.id] = o.nome || o.codigo || o.id; });
+    return m;
+  }, [obras]);
+
+  const ultimoLogPorAuto = useMemo(() => {
+    const m = {};
+    for (const l of logs) if (l.automacao_id && !m[l.automacao_id]) m[l.automacao_id] = l; // logs já vêm do mais recente
+    return m;
+  }, [logs]);
+
+  const indicadores = useMemo(() => {
+    const desde = Date.now() - DIA_MS;
+    const recentes = logs.filter((l) => new Date(l.executada_em).getTime() >= desde);
+    return {
+      ativas: automacoes.filter((a) => a.ativa).length,
+      total: automacoes.length,
+      execucoes: recentes.length,
+      disparos: recentes.reduce((s, l) => s + (Number(l.disparos) || 0), 0),
+      erros: recentes.filter((l) => l.status === 'erro').length,
+    };
+  }, [automacoes, logs]);
+
+  const marcarOcupado = (id, v) => setOcupado((o) => { const n = { ...o }; if (v) n[id] = v; else delete n[id]; return n; });
+
+  // ---------- ações ----------
+  const alternarAtiva = useCallback(async (a, ativa) => {
+    marcarOcupado(a.id, 'toggle');
+    setAutomacoes((lista) => lista.map((x) => (x.id === a.id ? { ...x, ativa } : x)));
+    try {
+      const salva = await salvarAutomacao({ ...a, ativa });
+      setAutomacoes((lista) => lista.map((x) => (x.id === a.id ? salva : x)));
+      toast.success(ativa ? `"${a.nome}" ativada — roda na próxima hora cheia` : `"${a.nome}" desativada`);
+    } catch (e) {
+      setAutomacoes((lista) => lista.map((x) => (x.id === a.id ? { ...x, ativa: a.ativa } : x)));
+      toast.error(`Não foi possível alterar: ${e?.message || e}`);
+    } finally {
+      marcarOcupado(a.id, null);
     }
-  });
+  }, []);
 
-  const handleEditarAutomacao = (automacao) => {
-    setAutomacaoEditando(automacao);
-    setModalAutomacaoOpen(true);
-  };
+  const testar = useCallback(async (a) => {
+    marcarOcupado(a.id, 'teste');
+    try {
+      const r = await executarAutomacoes({ modo: 'teste', automacaoId: a.id });
+      setTeste({ nome: a.nome, resultado: r });
+    } catch (e) {
+      toast.error(`Falha no teste: ${e?.message || e}`);
+    } finally {
+      marcarOcupado(a.id, null);
+    }
+  }, []);
 
-  const handleEditarFluxo = (fluxo) => {
-    setFluxoEditando(fluxo);
-    setModalFluxoOpen(true);
-  };
+  const confirmarExecucao = useCallback(async () => {
+    const a = execucao?.automacao;
+    if (!a) return;
+    setExecutando(true);
+    marcarOcupado(a.id, 'manual');
+    try {
+      const r = await executarAutomacoes({ modo: 'manual', automacaoId: a.id });
+      setExecucao({ automacao: a, resultado: r });
+      const item = r?.automacoes?.[0];
+      if (item?.erro) toast.error(`"${a.nome}" falhou: ${item.erro}`);
+      else toast.success(item?.novas ? `${item.novas} ocorrência(s) nova(s) processada(s)` : 'Executada — nenhuma ocorrência nova');
+      recarregarTudo();
+    } catch (e) {
+      toast.error(`Falha ao executar: ${e?.message || e}`);
+      setExecucao(null);
+    } finally {
+      setExecutando(false);
+      marcarOcupado(a.id, null);
+    }
+  }, [execucao, recarregarTudo]);
 
-  const solicitacoesPendentes = solicitacoes.filter(s => 
-    ['pendente', 'em_analise'].includes(s.status_geral)
-  ).length;
+  const salvar = useCallback(async (dados) => {
+    const salva = await salvarAutomacao(dados); // erro sobe para o editor exibir
+    setAutomacoes((lista) => (dados.id ? lista.map((x) => (x.id === salva.id ? salva : x)) : [...lista, salva]));
+    toast.success(dados.id ? 'Automação atualizada' : 'Automação criada');
+    setEditor({ aberto: false, inicial: null });
+  }, []);
+
+  const confirmarExclusao = useCallback(async () => {
+    if (!paraExcluir) return;
+    setExcluindo(true);
+    try {
+      await excluirAutomacao(paraExcluir.id);
+      setAutomacoes((lista) => lista.filter((x) => x.id !== paraExcluir.id));
+      setLogs((l) => l.filter((x) => x.automacao_id !== paraExcluir.id));
+      toast.success(`"${paraExcluir.nome}" excluída`);
+      setParaExcluir(null);
+    } catch (e) {
+      toast.error(`Não foi possível excluir: ${e?.message || e}`);
+    } finally {
+      setExcluindo(false);
+    }
+  }, [paraExcluir]);
+
+  const ordenadas = useMemo(
+    () => [...automacoes].sort((a, b) => (Number(b.ativa) - Number(a.ativa)) || String(a.nome).localeCompare(String(b.nome), 'pt-BR')),
+    [automacoes],
+  );
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900">Automações e Fluxos</h1>
-          <p className="text-slate-500 mt-1">Configure gatilhos automáticos e fluxos de aprovação</p>
+    <div className="space-y-5 p-4 md:p-6 max-w-7xl mx-auto text-slate-100">
+      {/* Cabeçalho */}
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Zap className="h-6 w-6 text-yellow-400" aria-hidden />Automações
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">O motor roda sozinho de hora em hora e só avisa cada ocorrência uma vez</p>
         </div>
-      </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={recarregarTudo} className="border-slate-600 bg-transparent text-slate-200 hover:bg-slate-800" aria-label="Atualizar">
+            <RefreshCw className={`h-4 w-4 ${carregandoLog ? 'animate-spin' : ''}`} aria-hidden />
+          </Button>
+          <Button variant="outline" onClick={() => setModelosAberto(true)} className="border-slate-600 bg-transparent text-slate-200 hover:bg-slate-800">
+            <Sparkles className="h-4 w-4 mr-1.5 text-yellow-400" aria-hidden />Adicionar modelo
+          </Button>
+          <Button onClick={() => setEditor({ aberto: true, inicial: null })} className="bg-blue-600 hover:bg-blue-500 text-white">
+            <Plus className="h-4 w-4 mr-1.5" aria-hidden />Nova automação
+          </Button>
+        </div>
+      </header>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Automações Ativas</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {automacoes.filter(a => a.ativa).length}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-                <Zap className="h-6 w-6 text-green-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+      <section className="grid grid-cols-2 lg:grid-cols-4 gap-3" aria-label="Indicadores das últimas 24 horas">
+        <Indicador icone={Zap} rotulo="Ativas" valor={`${indicadores.ativas}/${indicadores.total}`}
+          cor={{ bg: 'bg-emerald-500/10', fg: 'text-emerald-400' }} dica="Automações ativas / cadastradas" />
+        <Indicador icone={Activity} rotulo="Execuções 24h" valor={indicadores.execucoes}
+          cor={{ bg: 'bg-blue-500/10', fg: 'text-blue-400' }} dica="Execuções registradas no log nas últimas 24 horas" />
+        <Indicador icone={Bell} rotulo="Ocorrências disparadas 24h" valor={indicadores.disparos}
+          cor={{ bg: 'bg-orange-500/10', fg: 'text-orange-400' }} dica="Ocorrências novas que geraram ações nas últimas 24 horas" />
+        <Indicador icone={AlertTriangle} rotulo="Erros 24h" valor={indicadores.erros}
+          cor={indicadores.erros ? { bg: 'bg-red-500/10', fg: 'text-red-400' } : { bg: 'bg-slate-700/30', fg: 'text-slate-400' }}
+          dica="Execuções com erro nas últimas 24 horas" />
+      </section>
 
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Fluxos Ativos</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {fluxos.filter(f => f.ativo).length}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-                <GitBranch className="h-6 w-6 text-blue-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Pendentes Aprovação</p>
-                <p className="text-2xl font-bold text-slate-900">{solicitacoesPendentes}</p>
-              </div>
-              <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
-                <Clock className="h-6 w-6 text-orange-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-slate-500">Execuções (Hoje)</p>
-                <p className="text-2xl font-bold text-slate-900">
-                  {automacoes.reduce((acc, a) => acc + (a.execucoes || 0), 0)}
-                </p>
-              </div>
-              <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-                <Activity className="h-6 w-6 text-purple-600" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Tabs defaultValue="automacoes" className="space-y-4">
-        <TabsList className="grid w-full max-w-md grid-cols-4">
-          <TabsTrigger value="automacoes">Automações</TabsTrigger>
-          <TabsTrigger value="fluxos">Fluxos</TabsTrigger>
-          <TabsTrigger value="solicitacoes">
-            Solicitações
-            {solicitacoesPendentes > 0 && (
-              <Badge className="ml-2 bg-orange-500">{solicitacoesPendentes}</Badge>
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="logs">Logs</TabsTrigger>
+      <Tabs value={aba} onValueChange={setAba}>
+        <TabsList className="bg-slate-900 border border-slate-800 max-w-full h-auto flex-wrap">
+          <TabsTrigger value="automacoes"><ListChecks className="h-4 w-4 mr-1.5" aria-hidden />Automações ({automacoes.length})</TabsTrigger>
+          <TabsTrigger value="historico"><History className="h-4 w-4 mr-1.5" aria-hidden />Histórico<span className="hidden sm:inline">&nbsp;de execuções</span></TabsTrigger>
         </TabsList>
 
-        {/* Automações */}
-        <TabsContent value="automacoes" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold text-slate-900">Automações Configuradas</h2>
-            <Button
-              onClick={() => {
-                setAutomacaoEditando(null);
-                setModalAutomacaoOpen(true);
-              }}
-              className="gap-2 bg-gradient-to-r from-green-500 to-green-600"
-            >
-              <Plus className="h-4 w-4" />
-              Nova Automação
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
-            {automacoes.map((automacao) => (
-              <Card key={automacao.id} className={cn(
-                "border-2 transition-all",
-                automacao.ativa ? "border-green-200 bg-green-50/30" : "border-slate-200"
-              )}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CardTitle className="text-lg">{automacao.nome}</CardTitle>
-                        <Badge variant={automacao.ativa ? "default" : "secondary"} className={cn(
-                          automacao.ativa && "bg-green-500"
-                        )}>
-                          {automacao.ativa ? 'Ativa' : 'Inativa'}
-                        </Badge>
-                      </div>
-                      <CardDescription>{automacao.descricao}</CardDescription>
-                    </div>
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => toggleAutomacaoMutation.mutate({
-                        id: automacao.id,
-                        ativa: !automacao.ativa
-                      })}
-                    >
-                      <Power className={cn(
-                        "h-4 w-4",
-                        automacao.ativa ? "text-green-600" : "text-slate-400"
-                      )} />
-                    </Button>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <Zap className="h-4 w-4" />
-                    <span>{TIPO_GATILHO_LABELS[automacao.tipo_gatilho]}</span>
-                  </div>
-                  
-                  <div className="bg-slate-50 rounded-lg p-3 space-y-2">
-                    <p className="text-xs font-medium text-slate-500">Ações:</p>
-                    {automacao.acoes?.map((acao, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-sm">
-                        <div className="w-2 h-2 rounded-full bg-blue-500" />
-                        <span className="capitalize">{acao.tipo.replace(/_/g, ' ')}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="flex items-center justify-between text-xs text-slate-500 pt-2 border-t">
-                    <span>Executada {automacao.execucoes || 0}x</span>
-                    {automacao.ultima_execucao && (
-                      <span>Última: {new Date(automacao.ultima_execucao).toLocaleDateString('pt-BR')}</span>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleEditarAutomacao(automacao)}
-                    >
-                      <Edit className="h-3 w-3 mr-2" />
-                      Editar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-red-600 hover:bg-red-50"
-                      onClick={() => {
-                        if (confirm('Deseja excluir esta automação?')) {
-                          deleteAutomacaoMutation.mutate(automacao.id);
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {automacoes.length === 0 && (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <Zap className="h-12 w-12 mx-auto text-slate-300 mb-4" />
-                <p className="text-slate-500 mb-4">Nenhuma automação configurada</p>
-                <Button onClick={() => setModalAutomacaoOpen(true)}>
-                  Criar Primeira Automação
+        <TabsContent value="automacoes" className="mt-4">
+          {erroLista && (
+            <div role="alert" className="mb-3 rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm text-red-200 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" aria-hidden />Não foi possível carregar as automações: {erroLista}
+            </div>
+          )}
+          {carregando ? (
+            <div className="rounded-xl border border-slate-800 p-10 text-center text-slate-400">
+              <Loader2 className="h-6 w-6 mx-auto mb-2 animate-spin" aria-hidden />Carregando automações…
+            </div>
+          ) : ordenadas.length === 0 && !erroLista ? (
+            <div className="rounded-xl border border-dashed border-slate-700 p-10 text-center space-y-3">
+              <PlayCircle className="h-8 w-8 mx-auto text-slate-600" aria-hidden />
+              <p className="text-slate-300">Nenhuma automação cadastrada.</p>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={() => setModelosAberto(true)} className="border-slate-600 bg-transparent text-slate-200 hover:bg-slate-800">
+                  <Sparkles className="h-4 w-4 mr-1.5" aria-hidden />Começar por um modelo
                 </Button>
-              </CardContent>
-            </Card>
+                <Button onClick={() => setEditor({ aberto: true, inicial: null })} className="bg-blue-600 hover:bg-blue-500 text-white">
+                  <Plus className="h-4 w-4 mr-1.5" aria-hidden />Criar do zero
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-3 md:grid-cols-2">
+              {ordenadas.map((a) => (
+                <AutomacaoCard key={a.id} automacao={a} nomeObra={nomeObra[a.obra_id]} ultimoLog={ultimoLogPorAuto[a.id]}
+                  ocupado={ocupado[a.id]}
+                  onToggle={alternarAtiva} onTestar={testar}
+                  onExecutar={(x) => setExecucao({ automacao: x })}
+                  onEditar={(x) => setEditor({ aberto: true, inicial: x })}
+                  onExcluir={setParaExcluir} />
+              ))}
+            </div>
           )}
         </TabsContent>
 
-        {/* Fluxos de Aprovação */}
-        <TabsContent value="fluxos" className="space-y-4">
-          <div className="flex justify-between items-center">
-            <h2 className="text-xl font-semibold text-slate-900">Fluxos de Aprovação</h2>
-            <Button
-              onClick={() => {
-                setFluxoEditando(null);
-                setModalFluxoOpen(true);
-              }}
-              className="gap-2 bg-gradient-to-r from-blue-500 to-blue-600"
-            >
-              <Plus className="h-4 w-4" />
-              Novo Fluxo
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
-            {fluxos.map((fluxo) => (
-              <Card key={fluxo.id} className={cn(
-                "border-2",
-                fluxo.ativo ? "border-blue-200 bg-blue-50/30" : "border-slate-200"
-              )}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <CardTitle className="text-lg">{fluxo.nome}</CardTitle>
-                        <Badge variant={fluxo.ativo ? "default" : "secondary"} className={cn(
-                          fluxo.ativo && "bg-blue-500"
-                        )}>
-                          {fluxo.ativo ? 'Ativo' : 'Inativo'}
-                        </Badge>
-                      </div>
-                      <CardDescription>{fluxo.descricao}</CardDescription>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center gap-2 text-sm text-slate-600">
-                    <FileCheck className="h-4 w-4" />
-                    <span>{TIPO_DOCUMENTO_LABELS[fluxo.tipo_documento]}</span>
-                  </div>
-
-                  <div className="bg-slate-50 rounded-lg p-3 space-y-2">
-                    <p className="text-xs font-medium text-slate-500">
-                      Etapas ({fluxo.etapas?.length || 0}):
-                    </p>
-                    {fluxo.etapas?.slice(0, 3).map((etapa, idx) => (
-                      <div key={idx} className="flex items-center gap-2 text-sm">
-                        <div className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center text-xs font-bold">
-                          {etapa.ordem}
-                        </div>
-                        <span>{etapa.nome}</span>
-                      </div>
-                    ))}
-                    {fluxo.etapas?.length > 3 && (
-                      <p className="text-xs text-slate-500">+ {fluxo.etapas.length - 3} etapas</p>
-                    )}
-                  </div>
-
-                  <div className="flex gap-2 pt-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => handleEditarFluxo(fluxo)}
-                    >
-                      <Edit className="h-3 w-3 mr-2" />
-                      Editar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="text-red-600 hover:bg-red-50"
-                      onClick={() => {
-                        if (confirm('Deseja excluir este fluxo?')) {
-                          deleteFluxoMutation.mutate(fluxo.id);
-                        }
-                      }}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          {fluxos.length === 0 && (
-            <Card>
-              <CardContent className="p-12 text-center">
-                <GitBranch className="h-12 w-12 mx-auto text-slate-300 mb-4" />
-                <p className="text-slate-500 mb-4">Nenhum fluxo de aprovação configurado</p>
-                <Button onClick={() => setModalFluxoOpen(true)}>
-                  Criar Primeiro Fluxo
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Solicitações de Aprovação */}
-        <TabsContent value="solicitacoes">
-          <ListaSolicitacoes solicitacoes={solicitacoes} />
-        </TabsContent>
-
-        {/* Logs */}
-        <TabsContent value="logs">
-          <LogsAutomacao />
+        <TabsContent value="historico" className="mt-4">
+          <HistoricoExecucoes logs={logs} automacoes={automacoes} carregando={carregandoLog} erro={erroLog} onRecarregar={carregarLog} />
         </TabsContent>
       </Tabs>
 
-      {/* Modals */}
-      <AutomacaoModal
-        open={modalAutomacaoOpen}
-        onOpenChange={(open) => {
-          setModalAutomacaoOpen(open);
-          if (!open) setAutomacaoEditando(null);
-        }}
-        automacao={automacaoEditando}
-      />
+      <AutomacaoEditor open={editor.aberto} inicial={editor.inicial} obras={obras} obraSugerida={obraAtual || null}
+        onOpenChange={(v) => { if (!v) setEditor({ aberto: false, inicial: null }); }} onSalvar={salvar} />
 
-      <FluxoAprovacaoModal
-        open={modalFluxoOpen}
-        onOpenChange={(open) => {
-          setModalFluxoOpen(open);
-          if (!open) setFluxoEditando(null);
-        }}
-        fluxo={fluxoEditando}
-      />
+      <ModelosDialog open={modelosAberto} onOpenChange={setModelosAberto}
+        onEscolher={(dados) => { setModelosAberto(false); setEditor({ aberto: true, inicial: { ...dados } }); }} />
+
+      <TesteDialog estado={teste} onClose={() => setTeste(null)} />
+      <ExecutarDialog estado={execucao} executando={executando} onConfirmar={confirmarExecucao} onClose={() => setExecucao(null)} />
+
+      <AlertDialog open={!!paraExcluir} onOpenChange={(v) => { if (!v && !excluindo) setParaExcluir(null); }}>
+        <AlertDialogContent className="bg-slate-900 border-slate-700 text-slate-100">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir “{paraExcluir?.nome}”?</AlertDialogTitle>
+            <AlertDialogDescription className="text-slate-400">
+              A automação deixa de rodar e o histórico de execuções dela é apagado. Notificações e tarefas já criadas continuam existindo.
+              Para só pausar, use o botão Ativa/Inativa.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={excluindo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={(e) => { e.preventDefault(); confirmarExclusao(); }} disabled={excluindo}
+              className="bg-red-600 hover:bg-red-500 text-white">
+              {excluindo ? 'Excluindo…' : 'Excluir'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
