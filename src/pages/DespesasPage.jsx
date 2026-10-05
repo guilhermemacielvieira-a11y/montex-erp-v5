@@ -76,6 +76,7 @@ import {
   Legend
 } from 'recharts';
 import { useLancamentos, useObras } from '../contexts/ERPContext';
+import { isEscopoGeral, obraIdUnica, rotuloEscopo } from '../lib/escopoObra';
 import { hojeLocalISO, toLocalISO, parseLocalDate } from '../utils/financeiroCalc';
 import { normalizeStatusDespesa } from '../utils/financeiroStatus';
 import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
@@ -244,7 +245,7 @@ const categorizarPorKeywordLegado = (descricao) => {
 export default function DespesasPage() {
   // === DADOS VIA SUPABASE ===
   const { lancamentosDespesas: lancamentosSupabase, addLancamento, updateLancamento, deleteLancamento } = useLancamentos();
-  const { obras } = useObras();
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
 
   // === ESTADOS ===
   const [searchTerm, setSearchTerm] = useState('');
@@ -255,7 +256,10 @@ export default function DespesasPage() {
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [filtroDataTipo, setFiltroDataTipo] = useState('vencimento'); // 'emissao' | 'vencimento' — default por vencimento (contas a pagar)
-  const [filtroObra, setFiltroObra] = useState('fabrica'); // 'fabrica' | obraId | 'geral'
+  // Escopo = filtro único do topo: Geral → Fábrica (despesas sem obra);
+  // obra/grupo → despesas dessas obras.
+  const ehFabrica = isEscopoGeral(escopoObra) || !obraIdsEscopo;
+  const obraUnicaEscopo = obraIdUnica(escopoObra);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -307,17 +311,7 @@ export default function DespesasPage() {
     return map;
   }, [obras]);
 
-  // === OPÇÕES SELETOR VISUALIZAÇÃO ===
-  const opcoesVisualizacao = useMemo(() => {
-    const opcoes = [
-      { value: 'geral', label: 'Visão Geral (Todas)' },
-      { value: 'fabrica', label: 'Financeiro Fábrica' },
-    ];
-    (obras || []).forEach(o => {
-      opcoes.push({ value: o.id, label: o.nome || o.name || o.id });
-    });
-    return opcoes;
-  }, [obras]);
+  const rotuloEscopoAtual = ehFabrica ? 'Financeiro Fábrica' : rotuloEscopo(escopoObra, obras);
 
   // === DESPESAS COM FILTRO POR VISUALIZAÇÃO ===
   const despesas = useMemo(() => {
@@ -325,14 +319,13 @@ export default function DespesasPage() {
 
     let filtrados = lancamentosSupabase;
 
-    if (filtroObra === 'fabrica') {
-      // Somente despesas sem obraId (Financeiro Fábrica)
+    if (ehFabrica) {
+      // Geral do topo → somente despesas sem obraId (Financeiro Fábrica)
       filtrados = filtrados.filter(l => !l.obraId && !l.obra_id);
-    } else if (filtroObra !== 'geral') {
-      // Filtra por obra específica
-      filtrados = filtrados.filter(l => (l.obraId || l.obra_id) === filtroObra);
+    } else {
+      // Obra ou grupo do topo → despesas dessas obras
+      filtrados = filtrados.filter(l => obraIdsEscopo.includes(l.obraId || l.obra_id));
     }
-    // 'geral' mostra tudo
 
     // 🔧 Auto-detecção de "atrasado": se vencimento < hoje e status NÃO é pago,
     // marca como 'atrasado' automaticamente em statusEfetivo (sem alterar o BD).
@@ -390,7 +383,7 @@ export default function DespesasPage() {
     // Cobre o gap enquanto a migration v12 (categoria_manual) não foi aplicada,
     // e cobre offline. Override local SOMA com categoria_manual=true do banco.
     return aplicarOverridesNaLista(lista);
-  }, [lancamentosSupabase, filtroObra, overridesVersion]);
+  }, [lancamentosSupabase, ehFabrica, obraIdsEscopo, overridesVersion]);
 
   // === AUTO-FILL: quando fornecedor ou NF muda ===
   const handleFornecedorChange = useCallback((novoFornecedor) => {
@@ -777,7 +770,7 @@ export default function DespesasPage() {
   // 🔧 Suporta múltiplas duplicatas (boletos) — cria N despesas separadas
   const handleImportarNF = useCallback(async (lancamento, itensImportados) => {
     try {
-      const obraIdAtual = (filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null;
+      const obraIdAtual = obraUnicaEscopo;
       if (obraIdAtual) {
         lancamento.obraId = obraIdAtual;
         lancamento.obra_id = obraIdAtual;
@@ -827,7 +820,7 @@ export default function DespesasPage() {
       console.error('Erro ao importar NFe:', err);
       toast.error('Erro ao importar NFe como despesa');
     }
-  }, [filtroObra, addLancamento, saveMapping]);
+  }, [obraUnicaEscopo, addLancamento, saveMapping]);
 
   const handleSaveDespesa = async () => {
     if (!formData.descricao || !formData.valor) {
@@ -990,7 +983,7 @@ export default function DespesasPage() {
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span className="inline-flex items-center px-3 py-1 rounded-lg bg-rose-500/20 text-rose-400 text-sm font-medium border border-rose-500/30">
               <Wallet className="h-3.5 w-3.5 mr-1" />
-              {filtroObra === 'geral' ? 'Visão Geral' : filtroObra === 'fabrica' ? 'Financeiro Fábrica' : (obrasMap[filtroObra] || 'Obra')}
+              {rotuloEscopoAtual}
             </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{despesasFiltradas.length} lançamentos</span>
@@ -1367,22 +1360,17 @@ export default function DespesasPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Filtros: Visualização + Período */}
+      {/* Escopo (filtro único do topo) + Período */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        {/* Seletor de Visualização */}
-        <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-slate-400" />
-          <span className="text-sm text-slate-400 mr-1">Visualizar:</span>
-          <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[240px] bg-slate-800 border-slate-700 text-sm">
-              <SelectValue placeholder="Selecione a visão" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              {opcoesVisualizacao.map(o => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Escopo somente-leitura: a obra é escolhida no seletor do topo */}
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700 text-xs text-slate-300"
+          title="Altere a obra no seletor do topo"
+        >
+          <Building2 className="h-3.5 w-3.5 text-slate-400" />
+          <span>
+            Escopo: {ehFabrica ? 'Fábrica (despesas sem obra)' : rotuloEscopo(escopoObra, obras)}
+          </span>
         </div>
 
         {/* Filtro Período */}
@@ -1731,7 +1719,7 @@ export default function DespesasPage() {
         open={showImportNF}
         onOpenChange={setShowImportNF}
         onImportar={handleImportarNF}
-        obraId={(filtroObra && filtroObra !== 'geral' && filtroObra !== 'fabrica') ? filtroObra : null}
+        obraId={obraUnicaEscopo}
       />
 
       {/* Modal Regras Aprendidas (Fase 3 — gerenciamento do mapping CNPJ→categoria) */}

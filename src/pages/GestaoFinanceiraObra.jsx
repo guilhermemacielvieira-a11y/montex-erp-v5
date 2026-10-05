@@ -92,6 +92,8 @@ import {
   calcularEstoquePorTipo
 } from '../data/obraFinanceiraDatabase';
 import { useObras, useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import ExigeObra from '../components/erp/ExigeObra';
+import { rotuloEscopo } from '../lib/escopoObra';
 import { useReceitasManuais } from '../utils/receitasSync';
 import { statusReceitaParaMedicao } from '../utils/financeiroStatus';
 import { hojeLocalISO, parseLocalDate } from '../utils/financeiroCalc';
@@ -234,63 +236,85 @@ const ProgressBar = ({ value, max, color = 'cyan', showLabel = true, height = 'h
   );
 };
 
+// Monta o objeto `obra` da GFO (compatível com OBRA_MODELO, com `contrato`
+// aninhado) a partir da obra real do ERP. null se a obra não existir.
+function montarObraGFO(obraId, obrasERP) {
+  if (!obraId) return null;
+  if (obraId === OBRA_MODELO.id) return OBRA_MODELO;
+  // Buscar a obra real do contexto (Supabase)
+  const obraReal = (obrasERP || []).find(o => o.id === obraId);
+  if (!obraReal) return null;
+  const valorContrato = obraReal.contratoValorTotal || obraReal.contrato_valor_total || obraReal.valorContrato || 0;
+  const pesoContrato = obraReal.contratoPesoTotal || obraReal.contrato_peso_total || obraReal.pesoTotal || 0;
+  const clienteNome = typeof obraReal.cliente === 'string' ? obraReal.cliente : (obraReal.cliente?.nome || obraReal.clienteNome || '-');
+  return {
+    ...OBRA_MODELO,
+    id: obraReal.id,
+    nome: obraReal.nome || obraReal.name || obraReal.codigo || obraReal.id,
+    codigo: obraReal.codigo || '',
+    cliente: {
+      ...(OBRA_MODELO.cliente || {}),
+      nome: clienteNome,
+    },
+    // Sobrescrever contrato aninhado com dados reais (mantém demais campos do modelo)
+    contrato: {
+      ...(OBRA_MODELO.contrato || {}),
+      numero: obraReal.contratoNumero || `CT-${obraReal.codigo || obraReal.id}`,
+      dataInicio: obraReal.dataInicio || OBRA_MODELO.contrato?.dataInicio || '',
+      dataPrevisaoTermino: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || OBRA_MODELO.contrato?.dataPrevisaoTermino || '',
+      // SEM fallback para o contrato do modelo (R$ 2,7 mi da Belo Vale):
+      // obra sem contrato cadastrado mostra "Contrato não cadastrado".
+      valorTotal: valorContrato || 0,
+      pesoTotal: pesoContrato || 0,
+    },
+    valorContrato,
+    pesoTotal: pesoContrato,
+    dataInicio: obraReal.dataInicio || '',
+    dataPrevistaFim: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || '',
+    status: obraReal.status || 'ativo',
+  };
+}
+
+// A obra vem do filtro ÚNICO do topo (escopoObra). A GFO mostra UMA obra por
+// vez: em Geral ou grupo (obraAtual = null) pede para escolher uma obra no topo.
 export default function GestaoFinanceiraObra() {
+  const { obraAtual, obraAtualData } = useObras();
+  if (!obraAtual || !obraAtualData) {
+    return (
+      <div className="min-h-screen text-slate-100" style={{ background: 'linear-gradient(180deg, #060A14 0%, #080E1C 50%, #0A1020 100%)' }}>
+        <div className="w-full px-4 2xl:px-6 py-4 space-y-5">
+          <h1 className="text-3xl font-bold text-white flex items-center gap-3">
+            <DollarSign className="w-8 h-8 text-emerald-400" />
+            Gestão Financeira da Obra
+          </h1>
+          <ExigeObra titulo="Gestão Financeira da Obra" />
+        </div>
+      </div>
+    );
+  }
+  return <GestaoFinanceiraObraConteudo obraId={obraAtual} />;
+}
+
+function GestaoFinanceiraObraConteudo({ obraId }) {
   // ERPContext - dados reais do Supabase
-  const { obras: obrasERP, obraAtualData } = useObras();
+  const { obras: obrasERP, escopoObra } = useObras();
   const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx, deleteLancamento: deleteLancamentoCtx } = useLancamentos();
   const { medicoes: todasMedicoes, addMedicao: addMedicaoCtx, updateMedicao: updateMedicaoCtx, deleteMedicao: deleteMedicaoCtx } = useMedicoes();
 
   // Estados
-  const [obra, setObra] = useState(OBRA_MODELO);
-  const [obraFiltro, setObraFiltro] = useState(OBRA_MODELO.id);
+  // Obra = a do seletor do topo (sem obra-modelo hard-coded como padrão)
+  const [obra, setObra] = useState(() => montarObraGFO(obraId, obrasERP) || OBRA_MODELO);
   // Tick para forçar re-leitura do localStorage (receitas editadas em outras abas/páginas)
   const [receitasRefreshTick, setReceitasRefreshTick] = useState(0);
   // Receitas manuais — mesma fonte da ReceitasPage (tabela receitas_manuais)
   const { receitas: receitasManuaisTabela } = useReceitasManuais();
 
-  // 🐛 BUG fix: quando o select de obraFiltro muda, sincronizar o objeto `obra`
-  // — todos os filtros usam `obra.id` mas o select só mudava `obraFiltro`.
+  // Quando a obra do topo muda (ou os dados da obra chegam/atualizam),
+  // sincronizar o objeto `obra` — todos os filtros usam `obra.id`.
   React.useEffect(() => {
-    if (!obraFiltro) return;
-    if (obraFiltro === OBRA_MODELO.id) {
-      setObra(OBRA_MODELO);
-      return;
-    }
-    // Buscar a obra real do contexto (Supabase)
-    const obraReal = (obrasERP || []).find(o => o.id === obraFiltro);
-    if (obraReal) {
-      // Construir objeto compatível com OBRA_MODELO (mantém estrutura aninhada `contrato`)
-      const valorContrato = obraReal.contratoValorTotal || obraReal.contrato_valor_total || obraReal.valorContrato || 0;
-      const pesoContrato = obraReal.contratoPesoTotal || obraReal.contrato_peso_total || obraReal.pesoTotal || 0;
-      const clienteNome = typeof obraReal.cliente === 'string' ? obraReal.cliente : (obraReal.cliente?.nome || obraReal.clienteNome || '-');
-      setObra({
-        ...OBRA_MODELO,
-        id: obraReal.id,
-        nome: obraReal.nome || obraReal.name || obraReal.codigo || obraReal.id,
-        codigo: obraReal.codigo || '',
-        cliente: {
-          ...(OBRA_MODELO.cliente || {}),
-          nome: clienteNome,
-        },
-        // Sobrescrever contrato aninhado com dados reais (mantém demais campos do modelo)
-        contrato: {
-          ...(OBRA_MODELO.contrato || {}),
-          numero: obraReal.contratoNumero || `CT-${obraReal.codigo || obraReal.id}`,
-          dataInicio: obraReal.dataInicio || OBRA_MODELO.contrato?.dataInicio || '',
-          dataPrevisaoTermino: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || OBRA_MODELO.contrato?.dataPrevisaoTermino || '',
-          // SEM fallback para o contrato do modelo (R$ 2,7 mi da Belo Vale):
-          // obra sem contrato cadastrado mostra "Contrato não cadastrado".
-          valorTotal: valorContrato || 0,
-          pesoTotal: pesoContrato || 0,
-        },
-        valorContrato,
-        pesoTotal: pesoContrato,
-        dataInicio: obraReal.dataInicio || '',
-        dataPrevistaFim: obraReal.dataPrevistaFim || obraReal.dataFimPrevista || '',
-        status: obraReal.status || 'ativo',
-      });
-    }
-  }, [obraFiltro, obrasERP]);
+    const montada = montarObraGFO(obraId, obrasERP);
+    if (montada) setObra(montada);
+  }, [obraId, obrasERP]);
   // Mesclar dados estáticos do modelo com dados reais do Supabase
   const [lancamentos, setLancamentos] = useState(LANCAMENTOS_DESPESAS);
   const [pedidosFuturos, setPedidosFuturos] = useState(PEDIDOS_PRE_APROVADOS);
@@ -986,28 +1010,14 @@ export default function GestaoFinanceiraObra() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Filtro por Obra */}
-            <Select.Root value={obraFiltro} onValueChange={setObraFiltro}>
-              <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700/50 rounded-xl text-white min-w-[220px]">
-                <Filter className="w-4 h-4 text-cyan-400" />
-                <Select.Value />
-                <ChevronDown className="w-4 h-4 text-slate-400 ml-auto" />
-              </Select.Trigger>
-              <Select.Portal>
-                <Select.Content className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl z-50">
-                  <Select.Viewport className="p-2">
-                    <Select.Item value={OBRA_MODELO.id} className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded-lg cursor-pointer outline-none">
-                      <Select.ItemText>{OBRA_MODELO.codigo} - {OBRA_MODELO.nome}</Select.ItemText>
-                    </Select.Item>
-                    {obrasERP.filter(o => o.id !== OBRA_MODELO.id).map(o => (
-                      <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded-lg cursor-pointer outline-none">
-                        <Select.ItemText>{o.codigo} - {o.nome}</Select.ItemText>
-                      </Select.Item>
-                    ))}
-                  </Select.Viewport>
-                </Select.Content>
-              </Select.Portal>
-            </Select.Root>
+            {/* Obra = filtro único do topo (somente-leitura aqui) */}
+            <div
+              className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 border border-slate-700/50 rounded-xl text-xs text-slate-300"
+              title="Altere a obra no seletor do topo"
+            >
+              <Filter className="w-3.5 h-3.5 text-cyan-400" />
+              Escopo: {rotuloEscopo(escopoObra, obrasERP)}
+            </div>
 
             <div className="text-right mr-2">
               <p className="text-xs text-slate-400">Valor do Contrato</p>
