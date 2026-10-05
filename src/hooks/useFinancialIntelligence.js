@@ -13,6 +13,9 @@
 import { useMemo } from 'react';
 import { useLancamentos, useObras, useProducao, useMedicoes, useEstoque } from '@/contexts/ERPContext';
 import { GRUPOS_OBRAS } from '@/pages/AnaliseProducaoPage';
+import { useReceitasManuais } from '@/utils/receitasSync';
+import { statusReceitaParaMedicao } from '@/utils/financeiroStatus';
+import { parseLocalDate } from '@/utils/financeiroCalc';
 
 // Helper: aplica filtro de obra (aceita 'todas' | obraId | grupo consolidado tipo 'temec')
 function matchObraFiltroFn(filtroObra, obraIdItem) {
@@ -23,17 +26,16 @@ function matchObraFiltroFn(filtroObra, obraIdItem) {
 }
 
 // ==========================================
-// LOCALSTORAGE: RECEITAS MANUAIS + OVERRIDES
+// OVERRIDES DE RECEITAS (localStorage). As receitas MANUAIS vêm da tabela
+// receitas_manuais (useReceitasManuais) — antes lia a chave errada
+// 'montex_receitas_manuais' enquanto a ReceitasPage gravava em outra.
 // ==========================================
-function lerReceitasLocalStorage() {
+function lerOverridesReceitas() {
   try {
-    const manuaisRaw = localStorage.getItem('montex_receitas_manuais');
     const overridesRaw = localStorage.getItem('montex_receitas_overrides');
-    const manuais = manuaisRaw ? JSON.parse(manuaisRaw) : [];
-    const overrides = overridesRaw ? JSON.parse(overridesRaw) : {};
-    return { manuais, overrides };
+    return overridesRaw ? JSON.parse(overridesRaw) : {};
   } catch (e) {
-    return { manuais: [], overrides: {} };
+    return {};
   }
 }
 
@@ -186,7 +188,7 @@ const CENTROS_CUSTO_CONFIG = [
 
 // Helpers
 const formatMesAno = (date) => {
-  const d = new Date(date);
+  const d = parseLocalDate(date) || new Date(NaN); // local: '2026-05-01' não vira abril
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
@@ -197,7 +199,7 @@ const getMesLabel = (mesKey) => {
 };
 
 const getSemanaAno = (date) => {
-  const d = new Date(date);
+  const d = parseLocalDate(date) || new Date(NaN);
   const startOfYear = new Date(d.getFullYear(), 0, 1);
   const days = Math.floor((d - startOfYear) / 86400000);
   return `${d.getFullYear()}-S${String(Math.ceil((days + startOfYear.getDay() + 1) / 7)).padStart(2, '0')}`;
@@ -269,6 +271,8 @@ export function useFinancialIntelligence(filtros = {}) {
 
   const { periodo = 'geral', categoria: filtroCat, centroCusto: filtroCentro, obraId: filtroObra = 'todas' } = filtros;
 
+  const { receitas: receitasManuaisTabela } = useReceitasManuais();
+
   return useMemo(() => {
     const isFiltroObraAtivo = filtroObra && filtroObra !== 'todas';
 
@@ -303,7 +307,8 @@ export function useFinancialIntelligence(filtros = {}) {
     // ========================================
     // 1b. PREPARAR RECEITAS REAIS (Supabase medicoes + localStorage manuais/overrides)
     // ========================================
-    const { manuais: receitasManuaisLS, overrides: receitasOverridesLS } = lerReceitasLocalStorage();
+    const receitasOverridesLS = lerOverridesReceitas();
+    const receitasManuaisLS = (receitasManuaisTabela || []).filter(r => r.status !== 'cancelado');
     // Aplicar overrides nas medições do Supabase (vincular obraId quando user editou)
     const medicoesComOverrides = (medicoes || []).map(m => {
       const override = receitasOverridesLS[m.id] || {};
@@ -320,9 +325,10 @@ export function useFinancialIntelligence(filtros = {}) {
       obraNome: r.obraNome || null,
       valorBruto: parseFloat(r.valor) || 0,
       valorLiquido: parseFloat(r.valor) || 0,
-      dataMedicao: r.data || r.dataPagamento || r.dataReferencia,
-      dataPagamento: r.dataPagamento || r.data,
-      status: r.status || 'paga',
+      dataMedicao: r.data || r.vencimento,
+      dataPagamento: r.dataRecebimento || null,
+      dataReferencia: r.vencimento || r.data,
+      status: statusReceitaParaMedicao(r.status),
       descricao: r.descricao || '',
       isManual: true,
     }));
@@ -369,11 +375,11 @@ export function useFinancialIntelligence(filtros = {}) {
     } else if (periodo === 'trimestral') {
       const tri = Math.floor(now.getMonth() / 3);
       despesasFiltradas = despesas.filter(d => {
-        const dd = new Date(d.data);
+        const dd = parseLocalDate(d.data) || new Date(NaN);
         return dd.getFullYear() === now.getFullYear() && Math.floor(dd.getMonth() / 3) === tri;
       });
     } else if (periodo === 'anual') {
-      despesasFiltradas = despesas.filter(d => new Date(d.data).getFullYear() === now.getFullYear());
+      despesasFiltradas = despesas.filter(d => (parseLocalDate(d.data)?.getFullYear()) === now.getFullYear());
     }
 
     if (filtroCat) {
@@ -1117,7 +1123,8 @@ export function useFinancialIntelligence(filtros = {}) {
       formatCurrency: (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(v),
       formatPercent: (v) => `${(v || 0).toFixed(1)}%`
     };
-  }, [lancamentosDespesas, obras, pecas, medicoes, periodo, filtroCat, filtroCentro, filtroObra]);
+  }, [lancamentosDespesas, obras, pecas, medicoes, periodo, filtroCat, filtroCentro, filtroObra, receitasManuaisTabela]);
+
 }
 
 // Export constants and helpers

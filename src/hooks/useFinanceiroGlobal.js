@@ -3,7 +3,7 @@
 // ============================================================
 // Replica a agregação do PainelFinanceiroGlobal para que outros módulos (ex.:
 // DashboardPremium) mostrem EXATAMENTE os mesmos números do Painel:
-//   - Consolida despesas (fábrica, sem obra) + medições + receitas manuais +
+//   - Consolida despesas (fábrica + obras, visão Consolidado) + medições + receitas manuais (tabela) +
 //     movimentos manuais do bundle (localStorage/entity_store), aplicando
 //     overrides / hidden / deletados e excluindo juros de operação.
 //   - KPIs (receita, despesa, lucro, margem), evolução mensal, metas do mês,
@@ -14,8 +14,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 import { parseLocalDate, ehPago } from '../utils/financeiroCalc';
 import { loadBundleLocal, loadBundleRemote, saveBundleLocal, mergeBundles } from '../utils/painelFinanceiroSync';
+import { useReceitasManuais } from '../utils/receitasSync';
+import {
+  normalizeStatusReceita, normalizeStatusDespesa, medicaoRecebida, medicaoReconhecida,
+} from '../utils/financeiroStatus';
 
-const RECEITAS_STORAGE_KEY = 'montex_receitas_gerais';
 const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
 const ETAPA_LABELS = { fabricacao: 'Fabricação', montagem: 'Montagem' };
 
@@ -66,10 +69,12 @@ export function useFinanceiroGlobal() {
     return map;
   }, [obras]);
 
-  // Espelho de despesas da fábrica (sem obra — GFO é independente)
+  // Espelho de despesas — visão CONSOLIDADA do Painel (fábrica + obras, na
+  // mesma base das receitas). Canceladas ficam fora.
   const despesasExternas = useMemo(() => (lancamentosDespesas || [])
-    .filter((l) => !l.obraId && !l.obra_id)
+    .filter((l) => normalizeStatusDespesa(l.status) !== 'cancelado')
     .map((l) => ({
+      obraId: l.obraId || l.obra_id || null,
       id: l.id, ovKey: `d:${l.id}`, origem: 'externo', tipo: 'despesa',
       data: l.dataEmissao || l.data || l.createdAt || '',
       descricao: l.descricao || l.nome || '-', fornecedor: l.fornecedor || '-',
@@ -90,34 +95,40 @@ export function useFinanceiroGlobal() {
         descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
         fornecedor: obraNome, categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
         valor: m.valorBruto || m.valor_bruto || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
+        // paga → recebido; aprovada/faturada → faturado; demais → previsto (só projeção)
+        status: medicaoRecebida(m.status) ? 'recebido'
+          : medicaoReconhecida(m.status) ? 'faturado'
+          : normalizeStatusReceita(m.status) === 'cancelado' ? 'cancelado' : 'previsto',
         vencimento: m.dataMedicao || m.data_medicao || '-', obraId, obraNome,
       };
       const ov = overrides[m.id];
       if (ov) {
         if (ov.descricao) base.descricao = ov.descricao;
         if (ov.valor !== undefined) base.valor = ov.valor;
-        if (ov.status) base.status = ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(ov.status) ? 'recebido' : ov.status;
+        if (ov.status) {
+          const canon = normalizeStatusReceita(ov.status);
+          if (canon !== 'aberto') base.status = canon;
+        }
         if (ov.categoria) base.categoria = ov.categoria;
         if (ov.cliente) base.fornecedor = ov.cliente;
         if (ov.vencimento) base.vencimento = ov.vencimento;
       }
+      base.previsto = base.status === 'previsto';
       return base;
-    });
+    }).filter((m) => m.status !== 'cancelado');
   }, [todasMedicoes, obrasMap]);
 
-  // Receitas manuais (localStorage)
-  const receitasManuaisExt = useMemo(() => {
-    try {
-      return (JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]')).map((r) => ({
-        id: r.id, ovKey: `r:${r.id}`, origem: 'externo', tipo: 'receita',
-        data: r.data || r.vencimento || '', descricao: r.descricao || '-',
-        fornecedor: r.cliente || '-', categoria: r.categoria || 'Outros', valor: r.valor || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente'),
-        vencimento: r.vencimento || '-',
-      }));
-    } catch { return []; }
-  }, []);
+  // Receitas manuais (tabela receitas_manuais)
+  const { receitas: receitasManuaisFonte } = useReceitasManuais();
+  const receitasManuaisExt = useMemo(() => (receitasManuaisFonte || [])
+    .filter((r) => r.status !== 'cancelado')
+    .map((r) => ({
+      id: r.id, ovKey: `r:${r.id}`, origem: 'externo', tipo: 'receita',
+      data: r.data || r.vencimento || '', descricao: r.descricao || '-',
+      fornecedor: r.cliente || '-', categoria: r.categoria || 'Outros', valor: r.valor || 0,
+      status: r.status, // canônico: aberto | faturado | recebido
+      vencimento: r.vencimento || '-', obraId: r.obraId || null,
+    })), [receitasManuaisFonte]);
 
   const movsLocaisNorm = useMemo(() => (movsLocais || []).map((m) => ({
     ...m, origem: 'local', origemObra: !!m.obraId,
@@ -140,10 +151,13 @@ export function useFinanceiroGlobal() {
       .sort((a, b) => (parseLocalDate(b.data)?.getTime() || 0) - (parseLocalDate(a.data)?.getTime() || 0));
   }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais, deletados]);
 
+  // Realizado: sem medições previstas/aguardando (essas só no forecast)
+  const movsRealizadas = useMemo(() => todasMovs.filter((m) => !m.previsto), [todasMovs]);
+
   // KPIs gerais (todo o histórico consolidado)
   const kpis = useMemo(() => {
-    const receitas = todasMovs.filter((m) => m.tipo === 'receita');
-    const despesas = todasMovs.filter((m) => m.tipo === 'despesa');
+    const receitas = movsRealizadas.filter((m) => m.tipo === 'receita');
+    const despesas = movsRealizadas.filter((m) => m.tipo === 'despesa');
     const totR = receitas.reduce((s, m) => s + (m.valor || 0), 0);
     const totD = despesas.reduce((s, m) => s + (m.valor || 0), 0);
     const recRecebidas = receitas.filter(ehPago).reduce((s, m) => s + (m.valor || 0), 0);
@@ -153,12 +167,12 @@ export function useFinanceiroGlobal() {
       recRecebidas, recPendentes: totR - recRecebidas, despPagas, despPendentes: totD - despPagas,
       qtdR: receitas.length, qtdD: despesas.length,
     };
-  }, [todasMovs]);
+  }, [movsRealizadas]);
 
   // Evolução mensal (receitas/despesas/saldo)
   const evolucaoMensal = useMemo(() => {
     const meses = {};
-    todasMovs.forEach((m) => {
+    movsRealizadas.forEach((m) => {
       const d = parseLocalDate(m.data || m.vencimento);
       if (!d || isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -167,14 +181,14 @@ export function useFinanceiroGlobal() {
       else meses[key].despesas += m.valor || 0;
     });
     return Object.values(meses).sort((a, b) => a.key.localeCompare(b.key)).map((m) => ({ ...m, saldo: m.receitas - m.despesas }));
-  }, [todasMovs]);
+  }, [movsRealizadas]);
 
   // Metas — realizado do mês (receita paga, despesa total, margem)
   const metasReal = useMemo(() => {
     const hoje = new Date();
     const ini = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const fim = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-    const movsMes = todasMovs.filter((m) => { const d = parseLocalDate(m.data || m.vencimento); return d >= ini && d <= fim; });
+    const movsMes = movsRealizadas.filter((m) => { const d = parseLocalDate(m.data || m.vencimento); return d >= ini && d <= fim; });
     const receitaMes = movsMes.filter((m) => m.tipo === 'receita' && ehPago(m)).reduce((s, m) => s + (m.valor || 0), 0);
     const despesaMes = movsMes.filter((m) => m.tipo === 'despesa').reduce((s, m) => s + (m.valor || 0), 0);
     return {
@@ -182,7 +196,7 @@ export function useFinanceiroGlobal() {
       margemReal: receitaMes > 0 ? ((receitaMes - despesaMes) / receitaMes) * 100 : 0,
       receitaTotalMeta: metas.fabricacaoKg * metas.fabricacaoPrecoKg + metas.montagemKg * metas.montagemPrecoKg,
     };
-  }, [todasMovs, metas]);
+  }, [movsRealizadas, metas]);
 
   // Comparativo mês atual × anterior
   const comparativo = useMemo(() => {
@@ -190,7 +204,7 @@ export function useFinanceiroGlobal() {
     const calc = (off) => {
       const ini = new Date(hoje.getFullYear(), hoje.getMonth() - off, 1);
       const fim = new Date(hoje.getFullYear(), hoje.getMonth() - off + 1, 0);
-      const movs = todasMovs.filter((m) => { const d = parseLocalDate(m.data || m.vencimento); return d >= ini && d <= fim; });
+      const movs = movsRealizadas.filter((m) => { const d = parseLocalDate(m.data || m.vencimento); return d >= ini && d <= fim; });
       const rec = movs.filter((m) => m.tipo === 'receita').reduce((s, m) => s + (m.valor || 0), 0);
       const desp = movs.filter((m) => m.tipo === 'despesa').reduce((s, m) => s + (m.valor || 0), 0);
       return { receitas: rec, despesas: desp, lucro: rec - desp, margem: rec > 0 ? ((rec - desp) / rec) * 100 : 0 };
@@ -203,7 +217,7 @@ export function useFinanceiroGlobal() {
       deltaDespesas: delta(atual.despesas, anterior.despesas),
       deltaLucro: delta(atual.lucro, anterior.lucro),
     };
-  }, [todasMovs]);
+  }, [movsRealizadas]);
 
   // Forecast: receitas aprovadas/pendentes ainda não pagas, distribuídas em 6 meses
   const forecast = useMemo(() => {
@@ -227,7 +241,7 @@ export function useFinanceiroGlobal() {
   // Custos por categoria (despesas)
   const custosPorCategoria = useMemo(() => {
     const map = {};
-    todasMovs.filter((m) => m.tipo === 'despesa').forEach((m) => {
+    movsRealizadas.filter((m) => m.tipo === 'despesa').forEach((m) => {
       const c = m.categoria || 'Outros';
       map[c] = (map[c] || 0) + (m.valor || 0);
     });
@@ -235,17 +249,18 @@ export function useFinanceiroGlobal() {
     const cores = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#ef4444', '#a855f7'];
     return Object.entries(map).map(([nome, valor], i) => ({ nome, valor, percentual: total > 0 ? (valor / total) * 100 : 0, cor: cores[i % cores.length] }))
       .sort((a, b) => b.valor - a.valor);
-  }, [todasMovs]);
+  }, [movsRealizadas]);
 
   const topFornecedores = useMemo(() => {
     const map = {};
-    todasMovs.filter((m) => m.tipo === 'despesa').forEach((m) => {
+    movsRealizadas.filter((m) => m.tipo === 'despesa').forEach((m) => {
       const f = m.fornecedor || '-';
       if (!map[f]) map[f] = { nome: f, valor: 0, qtd: 0 };
       map[f].valor += m.valor || 0; map[f].qtd += 1;
     });
     return Object.values(map).sort((a, b) => b.valor - a.valor).slice(0, 10);
-  }, [todasMovs]);
+  }, [movsRealizadas]);
+
 
   return { kpis, evolucaoMensal, metasReal, metas, comparativo, forecast, custosPorCategoria, topFornecedores, todasMovs };
 }

@@ -25,6 +25,7 @@ import {
   Building2,
   Wallet,
   FileText,
+  RotateCcw,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -75,6 +76,8 @@ import {
   Legend
 } from 'recharts';
 import { useLancamentos, useObras } from '../contexts/ERPContext';
+import { hojeLocalISO, toLocalISO, parseLocalDate } from '../utils/financeiroCalc';
+import { normalizeStatusDespesa } from '../utils/financeiroStatus';
 import { normalizarCategoria } from '../hooks/useFinancialIntelligence';
 import {
   setCategoriaOverride,
@@ -147,6 +150,8 @@ const getStatusColor = (status) => {
     case 'pago': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     case 'pendente': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
     case 'atrasado': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    case 'aprovado': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    case 'cancelado': return 'bg-slate-600/20 text-slate-500 border-slate-600/30 line-through';
     default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
   }
 };
@@ -156,6 +161,8 @@ const getStatusText = (status) => {
     case 'pago': return 'Pago';
     case 'pendente': return 'Pendente';
     case 'atrasado': return 'Atrasado';
+    case 'aprovado': return 'Aprovado';
+    case 'cancelado': return 'Cancelado';
     default: return status || '-';
   }
 };
@@ -332,6 +339,7 @@ export default function DespesasPage() {
     const hoje = new Date(); hoje.setHours(0,0,0,0);
     const computeStatusEfetivo = (statusBruto, dataVenc) => {
       if (statusBruto === 'pago') return 'pago';
+      if (statusBruto === 'cancelado') return 'cancelado'; // soft cancel: nunca "atrasado"
       if (!dataVenc) return statusBruto || 'pendente';
       try {
         // parse local YYYY-MM-DD para evitar timezone
@@ -344,7 +352,8 @@ export default function DespesasPage() {
     };
 
     const lista = filtrados.map(l => {
-      const statusBruto = l.status || 'pendente';
+      // Status canônico (pendente/aprovado/pago/cancelado); 'atrasado' explícito é mantido.
+      const statusBruto = String(l.status || '').toLowerCase() === 'atrasado' ? 'atrasado' : normalizeStatusDespesa(l.status);
       const dataVenc = l.dataVencimento || l.data_vencimento || l.vencimento || '';
       // Fase 2: se o Supabase já marca categoria_manual=true, NÃO normaliza —
       // a categoria salva é exatamente o que o usuário escolheu. Caso contrário,
@@ -446,7 +455,7 @@ export default function DespesasPage() {
               if (isDate && cell1 && typeof cell1 === 'string' && cell1.length > 1) {
                 const numVal = parseFloat(String(cell2).replace(/[^\d.,]/g, '').replace(',', '.'));
                 if (numVal > 0) {
-                  dataStr = dateVal.toISOString().split('T')[0];
+                  dataStr = toLocalISO(dateVal);
                   descricao = cell1.trim();
                   valor = numVal;
                 }
@@ -539,7 +548,7 @@ export default function DespesasPage() {
     if (filtroPeriodo === 'personalizado') {
       if (!dataInicio && !dataFim) return lista;
       return lista.filter(d => {
-        const dataDesp = new Date(getDataRef(d));
+        const dataDesp = parseLocalDate(getDataRef(d)) || new Date(NaN);
         if (isNaN(dataDesp.getTime())) return true;
         if (dataInicio && dataDesp < new Date(dataInicio + 'T00:00:00')) return false;
         if (dataFim && dataDesp > new Date(dataFim + 'T23:59:59')) return false;
@@ -558,14 +567,18 @@ export default function DespesasPage() {
     else if (filtroPeriodo === 'trimestral') inicio.setMonth(inicio.getMonth() - 3);
 
     return lista.filter(d => {
-      const dataDesp = new Date(getDataRef(d));
+      const dataDesp = parseLocalDate(getDataRef(d)) || new Date(NaN);
       if (isNaN(dataDesp.getTime())) return true;
       return dataDesp >= inicio && dataDesp <= hoje;
     });
   }, [filtroPeriodo, dataInicio, dataFim, filtroDataTipo]);
 
   // === DADOS FILTRADOS POR PERÍODO (KPIs/gráficos) ===
-  const despesasPeriodo = useMemo(() => filtrarPorPeriodo(despesas), [despesas, filtrarPorPeriodo]);
+  // Despesas canceladas (soft cancel) ficam fora de KPIs e gráficos.
+  const despesasPeriodo = useMemo(
+    () => filtrarPorPeriodo(despesas).filter(d => d.status !== 'cancelado'),
+    [despesas, filtrarPorPeriodo]
+  );
 
   const dadosCategorias = useMemo(() => {
     const catMap = {};
@@ -660,7 +673,7 @@ export default function DespesasPage() {
     ];
     ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 10 } }];
     XLSX.utils.book_append_sheet(wb, ws, 'Natureza Aquisição');
-    XLSX.writeFile(wb, `Despesas_Natureza_Aquisicao_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.writeFile(wb, `Despesas_Natureza_Aquisicao_${hojeLocalISO()}.xlsx`);
     toast.success('Relatório exportado com sucesso!');
   }, [despesasFiltradas, filtroPeriodo]);
 
@@ -669,7 +682,7 @@ export default function DespesasPage() {
     setEditando(null);
     setFormData({
       descricao: '', fornecedor: '', categoria: '', centroCusto: '',
-      valor: '', dataEmissao: new Date().toISOString().split('T')[0], dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
+      valor: '', dataEmissao: hojeLocalISO(), dataVencimento: '', formaPagto: '', notaFiscal: '', naturezaAquisicao: '',
       // obraId removido — módulo independente, despesas não vinculam a obras
       parcelas: 1, intervaloDias: 30,
       status: 'pendente',
@@ -683,7 +696,7 @@ export default function DespesasPage() {
     const normalizarData = (d) => {
       if (!d) return '';
       if (typeof d === 'string' && d.length >= 10) return d.slice(0, 10);
-      try { return new Date(d).toISOString().split('T')[0]; } catch { return ''; }
+      try { return toLocalISO(new Date(d)); } catch { return ''; }
     };
     setFormData({
       descricao: despesa.descricao || '',
@@ -739,12 +752,24 @@ export default function DespesasPage() {
     try {
       await updateLancamento(despesa.id, {
         status: 'pago',
-        dataPagamento: new Date().toISOString().split('T')[0],
+        dataPagamento: hojeLocalISO(),
       });
       toast.success(`Despesa "${despesa.descricao}" marcada como paga!`);
     } catch (err) {
       console.error('Erro ao marcar como pago:', err);
       toast.error('Erro ao atualizar status');
+    }
+  };
+
+  // === CANCELAR / REATIVAR (soft cancel — preserva o histórico em vez de apagar) ===
+  const handleAlternarCancelada = async (despesa) => {
+    const cancelar = despesa.status !== 'cancelado';
+    try {
+      await updateLancamento(despesa.id, { status: cancelar ? 'cancelado' : 'pendente' });
+      toast.success(cancelar ? 'Despesa cancelada (mantida no histórico, fora dos totais)' : 'Despesa reativada como pendente');
+    } catch (err) {
+      console.error('Erro ao cancelar/reativar despesa:', err);
+      toast.error('Erro ao atualizar status da despesa');
     }
   };
 
@@ -821,9 +846,11 @@ export default function DespesasPage() {
       );
     }
 
-    // 🔒 Módulo de Despesas é INDEPENDENTE.
-    // Nunca vincula a obra — para isso use Gestão Financeira Obra.
-    const obraIdVinculo = null;
+    // 🔒 Módulo de Despesas é INDEPENDENTE: NOVAS despesas nunca vinculam a
+    // obra (para isso use Gestão Financeira Obra). Na EDIÇÃO, porém, o vínculo
+    // original é PRESERVADO — antes obraId:null desvinculava despesas da GFO
+    // ao editá-las aqui (violava a regra 1 do CLAUDE.md).
+    const obraIdVinculo = editando ? (editando.obraId || editando.obra_id || null) : null;
 
     const dados = {
       descricao: formData.descricao,
@@ -832,12 +859,12 @@ export default function DespesasPage() {
       centroCusto: formData.centroCusto || 'Produção',
       valor: parseFloat(formData.valor),
       formaPagto: formData.formaPagto || '-',
-      dataEmissao: formData.dataEmissao || new Date().toISOString().split('T')[0],
+      dataEmissao: formData.dataEmissao || hojeLocalISO(),
       dataVencimento: formData.dataVencimento || null,
       notaFiscal: formData.notaFiscal || '',
       naturezaAquisicao: formData.naturezaAquisicao || '',
       observacao: formData.naturezaAquisicao ? `[NAT:${formData.naturezaAquisicao}]` : '',
-      obraId: null,
+      obraId: obraIdVinculo,
       // ✨ Status escolhido pelo usuário (não força mais sempre 'pendente')
       status: formData.status || 'pendente',
     };
@@ -1226,6 +1253,16 @@ export default function DespesasPage() {
                       <span className="w-2 h-2 rounded-full bg-red-400" />Atrasado (manual)
                     </span>
                   </SelectItem>
+                  <SelectItem value="aprovado">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-blue-400" />Aprovado (a pagar)
+                    </span>
+                  </SelectItem>
+                  <SelectItem value="cancelado">
+                    <span className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-slate-500" />Cancelado (não soma nos totais)
+                    </span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -1519,6 +1556,8 @@ export default function DespesasPage() {
                 <SelectItem value="pago">Pago</SelectItem>
                 <SelectItem value="pendente">Pendente</SelectItem>
                 <SelectItem value="atrasado">Atrasado</SelectItem>
+                <SelectItem value="aprovado">Aprovado</SelectItem>
+                <SelectItem value="cancelado">Cancelado</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
@@ -1564,7 +1603,7 @@ export default function DespesasPage() {
                     <TableCell className="text-xs">
                       {despesa.dataVencimento ? (
                         <span className={cn(
-                          despesa.status !== 'pago' && new Date(despesa.dataVencimento) < new Date()
+                          !['pago', 'cancelado'].includes(despesa.status) && parseLocalDate(despesa.dataVencimento) < parseLocalDate(hojeLocalISO())
                             ? 'text-red-400 font-medium'
                             : 'text-slate-300'
                         )}>
@@ -1607,6 +1646,13 @@ export default function DespesasPage() {
                     <TableCell>
                       {(() => {
                         const stEf = despesa.statusEfetivo || despesa.status;
+                        if (stEf === 'cancelado') {
+                          return (
+                            <Badge className="border text-xs bg-slate-600/20 text-slate-500 border-slate-600/30">
+                              Cancelado
+                            </Badge>
+                          );
+                        }
                         if (stEf === 'pago') {
                           return (
                             <Badge className="border text-xs bg-emerald-500/20 text-emerald-400 border-emerald-500/30">
@@ -1634,7 +1680,7 @@ export default function DespesasPage() {
                             title="Clique para marcar como pago"
                           >
                             <Clock className="h-3 w-3" />
-                            Pendente
+                            {stEf === 'aprovado' ? 'Aprovado' : 'Pendente'}
                           </button>
                         );
                       })()}
@@ -1648,11 +1694,14 @@ export default function DespesasPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="bg-slate-800 border-slate-700">
-                            {despesa.status !== 'pago' && (
+                            {!['pago', 'cancelado'].includes(despesa.status) && (
                               <DropdownMenuItem className="text-emerald-400 focus:text-emerald-300 focus:bg-slate-700" onClick={() => handleMarcarPago(despesa)}>
                                 <CheckCircle2 className="h-4 w-4 mr-2" />Marcar como Pago
                               </DropdownMenuItem>
                             )}
+                            <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleAlternarCancelada(despesa)}>
+                              <RotateCcw className="h-4 w-4 mr-2" />{despesa.status === 'cancelado' ? 'Reativar (pendente)' : 'Cancelar (sem apagar)'}
+                            </DropdownMenuItem>
                             <DropdownMenuItem className="text-slate-300 focus:text-white focus:bg-slate-700" onClick={() => handleEditarDespesa(despesa)}>
                               <Edit className="h-4 w-4 mr-2" />Editar
                             </DropdownMenuItem>

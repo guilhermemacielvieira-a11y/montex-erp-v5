@@ -1,5 +1,5 @@
 // MONTEX ERP Premium - Gestão de Receitas
-// Financeiro Fábrica - localStorage próprio + importação de receitas da Gestão Financeira Obra
+// Financeiro Fábrica - receitas manuais na tabela `receitas_manuais` + medições da Gestão Financeira Obra
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
@@ -18,7 +18,12 @@ import {
   MoreHorizontal,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { syncReceitas, deleteReceitaManual } from '../utils/receitasSync';
+import {
+  syncReceitas, deleteReceitaManual, useReceitasManuais, criarReceitasManuais,
+  atualizarReceitaManual, lerReceitasLegadasPendentes, importarReceitasLegadas,
+} from '../utils/receitasSync';
+import { normalizeStatusReceita, STATUS_RECEITA_LABELS } from '../utils/financeiroStatus';
+import { hojeLocalISO, toLocalISO, parseLocalDate, parseValorBR } from '../utils/financeiroCalc';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
@@ -67,8 +72,9 @@ import {
 } from 'recharts';
 import { useMedicoes, useObras } from '../contexts/ERPContext';
 
-// ========== STORAGE INDEPENDENTE ==========
-const STORAGE_KEY = 'montex_receitas_gerais';
+// ========== STORAGE ==========
+// Receitas manuais: tabela `receitas_manuais` (via utils/receitasSync).
+// Overrides locais de medições continuam em localStorage + entity_store.
 const OVERRIDES_KEY = 'montex_receitas_overrides'; // edições locais em receitas de Obra
 
 // Categorias de receita
@@ -96,32 +102,21 @@ const formatCurrency = (value) => {
   }).format(value || 0);
 };
 
+// Status canônico de receitas: aberto | faturado | recebido | cancelado
+// (+ 'atrasado' derivado na tela). `faturado` NÃO conta como recebido.
 const getStatusColor = (status) => {
-  switch (status) {
-    case 'recebido': case 'pago': case 'paga': case 'confirmado': case 'faturado':
-      return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-    case 'pendente': case 'pre_aprovado': case 'futuro':
-      return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
-    case 'atrasado':
-      return 'bg-red-500/20 text-red-400 border-red-500/30';
-    case 'aprovado':
-      return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
-    default:
-      return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+  switch (status === 'atrasado' ? 'atrasado' : normalizeStatusReceita(status)) {
+    case 'recebido': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+    case 'faturado': return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    case 'aberto': return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+    case 'atrasado': return 'bg-red-500/20 text-red-400 border-red-500/30';
+    default: return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
   }
 };
 
 const getStatusText = (status) => {
-  switch (status) {
-    case 'recebido': case 'pago': case 'confirmado': case 'faturado': return 'Recebido';
-    case 'paga': return 'Paga';
-    case 'pendente': return 'Pendente';
-    case 'aprovado': return 'Aprovado';
-    case 'pre_aprovado': return 'Pré-Aprovado';
-    case 'atrasado': return 'Atrasado';
-    case 'futuro': return 'Futuro';
-    default: return status || '-';
-  }
+  if (status === 'atrasado') return 'Atrasado';
+  return STATUS_RECEITA_LABELS[normalizeStatusReceita(status)] || status || '-';
 };
 
 const getCategoriaColor = (nome) => {
@@ -153,7 +148,35 @@ export default function ReceitasPage() {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [receitas, setReceitas] = useState([]);
   const [syncTick, setSyncTick] = useState(0);
+  const [salvando, setSalvando] = useState(false);
+  // Receitas manuais — fonte única: tabela receitas_manuais
+  const { receitas: receitasManuais, fonte: fonteReceitas, erro: erroReceitas } = useReceitasManuais();
+  // Overrides de medições (localStorage ↔ entity_store)
   useEffect(() => { syncReceitas().then((ch) => { if (ch) setSyncTick((t) => t + 1); }); }, []);
+  // Migração única: receitas antigas (localStorage/entity_store) ainda fora da tabela
+  const [legadasPendentes, setLegadasPendentes] = useState([]);
+  const [importandoLegadas, setImportandoLegadas] = useState(false);
+  useEffect(() => {
+    if (fonteReceitas !== 'tabela') return undefined;
+    let vivo = true;
+    lerReceitasLegadasPendentes(receitasManuais.map(r => r.id))
+      .then((lista) => { if (vivo) setLegadasPendentes(lista); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [fonteReceitas, receitasManuais]);
+  const handleImportarLegadas = async () => {
+    setImportandoLegadas(true);
+    try {
+      const n = await importarReceitasLegadas(receitasManuais.map(r => r.id));
+      setLegadasPendentes([]);
+      toast.success(`${n} receita(s) antiga(s) importada(s) para o banco`);
+    } catch (e) {
+      console.error('[Receitas] importação legado', e);
+      toast.error(`Erro ao importar receitas antigas: ${e?.message || e}`);
+    } finally {
+      setImportandoLegadas(false);
+    }
+  };
   const [formData, setFormData] = useState({
     descricao: '',
     cliente: '',
@@ -161,7 +184,7 @@ export default function ReceitasPage() {
     valor: '',
     vencimento: '',
     formaPagto: '',
-    status: 'pendente',
+    status: 'aberto',
     obraId: '',
     parcelas: 1,
     intervaloDias: 30,
@@ -181,12 +204,10 @@ export default function ReceitasPage() {
     return map;
   }, [obras]);
 
-  // Salvar receitas manuais + overrides de Obra no localStorage
-  const salvarReceitas = useCallback((lista) => {
+  // Salvar overrides locais das receitas de Obra (medições). As receitas
+  // MANUAIS são persistidas direto na tabela (criar/atualizar/apagar).
+  const salvarOverrides = useCallback((lista) => {
     try {
-      // Receitas manuais
-      const manuais = lista.filter(r => !r.origemObra);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(manuais));
       // Overrides: receitas de Obra que foram editadas localmente
       const overrides = {};
       lista.filter(r => r.origemObra && r._editadoLocal).forEach(r => {
@@ -207,7 +228,7 @@ export default function ReceitasPage() {
       localStorage.setItem(OVERRIDES_KEY, JSON.stringify(overrides));
       syncReceitas(); // auto-sync p/ a nuvem (persiste/converge entre PCs)
     } catch (e) {
-      console.warn('Erro ao salvar receitas:', e);
+      console.warn('Erro ao salvar overrides de receitas:', e);
     }
   }, []);
 
@@ -223,13 +244,11 @@ export default function ReceitasPage() {
       console.warn('Erro ao carregar overrides:', e);
     }
 
-    // 1. Receitas manuais do localStorage
-    try {
-      const salvas = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-      salvas.forEach(r => todasReceitas.push(r));
-    } catch (e) {
-      console.warn('Erro ao carregar receitas:', e);
-    }
+    // 1. Receitas manuais (tabela receitas_manuais)
+    (receitasManuais || []).forEach(r => todasReceitas.push({
+      ...r,
+      obraNome: r.obraId ? (obrasMap[r.obraId] || r.obraNome || null) : null,
+    }));
 
     // 2. APENAS MEDIÇÕES da Gestão Financeira Obra (aba Medições)
     if (todasMedicoes && todasMedicoes.length > 0) {
@@ -241,7 +260,7 @@ export default function ReceitasPage() {
           const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
           const baseReceita = {
             id: m.id,
-            data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || new Date().toISOString().split('T')[0],
+            data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || hojeLocalISO(),
             descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
             cliente: '-',
             categoria: mapEtapaToCategoria(m.etapa, m.isAvulsa),
@@ -250,7 +269,7 @@ export default function ReceitasPage() {
             etapaLabel: etapaLabel,
             valor: m.valorBruto || m.valor_bruto || 0,
             valorLiquido: m.valorLiquido || m.valor_liquido || 0,
-            status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'paga' : (m.status || 'pendente'),
+            status: normalizeStatusReceita(m.status),
             formaPagto: '-',
             vencimento: m.dataMedicao || m.data_medicao || '-',
             setor: m.setor || '-',
@@ -262,6 +281,7 @@ export default function ReceitasPage() {
           // Aplicar overrides salvos (edições locais anteriores)
           if (overrides[m.id]) {
             Object.assign(baseReceita, overrides[m.id], { _editadoLocal: true });
+            baseReceita.status = normalizeStatusReceita(baseReceita.status);
           }
           todasReceitas.push(baseReceita);
         }
@@ -269,7 +289,7 @@ export default function ReceitasPage() {
     }
 
     setReceitas(todasReceitas);
-  }, [todasMedicoes, obrasMap, syncTick]);
+  }, [todasMedicoes, obrasMap, syncTick, receitasManuais]);
 
   // Helper: filtrar por período (definido antes dos useMemo)
   const filtrarPorPeriodo = useCallback((lista) => {
@@ -284,13 +304,16 @@ export default function ReceitasPage() {
       inicio.setMonth(hoje.getMonth() - 3);
     }
     return lista.filter(r => {
-      const dataRec = new Date(r.data || r.vencimento);
-      return dataRec >= inicio && dataRec <= hoje;
+      const dataRec = parseLocalDate(r.data || r.vencimento);
+      return dataRec && dataRec >= inicio && dataRec <= hoje;
     });
   }, [filtroPeriodo]);
 
-  // Receitas filtradas por período (para KPIs e gráficos)
-  const receitasPeriodo = useMemo(() => filtrarPorPeriodo(receitas), [receitas, filtrarPorPeriodo]);
+  // Receitas filtradas por período (para KPIs e gráficos) — canceladas fora
+  const receitasPeriodo = useMemo(
+    () => filtrarPorPeriodo(receitas).filter(r => normalizeStatusReceita(r.status) !== 'cancelado'),
+    [receitas, filtrarPorPeriodo]
+  );
 
   // Dados para gráfico por categoria
   const dadosCategorias = useMemo(() => {
@@ -310,11 +333,12 @@ export default function ReceitasPage() {
   const evolucaoMensal = useMemo(() => {
     const meses = {};
     receitasPeriodo.forEach(r => {
-      const d = new Date(r.data || r.vencimento);
+      const d = parseLocalDate(r.data || r.vencimento);
+      if (!d || isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
       const label = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
       if (!meses[key]) meses[key] = { mes: label, key, recebido: 0, pendente: 0 };
-      if (['recebido', 'confirmado', 'pago', 'paga', 'faturado'].includes(r.status)) {
+      if (normalizeStatusReceita(r.status) === 'recebido') {
         meses[key].recebido += r.valor || 0;
       } else {
         meses[key].pendente += r.valor || 0;
@@ -324,18 +348,17 @@ export default function ReceitasPage() {
   }, [receitasPeriodo]);
 
   // 🔧 Helper: status efetivo (auto-detecção de atrasado para receitas)
+  // Retorna o status canônico, ou 'atrasado' quando aberto/faturado e vencido.
   const computeStatusEfetivoReceita = (statusBruto, dataVenc) => {
-    const ehRecebido = ['recebido','confirmado','pago','paga','faturado'].includes(statusBruto);
-    if (ehRecebido) return statusBruto;
-    if (!dataVenc) return statusBruto || 'pendente';
+    const canon = normalizeStatusReceita(statusBruto);
+    if (canon === 'recebido' || canon === 'cancelado') return canon;
+    if (!dataVenc || dataVenc === '-') return canon;
     try {
-      const m = String(dataVenc).match(/^(\d{4})-(\d{2})-(\d{2})/);
-      const d = m ? new Date(parseInt(m[1]), parseInt(m[2]) - 1, parseInt(m[3])) : new Date(dataVenc);
-      d.setHours(0,0,0,0);
-      const hoje = new Date(); hoje.setHours(0,0,0,0);
-      if (d < hoje) return 'atrasado';
+      const d = parseLocalDate(dataVenc);
+      const hoje = parseLocalDate(hojeLocalISO());
+      if (d && !isNaN(d.getTime()) && d < hoje) return 'atrasado';
     } catch {}
-    return statusBruto || 'pendente';
+    return canon;
   };
 
   // KPIs — usa statusEfetivo para identificar atrasados (recebíveis vencidos)
@@ -344,8 +367,9 @@ export default function ReceitasPage() {
       ...r,
       statusEfetivo: computeStatusEfetivoReceita(r.status, r.vencimento),
     }));
-    const totalRecebido = enriquecidas.filter(r => ['recebido', 'confirmado', 'pago', 'paga', 'faturado'].includes(r.statusEfetivo)).reduce((sum, r) => sum + (r.valor || 0), 0);
-    const totalPendente = enriquecidas.filter(r => r.statusEfetivo === 'pendente' || r.statusEfetivo === 'aprovado' || r.statusEfetivo === 'pre_aprovado').reduce((sum, r) => sum + (r.valor || 0), 0);
+    const totalRecebido = enriquecidas.filter(r => r.statusEfetivo === 'recebido').reduce((sum, r) => sum + (r.valor || 0), 0);
+    // A receber (no prazo): em aberto + faturado (nota emitida ≠ recebido)
+    const totalPendente = enriquecidas.filter(r => r.statusEfetivo === 'aberto' || r.statusEfetivo === 'faturado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const totalAtrasado = enriquecidas.filter(r => r.statusEfetivo === 'atrasado').reduce((sum, r) => sum + (r.valor || 0), 0);
     const total = receitasPeriodo.reduce((sum, r) => sum + (r.valor || 0), 0);
     return { totalRecebido, totalPendente, totalAtrasado, total };
@@ -359,10 +383,7 @@ export default function ReceitasPage() {
           !(r.obraNome || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
       if (filtroStatus !== 'todos') {
         const stEf = computeStatusEfetivoReceita(r.status, r.vencimento);
-        const statusRecebidos = ['recebido', 'pago', 'paga', 'confirmado', 'faturado'];
-        if (filtroStatus === 'paga') {
-          if (!statusRecebidos.includes(stEf)) return false;
-        } else if (stEf !== filtroStatus) return false;
+        if (stEf !== filtroStatus) return false;
       }
       if (filtroCategoria !== 'todos' && r.categoria !== filtroCategoria) return false;
       return true;
@@ -373,7 +394,7 @@ export default function ReceitasPage() {
   // Abrir form para cadastrar nova receita
   const handleNovaReceita = () => {
     setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '', parcelas: 1, intervaloDias: 30 });
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'aberto', obraId: '', parcelas: 1, intervaloDias: 30 });
     setDialogOpen(true);
   };
 
@@ -387,133 +408,134 @@ export default function ReceitasPage() {
       valor: String(receita.valor || ''),
       vencimento: receita.vencimento && receita.vencimento !== '-' ? receita.vencimento : '',
       formaPagto: receita.formaPagto || '',
-      status: receita.status || 'pendente',
+      status: normalizeStatusReceita(receita.status),
       obraId: receita.obraId || '',
+
     });
     setDialogOpen(true);
   };
 
-  // Salvar receita (cadastrar ou editar)
-  const handleSaveReceita = () => {
-    if (!formData.descricao || !formData.valor) {
+  // Salvar receita (cadastrar ou editar).
+  // Receitas MANUAIS: persiste na tabela ANTES de refletir na tela (o hook
+  // atualiza o estado após o sucesso). Medições (origemObra): override local.
+  const handleSaveReceita = async () => {
+    const valorNum = parseValorBR(formData.valor);
+    if (!formData.descricao || !valorNum) {
       toast.error('Preencha descrição e valor');
       return;
     }
-
-    if (editando) {
-      // Editando receita existente
-      const obraSelecionadaEdit = formData.obraId
-        ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
-        : null;
-      const novaLista = receitas.map(r => {
-        if (r.id !== editando.id) return r;
-        return {
-          ...r,
+    if (salvando) return;
+    setSalvando(true);
+    try {
+      if (editando) {
+        const obraSelecionadaEdit = formData.obraId
+          ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
+          : null;
+        const atualizada = {
+          ...editando,
           descricao: formData.descricao,
           cliente: formData.cliente || '-',
-          categoria: formData.categoria || r.categoria || 'Outros',
-          valor: parseFloat(formData.valor),
-          vencimento: formData.vencimento || r.vencimento,
+          categoria: formData.categoria || editando.categoria || 'Outros',
+          valor: valorNum,
+          vencimento: formData.vencimento || editando.vencimento,
           formaPagto: formData.formaPagto || '-',
-          status: formData.status || r.status,
-          obraId: formData.obraId || r.obraId || null,
-          obraNome: obraSelecionadaEdit?.nome || r.obraNome || null,
-          obraCodigo: obraSelecionadaEdit?.codigo || r.obraCodigo || null,
-          _editadoLocal: r.origemObra ? true : r._editadoLocal, // marca para persistir override
+          status: normalizeStatusReceita(formData.status || editando.status),
+          obraId: formData.obraId || editando.obraId || null,
+          obraNome: obraSelecionadaEdit?.nome || editando.obraNome || null,
+          obraCodigo: obraSelecionadaEdit?.codigo || editando.obraCodigo || null,
         };
-      });
-      setReceitas(novaLista);
-      salvarReceitas(novaLista);
-      toast.success('Receita atualizada!');
-    } else {
-      // Nova receita manual — pode ter parcelas
-      const obraSelecionada = formData.obraId
-        ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
-        : null;
-      const valorNum = parseFloat(formData.valor);
-      const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
-      const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
-
-      if (qtdParcelas === 1) {
-        const novaReceita = {
-          id: `REC-${Date.now()}`,
-          data: formData.vencimento || new Date().toISOString().split('T')[0],
-          descricao: formData.descricao,
+        if (editando.origemObra) {
+          const novaLista = receitas.map(r => (r.id === editando.id ? { ...atualizada, _editadoLocal: true } : r));
+          setReceitas(novaLista);
+          salvarOverrides(novaLista);
+        } else {
+          await atualizarReceitaManual(editando.id, atualizada);
+        }
+        toast.success('Receita atualizada!');
+      } else {
+        // Nova receita manual — pode ter parcelas
+        const obraSelecionada = formData.obraId
+          ? (obrasAtivasReceita.find(o => o.id === formData.obraId) || null)
+          : null;
+        const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
+        const intervalo = Math.max(1, parseInt(formData.intervaloDias) || 30);
+        const base = {
           cliente: formData.cliente || obraSelecionada?.cliente || '-',
           categoria: formData.categoria || 'Outros',
           valor: valorNum,
-          status: formData.status || 'pendente',
           formaPagto: formData.formaPagto || '-',
-          vencimento: formData.vencimento || new Date().toISOString().split('T')[0],
           obraId: formData.obraId || null,
-          obraNome: obraSelecionada?.nome || obraSelecionada?.name || null,
-          obraCodigo: obraSelecionada?.codigo || null,
-          origemObra: false,
         };
-        const novaLista = [...receitas, novaReceita];
-        setReceitas(novaLista);
-        salvarReceitas(novaLista);
-        toast.success('Receita cadastrada!');
-      } else {
-        // RECORRÊNCIA: N parcelas com vencimentos escalonados
-        const baseStr = formData.vencimento || new Date().toISOString().split('T')[0];
-        const m = baseStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
-        if (!m) {
-          toast.error('Data de vencimento inválida');
-          return;
-        }
-        const baseY = parseInt(m[1]), baseM = parseInt(m[2]) - 1, baseD = parseInt(m[3]);
-        const recorrenciaId = `REC-REC-${Date.now()}`;
-        const novas = [];
-        for (let i = 0; i < qtdParcelas; i++) {
-          const d = new Date(baseY, baseM, baseD + (i * intervalo));
-          const yyyy = d.getFullYear();
-          const mm = String(d.getMonth() + 1).padStart(2, '0');
-          const dd = String(d.getDate()).padStart(2, '0');
-          const venc = `${yyyy}-${mm}-${dd}`;
-          novas.push({
-            id: `REC-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
-            data: venc,
-            descricao: `${formData.descricao} (Parc ${i + 1}/${qtdParcelas})`,
-            cliente: formData.cliente || obraSelecionada?.cliente || '-',
-            categoria: formData.categoria || 'Outros',
-            valor: valorNum,
-            status: 'pendente',
-            formaPagto: formData.formaPagto || '-',
-            vencimento: venc,
-            obraId: formData.obraId || null,
-            obraNome: obraSelecionada?.nome || obraSelecionada?.name || null,
-            obraCodigo: obraSelecionada?.codigo || null,
-            origemObra: false,
-            recorrenciaId,
-            parcelaIdx: i + 1,
-            parcelaTotal: qtdParcelas,
-          });
-        }
-        const novaLista = [...receitas, ...novas];
-        setReceitas(novaLista);
-        salvarReceitas(novaLista);
-        toast.success(`${qtdParcelas} parcelas criadas (total R$ ${(valorNum * qtdParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`);
-      }
-    }
 
-    setDialogOpen(false);
-    setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'pendente', obraId: '', parcelas: 1, intervaloDias: 30 });
+        if (qtdParcelas === 1) {
+          const hoje = hojeLocalISO();
+          await criarReceitasManuais({
+            ...base,
+            id: `REC-${Date.now()}`,
+            data: hoje,
+            descricao: formData.descricao,
+            status: normalizeStatusReceita(formData.status),
+            vencimento: formData.vencimento || hoje,
+          });
+          toast.success('Receita cadastrada!');
+        } else {
+          // RECORRÊNCIA: N parcelas com vencimentos escalonados
+          const baseStr = formData.vencimento || hojeLocalISO();
+          const m = baseStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+          if (!m) {
+            toast.error('Data de vencimento inválida');
+            return;
+          }
+          const baseY = parseInt(m[1]), baseM = parseInt(m[2]) - 1, baseD = parseInt(m[3]);
+          const recorrenciaId = `REC-REC-${Date.now()}`;
+          const hoje = hojeLocalISO();
+          const novas = [];
+          for (let i = 0; i < qtdParcelas; i++) {
+            const venc = toLocalISO(new Date(baseY, baseM, baseD + (i * intervalo)));
+            novas.push({
+              ...base,
+              id: `REC-${Date.now()}-p${i + 1}-${Math.floor(Math.random() * 9999)}`,
+              data: hoje,
+              descricao: `${formData.descricao} (Parc ${i + 1}/${qtdParcelas})`,
+              status: 'aberto',
+              vencimento: venc,
+              recorrenciaId,
+            });
+          }
+          await criarReceitasManuais(novas);
+          toast.success(`${qtdParcelas} parcelas criadas (total R$ ${(valorNum * qtdParcelas).toLocaleString('pt-BR', { minimumFractionDigits: 2 })})`);
+        }
+      }
+
+      setDialogOpen(false);
+      setEditando(null);
+      setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'aberto', obraId: '', parcelas: 1, intervaloDias: 30 });
+    } catch (e) {
+      console.error('[Receitas] erro ao salvar', e);
+      toast.error(`Erro ao salvar receita: ${e?.message || e}`);
+    } finally {
+      setSalvando(false);
+    }
   };
 
   // Apagar receita
   const handleApagarReceita = async (id) => {
     const alvo = receitas.find(r => r.id === id);
-    const novaLista = receitas.filter(r => r.id !== id);
-    setReceitas(novaLista);
-    if (alvo && alvo.origemObra) {
-      salvarReceitas(novaLista); // medicao: remove override local (comportamento antigo)
-    } else {
-      await deleteReceitaManual(id); // receita manual: apaga local + nuvem + tombstone
+    try {
+      if (alvo && alvo.origemObra) {
+        const novaLista = receitas.filter(r => r.id !== id);
+        setReceitas(novaLista);
+        salvarOverrides(novaLista); // medicao: remove override local (comportamento antigo)
+      } else {
+        await deleteReceitaManual(id); // receita manual: tabela + tombstone do legado
+      }
+      toast.success('Receita removida!');
+    } catch (e) {
+      console.error('[Receitas] erro ao apagar', e);
+      toast.error(`Erro ao apagar receita: ${e?.message || e}`);
+    } finally {
+      setDeleteConfirmId(null);
     }
-    setDeleteConfirmId(null);
-    toast.success('Receita removida!');
   };
 
   // Contadores de origem
@@ -562,7 +584,35 @@ export default function ReceitasPage() {
         </Button>
       </div>
 
+      {/* Aviso: tabela receitas_manuais indisponível (migration não aplicada) */}
+      {fonteReceitas === 'legado' && (
+        <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          <AlertTriangle className="inline h-4 w-4 mr-2" />
+          Tabela <code>receitas_manuais</code> indisponível ({erroReceitas}). Exibindo receitas antigas somente leitura;
+          novos cadastros vão falhar até a migration ser aplicada.
+        </div>
+      )}
+
+      {/* Migração única das receitas antigas (localStorage/entity_store → tabela) */}
+      {fonteReceitas === 'tabela' && legadasPendentes.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-lg border border-blue-500/40 bg-blue-500/10 px-4 py-3">
+          <p className="text-sm text-blue-200">
+            Encontramos <strong>{legadasPendentes.length}</strong> receita(s) manual(is) antiga(s) salvas só no navegador/nuvem
+            ({formatCurrency(legadasPendentes.reduce((s, r) => s + (Number(r.valor) || 0), 0))}) que ainda não estão no banco.
+          </p>
+          <Button
+            size="sm"
+            className="bg-blue-600 hover:bg-blue-500"
+            disabled={importandoLegadas}
+            onClick={handleImportarLegadas}
+          >
+            {importandoLegadas ? 'Importando...' : 'Importar receitas antigas'}
+          </Button>
+        </div>
+      )}
+
       {/* Dialog Cadastrar/Editar */}
+
       <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditando(null); }}>
         <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
           <DialogHeader>
@@ -731,9 +781,10 @@ export default function ReceitasPage() {
                     <SelectValue placeholder="Selecione" />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="pendente">Pendente</SelectItem>
-                    <SelectItem value="paga">Paga/Recebido</SelectItem>
-                    <SelectItem value="atrasado">Atrasado</SelectItem>
+                    <SelectItem value="aberto">Em aberto</SelectItem>
+                    <SelectItem value="faturado">Faturado (nota emitida, não recebido)</SelectItem>
+                    <SelectItem value="recebido">Recebido</SelectItem>
+                    <SelectItem value="cancelado">Cancelado</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -741,8 +792,9 @@ export default function ReceitasPage() {
             <Button
               className="w-full bg-gradient-to-r from-emerald-500 to-green-500"
               onClick={handleSaveReceita}
+              disabled={salvando}
             >
-              {editando ? 'Salvar Alterações' : 'Cadastrar Receita'}
+              {salvando ? 'Salvando...' : editando ? 'Salvar Alterações' : 'Cadastrar Receita'}
             </Button>
           </div>
         </DialogContent>
@@ -936,9 +988,11 @@ export default function ReceitasPage() {
               </SelectTrigger>
               <SelectContent className="bg-slate-800 border-slate-700">
                 <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="paga">Paga/Recebido</SelectItem>
-                <SelectItem value="pendente">Pendente</SelectItem>
+                <SelectItem value="recebido">Recebido</SelectItem>
+                <SelectItem value="faturado">Faturado</SelectItem>
+                <SelectItem value="aberto">Em aberto</SelectItem>
                 <SelectItem value="atrasado">Atrasado</SelectItem>
+                <SelectItem value="cancelado">Cancelado</SelectItem>
               </SelectContent>
             </Select>
             <Select value={filtroCategoria} onValueChange={setFiltroCategoria}>
@@ -975,7 +1029,7 @@ export default function ReceitasPage() {
                 {receitasFiltradas.map(receita => (
                   <TableRow key={receita.id} className="border-slate-800 hover:bg-slate-800/50">
                     <TableCell className="text-slate-300 text-sm">
-                      {receita.data && receita.data !== '-' ? new Date(receita.data).toLocaleDateString('pt-BR') : '-'}
+                      {receita.data && receita.data !== '-' ? (parseLocalDate(receita.data)?.toLocaleDateString('pt-BR') || '-') : '-'}
                     </TableCell>
                     <TableCell className="text-white font-medium max-w-[220px]">
                       <span className="truncate block">{receita.descricao}</span>
@@ -1022,13 +1076,13 @@ export default function ReceitasPage() {
                       })()}
                     </TableCell>
                     <TableCell className="text-slate-400 text-sm">
-                      {receita.vencimento && receita.vencimento !== '-' ? new Date(receita.vencimento).toLocaleDateString('pt-BR') : '-'}
+                      {receita.vencimento && receita.vencimento !== '-' ? (parseLocalDate(receita.vencimento)?.toLocaleDateString('pt-BR') || '-') : '-'}
                     </TableCell>
                     <TableCell className="text-right font-semibold text-emerald-400">{formatCurrency(receita.valor)}</TableCell>
                     <TableCell>
                       {(() => {
                         const stEf = computeStatusEfetivoReceita(receita.status, receita.vencimento);
-                        const isRecebido = ['recebido','confirmado','pago','paga','faturado'].includes(stEf);
+                        const isRecebido = stEf === 'recebido';
                         const isAtrasado = stEf === 'atrasado';
                         if (isAtrasado) {
                           return (
@@ -1045,8 +1099,8 @@ export default function ReceitasPage() {
                           );
                         }
                         return (
-                          <Badge className={cn("border text-xs", getStatusColor(receita.status))}>
-                            {getStatusText(receita.status)}
+                          <Badge className={cn("border text-xs", getStatusColor(stEf))}>
+                            {getStatusText(stEf)}
                           </Badge>
                         );
                       })()}

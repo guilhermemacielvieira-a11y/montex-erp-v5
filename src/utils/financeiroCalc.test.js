@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 import {
   parseLocalDate, formatDate, diasAteVencimento, ehCheque, ehPago, STATUS_QUITADO,
   calcChequeOp, calcOpFin, calcScoreSaude, calcAlertaVencimento,
+  hojeLocalISO, toLocalISO, parseDataBR, parseValorBR,
 } from '@/utils/financeiroCalc';
 
 const HOJE = new Date(2026, 5, 8); // 2026-06-08 (mês 5 = junho), local
@@ -52,14 +53,64 @@ describe('ehCheque', () => {
 
 describe('ehPago / STATUS_QUITADO', () => {
   it('aceita variantes de receita e despesa', () => {
-    ['pago', 'paga', 'recebido', 'faturado', 'confirmado'].forEach(s => expect(ehPago({ status: s })).toBe(true));
+    ['pago', 'paga', 'recebido', 'recebida', 'confirmado', 'quitado', 'PAGO'].forEach(s => expect(ehPago({ status: s })).toBe(true));
   });
   it('pendente/atrasado não são pagos', () => {
     expect(ehPago({ status: 'pendente' })).toBe(false);
     expect(ehPago({ status: 'atrasado' })).toBe(false);
   });
+  it('faturado NÃO conta como quitado', () => {
+    expect(ehPago({ status: 'faturado' })).toBe(false);
+    expect(STATUS_QUITADO).not.toContain('faturado');
+  });
   it('robusto a mov nulo', () => expect(ehPago(null)).toBe(false));
-  it('STATUS_QUITADO contém as 5 variantes', () => expect(STATUS_QUITADO).toHaveLength(5));
+});
+
+describe('hojeLocalISO / toLocalISO', () => {
+  it('usa o fuso local (23h não vira o dia seguinte)', () => {
+    expect(hojeLocalISO(new Date(2026, 4, 15, 23, 30))).toBe('2026-05-15');
+    expect(toLocalISO(new Date(2026, 0, 1, 0, 5))).toBe('2026-01-01');
+  });
+  it('aceita string ISO', () => expect(toLocalISO('2026-05-15')).toBe('2026-05-15'));
+  it('inválido → vazio', () => expect(toLocalISO('xx')).toBe(''));
+});
+
+describe('parseDataBR', () => {
+  it('dd/mm/yyyy → ISO', () => expect(parseDataBR('05/10/2026')).toBe('2026-10-05'));
+  it('d/m/yy → ISO', () => expect(parseDataBR('5/1/26')).toBe('2026-01-05'));
+  it('dd-mm-yyyy → ISO', () => expect(parseDataBR('31-12-2025')).toBe('2025-12-31'));
+  it('ISO passa adiante', () => expect(parseDataBR('2026-05-15T10:00:00Z')).toBe('2026-05-15'));
+  it('data impossível → vazio', () => {
+    expect(parseDataBR('31/02/2026')).toBe('');
+    expect(parseDataBR('abc')).toBe('');
+    expect(parseDataBR('')).toBe('');
+    expect(parseDataBR(null)).toBe('');
+  });
+});
+
+describe('parseValorBR', () => {
+  it('formato brasileiro com milhar', () => expect(parseValorBR('1.234,56')).toBe(1234.56));
+  it('vírgula decimal sem milhar', () => expect(parseValorBR('1234,56')).toBe(1234.56));
+  it('ponto decimal', () => expect(parseValorBR('1234.56')).toBe(1234.56));
+  it('com R$ e espaços', () => {
+    expect(parseValorBR('R$ 1.234,56')).toBe(1234.56);
+    expect(parseValorBR('R$1.234.567,89')).toBe(1234567.89);
+  });
+  it('formato US com milhar', () => expect(parseValorBR('1,234.56')).toBe(1234.56));
+  it('milhar sem decimais', () => {
+    expect(parseValorBR('1.234')).toBe(1234);
+    expect(parseValorBR('12.345.678')).toBe(12345678);
+  });
+  it('negativos', () => {
+    expect(parseValorBR('-R$ 10,50')).toBe(-10.5);
+    expect(parseValorBR('(10,00)')).toBe(-10);
+  });
+  it('número passa adiante; vazio/lixo → 0', () => {
+    expect(parseValorBR(42.5)).toBe(42.5);
+    expect(parseValorBR('')).toBe(0);
+    expect(parseValorBR(null)).toBe(0);
+    expect(parseValorBR('abc')).toBe(0);
+  });
 });
 
 describe('calcChequeOp (cheque trocado)', () => {
