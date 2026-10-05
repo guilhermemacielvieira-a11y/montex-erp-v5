@@ -1,5 +1,7 @@
 import { useState, useEffect, Suspense } from 'react';
 import { Toaster } from "@/components/ui/toaster"
+import { Toaster as SonnerToaster } from 'sonner'
+import { Toaster as HotToaster } from 'react-hot-toast'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import NavigationTracker from '@/lib/NavigationTracker'
@@ -180,6 +182,30 @@ const AuthenticatedApp = () => {
 };
 
 
+// Toasts globais: as páginas usam `sonner` e `react-hot-toast` (além do
+// shadcn). Antes só o Toaster do shadcn estava montado → toasts dessas libs
+// ficavam invisíveis no desktop. O app mobile (/m) já monta o seu próprio
+// Toaster do react-hot-toast; aqui o evitamos para não duplicar.
+const GlobalToasters = () => {
+  const location = useLocation();
+  const isMobileRoute = location.pathname === '/m' || location.pathname.startsWith('/m/');
+  return (
+    <>
+      <SonnerToaster position="top-right" theme="dark" richColors closeButton />
+      {!isMobileRoute && (
+        <HotToaster
+          position="top-right"
+          toastOptions={{
+            style: { background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155' },
+            success: { iconTheme: { primary: '#22c55e', secondary: '#0f172a' } },
+            error: { iconTheme: { primary: '#ef4444', secondary: '#0f172a' } },
+          }}
+        />
+      )}
+    </>
+  );
+};
+
 function App() {
 
   return (
@@ -191,6 +217,7 @@ function App() {
               <Router>
                 <NavigationTracker />
                 <AuthenticatedApp />
+                <GlobalToasters />
               </Router>
               <Toaster />
             </QueryClientProvider>
