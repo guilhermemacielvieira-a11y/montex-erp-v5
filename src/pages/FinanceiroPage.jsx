@@ -9,7 +9,7 @@
 // espelhados no Painel Financeiro Global; despesas de obra ficam fora do caixa
 // da empresa. Lançamentos feitos NO Painel Global nunca aparecem aqui.
 
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import {
   DollarSign,
   TrendingUp,
@@ -79,8 +79,9 @@ import {
 // ERPContext
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 import {
-  atualizarReceitaManual, criarReceitasManuais, deleteReceitaManual, useReceitasManuais,
+  atualizarReceitaManual, criarReceitasManuais, deleteReceitaManual, syncReceitas, useReceitasManuais,
 } from '../utils/receitasSync';
+import { LOCAL_SYNC_EVENT } from '../utils/localSync';
 import {
   despesaCancelada, despesaPaga, medicaoRecebida, medicaoReconhecida,
   normalizeStatusReceita, receitaCancelada, receitaRecebida,
@@ -112,6 +113,18 @@ const CORES_CATEGORIAS = {
 // Escopo 'fabrica' = financeiro geral (lançamentos sem obra)
 const FABRICA = 'fabrica';
 const obraDe = (x) => x?.obraId || x?.obra_id || null;
+
+// Edições de medições feitas na ReceitasPage (valor, status, descrição...).
+// Ficam em localStorage + entity_store 'receitas_gerais_sync' (syncReceitas) e
+// são aplicadas também pela ReceitasPage e pelo Painel Global — aqui também,
+// para os três módulos mostrarem o MESMO valor.
+const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
+const lerOverrides = () => {
+  try { return JSON.parse(localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '{}') || {}; } catch { return {}; }
+};
+const formatValor = (v) => new Intl.NumberFormat('pt-BR', {
+  style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2,
+}).format(v || 0);
 const escopoDe = (x) => obraDe(x) || FABRICA;
 const obraIdDoEscopo = (escopo) => (!escopo || escopo === FABRICA ? null : escopo);
 const tempo = (d) => parseLocalDate(d)?.getTime() || 0;
@@ -192,35 +205,63 @@ export default function FinanceiroPage() {
   // Reconhecida (aprovada/faturada/paga) conta como receita; prevista/em
   // análise aparece na lista mas fica fora dos totais; rejeitada some.
   // 'faturado' NÃO é recebido (nota emitida ≠ dinheiro em caixa).
+  // Overrides da ReceitasPage: sincroniza com a nuvem ao abrir e reage a
+  // edições feitas em outra aba/módulo.
+  const [overridesTick, setOverridesTick] = useState(0);
+  useEffect(() => {
+    let vivo = true;
+    syncReceitas().then(() => { if (vivo) setOverridesTick(t => t + 1); });
+    const bump = () => setOverridesTick(t => t + 1);
+    const onStorage = (e) => { if (!e.key || e.key === RECEITAS_OVERRIDES_KEY) bump(); };
+    window.addEventListener(LOCAL_SYNC_EVENT, bump);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      vivo = false;
+      window.removeEventListener(LOCAL_SYNC_EVENT, bump);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
   const receitasMedicoes = useMemo(() => {
     if (!filtroObra) return [];
+    const overrides = lerOverrides();
     return (todasMedicoes || [])
-      .filter(m => escopoDe(m) === filtroObra && !receitaCancelada(m.status))
+      .filter(m => escopoDe(m) === filtroObra)
       .map(m => {
+        const ov = overrides[m.id] || null;
         const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
-        const venc = m.dataVencimento || m.data_vencimento || m.dataMedicao || m.data_medicao || '-';
-        const recebido = medicaoRecebida(m.status);
-        const prevista = !medicaoReconhecida(m.status);
+        // Status: o editado na ReceitasPage vence, exceto 'aberto' (mesma regra
+        // do Painel Global: 'aberto' no override não rebaixa a medição).
+        const statusOv = ov?.status && normalizeStatusReceita(ov.status) !== 'aberto' ? ov.status : null;
+        const status = statusOv || m.status || 'aguardando';
+        if (receitaCancelada(status)) return null;
+        const venc = ov?.vencimento || m.dataVencimento || m.data_vencimento || m.dataMedicao || m.data_medicao || '-';
+        const recebido = medicaoRecebida(status);
+        const prevista = !recebido && !medicaoReconhecida(status);
+        const valorOv = ov && ov.valor !== undefined && ov.valor !== null && ov.valor !== '' ? Number(ov.valor) : null;
         return {
           id: m.id,
           tipo: 'receita',
           data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
-          descricao: m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
+          descricao: ov?.descricao || m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
           fornecedor: obraNome,
-          categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
-          valor: Number(m.valorBruto ?? m.valor_bruto ?? 0) || 0,
-          status: m.status || 'aguardando',
+          categoria: ov?.categoria || (m.isAvulsa ? 'Serviço Avulso' : 'Medição'),
+          valor: Number.isFinite(valorOv) ? valorOv : (Number(m.valorBruto ?? m.valor_bruto ?? 0) || 0),
+          valorBanco: Number(m.valorBruto ?? m.valor_bruto ?? 0) || 0,
+          editadoEmReceitas: !!ov,
+          status,
           quitado: recebido,
           prevista,
           atrasado: !recebido && !prevista && vencido(venc),
-          formaPagto: '-',
+          formaPagto: ov?.formaPagto && ov.formaPagto !== '-' ? ov.formaPagto : '-',
           vencimento: venc,
           numero: m.numero,
           etapaLabel,
           origem: 'medicao',
         };
-      });
-  }, [todasMedicoes, filtroObra, obraNome]);
+      })
+      .filter(Boolean);
+  }, [todasMedicoes, filtroObra, obraNome, overridesTick]);
 
   // ===== RECEITAS DA OBRA: MANUAIS (receitas_manuais.obra_id = obra) =====
   const { receitas: receitasManuaisFonte } = useReceitasManuais();
@@ -1019,6 +1060,11 @@ export default function FinanceiroPage() {
                       {mov.origem === 'medicao' && mov.numero && (
                         <span className="text-xs text-emerald-500">Medição #{mov.numero} • {mov.etapaLabel}</span>
                       )}
+                      {mov.origem === 'medicao' && mov.editadoEmReceitas && Math.abs(mov.valor - mov.valorBanco) > 0.009 && (
+                        <span className="block text-[11px] text-amber-400" title="Valor editado na página Receitas. A medição gravada (usada na GFO) tem outro valor.">
+                          Editado em Receitas · medição/GFO: {formatValor(mov.valorBanco)}
+                        </span>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm">
                       <span className="text-slate-300">{mov.fornecedor || '-'}</span>
@@ -1030,7 +1076,7 @@ export default function FinanceiroPage() {
                       </Badge>
                     </TableCell>
                     <TableCell className={cn("text-right font-semibold", mov.prevista ? "text-slate-500" : mov.tipo === 'receita' ? "text-emerald-400" : "text-red-400")}>
-                      {mov.tipo === 'receita' ? '+' : '-'} {formatCurrency(mov.valor)}
+                      {mov.tipo === 'receita' ? '+' : '-'} {formatValor(mov.valor)}
                     </TableCell>
                     <TableCell>
                       {(() => {
