@@ -521,11 +521,13 @@ export function ERPProvider({ children }) {
   // (valida o fluxo no banco: 1 etapa por vez; voltar só com opts.force;
   // enviado/entregue só via Expedição). Otimista com ROLLBACK: se o banco
   // rejeitar, a peça volta ao estado anterior, mostra toast.error e relança.
-  // opts: { force, etapaFuncionario, data, silencioso }
+  // opts: { force, etapaFuncionario, data, silencioso, etapaAtual }
   const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId, opts = {}) => {
     const anterior = state.pecas.find(p => p.id === pecaId) || null;
     if (anterior) {
-      const check = validarTransicao(anterior.etapa, novaEtapa, { force: !!opts.force });
+      // opts.etapaAtual: etapa já confirmada pelo banco num passo anterior
+      // (a closure de state.pecas pode estar defasada em passos encadeados).
+      const check = validarTransicao(opts.etapaAtual ?? anterior.etapa, novaEtapa, { force: !!opts.force });
       if (!check.ok) {
         if (!opts.silencioso) toast.error(check.motivo);
         const e = new Error(check.motivo);

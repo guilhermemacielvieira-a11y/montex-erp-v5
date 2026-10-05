@@ -38,6 +38,21 @@ export function proximaEtapaProducao(etapa) {
   return prox && ETAPAS_PRODUCAO.includes(prox) ? prox : null;
 }
 
+/**
+ * Passos de etapa a aplicar para levar a peça INTEIRA de `de` até `para`.
+ * O Kanban exibe peças 'aguardando' na coluna Fabricação; arrastá-las para
+ * Solda equivale a concluir a fabricação, então o caminho é
+ * ['fabricacao', 'solda']. Fora esse caso, é sempre um único passo.
+ */
+export function passosAte(de, para) {
+  const origem = normalizarEtapa(de);
+  const destino = String(para || '').trim().toLowerCase();
+  if (origem === 'aguardando' && destino !== 'aguardando' && destino !== 'fabricacao' && ordemEtapa(destino) === 2) {
+    return ['fabricacao', destino];
+  }
+  return [destino];
+}
+
 /** Etapa anterior no fluxo (null se já é a primeira). */
 export function etapaAnterior(etapa) {
   const idx = ordemEtapa(etapa);
@@ -50,6 +65,7 @@ export function etapaAnterior(etapa) {
  *   - mesma etapa: ok (no-op)
  *   - avanço de exatamente 1 etapa: ok
  *   - retorno de exatamente 1 etapa: só com { force: true }
+ *   - estorno de envio (enviado/entregue/montagem → expedido): só com { force: true }
  *   - destino enviado/entregue: rejeitado (só Expedição)
  *   - saltos: rejeitados
  * @returns {{ ok: boolean, motivo?: string }}
@@ -61,6 +77,9 @@ export function validarTransicao(de, para, { force = false } = {}) {
   if (iPara < 0) return { ok: false, motivo: `Etapa de destino inválida: ${para}` };
   if (ETAPAS_SO_EXPEDICAO.includes(destino)) {
     return { ok: false, motivo: `A etapa ${destino.toUpperCase()} só é atingida pela Expedição (romaneio)` };
+  }
+  if (force && destino === 'expedido' && ['enviado', 'entregue', 'montagem'].includes(origem)) {
+    return { ok: true }; // estorno de envio → volta para a Fila de Embarque
   }
   const iDe = Math.max(0, ORDEM_ETAPAS.indexOf(origem));
   if (iPara === iDe) return { ok: true };

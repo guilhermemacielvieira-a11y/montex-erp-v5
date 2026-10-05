@@ -34,6 +34,8 @@ import {
 import { useObras, useProducao, useEstoque } from '@/contexts/ERPContext';
 import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
 import { supabase } from '@/api/supabaseClient';
+import { splitPeca, distribuirPeca } from '@/api/producaoRpc';
+import { validarTransicao, validarSplit, passosAte, normalizarEtapa, etapaAnterior } from '@/services/fluxoEtapas';
 // FuncionarioSelectorModal removido — substituído pelo LancamentoProducaoModal completo
 import { LancamentoProducaoModal } from '@/components/kanban/LancamentoProducaoModal';
 import RelatorioProducaoCard from '@/components/kanban/RelatorioProducaoCard';
@@ -91,7 +93,7 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
   const { obras, obraAtual } = useObras();
-  const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, updatePeca, addPecas: addPecasContext, reloadPecas } = useProducao();
+  const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, addPecas: addPecasContext, reloadPecas } = useProducao();
   const { estoque: estoqueGlobal } = useEstoque();
 
   // ========================================
@@ -403,22 +405,26 @@ export default function KanbanProducaoIntegrado() {
     setModalLancamento(true);
   };
 
-  // ─── VOLTAR ETAPA: regride a peça para a etapa anterior diretamente no banco ─────
-  // Diferente de moverConjunto (que abre modal de lançamento), esse só atualiza
-  // pecas_producao.etapa e registra em producao_historico. Sem modal.
-  const ORDEM_ETAPAS = ['aguardando', 'fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
+  // Etapa REAL no banco (o card mostra 'aguardando' na coluna Fabricação)
+  const etapaDbDe = useCallback((id, fallback) => {
+    const p = (pecasSupabase || []).find(x => x.id === id);
+    return p?.etapa || fallback || 'aguardando';
+  }, [pecasSupabase]);
+
+  // ─── VOLTAR ETAPA: regride a peça 1 etapa (correção manual) ─────
+  // Usa a RPC mover_etapa com force (o banco valida: só 1 etapa para trás, ou
+  // estorno de envio enviado/entregue → expedido). Sem modal de funcionário.
   const [voltandoId, setVoltandoId] = useState(null);
   const voltarEtapaDireto = async (conjuntoId, etapaDestino = null) => {
     const conjunto = producaoFabrica.find(c => c.id === conjuntoId)
       || pecasEnviadasColuna?.find(c => c.id === conjuntoId);
     if (!conjunto) { toast.error('Peça não encontrada'); return; }
 
-    const etapaAtual = conjunto.etapa || conjunto.status || 'aguardando';
-    const idxAtual = ORDEM_ETAPAS.indexOf(etapaAtual);
-    const destino = etapaDestino || (idxAtual > 0 ? ORDEM_ETAPAS[idxAtual - 1] : null);
-
+    const etapaAtual = etapaDbDe(conjuntoId, conjunto.etapa || conjunto.status);
+    const destino = etapaDestino || etapaAnterior(etapaAtual);
     if (!destino) { toast.error('Já está na primeira etapa'); return; }
-    if (idxAtual <= 0) { toast.error('Já está na primeira etapa'); return; }
+    const check = validarTransicao(etapaAtual, destino, { force: true });
+    if (!check.ok) { toast.error(check.motivo); return; }
 
     const qtd = parseInt(conjunto.quantidade) || 1;
     if (!window.confirm(
@@ -427,14 +433,9 @@ export default function KanbanProducaoIntegrado() {
 
     setVoltandoId(conjuntoId);
     try {
-      // 1) Atualizar etapa em pecas_producao
-      const { error: errUpd } = await supabase
-        .from('pecas_producao')
-        .update({ etapa: destino, status: 'em_producao', updated_at: new Date().toISOString() })
-        .eq('id', conjuntoId);
-      if (errUpd) throw errUpd;
+      await moverPecaEtapaContext(conjuntoId, destino, null, { force: true, silencioso: true, etapaAtual });
 
-      // 2) Registrar histórico
+      // Registrar histórico (opcional)
       try {
         await supabase.from('producao_historico').insert([{
           id: `HIST-VOLT-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -449,20 +450,20 @@ export default function KanbanProducaoIntegrado() {
       } catch (_) { /* histórico é opcional */ }
 
       toast.success(`${conjunto.conjunto || conjuntoId} voltou para ${destino.toUpperCase()}`);
-      try { await reloadPecas?.(); } catch (_) {}
     } catch (e) {
       console.error('[Kanban] Erro ao voltar etapa:', e);
       toast.error('Erro ao voltar etapa: ' + (e?.message || ''));
     } finally {
+      try { await reloadPecas?.(); } catch (_) {}
       setVoltandoId(null);
     }
   };
 
   // ─── DESMEMBRAR peça com qty > 1 em N peças individuais (qty=1 cada) ─────
-  // Cria N novas rows em pecas_producao herdando todos os campos da original,
-  // cada uma com quantidade=1, peso_total=peso_unitario e ID único.
-  // A peça original é apagada. Cada unidade vira um card independente no
-  // Kanban e pode seguir seu próprio fluxo de etapa.
+  // Cada unidade é destacada por uma RPC split_peca ATÔMICA (trava a linha,
+  // valida a quantidade REAL do banco, copia todas as colunas e redistribui o
+  // peso). A peça original permanece com 1 unidade. Falha no meio deixa o
+  // banco consistente (nenhuma unidade some ou duplica).
   const [desmembrandoId, setDesmembrandoId] = useState(null);
   const desmembrarConjunto = async (conjuntoId) => {
     const conjunto = producaoFabrica.find(c => c.id === conjuntoId);
@@ -472,43 +473,24 @@ export default function KanbanProducaoIntegrado() {
       toast.error('Peça já tem quantidade=1');
       return;
     }
-    if (!window.confirm(`Desmembrar ${conjunto.conjunto || conjuntoId} em ${qtd} peças individuais?\n\nIsso cria ${qtd} cards independentes no Kanban e remove a peça original.`)) {
+    if (!window.confirm(`Desmembrar ${conjunto.conjunto || conjuntoId} em ${qtd} peças individuais?\n\nIsso cria ${qtd} cards independentes no Kanban.`)) {
       return;
     }
 
     setDesmembrandoId(conjuntoId);
+    const etapa = normalizarEtapa(etapaDbDe(conjuntoId, conjunto.status));
+    let criadas = 0;
     try {
-      // Buscar dados completos da peça original
-      const { data: orig, error: errOrig } = await supabase
-        .from('pecas_producao').select('*').eq('id', conjuntoId).single();
-      if (errOrig || !orig) throw new Error('Peça não encontrada');
-
-      const pesoUnit = orig.peso_unitario || (orig.peso_total / qtd) || 0;
-      const novas = [];
-      for (let i = 1; i <= qtd; i++) {
-        const nova = { ...orig };
-        delete nova.id;
-        nova.id = `${conjuntoId}__u${String(i).padStart(3, '0')}`;
-        nova.quantidade = 1;
-        nova.peso_total = pesoUnit;
-        nova.peso_unitario = pesoUnit;
-        nova.created_at = new Date().toISOString();
-        nova.updated_at = new Date().toISOString();
-        novas.push(nova);
+      for (let i = 1; i < qtd; i++) {
+        await splitPeca(conjuntoId, 1, etapa);
+        criadas++;
       }
-
-      // Inserir as novas em batch e remover a original
-      const { error: errIns } = await supabase.from('pecas_producao').insert(novas);
-      if (errIns) throw errIns;
-      const { error: errDel } = await supabase.from('pecas_producao').delete().eq('id', conjuntoId);
-      if (errDel) throw errDel;
-
-      toast.success(`${qtd} peças individuais criadas a partir de ${conjunto.conjunto || conjuntoId}`);
-      try { await reloadPecas?.(); } catch (_) {}
+      toast.success(`${qtd} peças individuais a partir de ${conjunto.conjunto || conjuntoId}`);
     } catch (e) {
       console.error('[Kanban] Erro ao desmembrar:', e);
-      toast.error('Erro ao desmembrar: ' + (e?.message || ''));
+      toast.error(`Erro ao desmembrar (${criadas} de ${qtd - 1} unidades destacadas): ${e?.message || ''}`);
     } finally {
+      try { await reloadPecas?.(); } catch (_) {}
       setDesmembrandoId(null);
     }
   };
@@ -544,94 +526,52 @@ export default function KanbanProducaoIntegrado() {
   };
 
   // Executar movimentação após seleção de funcionário
+  // Persistência ATÔMICA no banco:
+  //   - parcial  → RPC split_peca (valida a qtd REAL do banco, 1 transação)
+  //   - inteira  → RPC mover_etapa (via contexto; valida o fluxo; rollback)
+  //   - edição manual (editor por quantidade, destino único) → distribuir_peca
+  // Toast de sucesso e histórico SÓ quando o banco confirmou.
   const handleFuncionarioProducaoConfirm = async (funcionarioId, funcionarioNome) => {
     if (!conjuntoPendente || !statusPendenteProd) return;
 
     const conjuntoId = conjuntoPendente.id;
     const novoStatus = statusPendenteProd;
     const statusAnterior = conjuntoPendente.status || 'fabricacao';
+    const etapaDb = etapaDbDe(conjuntoId, statusAnterior);
     const qtdTotal = conjuntoPendente._qtdTotal || (parseInt(conjuntoPendente.quantidade) || 1);
     const qtdMoverFinal = conjuntoPendente._qtdMover || qtdTotal;
     const isSplit = qtdMoverFinal < qtdTotal;
+    const edicaoManual = !!conjuntoPendente._edicaoManual;
+    const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
+
+    const limpar = () => {
+      setConjuntoPendente(null);
+      setStatusPendenteProd(null);
+      setConjuntoQtdPendente(null);
+      setStatusQtdDestino(null);
+    };
 
     // Fechar modal
     setModalFuncionarioProd(false);
 
     if (isSplit) {
-      // ===== SPLIT: Mover parcial → cria nova peça + atualiza original =====
-      const pesoUnitario = qtdTotal > 0 ? (conjuntoPendente.pesoTotal || 0) / qtdTotal : 0;
-      const qtdRestante = qtdTotal - qtdMoverFinal;
-      const pesoMovido = pesoUnitario * qtdMoverFinal;
-      const pesoRestante = pesoUnitario * qtdRestante;
-      const novoId = crypto.randomUUID();
-
-      // Nova peça (a que vai para o novo status)
-      const novaPeca = {
-        ...conjuntoPendente,
-        id: novoId,
-        quantidade: qtdMoverFinal,
-        pesoTotal: pesoMovido,
-        pesoUnitario: pesoUnitario,
-        status: novoStatus,
-        statusProducao: buildStatusProducao(conjuntoPendente.statusProducao, novoStatus),
-        unidadesStatus: [],
-        _qtdMover: undefined,
-        _qtdTotal: undefined,
-      };
-
-      // Atualizar estado local: update original (restante) + add nova
-      setProducaoFabrica(prev => {
-        const updated = prev.map(c => {
-          if (c.id === conjuntoId) {
-            return { ...c, quantidade: qtdRestante, pesoTotal: pesoRestante };
-          }
-          return c;
-        });
-        updated.push(novaPeca);
-        return updated;
-      });
-
-      // Persistir no Supabase: atualizar original com qtd restante
+      // ===== SPLIT: mover parcial → RPC split_peca =====
+      const origemVisual = normalizarEtapa(etapaDb) === 'aguardando' ? 'fabricacao' : etapaDb;
+      const fluxo = novoStatus === origemVisual ? { ok: true } : validarTransicao(origemVisual, novoStatus);
+      const chk = fluxo.ok ? validarSplit(qtdTotal, qtdMoverFinal, novoStatus, etapaDb) : fluxo;
+      if (!chk.ok) { toast.error(chk.motivo); limpar(); return; }
       try {
-        await updatePeca(conjuntoId, {
-          quantidade: qtdRestante,
-          peso_total: pesoRestante,
-        });
-
-        // Criar nova peça no Supabase com a quantidade movida
-        const novaPecaDB = {
-          nome: conjuntoPendente.conjunto || conjuntoPendente.descricao || 'Peça',
-          marca: conjuntoPendente.conjunto,
-          tipo: conjuntoPendente.tipo,
-          perfil: conjuntoPendente.perfil || conjuntoPendente.material,
-          material: conjuntoPendente.material,
-          descricao: conjuntoPendente.descricao,
-          quantidade: qtdMoverFinal,
-          peso_total: pesoMovido,
-          peso_unitario: pesoUnitario,
-          obra_id: conjuntoPendente.obraId,
-          obra_nome: conjuntoPendente.obraNome,
-          etapa: novoStatus,
-          status: novoStatus === 'expedido' ? 'concluido' : 'em_producao',
-          comprimento: conjuntoPendente.comprimento || null,
-          observacoes: `Split parcial: ${qtdMoverFinal} de ${qtdTotal} unidades movidas para ${novoStatus}`,
-        };
-        if (funcionarioId) {
-          novaPecaDB.responsavel = funcionarioId;
-          if (novoStatus === 'fabricacao') novaPecaDB.funcionario_fabricacao = funcionarioId;
-          else if (novoStatus === 'solda') novaPecaDB.funcionario_solda = funcionarioId;
-          else if (novoStatus === 'pintura') novaPecaDB.funcionario_pintura = funcionarioId;
-          else if (novoStatus === 'expedido') novaPecaDB.funcionario_expedido = funcionarioId;
-        }
-        await addPecasContext([novaPecaDB]);
-
-        console.log(`[Kanban] ✅ SPLIT: ${conjuntoPendente.conjunto} — ${qtdMoverFinal}un → ${novoStatus}, ${qtdRestante}un ficam em ${statusAnterior}`);
+        await splitPeca(conjuntoId, qtdMoverFinal, novoStatus, { funcionario: funcionarioId });
+        console.log(`[Kanban] ✅ SPLIT: ${conjuntoPendente.conjunto} — ${qtdMoverFinal}un → ${novoStatus}`);
       } catch (err) {
         console.error('[Kanban] ❌ Erro ao salvar split no Supabase:', err);
-        toast.error('Erro ao salvar split parcial');
+        toast.error(`Erro ao salvar split parcial: ${err.message}`);
+        try { await reloadPecas?.(); } catch (_) {}
+        limpar();
+        return;
       }
+      try { await reloadPecas?.(); } catch (_) {}
 
-      // Registrar no histórico
       await registrarTransicao(
         conjuntoId,
         statusAnterior,
@@ -640,49 +580,60 @@ export default function KanbanProducaoIntegrado() {
         funcionarioNome,
         `Split: ${qtdMoverFinal}/${qtdTotal} unidades movidas de ${statusAnterior} para ${novoStatus}`
       );
-
-      const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
-      toast.success(`${conjuntoPendente.conjunto}: ${qtdMoverFinal} un → ${colDestino?.title || novoStatus} (${qtdRestante} un ficam em ${statusAnterior})`);
-
-    } else {
-      // ===== MOVER TUDO (sem split) =====
-      setProducaoFabrica(prev => prev.map(c => {
-        if (c.id === conjuntoId) {
-          return {
-            ...c,
-            status: novoStatus,
-            statusProducao: buildStatusProducao(c.statusProducao, novoStatus),
-          };
-        }
-        return c;
-      }));
-
-      try {
-        await moverPecaEtapaContext(conjuntoId, novoStatus, funcionarioId);
-        console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} (${funcionarioNome}) salva no Supabase`);
-      } catch (err) {
-        console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
-        toast.error('Erro ao salvar movimentação');
-      }
-
-      await registrarTransicao(
-        conjuntoId,
-        statusAnterior,
-        novoStatus,
-        funcionarioId,
-        funcionarioNome,
-        `Movido de ${statusAnterior} para ${novoStatus} (${qtdTotal} un)`
-      );
-
-      const colDestino = COLUNAS_PRODUCAO.find(c => c.id === novoStatus);
-      toast.success(`${conjuntoPendente.conjunto || conjuntoId} → ${colDestino?.title || novoStatus} (${funcionarioNome})`);
+      toast.success(`${conjuntoPendente.conjunto}: ${qtdMoverFinal} un → ${colDestino?.title || novoStatus} (${qtdTotal - qtdMoverFinal} un ficam em ${statusAnterior})`);
+      limpar();
+      return;
     }
 
-    // Limpar pendências
-    setConjuntoPendente(null);
-    setStatusPendenteProd(null);
-    setConjuntoQtdPendente(null);
-    setStatusQtdDestino(null);
+    // ===== MOVER TUDO (sem split) =====
+    const snapshot = producaoFabrica.find(c => c.id === conjuntoId);
+    setProducaoFabrica(prev => prev.map(c => (c.id === conjuntoId
+      ? { ...c, status: novoStatus, statusProducao: buildStatusProducao(c.statusProducao, novoStatus) }
+      : c)));
+
+    try {
+      if (edicaoManual) {
+        // Correção manual pelo editor de quantidades (pode saltar etapas)
+        await distribuirPeca(conjuntoId, { [novoStatus]: qtdTotal }, { funcionario: funcionarioId });
+        try { await reloadPecas?.(); } catch (_) {}
+      } else {
+        // Fluxo normal: 1 etapa por vez ('aguardando' exibido em Fabricação
+        // passa por fabricação antes de ir a Solda).
+        const passos = passosAte(etapaDb, novoStatus);
+        let atual = etapaDb;
+        for (const passo of passos) {
+          const chk = validarTransicao(atual, passo);
+          if (!chk.ok) throw new Error(chk.motivo);
+          atual = passo;
+        }
+        atual = etapaDb;
+        for (const passo of passos) {
+          await moverPecaEtapaContext(conjuntoId, passo, funcionarioId, { silencioso: true, etapaAtual: atual });
+          atual = passo;
+        }
+      }
+      console.log(`[Kanban] ✅ Peça ${conjuntoId} → ${novoStatus} (${funcionarioNome}) salva no Supabase`);
+    } catch (err) {
+      console.error('[Kanban] ❌ Erro ao persistir no Supabase:', err);
+      // Rollback do otimista local
+      if (snapshot) setProducaoFabrica(prev => prev.map(c => (c.id === conjuntoId ? snapshot : c)));
+      toast.error(`Não foi possível mover: ${err.message}`);
+      try { await reloadPecas?.(); } catch (_) {}
+      limpar();
+      return;
+    }
+
+    await registrarTransicao(
+      conjuntoId,
+      statusAnterior,
+      novoStatus,
+      funcionarioId,
+      funcionarioNome,
+      `Movido de ${statusAnterior} para ${novoStatus} (${qtdTotal} un)`
+    );
+
+    toast.success(`${conjuntoPendente.conjunto || conjuntoId} → ${colDestino?.title || novoStatus} (${funcionarioNome})`);
+    limpar();
   };
 
 
@@ -748,94 +699,43 @@ export default function KanbanProducaoIntegrado() {
         setModalEdicaoAberto(false);
         return;
       }
-      // Mover tudo via fluxo normal
-      setConjuntoPendente({ ...conjunto, _qtdMover: qtdTotal, _qtdTotal: qtdTotal });
-      setStatusPendenteProd(etapaDestino);
+      // Mover tudo — correção manual pelo editor (pode saltar etapas):
+      // RPC distribuir_peca (confere a quantidade REAL do banco, 1 transação).
+      // Antes abria um seletor de funcionário que não é mais renderizado
+      // (o clique não fazia nada).
       setModalEdicaoAberto(false);
-      setModalFuncionarioProd(true);
+      try {
+        await distribuirPeca(conjunto.id, { [etapaDestino]: qtdTotal });
+      } catch (err) {
+        console.error('[Kanban] ❌ Erro na edição (destino único):', err);
+        toast.error(`Erro ao salvar edição: ${err.message}`);
+        try { await reloadPecas?.(); } catch (_) {}
+        return;
+      }
+      try { await reloadPecas?.(); } catch (_) {}
+      await registrarTransicao(conjunto.id, conjunto.status, etapaDestino, null, null,
+        `Edição por quantidade: ${qtdTotal}×${etapaDestino}`);
+      const col = COLUNAS_PRODUCAO.find(c => c.id === etapaDestino);
+      toast.success(`${conjunto.conjunto || conjunto.id} → ${col?.title || etapaDestino}`);
+      setConjuntoQtdPendente(null);
       return;
     }
 
-    // Múltiplas etapas → split real
-    // Manter a etapa mais atrasada no registro original, criar novos para os demais
-    const pesoUnitario = qtdTotal > 0 ? (conjunto.pesoTotal || 0) / qtdTotal : 0;
-    const etapaPrincipal = ordemEtapas.find(e => (distribuicao[e] || 0) > 0);
-    const qtdPrincipal = distribuicao[etapaPrincipal];
-
-    // Atualizar registro original com a etapa mais atrasada
-    setProducaoFabrica(prev => {
-      let updated = prev.map(c => {
-        if (c.id === conjunto.id) {
-          return {
-            ...c,
-            quantidade: qtdPrincipal,
-            pesoTotal: pesoUnitario * qtdPrincipal,
-            status: etapaPrincipal,
-            statusProducao: buildStatusProducao(c.statusProducao, etapaPrincipal),
-            unidadesStatus: [],
-          };
-        }
-        return c;
-      });
-
-      // Criar novas peças para as outras etapas
-      etapasComQtd.filter(e => e !== etapaPrincipal).forEach(etapa => {
-        const qtdEtapa = distribuicao[etapa];
-        const novaPeca = {
-          ...conjunto,
-          id: crypto.randomUUID(),
-          quantidade: qtdEtapa,
-          pesoTotal: pesoUnitario * qtdEtapa,
-          pesoUnitario: pesoUnitario,
-          status: etapa,
-          statusProducao: buildStatusProducao(conjunto.statusProducao, etapa),
-          unidadesStatus: [],
-        };
-        updated.push(novaPeca);
-      });
-
-      return updated;
-    });
-
-    // Persistir no Supabase
+    // Múltiplas etapas → RPC distribuir_peca: a etapa mais atrasada fica na
+    // linha original e as demais viram splits, TUDO numa transação (o banco
+    // confere que a soma bate com a quantidade REAL). Antes: update da original
+    // + createMany sem id → PK duplicada → unidades sumiam.
     try {
-      // Atualizar original
-      await updatePeca(conjunto.id, {
-        quantidade: qtdPrincipal,
-        peso_total: pesoUnitario * qtdPrincipal,
-        etapa: etapaPrincipal,
-        status: etapaPrincipal === 'expedido' ? 'concluido' : 'em_producao',
-      });
-
-      // Criar novas peças para splits
-      const novasPecas = etapasComQtd.filter(e => e !== etapaPrincipal).map(etapa => ({
-        nome: conjunto.conjunto || conjunto.descricao || 'Peça',
-        marca: conjunto.conjunto,
-        tipo: conjunto.tipo,
-        perfil: conjunto.perfil || conjunto.material,
-        material: conjunto.material,
-        descricao: conjunto.descricao,
-        quantidade: distribuicao[etapa],
-        peso_total: pesoUnitario * distribuicao[etapa],
-        peso_unitario: pesoUnitario,
-        obra_id: conjunto.obraId,
-        obra_nome: conjunto.obraNome,
-        etapa: etapa,
-        status: etapa === 'expedido' ? 'concluido' : 'em_producao',
-        comprimento: conjunto.comprimento || null,
-        observacoes: `Split: ${distribuicao[etapa]} de ${qtdTotal} un → ${etapa}`,
-      }));
-
-      if (novasPecas.length > 0) {
-        await addPecasContext(novasPecas);
-      }
-
+      await distribuirPeca(conjunto.id, Object.fromEntries(etapasComQtd.map(e => [e, distribuicao[e]])));
       console.log(`[Kanban] ✅ SPLIT múltiplo: ${conjunto.conjunto} — ${etapasComQtd.map(e => `${distribuicao[e]}×${e}`).join(', ')}`);
       toast.success(`${conjunto.conjunto}: ${etapasComQtd.map(e => `${distribuicao[e]} un → ${e}`).join(', ')}`);
     } catch (err) {
       console.error('[Kanban] ❌ Erro split múltiplo:', err);
-      toast.error('Erro ao salvar edição de quantidades');
+      toast.error(`Erro ao salvar edição de quantidades: ${err.message}`);
+      try { await reloadPecas?.(); } catch (_) {}
+      return;
     }
+    try { await reloadPecas?.(); } catch (_) {}
 
     // Registrar no histórico
     await registrarTransicao(
@@ -1785,24 +1685,16 @@ export default function KanbanProducaoIntegrado() {
                         {peca.obraNome && (
                           <p className="text-[10px] text-slate-600 mt-1 truncate">{peca.obraNome}</p>
                         )}
-                        {/* Ações: voltar etapa (regredir manualmente) */}
+                        {/* Ações: estorno de envio (volta para a Fila de Embarque) */}
                         <div className="flex gap-1 mt-2 pt-2 border-t border-teal-700/20">
                           <button
                             className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg text-[10px] text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 transition-colors border border-dashed border-orange-700/30 hover:border-orange-600/50 disabled:opacity-50"
                             disabled={voltandoId === peca.id}
-                            onClick={(e) => { e.stopPropagation(); voltarEtapaDireto(peca.id, 'solda'); }}
-                            title="Voltar manualmente para etapa Solda (atualiza direto no banco)"
+                            onClick={(e) => { e.stopPropagation(); voltarEtapaDireto(peca.id, 'expedido'); }}
+                            title="Estornar envio: a peça volta para Expedido (Fila de Embarque). Para recuar mais, use a edição da peça no Kanban."
                           >
                             <ArrowLeft className="h-3 w-3" />
-                            {voltandoId === peca.id ? 'voltando...' : '↩ Voltar p/ Solda'}
-                          </button>
-                          <button
-                            className="flex items-center justify-center px-2 py-1 rounded-lg text-[10px] text-slate-400 hover:text-slate-200 hover:bg-slate-700/30 transition-colors border border-dashed border-slate-600/30"
-                            disabled={voltandoId === peca.id}
-                            onClick={(e) => { e.stopPropagation(); voltarEtapaDireto(peca.id, 'pintura'); }}
-                            title="Voltar manualmente para etapa Pintura"
-                          >
-                            ↩ Pintura
+                            {voltandoId === peca.id ? 'voltando...' : '↩ Voltar p/ Expedido'}
                           </button>
                         </div>
                       </motion.div>

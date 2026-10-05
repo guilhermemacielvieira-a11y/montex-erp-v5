@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizarEtapa, ordemEtapa, proximaEtapaProducao, etapaAnterior,
+  passosAte, normalizarEtapa, ordemEtapa, proximaEtapaProducao, etapaAnterior,
   validarTransicao, validarSplit, statusDaEtapa,
 } from './fluxoEtapas';
 
@@ -40,6 +40,17 @@ describe('fluxoEtapas', () => {
     expect(validarTransicao('solda', 'fabricacao', { force: true }).ok).toBe(true);
     expect(validarTransicao('enviado', 'expedido', { force: true }).ok).toBe(true);
     expect(validarTransicao('pintura', 'fabricacao', { force: true }).ok).toBe(false);
+    expect(validarTransicao('entregue', 'expedido', { force: true }).ok).toBe(true);
+    expect(validarTransicao('entregue', 'expedido').ok).toBe(false);
+    expect(validarTransicao('enviado', 'solda', { force: true }).ok).toBe(false);
+  });
+
+  it('passosAte: aguardando exibido em Fabricação pode ir a Solda passando por fabricação', () => {
+    expect(passosAte('aguardando', 'solda')).toEqual(['fabricacao', 'solda']);
+    expect(passosAte('corte', 'solda')).toEqual(['fabricacao', 'solda']);
+    expect(passosAte('aguardando', 'fabricacao')).toEqual(['fabricacao']);
+    expect(passosAte('fabricacao', 'solda')).toEqual(['solda']);
+    expect(passosAte('aguardando', 'pintura')).toEqual(['pintura']);
   });
 
   it('valida split', () => {

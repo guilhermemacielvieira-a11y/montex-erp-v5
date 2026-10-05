@@ -181,7 +181,8 @@ BEGIN
          'peso_total',           v_peso_nova,
          'peso_unitario',        coalesce(v_orig.peso_unitario, CASE WHEN v_qtd_orig > 0 THEN v_peso_tot / v_qtd_orig END),
          'etapa',                v_etapa,
-         'status',               public.montex_status_da_etapa(v_etapa, v_orig.status),
+         'status',               CASE WHEN v_etapa = lower(coalesce(v_orig.etapa, '')) THEN v_orig.status
+                                      ELSE public.montex_status_da_etapa(v_etapa, v_orig.status) END,
          'data_inicio',          CASE WHEN public.montex_etapa_ordem(v_etapa) >= 1
                                       THEN coalesce(v_orig.data_inicio, current_date) ELSE v_orig.data_inicio END,
          'data_fim_real',        CASE WHEN v_etapa = 'expedido'
@@ -213,8 +214,8 @@ $$;
 -- Move a peça INTEIRA. Regras (espelhadas em src/services/fluxoEtapas.js):
 --   * mesma etapa → no-op (ok)
 --   * avanço de exatamente 1 etapa no fluxo aguardando→fabricacao→solda→pintura→expedido
---   * retorno de exatamente 1 etapa só com p_force = true (correção manual;
---     inclui enviado→expedido, estorno de envio)
+--   * retorno de exatamente 1 etapa só com p_force = true (correção manual)
+--   * estorno de envio (enviado/entregue/montagem → expedido) só com p_force
 --   * destino enviado/entregue → REJEITADO (só a Expedição/romaneio leva lá)
 --   * saltos (ex.: fabricacao→pintura) → REJEITADOS (use distribuir_peca)
 -- p_funcionario / p_data vão para as colunas da etapa
@@ -263,6 +264,8 @@ BEGIN
     NULL; -- avanço de 1 etapa
   ELSIF v_ipara = v_ide - 1 AND p_force THEN
     NULL; -- retorno de 1 etapa (correção manual)
+  ELSIF p_force AND v_para = 'expedido' AND v_de IN ('enviado', 'entregue', 'montagem') THEN
+    NULL; -- estorno de envio: peça volta para a Fila de Embarque
   ELSIF v_ipara < v_ide THEN
     RAISE EXCEPTION 'Retorno de % para % não permitido (só 1 etapa por vez, com confirmação)',
       upper(v_de), upper(v_para) USING errcode = '22023';
@@ -323,6 +326,7 @@ DECLARE
   v_qtd       integer;
   v_split     json;
   v_novas     jsonb := '[]'::jsonb;
+  v_patch     jsonb;
   v_ordem     text[] := ARRAY['aguardando','fabricacao','solda','pintura','expedido'];
 BEGIN
   IF p_distribuicao IS NULL OR jsonb_typeof(p_distribuicao) <> 'object' THEN
@@ -362,6 +366,11 @@ BEGIN
     v_novas := v_novas || jsonb_build_array((v_split::jsonb)->'nova');
   END LOOP;
 
+  -- Funcionário/data só na linha original se ela MUDOU de etapa
+  v_patch := CASE WHEN v_principal <> lower(coalesce(v_row.etapa, ''))
+                  THEN public.montex_patch_funcionario(v_principal, p_funcionario, p_data)
+                  ELSE '{}'::jsonb END;
+
   UPDATE public.pecas_producao p
      SET etapa         = v_principal,
          status        = CASE WHEN v_principal = lower(coalesce(p.etapa,'')) THEN p.status
@@ -370,6 +379,14 @@ BEGIN
                               THEN coalesce(p.data_inicio, current_date) ELSE p.data_inicio END,
          data_fim_real = CASE WHEN v_principal = 'expedido' THEN coalesce(p.data_fim_real, current_date)
                               ELSE NULL END,
+         responsavel            = coalesce(v_patch->>'responsavel', p.responsavel),
+         funcionario_fabricacao = coalesce(v_patch->>'funcionario_fabricacao', p.funcionario_fabricacao),
+         funcionario_solda      = coalesce(v_patch->>'funcionario_solda', p.funcionario_solda),
+         funcionario_pintura    = coalesce(v_patch->>'funcionario_pintura', p.funcionario_pintura),
+         funcionario_expedido   = coalesce(v_patch->>'funcionario_expedido', p.funcionario_expedido),
+         data_inicio_fabricacao = coalesce((v_patch->>'data_inicio_fabricacao')::timestamptz, p.data_inicio_fabricacao),
+         data_inicio_solda      = coalesce((v_patch->>'data_inicio_solda')::timestamptz, p.data_inicio_solda),
+         data_inicio_pintura    = coalesce((v_patch->>'data_inicio_pintura')::timestamptz, p.data_inicio_pintura),
          updated_at    = now()
    WHERE p.id = p_id
   RETURNING * INTO v_row;
