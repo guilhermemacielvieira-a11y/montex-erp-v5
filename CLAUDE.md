@@ -28,6 +28,13 @@ A `DespesasPage` é o módulo independente de despesas da FÁBRICA. Despesas vin
 - Trava implementada em `import_despesas_fabrica.py`
 - Form Cadastrar Despesa em DespesasPage NÃO tem campo "Vincular à Obra"
 
+### 1b. Premissas do financeiro (definidas pelo CEO em 05/10/2026)
+- **Painel Financeiro Global = caixa e resultado oficial da EMPRESA.** Não apura lucro/prejuízo por obra.
+- **Fluxo de mão única:** lançamentos de Despesas / Receitas / medições alimentam o Painel Global. Lançamentos e edições feitos NO Painel Global ficam só nele e NÃO voltam para os outros módulos.
+- **Materiais/despesas lançados direto na obra (GFO, `obra_id IS NOT NULL`) NÃO entram no caixa da empresa** (Painel Global, `useFinanceiroGlobal`, DRE escopo `empresa`). Receitas (medições e recebimentos) entram pelo total.
+- **Resultado por obra** fica só na Gestão Financeira da Obra (GFO) e na Margem por Obra — nunca misturar com o resultado da empresa.
+- **`FinanceiroPage` = Financeiro da Obra:** receita × despesa SÓ da obra selecionada (medições + `receitas_manuais.obra_id` × `lancamentos_despesas.obra_id`). Sem visão geral/fábrica; lançamentos criados lá nascem vinculados à obra. Não lê nem grava o Painel Global e NÃO deve ser redirecionada para ele.
+
 ### 2. Status nunca hardcoded
 Bug recorrente: `status: STATUS_LANCAMENTO.PENDENTE` sobrescreve a escolha do usuário no form.
 **SEMPRE preserve o status do formulário:** `status: novoLanc.status || STATUS_LANCAMENTO.PENDENTE`.

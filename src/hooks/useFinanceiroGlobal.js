@@ -69,10 +69,11 @@ export function useFinanceiroGlobal() {
     return map;
   }, [obras]);
 
-  // Espelho de despesas — visão CONSOLIDADA do Painel (fábrica + obras, na
-  // mesma base das receitas). Canceladas ficam fora.
+  // Espelho de despesas do CAIXA DA EMPRESA (mesma regra do Painel Global):
+  // despesas lançadas direto na obra (GFO) NÃO entram; canceladas ficam fora.
   const despesasExternas = useMemo(() => (lancamentosDespesas || [])
     .filter((l) => normalizeStatusDespesa(l.status) !== 'cancelado')
+    .filter((l) => !(l.obraId || l.obra_id))
     .map((l) => ({
       obraId: l.obraId || l.obra_id || null,
       id: l.id, ovKey: `d:${l.id}`, origem: 'externo', tipo: 'despesa',

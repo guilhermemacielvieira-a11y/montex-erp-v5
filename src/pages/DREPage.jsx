@@ -35,10 +35,11 @@ const PERIODOS = [
   { value: 'tudo', label: 'Todo o histórico' },
 ];
 
+// DRE da EMPRESA (premissa do negócio — CLAUDE.md "Financeiro"): receitas
+// pelo total; despesas lançadas direto na obra (GFO) não entram. Resultado
+// por obra fica na Gestão Financeira da Obra / Margem por Obra.
 const ESCOPOS = [
-  { value: 'consolidado', label: 'Consolidado' },
-  { value: 'fabrica', label: 'Fábrica (sem obra)' },
-  { value: 'obras', label: 'Obras' },
+  { value: 'empresa', label: 'Empresa (caixa)' },
 ];
 
 const PREMISSAS_KEY = 'montex_dre_premissas';
@@ -125,7 +126,7 @@ function PremissaInput({ label, value, onChange, sufixo, ajuda }) {
 
 export default function DREPage() {
   const [periodo, setPeriodo] = useState('mes_atual');
-  const [escopo, setEscopo] = useState('consolidado');
+  const escopo = 'empresa';
   const [expandedSections, setExpandedSections] = useState({ csp: true, operacional: true, financeira: false });
   const [premissas, setPremissas] = useState(lerPremissas);
 
@@ -300,16 +301,7 @@ export default function DREPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
-              <Select value={escopo} onValueChange={setEscopo}>
-                <SelectTrigger className="w-44 bg-slate-800 border-slate-700 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  {ESCOPOS.map((e) => (
-                    <SelectItem key={e.value} value={e.value} className="text-white">{e.label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <span className="px-3 py-2 rounded-md bg-slate-800 border border-slate-700 text-white text-sm" title="Despesas lançadas direto na obra (GFO) não entram no resultado da empresa">Empresa (caixa)</span>
 
               <Select value={periodo} onValueChange={setPeriodo}>
                 <SelectTrigger className="w-44 bg-slate-800 border-slate-700 text-white">

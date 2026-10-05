@@ -86,15 +86,6 @@ import {
 // medições continuam em localStorage.
 const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
 
-// Visões do painel — receitas e despesas SEMPRE na mesma base:
-//   fabrica     → só itens sem obra (despesas da fábrica + receitas sem obra)
-//   obras       → só itens vinculados a obra (medições + despesas GFO)
-//   consolidado → tudo
-const VISOES_PAINEL = [
-  { value: 'consolidado', label: 'Consolidado' },
-  { value: 'fabrica', label: 'Fábrica' },
-  { value: 'obras', label: 'Obras' },
-];
 
 // ============================================================
 // METAS PADRÃO (configuráveis pelo usuário)
@@ -347,11 +338,8 @@ export default function PainelFinanceiroGlobal() {
   // ===== UI STATE =====
   const [activeTab, setActiveTab] = useState('visao');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
-  // Visão: consolidado | fabrica | obras (ver VISOES_PAINEL)
-  const [visao, setVisao] = useState('consolidado');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  // Sem seleção de obra individual: a `visao` (Fábrica/Obras/Consolidado)
-  // garante receitas e despesas na MESMA base.
+  // Caixa da empresa: despesas lançadas direto na obra (GFO) não entram (ver todasMovs).
   const [filtroMes, setFiltroMes] = useState('todos');         // YYYY-MM ou 'todos'
   const [filtroStatusTab, setFiltroStatusTab] = useState('todos'); // todos | pendente | atrasado | pago
   const [ordenarPor, setOrdenarPor] = useState('vencimento');  // vencimento | data | valor
@@ -551,18 +539,18 @@ export default function PainelFinanceiroGlobal() {
     const ehJurosOperacao = (m) => m.operacaoFinanceiraId && typeof m.id === 'string' && m.id.endsWith('-juros');
     const todas = [...externasComOv, ...movsLocaisNorm].filter(m => !ehJurosOperacao(m));
 
-    // VISÃO (receitas e despesas sempre na MESMA base):
-    //   fabrica → sem obra · obras → com obra · consolidado → tudo.
-    // Antes: receitas de TODAS as obras contra despesas SÓ da fábrica (lucro inflado).
-    const temObra = (m) => !!(m.obraId || m.origemObra);
-    const naVisao = visao === 'fabrica' ? todas.filter(m => !temObra(m))
-      : visao === 'obras' ? todas.filter(m => temObra(m))
-      : todas;
+    // PREMISSA DO NEGÓCIO (ver CLAUDE.md, "Financeiro"): este painel é o CAIXA
+    // DA EMPRESA, fonte oficial do resultado da empresa, sem apurar lucro ou
+    // prejuízo por obra. Despesas lançadas direto na obra (materiais da GFO)
+    // NÃO entram no caixa da empresa. Receitas (medições/recebimentos) entram
+    // pelo total. Lançamentos feitos aqui (origem 'local') ficam só aqui.
+    const despesaDeObra = (m) => m.tipo === 'despesa' && m.origem !== 'local' && !!m.obraId;
+    const naVisao = todas.filter(m => !despesaDeObra(m));
     // FIX M1: ordena por data com parseLocalDate (evita shift de timezone). DESC.
     return naVisao.sort((a, b) =>
       (parseLocalDate(b.data)?.getTime() || 0) - (parseLocalDate(a.data)?.getTime() || 0)
     );
-  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais, visao]);
+  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais]);
 
   // Números REALIZADOS: excluem medições ainda previstas (aguardando/em
   // análise). As previstas continuam em `todasMovs` para projeções.
@@ -1943,10 +1931,10 @@ export default function PainelFinanceiroGlobal() {
             </span>
             <span
               className="inline-flex items-center px-3 py-1 rounded-lg bg-slate-700/40 text-slate-300 text-xs font-medium border border-slate-600/40"
-              title="Fábrica: só itens sem obra. Obras: medições + despesas de obra (GFO). Consolidado: tudo. Números realizados não incluem medições previstas/aguardando (só projeções)."
+              title="Caixa da empresa: receitas pelo total; despesas lançadas direto na obra (GFO) não entram. Números realizados não incluem medições previstas/aguardando (só projeções)."
             >
               <Building2 className="h-3.5 w-3.5 mr-1" />
-              Escopo: {VISOES_PAINEL.find(v => v.value === visao)?.label || 'Consolidado'}
+              Escopo: Caixa da empresa
 
             </span>
             <span className="text-slate-500 text-sm">|</span>
@@ -2044,14 +2032,8 @@ export default function PainelFinanceiroGlobal() {
 
       {/* FILTROS GLOBAIS */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-2" title="Receitas e despesas sempre na mesma base. Medições previstas/aguardando só entram em projeções.">
-          <Building2 className="h-4 w-4 text-slate-400" />
-          {VISOES_PAINEL.map(v => (
-            <button key={v.value} onClick={() => setVisao(v.value)}
-              className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
-                visao === v.value ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
-              )}>{v.label}</button>
-          ))}
+        <div className="flex items-center gap-2 text-xs text-slate-400" title="Caixa da empresa: despesas lançadas direto na obra (GFO) não entram. Medições previstas/aguardando só entram em projeções.">
+          <Building2 className="h-4 w-4" /> Caixa da empresa
         </div>
 
         <div className="flex items-center gap-2"
