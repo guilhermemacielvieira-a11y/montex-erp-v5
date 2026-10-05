@@ -2,7 +2,7 @@
 // Gestão completa da produção com Kanban, métricas e controles
 // Integrado com ERPContext - Dados reais da obra SUPER LUNA
 
-import React, { useState, useMemo, forwardRef } from 'react';
+import React, { useState, useMemo, useEffect, forwardRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import toast from 'react-hot-toast';
 import {
@@ -60,6 +60,7 @@ import {
 
 // Importar ERPContext - dados reais
 import { useObras, useProducao } from '../contexts/ERPContext';
+import { isEscopoGrupo, rotuloEscopo } from '../lib/escopoObra';
 // Importar API Supabase para persistência
 // Importar hook de paginação inteligente
 import { useSmartPagination } from '@/hooks/useSmartPagination';
@@ -357,13 +358,14 @@ const KanbanItem = forwardRef(function KanbanItem({ item, obras, onDragStart, on
 // Componente Principal da Página
 export default function ProducaoPage() {
   // Dados do ERPContext
-  const { obras } = useObras();
+  // Escopo de obra = seletor ÚNICO do topo (Geral = todas as obras consolidadas)
+  const { obras, obraAtual, escopoObra, obraIdsEscopo } = useObras();
+  const escopoEhGrupo = isEscopoGrupo(escopoObra);
   const { pecas, moverPecaEtapa, updatePeca, reloadPecas, addPecas } = useProducao();
   const { registrarTransicao } = useProducaoHistorico();
 
   // Estados locais
   const [search, setSearch] = useState('');
-  const [filtroObra, setFiltroObra] = useState('todas');
   const [filtroPrioridade, setFiltroPrioridade] = useState('todas');
   const [draggedItem, setDraggedItem] = useState(null);
   const [activeTab, setActiveTab] = useState('kanban');
@@ -388,15 +390,19 @@ export default function ProducaoPage() {
   }, [filtroPrioridade]);
 
   // Hook de paginação inteligente (server-side ou client-side)
-  const pagination = useSmartPagination('pecas_producao', pecas, {
+  // Obra única → filtro obra_id no Supabase · Geral → sem filtro.
+  // Grupo (várias obras) → usePagination só suporta .eq, então a lista
+  // é paginada em memória (paginacaoGrupo, abaixo) a partir de itensFiltrados.
+  const smartPagination = useSmartPagination('pecas_producao', pecas, {
     pageSize: 50,
     orderBy: 'created_at',
     ascending: false,
-    filters: filtroObra !== 'todas' ? { obra_id: filtroObra } : {},
+    filters: obraAtual ? { obra_id: obraAtual } : {},
     search: search,
     searchColumn: 'marca',
     customFilter,
   });
+  const [paginaGrupo, setPaginaGrupo] = useState(0);
 
   // Modal states
   const [showModal, setShowModal] = useState(false);
@@ -418,8 +424,8 @@ export default function ProducaoPage() {
   const itensFiltrados = useMemo(() => {
     let itens = [...pecas];
 
-    if (filtroObra !== 'todas') {
-      itens = itens.filter(i => i.obraId === filtroObra);
+    if (obraIdsEscopo) {
+      itens = itens.filter(i => obraIdsEscopo.includes(i.obraId));
     }
 
     if (filtroPrioridade !== 'todas') {
@@ -439,7 +445,32 @@ export default function ProducaoPage() {
     }
 
     return itens;
-  }, [pecas, filtroObra, filtroPrioridade, search]);
+  }, [pecas, obraIdsEscopo, filtroPrioridade, search]);
+
+  // Paginação em memória para escopo de GRUPO (mesma interface do useSmartPagination)
+  useEffect(() => { setPaginaGrupo(0); }, [escopoObra, filtroPrioridade, search]);
+  const paginacaoGrupo = useMemo(() => {
+    const pageSize = 50;
+    const ordenados = [...itensFiltrados].sort((a, b) =>
+      String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+    const totalCount = ordenados.length;
+    const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+    const page = Math.min(paginaGrupo, totalPages - 1);
+    const data = ordenados.slice(page * pageSize, (page + 1) * pageSize);
+    return {
+      data,
+      currentData: data,
+      page,
+      totalPages,
+      totalCount,
+      pageSize,
+      loading: false,
+      prevPage: () => setPaginaGrupo(p => Math.max(0, p - 1)),
+      nextPage: () => setPaginaGrupo(p => Math.min(totalPages - 1, p + 1)),
+      goToPage: (n) => setPaginaGrupo(Math.max(0, Math.min(totalPages - 1, n))),
+    };
+  }, [itensFiltrados, paginaGrupo]);
+  const pagination = escopoEhGrupo ? paginacaoGrupo : smartPagination;
 
   // Para calcular estatísticas globais, usar todos os itens filtrados
   // Mas a lista tabular usará pagination.data
@@ -572,7 +603,7 @@ export default function ProducaoPage() {
       material: '',
       quantidade: 1,
       peso: 0,
-      obraId: filtroObra !== 'todas' ? filtroObra : ''
+      obraId: obraAtual || ''
     });
     setShowModal(true);
   };
@@ -790,19 +821,13 @@ export default function ProducaoPage() {
             />
           </div>
 
-          <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[220px] bg-slate-800/60 border-slate-700 text-white">
-              <SelectValue placeholder="Filtrar por obra" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              <SelectItem value="todas" className="text-white">Todas as obras</SelectItem>
-              {obras.map(obra => (
-                <SelectItem key={obra.id} value={obra.id} className="text-white">
-                  {obra.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
+          <span
+            className="flex items-center px-3 py-2 rounded-md bg-slate-800/40 border border-slate-700 text-xs text-slate-400 max-w-[260px] truncate"
+            title="Altere a obra no seletor do topo"
+          >
+            Escopo:&nbsp;<span className="text-slate-200 truncate">{rotuloEscopo(escopoObra, obras)}</span>
+          </span>
 
           <Select value={filtroPrioridade} onValueChange={setFiltroPrioridade}>
             <SelectTrigger className="w-[180px] bg-slate-800/60 border-slate-700 text-white">

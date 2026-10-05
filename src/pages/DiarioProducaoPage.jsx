@@ -43,7 +43,7 @@ import {
 import { cn } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/api/supabaseClient';
 import { useEquipes, useObras } from '@/contexts/ERPContext';
-import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
+import { grupoDoEscopo, rotuloEscopo } from '@/lib/escopoObra';
 import {
   ETAPAS_LABELS,
   ETAPAS_CORES,
@@ -788,8 +788,8 @@ function DiarioFormDialog({ open, onOpenChange, etapa, data, funcionarios, equip
 
 export default function DiarioProducaoPage() {
   const { funcionarios = [], equipes = [] } = useEquipes();
-  const { obras } = useObras();
-  const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
+  // Escopo de obra = seletor ÚNICO do topo (Geral = todas as obras consolidadas)
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
 
   // Estados principais
   const [selectedData, setSelectedData] = useState(() => {
@@ -797,19 +797,15 @@ export default function DiarioProducaoPage() {
     return hoje.toISOString().split('T')[0];
   });
   const [selectedEtapa, setSelectedEtapa] = useState('todas'); // 'todas' por padrão (mostra todos lançamentos)
-  const [filtroObra, setFiltroObra] = useState('todas'); // 'todas' | obraId | 'temec' (grupo)
   const [registros, setRegistros] = useState([]);
   const [loading, setLoading] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingRegistro, setEditingRegistro] = useState(null);
 
-  // Resolve obraIds do filtro (suporta grupo TEMEC consolidado)
-  const obraIdsFiltrados = useMemo(() => {
-    if (filtroObra === 'todas') return null;
-    if (GRUPOS_OBRAS[filtroObra]) return GRUPOS_OBRAS[filtroObra].obraIds;
-    return [filtroObra];
-  }, [filtroObra]);
-  const isGrupoConsolidado = !!GRUPOS_OBRAS[filtroObra];
+  // obraIds do escopo do topo (null = todas / Geral; grupo TEMEC = várias)
+  const obraIdsFiltrados = obraIdsEscopo || null;
+  const grupoAtivo = grupoDoEscopo(escopoObra);
+  const isGrupoConsolidado = !!grupoAtivo;
 
   // Fetch de registros do Supabase
   const fetchRegistros = useCallback(async () => {
@@ -1034,23 +1030,13 @@ export default function DiarioProducaoPage() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Filtro de Obra (com grupo TEMEC) */}
-          <Select value={filtroObra} onValueChange={setFiltroObra}>
-            <SelectTrigger className="w-[240px] bg-slate-800 border-slate-700 h-9">
-              <SelectValue placeholder="Obra" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              <SelectItem value="todas">🏗 Todas as Obras</SelectItem>
-              {Object.values(GRUPOS_OBRAS).map(g => (
-                <SelectItem key={g.id} value={g.id}>{g.label}</SelectItem>
-              ))}
-              {obrasAtivas.map(o => (
-                <SelectItem key={o.id} value={o.id}>
-                  {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
+          <span
+            className="flex items-center h-9 px-3 rounded-md bg-slate-800/50 border border-slate-700 text-xs text-slate-400 max-w-[260px] truncate"
+            title="Altere a obra no seletor do topo"
+          >
+            Escopo:&nbsp;<span className="text-slate-200 truncate">{rotuloEscopo(escopoObra, obras)}</span>
+          </span>
 
           {/* Navegação de Data */}
           <div className="flex items-center gap-2 bg-slate-800 rounded-lg p-1">
@@ -1120,10 +1106,10 @@ export default function DiarioProducaoPage() {
           <BookOpen className="h-5 w-5 text-purple-400 flex-shrink-0" />
           <div className="flex-1">
             <p className="text-purple-300 text-sm font-medium">
-              {GRUPOS_OBRAS[filtroObra]?.label} · Análise consolidada
+              {grupoAtivo?.label} · Análise consolidada
             </p>
             <p className="text-purple-200/70 text-xs mt-0.5">
-              Mostrando lançamentos de {GRUPOS_OBRAS[filtroObra]?.obraIds.length} obras agregadas — etapa <strong className="capitalize">{selectedEtapa}</strong> · dia <strong>{new Date(selectedData + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>
+              Mostrando lançamentos de {grupoAtivo?.obraIds.length} obras agregadas — etapa <strong className="capitalize">{selectedEtapa}</strong> · dia <strong>{new Date(selectedData + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>
             </p>
           </div>
         </div>
