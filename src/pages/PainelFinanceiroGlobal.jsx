@@ -62,11 +62,15 @@ import {
   loadBundleRemote, saveBundleRemote, bundleVazio, subscribeRemote, mergeBundles,
   deleteMovRemote,
 } from '../utils/painelFinanceiroSync';
-import { syncReceitas } from '../utils/receitasSync';
+import { syncReceitas, useReceitasManuais } from '../utils/receitasSync';
+import {
+  normalizeStatusReceita, normalizeStatusDespesa, medicaoRecebida, medicaoReconhecida,
+} from '../utils/financeiroStatus';
 import {
   formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
   ehCheque, ehPago,
   calcChequeOp, calcOpFin, calcScoreSaude, calcAlertaVencimento,
+  hojeLocalISO,
 } from '../utils/financeiroCalc';
 
 // ============================================================
@@ -76,9 +80,20 @@ import {
 // utilitário painelFinanceiroSync (localStorage + Supabase entity_store).
 // Ver GLOBAL_LS_KEYS importado acima.
 
-// Chaves do sistema principal (somente LEITURA aqui)
-const RECEITAS_STORAGE_KEY   = 'montex_receitas_gerais';
+// Chaves do sistema principal (somente LEITURA aqui). Receitas manuais vêm
+// da tabela receitas_manuais (useReceitasManuais); só os overrides de
+// medições continuam em localStorage.
 const RECEITAS_OVERRIDES_KEY = 'montex_receitas_overrides';
+
+// Visões do painel — receitas e despesas SEMPRE na mesma base:
+//   fabrica     → só itens sem obra (despesas da fábrica + receitas sem obra)
+//   obras       → só itens vinculados a obra (medições + despesas GFO)
+//   consolidado → tudo
+const VISOES_PAINEL = [
+  { value: 'consolidado', label: 'Consolidado' },
+  { value: 'fabrica', label: 'Fábrica' },
+  { value: 'obras', label: 'Obras' },
+];
 
 // ============================================================
 // METAS PADRÃO (configuráveis pelo usuário)
@@ -317,11 +332,9 @@ export default function PainelFinanceiroGlobal() {
   // Auto-sync das receitas manuais com a nuvem (converge entre PCs).
   useEffect(() => { syncReceitas().then((ch) => { if (ch) setExternalTick((t) => t + 1); }); }, []);
   useEffect(() => {
-    const snapshot = () =>
-      (localStorage.getItem(RECEITAS_STORAGE_KEY) || '') + '|' +
-      (localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '');
+    const snapshot = () => (localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '');
     const onStorage = (e) => {
-      if (!e.key || e.key === RECEITAS_STORAGE_KEY || e.key === RECEITAS_OVERRIDES_KEY) {
+      if (!e.key || e.key === RECEITAS_OVERRIDES_KEY) {
         setExternalTick(t => t + 1);
       }
     };
@@ -337,9 +350,11 @@ export default function PainelFinanceiroGlobal() {
   // ===== UI STATE =====
   const [activeTab, setActiveTab] = useState('visao');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
+  // Visão: consolidado | fabrica | obras (ver VISOES_PAINEL)
+  const [visao, setVisao] = useState('consolidado');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  // Filtro por obra REMOVIDO: o painel é sempre "receitas (todas) + despesas
-  // (todas, exceto as de obra/GFO)". Não há mais seleção por obra.
+  // Sem seleção de obra individual: a `visao` (Fábrica/Obras/Consolidado)
+  // garante receitas e despesas na MESMA base.
   const [filtroMes, setFiltroMes] = useState('todos');         // YYYY-MM ou 'todos'
   const [filtroStatusTab, setFiltroStatusTab] = useState('todos'); // todos | pendente | atrasado | pago
   const [ordenarPor, setOrdenarPor] = useState('vencimento');  // vencimento | data | valor
@@ -378,9 +393,9 @@ export default function PainelFinanceiroGlobal() {
     valorFace: '',          // valor de face do cheque OU principal do empréstimo
     valorLiquido: '',       // valor líquido recebido
     parcelas: 3,
-    primeiroVencimento: new Date().toISOString().split('T')[0],
+    primeiroVencimento: hojeLocalISO(),
     intervaloDias: 30,
-    dataOperacao: new Date().toISOString().split('T')[0],
+    dataOperacao: hojeLocalISO(),
     obraId: '',
   });
 
@@ -409,32 +424,49 @@ export default function PainelFinanceiroGlobal() {
   }, [obras]);
 
   // ===== ESPELHO DE DESPESAS EXTERNAS =====
+  // Inclui TAMBÉM as despesas de obra (GFO), marcadas com obraId, para que a
+  // visão "Obras"/"Consolidado" compare receitas e despesas na mesma base.
+  // A visão "Fábrica" filtra só as sem obra. Canceladas ficam fora.
   const despesasExternas = useMemo(() => {
     if (!lancamentosDespesas || lancamentosDespesas.length === 0) return [];
     return lancamentosDespesas
-      .filter(l => !l.obraId && !l.obra_id)
-      .map(l => ({
-        id: l.id,
-        ovKey: `d:${l.id}`, // FIX M2: chave de override/hidden com prefixo de fonte
-        origem: 'externo',
-        tipo: 'despesa',
-        data: l.dataEmissao || l.data || l.createdAt || '',
-        descricao: l.descricao || l.nome || '-',
-        fornecedor: l.fornecedor || '-',
-        categoria: l.categoria || 'Outros',
-        valor: l.valor || 0,
-        status: l.status || 'pendente',
-        formaPagto: l.formaPagto || '-',
-        vencimento: l.dataVencimento || l.vencimento || '-',
-        origemLabel: 'Despesa Fábrica',
-        origemObra: false,
-      }));
-  }, [lancamentosDespesas]);
+      .filter(l => normalizeStatusDespesa(l.status) !== 'cancelado')
+      .map(l => {
+        const obraId = l.obraId || l.obra_id || null;
+        const obraNome = obraId ? (obrasMap[obraId] || obraId) : null;
+        return {
+          id: l.id,
+          ovKey: `d:${l.id}`, // FIX M2: chave de override/hidden com prefixo de fonte
+          origem: 'externo',
+          tipo: 'despesa',
+          data: l.dataEmissao || l.data || l.createdAt || '',
+          descricao: l.descricao || l.nome || '-',
+          fornecedor: l.fornecedor || '-',
+          categoria: l.categoria || 'Outros',
+          valor: l.valor || 0,
+          status: l.status || 'pendente',
+          formaPagto: l.formaPagto || '-',
+          vencimento: l.dataVencimento || l.vencimento || '-',
+          origemLabel: obraId ? `Despesa Obra: ${obraNome}` : 'Despesa Fábrica',
+          origemObra: !!obraId,
+          obraId, obraNome,
+        };
+      });
+  }, [lancamentosDespesas, obrasMap]);
 
   // ===== ESPELHO DE MEDIÇÕES =====
+  // Status: paga → 'recebido'; aprovada/faturada → 'faturado' (receita
+  // reconhecida, a receber); aguardando/em análise/prevista → 'previsto'
+  // (SÓ entra em projeções, nunca em números realizados); rejeitada → fora.
   const receitasMedicoesExt = useMemo(() => {
     if (!todasMedicoes || todasMedicoes.length === 0) return [];
     const overrides = lerLS(RECEITAS_OVERRIDES_KEY, {});
+    const statusMedicao = (st) => {
+      if (medicaoRecebida(st)) return 'recebido';
+      if (medicaoReconhecida(st)) return 'faturado';
+      if (normalizeStatusReceita(st) === 'cancelado') return 'cancelado';
+      return 'previsto';
+    };
     return todasMedicoes.map(m => {
       const obraId = m.obraId || m.obra_id;
       const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
@@ -446,7 +478,7 @@ export default function PainelFinanceiroGlobal() {
         fornecedor: obraNome,
         categoria: m.isAvulsa ? 'Serviço Avulso' : 'Medição',
         valor: m.valorBruto || m.valor_bruto || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'recebido' : (m.status || 'pendente'),
+        status: statusMedicao(m.status),
         formaPagto: '-',
         vencimento: m.dataMedicao || m.data_medicao || '-',
         numero: m.numero, etapaLabel,
@@ -457,35 +489,42 @@ export default function PainelFinanceiroGlobal() {
         const ov = overrides[m.id];
         if (ov.descricao) base.descricao = ov.descricao;
         if (ov.valor !== undefined) base.valor = ov.valor;
-        if (ov.status) base.status = ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(ov.status) ? 'recebido' : ov.status;
+        if (ov.status) {
+          // Override da ReceitasPage: só promove/cancela, nunca rebaixa p/ aberto
+          const canon = normalizeStatusReceita(ov.status);
+          if (canon !== 'aberto') base.status = canon;
+        }
         if (ov.categoria) base.categoria = ov.categoria;
         if (ov.cliente) base.fornecedor = ov.cliente;
         if (ov.vencimento) base.vencimento = ov.vencimento;
         if (ov.formaPagto && ov.formaPagto !== '-') base.formaPagto = ov.formaPagto;
         if (ov.obraNome) base.obraNome = ov.obraNome;
       }
+      base.previsto = base.status === 'previsto';
       return base;
-    });
+    }).filter(m => m.status !== 'cancelado');
   }, [todasMedicoes, obrasMap, externalTick]);
 
-  // ===== ESPELHO DE RECEITAS MANUAIS =====
+  // ===== ESPELHO DE RECEITAS MANUAIS (tabela receitas_manuais) =====
+  const { receitas: receitasManuaisFonte } = useReceitasManuais();
   const receitasManuaisExt = useMemo(() => {
-    try {
-      const salvas = JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]');
-      return salvas.map(r => ({
+    return (receitasManuaisFonte || [])
+      .filter(r => r.status !== 'cancelado')
+      .map(r => ({
         id: r.id, ovKey: `r:${r.id}`, origem: 'externo', tipo: 'receita',
         data: r.data || r.vencimento || '',
         descricao: r.descricao || '-',
         fornecedor: r.cliente || '-',
         categoria: r.categoria || 'Outros',
         valor: r.valor || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(r.status) ? 'recebido' : (r.status || 'pendente'),
+        status: r.status, // canônico: aberto | faturado | recebido
         formaPagto: r.formaPagto || '-',
         vencimento: r.vencimento || '-',
-        origemLabel: 'Receita Manual', origemObra: false,
+        origemLabel: r.obraId ? `Receita Manual (Obra: ${obrasMap[r.obraId] || r.obraId})` : 'Receita Manual',
+        origemObra: !!r.obraId,
+        obraId: r.obraId || null,
       }));
-    } catch { return []; }
-  }, [externalTick]);
+  }, [receitasManuaisFonte, obrasMap]);
 
   // ===== MOVS LOCAIS NORMALIZADAS =====
   const movsLocaisNorm = useMemo(() => {
@@ -515,13 +554,22 @@ export default function PainelFinanceiroGlobal() {
     const ehJurosOperacao = (m) => m.operacaoFinanceiraId && typeof m.id === 'string' && m.id.endsWith('-juros');
     const todas = [...externasComOv, ...movsLocaisNorm].filter(m => !ehJurosOperacao(m));
 
-    // Sem filtro por obra: o painel sempre consolida TUDO. As despesas de obra
-    // (GFO) já são excluídas na origem (despesasExternas filtra !obraId).
+    // VISÃO (receitas e despesas sempre na MESMA base):
+    //   fabrica → sem obra · obras → com obra · consolidado → tudo.
+    // Antes: receitas de TODAS as obras contra despesas SÓ da fábrica (lucro inflado).
+    const temObra = (m) => !!(m.obraId || m.origemObra);
+    const naVisao = visao === 'fabrica' ? todas.filter(m => !temObra(m))
+      : visao === 'obras' ? todas.filter(m => temObra(m))
+      : todas;
     // FIX M1: ordena por data com parseLocalDate (evita shift de timezone). DESC.
-    return todas.sort((a, b) =>
+    return naVisao.sort((a, b) =>
       (parseLocalDate(b.data)?.getTime() || 0) - (parseLocalDate(a.data)?.getTime() || 0)
     );
-  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais]);
+  }, [despesasExternas, receitasMedicoesExt, receitasManuaisExt, movsLocaisNorm, overridesLocais, hiddenLocais, visao]);
+
+  // Números REALIZADOS: excluem medições ainda previstas (aguardando/em
+  // análise). As previstas continuam em `todasMovs` para projeções.
+  const movsRealizadas = useMemo(() => todasMovs.filter(m => !m.previsto), [todasMovs]);
 
   // ===== FILTRO PERÍODO =====
   const filtrarPorPeriodo = useCallback((lista) => {
@@ -537,7 +585,7 @@ export default function PainelFinanceiroGlobal() {
     });
   }, [filtroPeriodo]);
 
-  const movsPeriodo = useMemo(() => filtrarPorPeriodo(todasMovs), [todasMovs, filtrarPorPeriodo]);
+  const movsPeriodo = useMemo(() => filtrarPorPeriodo(movsRealizadas), [movsRealizadas, filtrarPorPeriodo]);
 
   // ===== KPIs GERAIS =====
   const kpis = useMemo(() => {
@@ -766,7 +814,7 @@ export default function PainelFinanceiroGlobal() {
     const hoje = new Date();
     const inicioMes = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
     const fimMes = new Date(hoje.getFullYear(), hoje.getMonth() + 1, 0);
-    const movsMes = todasMovs.filter(m => {
+    const movsMes = movsRealizadas.filter(m => {
       const d = parseLocalDate(m.data || m.vencimento);
       return d >= inicioMes && d <= fimMes;
     });
@@ -781,7 +829,7 @@ export default function PainelFinanceiroGlobal() {
       receitaFabricacaoMeta, receitaMontagemMeta,
       receitaTotalMeta: receitaFabricacaoMeta + receitaMontagemMeta,
     };
-  }, [todasMovs, metas]);
+  }, [movsRealizadas, metas]);
 
   // ===== COMPARATIVO MÊS ATUAL × MÊS ANTERIOR =====
   const comparativo = useMemo(() => {
@@ -792,7 +840,7 @@ export default function PainelFinanceiroGlobal() {
     const calcular = (offset) => {
       const inicio = ini(offset);
       const final = fim(offset);
-      const movs = todasMovs.filter(m => {
+      const movs = movsRealizadas.filter(m => {
         const d = parseLocalDate(m.data || m.vencimento);
         return d >= inicio && d <= final;
       });
@@ -810,7 +858,7 @@ export default function PainelFinanceiroGlobal() {
       deltaLucro: delta(atual.lucro, anterior.lucro),
       deltaMargem: atual.margem - anterior.margem,
     };
-  }, [todasMovs]);
+  }, [movsRealizadas]);
 
   // ===== FORECAST DE RECEITAS (medições aprovadas mas não pagas) =====
   const forecast = useMemo(() => {
@@ -902,13 +950,13 @@ export default function PainelFinanceiroGlobal() {
     // Filtro Status — considera "atrasado" dinâmico (pendente + venc < hoje)
     if (filtroStatusTab !== 'todos') {
       lista = lista.filter(m => {
-        const ehPago = ['recebido','pago','paga','faturado','confirmado'].includes(m.status);
+        const quitado = ehPago(m);
         const venc = m.vencimento && m.vencimento !== '-' ? m.vencimento : m.data;
         const dVenc = parseLocalDate(venc);
-        const isVencido = dVenc && !isNaN(dVenc.getTime()) && dVenc < hoje && !ehPago;
-        if (filtroStatusTab === 'pago') return ehPago;
+        const isVencido = dVenc && !isNaN(dVenc.getTime()) && dVenc < hoje && !quitado;
+        if (filtroStatusTab === 'pago') return quitado;
         if (filtroStatusTab === 'atrasado') return isVencido || m.status === 'atrasado';
-        if (filtroStatusTab === 'pendente') return !ehPago && !isVencido;
+        if (filtroStatusTab === 'pendente') return !quitado && !isVencido;
         return true;
       });
     }
@@ -1000,7 +1048,7 @@ export default function PainelFinanceiroGlobal() {
       }
       const novos = [];
       const baseId = `CHQ-${Date.now()}`;
-      const dataOp = new Date().toISOString().split('T')[0];
+      const dataOp = hojeLocalISO();
 
       // 1. Receita líquida (entrada de caixa)
       if (chequeOpCalc.liquido > 0) {
@@ -1111,7 +1159,7 @@ export default function PainelFinanceiroGlobal() {
           fornecedor: formData.fornecedor || '-', categoria: formData.categoria || 'Outros',
           valor: valorNum, formaPagto: formData.formaPagto || '-',
           vencimento: formData.vencimento || '',
-          data: formData.vencimento || new Date().toISOString().split('T')[0],
+          data: formData.vencimento || hojeLocalISO(),
           status: formData.status || 'pendente', obraId: formData.obraId || null,
           createdAt: new Date().toISOString(),
         };
@@ -1289,7 +1337,7 @@ export default function PainelFinanceiroGlobal() {
       vencimento: m.vencimento && m.vencimento !== '-' ? formatDate(m.vencimento) : '-',
       valor: m.valor || 0,
     }));
-    const ts = new Date().toISOString().split('T')[0];
+    const ts = hojeLocalISO();
     exportToExcel(rows, cols, `painel-global-${escopo}-${ts}`);
     toast.success(escopo === 'tudo'
       ? `Excel gerado — todas as ${rows.length} movimentações`
@@ -1398,7 +1446,7 @@ export default function PainelFinanceiroGlobal() {
         });
       }
 
-      doc.save(`painel-global-${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`painel-global-${hojeLocalISO()}.pdf`);
       toast.success('PDF executivo gerado');
     } catch (e) {
       console.error(e);
@@ -1755,7 +1803,7 @@ export default function PainelFinanceiroGlobal() {
         y += 4;
       });
 
-      doc.save(`cronograma-operacoes-${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`cronograma-operacoes-${hojeLocalISO()}.pdf`);
       toast.success('Cronograma PDF gerado');
     } catch (e) {
       console.error(e);
@@ -1859,8 +1907,8 @@ export default function PainelFinanceiroGlobal() {
     setOpFin({
       tipo: 'cheque_trocado', descricao: '', fornecedor: '',
       valorFace: '', valorLiquido: '',
-      parcelas: 3, primeiroVencimento: new Date().toISOString().split('T')[0],
-      intervaloDias: 30, dataOperacao: new Date().toISOString().split('T')[0],
+      parcelas: 3, primeiroVencimento: hojeLocalISO(),
+      intervaloDias: 30, dataOperacao: hojeLocalISO(),
       obraId: '',
     });
   };
@@ -1898,10 +1946,11 @@ export default function PainelFinanceiroGlobal() {
             </span>
             <span
               className="inline-flex items-center px-3 py-1 rounded-lg bg-slate-700/40 text-slate-300 text-xs font-medium border border-slate-600/40"
-              title="Espelha despesas da FÁBRICA (não-vinculadas a obra) + receitas de medições de TODAS as obras. Despesas de obra ficam na Gestão Financeira da Obra (GFO)."
+              title="Fábrica: só itens sem obra. Obras: medições + despesas de obra (GFO). Consolidado: tudo. Números realizados não incluem medições previstas/aguardando (só projeções)."
             >
               <Building2 className="h-3.5 w-3.5 mr-1" />
-              Escopo: Fábrica + Receitas de Obra
+              Escopo: {VISOES_PAINEL.find(v => v.value === visao)?.label || 'Consolidado'}
+
             </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{kpis.qtdTotal} mov.</span>
@@ -1998,6 +2047,16 @@ export default function PainelFinanceiroGlobal() {
 
       {/* FILTROS GLOBAIS */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2" title="Receitas e despesas sempre na mesma base. Medições previstas/aguardando só entram em projeções.">
+          <Building2 className="h-4 w-4 text-slate-400" />
+          {VISOES_PAINEL.map(v => (
+            <button key={v.value} onClick={() => setVisao(v.value)}
+              className={cn("px-3 py-1.5 rounded-lg text-xs font-medium transition-all",
+                visao === v.value ? "bg-emerald-500 text-white" : "bg-slate-800 text-slate-400 hover:bg-slate-700 border border-slate-700"
+              )}>{v.label}</button>
+          ))}
+        </div>
+
         <div className="flex items-center gap-2"
           title={filtroMes !== 'todos' ? 'Período relativo desativado — há um mês específico selecionado (o mês tem precedência).' : undefined}>
           <Calendar className={cn("h-4 w-4", filtroMes !== 'todos' ? "text-slate-600" : "text-slate-400")} />
@@ -4205,7 +4264,7 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, onSetStat
                   const dVenc = parseLocalDate(venc);
                   const hoje = new Date(); hoje.setHours(0,0,0,0);
                   if (dVenc) dVenc.setHours(0,0,0,0);
-                  const ehPago = ['recebido','pago','paga','faturado','confirmado'].includes(mov.status);
+                  const ehPago = ['recebido','recebida','pago','paga','confirmado'].includes(String(mov.status || '').toLowerCase());
                   const vencido = dVenc && dVenc < hoje && !ehPago;
                   return (
                     <span className={cn("font-semibold", vencido ? "text-red-400" : "text-slate-200")}>
@@ -4245,7 +4304,10 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, onSetStat
                 {(() => {
                   // Auto-detecção: se venc < hoje e não pago, mostra como Atrasado
                   const stBruto = mov.status;
-                  const ehPago = ['recebido','pago','paga','faturado','confirmado'].includes(stBruto);
+                  // 'faturado' NÃO é recebido (nota emitida ≠ dinheiro em caixa)
+                  const ehPago = ['recebido','recebida','pago','paga','confirmado'].includes(String(stBruto || '').toLowerCase());
+                  const ehPrevisto = stBruto === 'previsto';
+                  const ehFaturado = stBruto === 'faturado';
                   let ehAtrasado = stBruto === 'atrasado';
                   if (!ehPago && !ehAtrasado) {
                     const venc = mov.vencimento && mov.vencimento !== '-' ? mov.vencimento : mov.data;
@@ -4261,12 +4323,16 @@ function MovsTable({ rows, onEdit, onDelete, onRestore, onDeleteGroup, onSetStat
                       className="cursor-pointer hover:opacity-75 transition-opacity">
                     <Badge className={cn("border text-xs cursor-pointer",
                       ehPago ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                      ehPrevisto ? 'bg-slate-500/20 text-slate-400 border-slate-500/30' :
                       ehAtrasado ? 'bg-red-500/20 text-red-300 border-red-500/40 animate-pulse' :
+                      ehFaturado ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' :
                       'bg-amber-500/20 text-amber-400 border-amber-500/30'
                     )}>
                       {ehPago ? (mov.tipo === 'receita' ? 'Recebido' : 'Pago') :
-                        ehAtrasado ? 'Atrasado' : 'Pendente'}
+                        ehPrevisto ? 'Previsto' :
+                        ehAtrasado ? 'Atrasado' : ehFaturado ? 'Faturado' : 'Pendente'}
                     </Badge>
+
                     </button>
                   );
                 })()}
