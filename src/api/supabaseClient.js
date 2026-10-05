@@ -184,11 +184,15 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
       let offset = 0;
       // Loop de segurança: máximo 50 páginas (= 50k linhas)
       for (let i = 0; i < 50; i++) {
-        const { data, error } = await client
+        // Desempate ESTÁVEL por id: sem ele, linhas com o mesmo valor de
+        // `orderBy` (ex.: mesma data/marca) podem trocar de posição entre
+        // requests e ser puladas/duplicadas na fronteira das páginas.
+        let query = client
           .from(tableName)
           .select('*')
-          .order(orderBy, { ascending })
-          .range(offset, offset + PAGE_SIZE - 1);
+          .order(orderBy, { ascending });
+        if (orderBy !== 'id') query = query.order('id', { ascending: true });
+        const { data, error } = await query.range(offset, offset + PAGE_SIZE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
         allData.push(...data);
@@ -218,6 +222,7 @@ function createCrud(tableName, defaultOrder = 'created_at', { useAdmin = false }
           .from(tableName)
           .select('*')
           .eq(field, value)
+          .order('id', { ascending: true }) // ordem estável p/ paginar sem pular/duplicar
           .range(offset, offset + PAGE_SIZE - 1);
         if (error) throw error;
         if (!data || data.length === 0) break;
@@ -326,10 +331,24 @@ export const equipesApi = createCrud('equipes', 'nome');
 export const movEstoqueApi = createCrud('movimentacoes_estoque', 'data');
 export const medicoesApi = createCrud('medicoes', 'created_at');
 export const lancamentosApi = createCrud('lancamentos_despesas', 'data_emissao');
+export const receitasManuaisApi = createCrud('receitas_manuais', 'data_emissao');
 export const croquisApi = createCrud('croquis', 'marca');
 export const detalhamentosApi = createCrud('detalhamentos', 'numero');
 export const materiaisCorteApi = createCrud('materiais_corte', 'marca');
-export const expedicoesApi = createCrud('expedicoes', 'created_at');
+// Romaneios usam SOFT-DELETE (coluna deleted_at, RPC excluir_romaneio): as
+// leituras padrão ignoram os excluídos. Escritas de status/peças vão pelas RPCs
+// em src/api/expedicaoRpc.js.
+const expedicoesCrudBase = createCrud('expedicoes', 'created_at');
+const semExcluidos = (rows) => (Array.isArray(rows) ? rows.filter((r) => !r?.deleted_at) : rows);
+export const expedicoesApi = {
+  ...expedicoesCrudBase,
+  async getAll(...args) { return semExcluidos(await expedicoesCrudBase.getAll(...args)); },
+  async getByField(...args) { return semExcluidos(await expedicoesCrudBase.getByField(...args)); },
+  async getById(id) {
+    const row = await expedicoesCrudBase.getById(id);
+    return row && !row.deleted_at ? row : null;
+  },
+};
 export const tarefasApi = createCrud('tarefas', 'created_at');
 export const userProfilesApi = createCrud('user_profiles', 'created_at');
 

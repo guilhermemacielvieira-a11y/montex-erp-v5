@@ -9,6 +9,7 @@
 // corteStatusStore (que era 100% em memória).
 // ============================================
 
+import { supabase } from '@/api/supabaseClient';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   loadFromSupabase
@@ -87,8 +88,15 @@ export default function KanbanCortePage() {
   const {
     items, metrics, categorias,
     iniciarCorte, finalizarCorte, resetarCorte, finalizarCorteEmLote,
-    contarCortadasParaConjunto, loading: corteLoading
+    contarCortadasParaConjunto, emAndamento, loading: corteLoading
   } = useCorteSupabase(obraAtual);
+  const [loteEmAndamento, setLoteEmAndamento] = useState(false);
+  const ocupado = (id) => loteEmAndamento || (emAndamento && emAndamento.has(id));
+  const avisar = (message) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ message });
+    toastTimer.current = setTimeout(() => setToast(null), 6000);
+  };
 
   // --- Estado local da UI ---
   const [viewMode, setViewMode] = useState('lista');
@@ -117,13 +125,11 @@ export default function KanbanCortePage() {
   const [statusOrigemCorte, setStatusOrigemCorte] = useState(null);
   const { registrarTransicao } = useProducaoHistorico();
 
-  // Baixa de estoque no corte: feita de forma IDEMPOTENTE (marcador
-  // materiais_corte.baixa_estoque_kg) dentro de finalizarCorte/
-  // finalizarCorteEmLote (useCorteSupabase), na FINALIZAÇÃO — casando pelo
-  // matcher canônico e registrando a movimentação de saída. O antigo
-  // abaterEstoquePorCorte (deduzir store B + consumir store A, obra hardcoded,
-  // matcher próprio, m×kg) foi REMOVIDO: causava baixa dupla/tripla. Reset de um
-  // corte estorna a baixa (estornarCorteNoEstoque).
+  // Baixa de estoque no corte: feita NO BANCO, atômica e idempotente — RPC
+  // baixar_corte/estornar_corte (useCorteSupabase) muda o status e o trigger
+  // tg_corte_baixa_estoque baixa/estorna o aço na MESMA transação, registrando
+  // em materiais_corte.baixa_estoque_kg o kg efetivamente deduzido. Os botões
+  // ficam desabilitados enquanto a operação do corte está em andamento.
 
   // --- Conjuntos (BOM) prontidão - computado reativamente ---
   const conjuntosInfo = useMemo(() => {
@@ -226,10 +232,17 @@ export default function KanbanCortePage() {
   // --- Ações (com abatimento automático de estoque + persistência Supabase) ---
   const handleBatchFinalize = async () => {
     if (selectedIds.size === 0) return;
+    if (loteEmAndamento) return;
     const idsArray = Array.from(selectedIds);
-    // Baixa de estoque (idempotente) é feita dentro de finalizarCorteEmLote.
-    await finalizarCorteEmLote(idsArray);
-    setSelectedIds(new Set());
+    setLoteEmAndamento(true);
+    try {
+      // Baixa de estoque (idempotente, no banco) feita por finalizarCorteEmLote.
+      const n = await finalizarCorteEmLote(idsArray);
+      if (n < idsArray.length) avisar(`${n} de ${idsArray.length} corte(s) finalizado(s) — os demais já estavam finalizados ou falharam (ver console)`);
+      setSelectedIds(new Set());
+    } finally {
+      setLoteEmAndamento(false);
+    }
   };
 
   const handleSort = (field) => {
@@ -269,25 +282,32 @@ export default function KanbanCortePage() {
 
   // Callback quando funcionário é selecionado no modal (KanbanCortePage)
   // TODAS as transições exigem identificação de funcionário
-  const handleFuncionarioCorteConfirm = (funcionarioId, funcionarioNome) => {
+  const handleFuncionarioCorteConfirm = async (funcionarioId, funcionarioNome) => {
     if (!itemPendenteCorte) return;
 
     const item = itemPendenteCorte;
     let etapaDe = statusOrigemCorte || item.statusCorte || 'aguardando';
     let etapaPara = 'cortando';
 
+    // Fecha o modal já (evita 2º confirm) — a operação segue com guarda por id.
+    setModalFuncionario(false);
+    setItemPendenteCorte(null);
+    setAcaoPendenteCorte(null);
+    setStatusOrigemCorte(null);
+
+    let okOp = true;
     if (acaoPendenteCorte === 'iniciar') {
-      iniciarCorte(item.id, funcionarioId);
+      okOp = await iniciarCorte(item.id, funcionarioId);
       etapaPara = 'cortando';
     } else if (acaoPendenteCorte === 'finalizar_direto') {
-      iniciarCorte(item.id, funcionarioId);
-      finalizarCorte(item.id);
+      // Uma única RPC: inicia (data_inicio/funcionário) + finaliza + baixa estoque
+      okOp = await finalizarCorte(item.id, funcionarioId);
       etapaPara = 'finalizado';
     } else if (acaoPendenteCorte === 'finalizar') {
-      finalizarCorte(item.id);
+      okOp = await finalizarCorte(item.id);
       etapaPara = 'finalizado';
     } else if (acaoPendenteCorte === 'resetar') {
-      resetarCorte(item.id);
+      okOp = await resetarCorte(item.id);
       etapaPara = 'aguardando';
     } else if (acaoPendenteCorte === 'definir_responsavel') {
       // Apenas atualiza o funcionário responsável pelo corte, sem mudar status
@@ -304,7 +324,12 @@ export default function KanbanCortePage() {
       etapaPara = etapaDe; // sem transição
     }
 
-    // Registrar no histórico — SEMPRE, em qualquer transição
+    if (!okOp) {
+      avisar(`⚠️ Não foi possível concluir a operação no corte ${item.marca || item.id}. Tente novamente.`);
+      return;
+    }
+
+    // Registrar no histórico — só quando a operação foi aplicada
     registrarTransicao(
       item.id,
       etapaDe,
@@ -313,11 +338,6 @@ export default function KanbanCortePage() {
       funcionarioNome,
       `Corte ${item.perfil || ''} Marca ${item.marca || ''} - ${item.peso?.toFixed(1) || 0} kg | ${etapaDe} → ${etapaPara}`
     );
-
-    setModalFuncionario(false);
-    setItemPendenteCorte(null);
-    setAcaoPendenteCorte(null);
-    setStatusOrigemCorte(null);
   };
 
   // Conjuntos derivados
@@ -607,7 +627,8 @@ export default function KanbanCortePage() {
 
         {selectedIds.size > 0 && (
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={handleBatchFinalize} style={{
+            <button onClick={handleBatchFinalize} disabled={loteEmAndamento} style={{
+              ...(loteEmAndamento ? BTN_OCUPADO : {}),
               padding: '7px 14px', borderRadius: 10, border: '1px solid #22c55e',
               background: '#064e3b', color: '#4ade80', fontSize: 12, fontWeight: 600,
               cursor: 'pointer', transition: 'all 0.15s'
@@ -770,25 +791,25 @@ export default function KanbanCortePage() {
                         </button>
                         {item.status === 'aguardando' && (
                           <>
-                            <button onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('iniciar'); setModalFuncionario(true); }} title="Iniciar Corte (selecionar funcionário)"
-                              style={actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa')}>
+                            <button disabled={ocupado(item.id)} onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('iniciar'); setModalFuncionario(true); }} title="Iniciar Corte (selecionar funcionário)"
+                              style={{ ...actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa'), ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                               ▶
                             </button>
-                            <button onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('finalizar_direto'); setModalFuncionario(true); }} title="Finalizar Corte (selecionar funcionário)"
-                              style={actionBtnStyle('#064e3b', '#22c55e', '#4ade80')}>
+                            <button disabled={ocupado(item.id)} onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('finalizar_direto'); setModalFuncionario(true); }} title="Finalizar Corte (selecionar funcionário)"
+                              style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                               ✅
                             </button>
                           </>
                         )}
                         {item.status === 'cortando' && (
-                          <button onClick={() => finalizarCorte(item.id)} title="Finalizar"
-                            style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), padding: '3px 10px' }}>
-                            ✅ Finalizar
+                          <button disabled={ocupado(item.id)} onClick={() => finalizarCorte(item.id)} title="Finalizar"
+                            style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), padding: '3px 10px', ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
+                            {ocupado(item.id) ? '⏳ Salvando…' : '✅ Finalizar'}
                           </button>
                         )}
                         {item.status === 'finalizado' && (
-                          <button onClick={() => resetarCorte(item.id)} title="Voltar para Aguardando"
-                            style={actionBtnStyle('#374151', '#6b7280', '#9ca3af')}>
+                          <button disabled={ocupado(item.id)} onClick={() => resetarCorte(item.id)} title="Voltar para Aguardando"
+                            style={{ ...actionBtnStyle('#374151', '#6b7280', '#9ca3af'), ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                             ↩
                           </button>
                         )}
@@ -1393,6 +1414,8 @@ export default function KanbanCortePage() {
 // ==========================================
 // HELPERS
 // ==========================================
+const BTN_OCUPADO = { opacity: 0.45, cursor: 'wait', pointerEvents: 'none' };
+
 function actionBtnStyle(bg, border, color) {
   return {
     padding: '3px 7px', borderRadius: 5,

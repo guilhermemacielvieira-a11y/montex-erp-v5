@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '@/api/supabaseClient';
+import { setMonitoringUser } from '@/lib/monitoring';
 
 const AuthContext = createContext();
 
@@ -115,6 +116,12 @@ export const AuthProvider = ({ children }) => {
   const [isLoadingAuth, setIsLoadingAuth] = useState(DEV_BYPASS ? false : true);
   const [isLoadingPublicSettings, setIsLoadingPublicSettings] = useState(false);
   const [authError, setAuthError] = useState(null);
+
+  // Monitoramento (Sentry): identifica o usuário só por id + role (sem e-mail).
+  // Apenas observa `user` — não interfere no fluxo de login/logout.
+  useEffect(() => {
+    setMonitoringUser(user && user.id ? { id: user.id, role: user.role } : null);
+  }, [user?.id, user?.role]);
   const [appPublicSettings] = useState({
     id: 'montex-erp-premium',
     public_settings: {

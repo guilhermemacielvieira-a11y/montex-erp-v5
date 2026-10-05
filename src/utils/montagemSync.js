@@ -10,6 +10,7 @@
 //   - MontexERP3DPage → lê para colorir IFC e fica em poll
 // ============================================
 
+import { notifyLocalChange } from './localSync';
 import { supabase } from '../api/supabaseClient';
 
 export const MONTAGEM_LS_KEY = 'montex_montagem_concluidas_v1';
@@ -54,6 +55,8 @@ export function saveConcluidasLocal(obj) {
   try {
     localStorage.setItem(MONTAGEM_LS_KEY, JSON.stringify(obj || {}));
   } catch {}
+  // Mesma aba (Montagem ↔ 3D): o evento `storage` não dispara aqui.
+  notifyLocalChange(MONTAGEM_LS_KEY);
 }
 
 // ============================================

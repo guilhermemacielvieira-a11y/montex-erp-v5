@@ -73,6 +73,8 @@ export const ACTIONS = {
 
   // Inicialização Supabase
   INIT_FROM_SUPABASE: 'INIT_FROM_SUPABASE',
+  // Carga sob demanda de tabelas fora do boot (ensureLoaded)
+  LAZY_TABLE_LOADED: 'LAZY_TABLE_LOADED',
 
   // UI
   SET_FILTROS: 'SET_FILTROS',

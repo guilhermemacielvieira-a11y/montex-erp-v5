@@ -7,10 +7,9 @@
 //   • movs próprios do painel (painelFinanceiroSync: bundle.movs, com
 //     realtime via subscribeRemote e merge local/remoto)
 //   • espelho de DESPESAS SEM OBRA ("Despesa Fábrica": !obraId)
-//   • espelho de MEDIÇÕES (receita a valor BRUTO; pago/paga/faturado/
-//     confirmado → 'recebido')
-//   • receitas manuais (localStorage 'montex_receitas_gerais', já
-//     sincronizadas pelo receitasSync do desktop)
+//   • espelho de MEDIÇÕES (receita a valor BRUTO; pago/paga/
+//     confirmado → 'recebido'; faturado NÃO é recebido)
+//   • receitas manuais (tabela receitas_manuais via cache do receitasSync)
 //   • overrides/hidden do bundle por ovKey ('d:'/'m:'/'r:') c/ fallback id
 //   • EXCLUI movs de juros embutidos (id …-juros / categoria 'Juros de
 //     Cheque') da consolidação — fix do cheque trocado (commit 00a7b7f):
@@ -22,10 +21,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useERP } from '@/contexts/ERPContext';
 import { loadBundleSmart, subscribeRemote } from '@/utils/painelFinanceiroSync';
+import { getReceitasManuaisCache, carregarReceitasManuais } from '@/utils/receitasSync';
 
-const RECEITAS_STORAGE_KEY = 'montex_receitas_gerais';
-
-export const ehPago = (m) => ['pago', 'paga', 'recebido', 'faturado', 'confirmado'].includes(String(m?.status || '').toLowerCase());
+export const ehPago = (m) => ['pago', 'paga', 'recebido', 'recebida', 'confirmado'].includes(String(m?.status || '').toLowerCase());
 // Juros de cheque trocado: já embutidos na face — fora da consolidação.
 const ehJurosEmbutido = (m) => String(m?.id || '').endsWith('-juros') || m?.categoria === 'Juros de Cheque';
 
@@ -59,6 +57,9 @@ export function usePainelGlobal() {
     const unsub = subscribeRemote?.(reload);
     return () => { try { unsub?.(); } catch { /* noop */ } };
   }, []);
+  // Receitas manuais: recarrega do banco (tabela receitas_manuais) no mount.
+  const [recTick, setRecTick] = useState(0);
+  useEffect(() => { carregarReceitasManuais().then(() => setRecTick((t) => t + 1)).catch(() => {}); }, []);
 
   const obrasMap = useMemo(() => { const m = {}; (obras || []).forEach(o => { m[o.id] = o.nome || o.id; }); return m; }, [obras]);
 
@@ -90,22 +91,24 @@ export function usePainelGlobal() {
         descricao: m.descricao || `Medição #${m.numero || '?'}`,
         categoria: 'Medição',
         valor: Number(m.valorBruto) || Number(m.valor_bruto) || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado'].includes(String(m.status || '').toLowerCase()) ? 'recebido' : (m.status || 'pendente'),
+        status: ['pago', 'paga', 'confirmado', 'recebido', 'recebida'].includes(String(m.status || '').toLowerCase()) ? 'recebido' : (m.status || 'pendente'),
         vencimento: m.dataMedicao || m.data_medicao || '-',
         origemLabel: `Obra: ${obrasMap[obraId] || '-'}`, obraId,
       };
     });
 
-    // 3) Receitas manuais (sync do desktop grava neste localStorage)
+    // 3) Receitas manuais (tabela receitas_manuais — cache local compartilhado
+    //    com o desktop; recarregado do banco no mount deste hook)
     let recMan = [];
     try {
-      recMan = (JSON.parse(localStorage.getItem(RECEITAS_STORAGE_KEY) || '[]') || []).map(r => ({
+      recMan = (getReceitasManuaisCache() || []).filter(r => r.status !== 'cancelado').map(r => ({
+
         id: r.id, ovKey: `r:${r.id}`, origem: 'externo', tipo: 'receita',
         data: r.data || r.vencimento || '',
         descricao: r.descricao || '-',
         categoria: r.categoria || 'Outros',
         valor: Number(r.valor) || 0,
-        status: ['pago', 'paga', 'faturado', 'confirmado', 'recebido'].includes(String(r.status || '').toLowerCase()) ? 'recebido' : (r.status || 'pendente'),
+        status: ['pago', 'paga', 'confirmado', 'recebido'].includes(String(r.status || '').toLowerCase()) ? 'recebido' : (r.status || 'pendente'),
         vencimento: r.vencimento || '-',
         origemLabel: 'Receita Manual', obraId: r.obraId || null,
       }));
@@ -129,7 +132,7 @@ export function usePainelGlobal() {
 
     return [...externas, ...movsLocais].sort((a, b) =>
       (parseLocalDate(b.data)?.getTime() || 0) - (parseLocalDate(a.data)?.getTime() || 0));
-  }, [lancamentosDespesas, medicoes, bundle, obrasMap]);
+  }, [lancamentosDespesas, medicoes, bundle, obrasMap, recTick]);
 
   return { todasMovs, metas: bundle.metas || {}, obrasMap };
 }

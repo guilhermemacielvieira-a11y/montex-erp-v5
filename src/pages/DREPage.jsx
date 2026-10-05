@@ -1,20 +1,58 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { TrendingUp, DollarSign, ChevronDown, ChevronUp, FileText, Download, Filter } from 'lucide-react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
+import { TrendingUp, DollarSign, ChevronDown, ChevronUp, FileText, Download, Filter, Info } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import jsPDF from 'jspdf';
+import { toast } from 'sonner';
+import { useLancamentos, useMedicoes } from '../contexts/ERPContext';
+import { useReceitasManuais } from '../utils/receitasSync';
+import { calcularDRE, intervaloDoPeriodo } from '../utils/dreCalc';
+import { hojeLocalISO, parseValorBR } from '../utils/financeiroCalc';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+
+// ============================================================
+// DRE — Demonstração de Resultados a partir de dados REAIS
+// ============================================================
+// Receita: medições aprovadas/faturadas/pagas + receitas manuais
+// faturadas/recebidas no período. Custos: lancamentos_despesas do período
+// (exceto cancelados) por categoria. Impostos, depreciação e IR/CSLL são
+// PREMISSAS editáveis (default 0), rotuladas como estimativa — nada de
+// constantes escondidas. Cálculo em ../utils/dreCalc (testado).
+// ============================================================
 
 const formatCurrency = (value) => {
   if (!value && value !== 0) return 'R$ 0,00';
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
 };
 
+const PERIODOS = [
+  { value: 'mes_atual', label: 'Mês atual' },
+  { value: 'mes_anterior', label: 'Mês anterior' },
+  { value: 'trimestre', label: 'Trimestre atual' },
+  { value: 'ano', label: 'Ano atual' },
+  { value: 'tudo', label: 'Todo o histórico' },
+];
+
+const ESCOPOS = [
+  { value: 'consolidado', label: 'Consolidado' },
+  { value: 'fabrica', label: 'Fábrica (sem obra)' },
+  { value: 'obras', label: 'Obras' },
+];
+
+const PREMISSAS_KEY = 'montex_dre_premissas';
+const PREMISSAS_PADRAO = { aliquotaImpostosPct: '0', depreciacaoValor: '0', aliquotaIRPct: '0' };
+
+const lerPremissas = () => {
+  try {
+    const v = localStorage.getItem(PREMISSAS_KEY);
+    return v ? { ...PREMISSAS_PADRAO, ...JSON.parse(v) } : PREMISSAS_PADRAO;
+  } catch { return PREMISSAS_PADRAO; }
+};
+
 // Componente de linha do DRE
-function DRELineItem({ label, value, isHeader, isTotal, isBold, indent = 0, operation }) {
-  const isNegative = value < 0;
+function DRELineItem({ label, value, isHeader, isTotal, isBold, indent = 0, operation, hint }) {
   const displayValue = Math.abs(value || 0);
 
   return (
@@ -34,6 +72,7 @@ function DRELineItem({ label, value, isHeader, isTotal, isBold, indent = 0, oper
         isBold && "text-white"
       )}>
         {label}
+        {hint && <span className="ml-2 text-[10px] uppercase tracking-wide text-amber-400/80">{hint}</span>}
       </span>
       <span className={cn(
         "text-sm font-mono",
@@ -44,111 +83,83 @@ function DRELineItem({ label, value, isHeader, isTotal, isBold, indent = 0, oper
         !isHeader && !isTotal && value < 0 ? "text-red-400" : "",
         operation === 'subtract' ? "text-red-400" : ""
       )}>
-        {operation === 'subtract' && '- '}{formatCurrency(displayValue)}
+        {operation === 'subtract' && '- '}{isTotal && value < 0 ? '- ' : ''}{formatCurrency(displayValue)}
       </span>
     </div>
   );
 }
 
 // Componente de tooltip personalizado para gráficos
-function CustomTooltip({ active, payload, label }) {
+function CustomTooltip({ active, payload, label, formatter = formatCurrency }) {
   if (!active || !payload || !payload.length) return null;
   return (
     <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 shadow-xl">
       <p className="text-white text-sm font-medium mb-1">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-slate-300 text-sm">
-          {formatCurrency(p.value)}
+          {formatter(p.value)}
         </p>
       ))}
     </div>
   );
 }
 
+function PremissaInput({ label, value, onChange, sufixo, ajuda }) {
+  return (
+    <label className="block">
+      <span className="text-xs text-slate-400">{label}</span>
+      <div className="mt-1 flex items-center gap-2">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-md bg-slate-800 border border-slate-700 px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+        />
+        <span className="text-xs text-slate-500 whitespace-nowrap">{sufixo}</span>
+      </div>
+      {ajuda && <span className="text-[11px] text-slate-500">{ajuda}</span>}
+    </label>
+  );
+}
+
 export default function DREPage() {
-  const [periodo, setPeriodo] = useState('mensal');
-  const [expandedSections, setExpandedSections] = useState({
-    csp: false,
-    operacional: false,
-  });
+  const [periodo, setPeriodo] = useState('mes_atual');
+  const [escopo, setEscopo] = useState('consolidado');
+  const [expandedSections, setExpandedSections] = useState({ csp: true, operacional: true, financeira: false });
+  const [premissas, setPremissas] = useState(lerPremissas);
 
-  // Buscar dados financeiros
-  const financialData = useFinancialIntelligence({ periodo });
+  useEffect(() => {
+    try { localStorage.setItem(PREMISSAS_KEY, JSON.stringify(premissas)); } catch { /* storage indisponível */ }
+  }, [premissas]);
 
-  // Calcular DRE baseado nos dados reais
-  const dreData = useMemo(() => {
-    const {
-      kpisGerais = {},
-      custosPorCategoria = [],
-      margemOperacional,
-      custoTotalGeral = 0,
-    } = financialData || {};
+  const { lancamentosDespesas } = useLancamentos();
+  const { medicoes } = useMedicoes();
+  const { receitas: receitasManuais } = useReceitasManuais();
 
-    // Receita Operacional Bruta (faturamento)
-    const receitaBruta = kpisGerais.faturamento || 0;
+  const intervalo = useMemo(() => intervaloDoPeriodo(periodo), [periodo]);
 
-    // Deduções (impostos estimados ~12%)
-    const aliquotaImposto = 0.12;
-    const deducoes = receitaBruta * aliquotaImposto;
+  const dreData = useMemo(() => calcularDRE({
+    medicoes,
+    receitasManuais,
+    despesas: lancamentosDespesas,
+    inicio: intervalo.inicio,
+    fim: intervalo.fim,
+    escopo,
+    premissas: {
+      aliquotaImpostosPct: parseValorBR(premissas.aliquotaImpostosPct),
+      depreciacaoValor: parseValorBR(premissas.depreciacaoValor),
+      aliquotaIRPct: parseValorBR(premissas.aliquotaIRPct),
+    },
+  }), [medicoes, receitasManuais, lancamentosDespesas, intervalo, escopo, premissas]);
 
-    // Receita Operacional Líquida
-    const receitaLiquida = receitaBruta - deducoes;
+  const catsGrupo = (g) => dreData.categorias.filter((c) => c.grupo === g);
 
-    // Custo dos Serviços Prestados (CSP) - dividido por subcategorias
-    const custosMateriais = custosPorCategoria.find(c => c.categoria === 'Matéria Prima')?.valor || 0;
-    const custosMaoObra = custosPorCategoria.find(c => c.categoria === 'Mão de Obra')?.valor || 0;
-    const custosFabricacao = custosPorCategoria.find(c => c.categoria === 'Manutenção')?.valor || 0;
-    const cspTotal = custosMateriais + custosMaoObra + custosFabricacao;
-
-    // Lucro Bruto
-    const lucroBruto = receitaLiquida - cspTotal;
-
-    // Despesas Operacionais
-    const despesasAdministrativas = custosPorCategoria.find(c => c.categoria === 'Administrativo')?.valor || 0;
-    const despesasTransporte = custosPorCategoria.find(c => c.categoria === 'Transporte')?.valor || 0;
-    const despesasEnergia = custosPorCategoria.find(c => c.categoria === 'Energia/Utilidades')?.valor || 0;
-    const despesasConsumiveis = (custoTotalGeral || 0) * 0.05;
-    const despesasOperacionaisTotal = despesasAdministrativas + despesasTransporte + despesasEnergia + despesasConsumiveis;
-
-    // EBITDA (Resultado Operacional)
-    const ebitda = lucroBruto - despesasOperacionaisTotal;
-
-    // Depreciação estimada (3% do EBITDA)
-    const depreciacao = Math.max(ebitda * 0.03, 0);
-
-    // Resultado Antes do IR
-    const resultadoAntesIR = ebitda - depreciacao;
-
-    // IR/CSLL estimado (34% do resultado positivo)
-    const irCsll = Math.max(resultadoAntesIR * 0.34, 0);
-
-    // Lucro Líquido
-    const lucroLiquido = resultadoAntesIR - irCsll;
-
-    return {
-      receitaBruta,
-      deducoes,
-      receitaLiquida,
-      custosMateriais,
-      custosMaoObra,
-      custosFabricacao,
-      cspTotal,
-      lucroBruto,
-      despesasAdministrativas,
-      despesasTransporte,
-      despesasEnergia,
-      despesasConsumiveis,
-      despesasOperacionaisTotal,
-      ebitda,
-      depreciacao,
-      resultadoAntesIR,
-      irCsll,
-      lucroLiquido,
-      margemBruta: receitaLiquida > 0 ? (lucroBruto / receitaLiquida) * 100 : 0,
-      margemOperacional: receitaLiquida > 0 ? (ebitda / receitaLiquida) * 100 : 0,
-      margemLiquida: receitaLiquida > 0 ? (lucroLiquido / receitaLiquida) * 100 : 0,
-    };
-  }, [financialData]);
+  const periodoLabel = PERIODOS.find((p) => p.value === periodo)?.label || periodo;
+  const escopoLabel = ESCOPOS.find((e) => e.value === escopo)?.label || escopo;
+  const intervaloLabel = intervalo.inicio
+    ? `${intervalo.inicio.toLocaleDateString('pt-BR')} a ${intervalo.fim.toLocaleDateString('pt-BR')}`
+    : 'Todo o histórico';
 
   // Dados para gráfico comparativo
   const chartData = useMemo(() => [
@@ -160,61 +171,113 @@ export default function DREPage() {
 
   // Dados para gráfico de margens
   const margenData = useMemo(() => [
-    { name: 'Margem Bruta', valor: Math.max(dreData.margemBruta, 0), fill: '#10B981' },
-    { name: 'Margem Operacional', valor: Math.max(dreData.margemOperacional, 0), fill: '#3B82F6' },
-    { name: 'Margem Líquida', valor: Math.max(dreData.margemLiquida, 0), fill: '#8B5CF6' },
+    { name: 'Margem Bruta', valor: dreData.margemBruta, fill: '#10B981' },
+    { name: 'Margem Operacional', valor: dreData.margemOperacional, fill: '#3B82F6' },
+    { name: 'Margem Líquida', valor: dreData.margemLiquida, fill: '#8B5CF6' },
   ], [dreData]);
 
   const toggleSection = (section) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
 
+  const setPremissa = (campo) => (valor) => setPremissas((p) => ({ ...p, [campo]: valor }));
+
+  // ===== EXPORTAÇÃO PDF (jsPDF) =====
   const handleExportPDF = () => {
-    const content = `
-DEMONSTRAÇÃO DE RESULTADOS DO EXERCÍCIO (DRE)
-Período: ${periodo}
-Data: ${new Date().toLocaleDateString('pt-BR')}
+    try {
+      const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+      const W = doc.internal.pageSize.getWidth();
+      const H = doc.internal.pageSize.getHeight();
+      const M = 15;
+      let y = 18;
 
-RECEITA OPERACIONAL BRUTA: ${formatCurrency(dreData.receitaBruta)}
-(-) Deduções: ${formatCurrency(dreData.deducoes)}
-(=) RECEITA OPERACIONAL LÍQUIDA: ${formatCurrency(dreData.receitaLiquida)}
+      const novaPaginaSePreciso = (alt = 7) => {
+        if (y + alt > H - 15) { doc.addPage(); y = 18; }
+      };
+      const linha = (rotulo, valor, { bold = false, indent = 0, sinal = '', destaque = false } = {}) => {
+        novaPaginaSePreciso();
+        if (destaque) {
+          doc.setFillColor(235, 241, 250);
+          doc.rect(M, y - 4.5, W - 2 * M, 6.5, 'F');
+        }
+        doc.setFont('helvetica', bold ? 'bold' : 'normal');
+        doc.setFontSize(10);
+        doc.setTextColor(30, 41, 59);
+        doc.text(String(rotulo), M + 2 + indent, y);
+        const txt = `${sinal}${formatCurrency(Math.abs(valor || 0))}`;
+        doc.text(valor < 0 && !sinal ? `- ${txt}` : txt, W - M - 2, y, { align: 'right' });
+        y += 6.5;
+      };
+      const secao = (titulo) => {
+        novaPaginaSePreciso(10);
+        y += 2;
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(71, 85, 105);
+        doc.text(titulo, M + 2, y);
+        y += 6;
+      };
 
-CUSTOS DOS SERVIÇOS PRESTADOS:
-  Mão de Obra Direta: ${formatCurrency(dreData.custosMaoObra)}
-  Materiais/Matéria Prima: ${formatCurrency(dreData.custosMateriais)}
-  Custos de Fabricação: ${formatCurrency(dreData.custosFabricacao)}
-(-) TOTAL CSP: ${formatCurrency(dreData.cspTotal)}
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(15);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Demonstração de Resultados (DRE)', M, y);
+      y += 6;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      doc.text(`Grupo MONTEX · ${escopoLabel} · ${periodoLabel} (${intervaloLabel})`, M, y);
+      y += 4.5;
+      doc.text(`Emitido em ${new Date().toLocaleDateString('pt-BR')} · ${dreData.qtdMedicoes} medições, ${dreData.qtdReceitasManuais} receitas manuais, ${dreData.qtdDespesas} despesas`, M, y);
+      y += 4;
+      doc.setDrawColor(203, 213, 225);
+      doc.line(M, y, W - M, y);
+      y += 7;
 
-(=) LUCRO BRUTO: ${formatCurrency(dreData.lucroBruto)}
+      linha('RECEITA OPERACIONAL BRUTA', dreData.receitaBruta, { bold: true, destaque: true });
+      linha('Medições (aprovadas/faturadas/pagas)', dreData.receitaMedicoes, { indent: 4 });
+      linha('Receitas manuais (faturadas/recebidas)', dreData.receitaManual, { indent: 4 });
+      linha('(-) Retenções (bruto - líquido)', dreData.retencoes, { indent: 4, sinal: '- ' });
+      linha(`(-) Impostos s/ receita - estimativa ${premissas.aliquotaImpostosPct || 0}%`, dreData.impostos, { indent: 4, sinal: '- ' });
+      linha('RECEITA OPERACIONAL LÍQUIDA', dreData.receitaLiquida, { bold: true, destaque: true });
 
-DESPESAS OPERACIONAIS:
-  Despesas Administrativas: ${formatCurrency(dreData.despesasAdministrativas)}
-  Transporte/Logística: ${formatCurrency(dreData.despesasTransporte)}
-  Energia/Utilidades: ${formatCurrency(dreData.despesasEnergia)}
-  Consumíveis: ${formatCurrency(dreData.despesasConsumiveis)}
-(-) TOTAL DESPESAS OPERACIONAIS: ${formatCurrency(dreData.despesasOperacionaisTotal)}
+      secao('(-) CUSTO DOS SERVIÇOS PRESTADOS');
+      catsGrupo('csp').forEach((c) => linha(c.categoria, c.valor, { indent: 4, sinal: '- ' }));
+      linha('TOTAL CSP', dreData.cspTotal, { bold: true, sinal: '- ' });
+      linha('LUCRO BRUTO', dreData.lucroBruto, { bold: true, destaque: true });
 
-(=) RESULTADO OPERACIONAL (EBITDA): ${formatCurrency(dreData.ebitda)}
-(-) Depreciação: ${formatCurrency(dreData.depreciacao)}
+      secao('(-) DESPESAS OPERACIONAIS');
+      catsGrupo('operacional').forEach((c) => linha(c.categoria, c.valor, { indent: 4, sinal: '- ' }));
+      linha('TOTAL DESPESAS OPERACIONAIS', dreData.despesasOperacionaisTotal, { bold: true, sinal: '- ' });
+      linha('RESULTADO OPERACIONAL (EBITDA)', dreData.ebitda, { bold: true, destaque: true });
 
-(=) RESULTADO ANTES DO IR: ${formatCurrency(dreData.resultadoAntesIR)}
-(-) IR/CSLL: ${formatCurrency(dreData.irCsll)}
+      linha('(-) Depreciação - estimativa', dreData.depreciacao, { indent: 4, sinal: '- ' });
+      linha('(-) Despesas financeiras', dreData.despesasFinanceirasTotal, { indent: 4, sinal: '- ' });
+      linha('RESULTADO ANTES DO IR/CSLL', dreData.resultadoAntesIR, { bold: true, destaque: true });
+      linha(`(-) IR/CSLL - estimativa ${premissas.aliquotaIRPct || 0}%`, dreData.irCsll, { indent: 4, sinal: '- ' });
+      linha('LUCRO LÍQUIDO DO PERÍODO', dreData.lucroLiquido, { bold: true, destaque: true });
 
-(=) LUCRO LÍQUIDO: ${formatCurrency(dreData.lucroLiquido)}
+      y += 3;
+      novaPaginaSePreciso(20);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Margem bruta ${dreData.margemBruta.toFixed(1)}% · Margem operacional ${dreData.margemOperacional.toFixed(1)}% · Margem líquida ${dreData.margemLiquida.toFixed(1)}%`, M + 2, y);
+      y += 6;
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      const nota = 'Premissas (impostos, depreciação e IR/CSLL) são estimativas informadas pelo usuário. Receita por competência (medições reconhecidas pelo cliente); custos pela data de emissão das despesas.';
+      doc.text(doc.splitTextToSize(nota, W - 2 * M - 4), M + 2, y);
 
-MARGENS:
-Margem Bruta: ${dreData.margemBruta.toFixed(2)}%
-Margem Operacional: ${dreData.margemOperacional.toFixed(2)}%
-Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
-    `;
-
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `DRE_${new Date().toISOString().split('T')[0]}.txt`;
-    a.click();
+      doc.save(`DRE_${escopo}_${periodo}_${hojeLocalISO()}.pdf`);
+      toast.success('PDF da DRE gerado');
+    } catch (err) {
+      console.error('[DRE] erro ao gerar PDF', err);
+      toast.error('Erro ao gerar PDF da DRE');
+    }
   };
+
+  const semDados = dreData.receitaBruta === 0 && dreData.qtdDespesas === 0;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
@@ -225,25 +288,38 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
             <div>
               <h1 className="text-4xl font-bold text-white flex items-center gap-3">
                 <FileText className="h-10 w-10 text-blue-400" />
                 Demonstração de Resultados (DRE)
               </h1>
-              <p className="text-slate-400 mt-2">Análise completa de receitas, custos e lucratividade</p>
+              <p className="text-slate-400 mt-2">
+                {escopoLabel} · {periodoLabel} ({intervaloLabel}) — medições reconhecidas e despesas reais do período
+              </p>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <Select value={escopo} onValueChange={setEscopo}>
+                <SelectTrigger className="w-44 bg-slate-800 border-slate-700 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  {ESCOPOS.map((e) => (
+                    <SelectItem key={e.value} value={e.value} className="text-white">{e.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
               <Select value={periodo} onValueChange={setPeriodo}>
-                <SelectTrigger className="w-40 bg-slate-800 border-slate-700 text-white">
+                <SelectTrigger className="w-44 bg-slate-800 border-slate-700 text-white">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="mensal" className="text-white">Mensal</SelectItem>
-                  <SelectItem value="trimestral" className="text-white">Trimestral</SelectItem>
-                  <SelectItem value="anual" className="text-white">Anual</SelectItem>
+                  {PERIODOS.map((p) => (
+                    <SelectItem key={p.value} value={p.value} className="text-white">{p.label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
 
@@ -252,10 +328,16 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
                 className="bg-emerald-600 hover:bg-emerald-700 text-white"
               >
                 <Download className="h-4 w-4 mr-2" />
-                Exportar
+                Exportar PDF
               </Button>
             </div>
           </div>
+
+          {semDados && (
+            <div className="mb-4 rounded-lg border border-slate-700 bg-slate-800/60 px-4 py-3 text-sm text-slate-400">
+              Nenhuma medição reconhecida, receita faturada ou despesa no período selecionado.
+            </div>
+          )}
 
           {/* KPIs de Margens */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -304,6 +386,37 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
           </div>
         </motion.div>
 
+        {/* Premissas (estimativas explícitas) */}
+        <div className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-amber-500/20 p-5 mb-6">
+          <h2 className="text-sm font-semibold text-amber-300 flex items-center gap-2 mb-3">
+            <Info className="h-4 w-4" />
+            Premissas (estimativas) — informe os valores da sua apuração; padrão 0
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <PremissaInput
+              label="Impostos sobre a receita (estimativa)"
+              value={premissas.aliquotaImpostosPct}
+              onChange={setPremissa('aliquotaImpostosPct')}
+              sufixo="% da receita bruta"
+              ajuda="Ex.: Simples/ISS/PIS/COFINS efetivos"
+            />
+            <PremissaInput
+              label="Depreciação do período (estimativa)"
+              value={premissas.depreciacaoValor}
+              onChange={setPremissa('depreciacaoValor')}
+              sufixo="R$"
+              ajuda="Valor fixo no período selecionado"
+            />
+            <PremissaInput
+              label="IR/CSLL (estimativa)"
+              value={premissas.aliquotaIRPct}
+              onChange={setPremissa('aliquotaIRPct')}
+              sufixo="% do resultado"
+              ajuda="Aplicado só sobre resultado positivo"
+            />
+          </div>
+        </div>
+
         {/* Tabela DRE */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -318,7 +431,10 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
 
           <div className="space-y-2">
             <DRELineItem label="RECEITA OPERACIONAL BRUTA" value={dreData.receitaBruta} isHeader operation="add" />
-            <DRELineItem label="(-) Deduções / Devoluções" value={dreData.deducoes} indent={1} operation="subtract" />
+            <DRELineItem label={`Medições aprovadas/faturadas/pagas (${dreData.qtdMedicoes})`} value={dreData.receitaMedicoes} indent={1} />
+            <DRELineItem label={`Receitas manuais faturadas/recebidas (${dreData.qtdReceitasManuais})`} value={dreData.receitaManual} indent={1} />
+            <DRELineItem label="(-) Retenções (bruto − líquido das medições)" value={dreData.retencoes} indent={1} operation="subtract" />
+            <DRELineItem label={`(-) Impostos sobre a receita (${premissas.aliquotaImpostosPct || 0}%)`} value={dreData.impostos} indent={1} operation="subtract" hint="estimativa" />
             <DRELineItem label="RECEITA OPERACIONAL LÍQUIDA" value={dreData.receitaLiquida} isTotal operation="equal" />
 
             {/* Custo dos Serviços Prestados */}
@@ -333,9 +449,10 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
 
               {expandedSections.csp && (
                 <div className="ml-4 space-y-2 border-l border-slate-700/50 pl-4 my-2">
-                  <DRELineItem label="Mão de Obra Direta" value={dreData.custosMaoObra} indent={1} operation="subtract" />
-                  <DRELineItem label="Materiais/Matéria Prima" value={dreData.custosMateriais} indent={1} operation="subtract" />
-                  <DRELineItem label="Custos de Fabricação" value={dreData.custosFabricacao} indent={1} operation="subtract" />
+                  {catsGrupo('csp').length === 0 && <p className="text-xs text-slate-500 px-4">Sem custos diretos no período.</p>}
+                  {catsGrupo('csp').map((c) => (
+                    <DRELineItem key={c.categoria} label={`${c.categoria} (${c.qtd})`} value={c.valor} indent={1} operation="subtract" />
+                  ))}
                 </div>
               )}
             </div>
@@ -355,20 +472,43 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
 
               {expandedSections.operacional && (
                 <div className="ml-4 space-y-2 border-l border-slate-700/50 pl-4 my-2">
-                  <DRELineItem label="Despesas Administrativas" value={dreData.despesasAdministrativas} indent={1} operation="subtract" />
-                  <DRELineItem label="Transporte/Logística" value={dreData.despesasTransporte} indent={1} operation="subtract" />
-                  <DRELineItem label="Energia/Utilidades" value={dreData.despesasEnergia} indent={1} operation="subtract" />
-                  <DRELineItem label="Consumíveis" value={dreData.despesasConsumiveis} indent={1} operation="subtract" />
+                  {catsGrupo('operacional').length === 0 && <p className="text-xs text-slate-500 px-4">Sem despesas operacionais no período.</p>}
+                  {catsGrupo('operacional').map((c) => (
+                    <DRELineItem key={c.categoria} label={`${c.categoria} (${c.qtd})`} value={c.valor} indent={1} operation="subtract" />
+                  ))}
                 </div>
               )}
             </div>
 
             <DRELineItem label="TOTAL DESPESAS OPERACIONAIS" value={dreData.despesasOperacionaisTotal} isBold operation="subtract" />
             <DRELineItem label="RESULTADO OPERACIONAL (EBITDA)" value={dreData.ebitda} isTotal operation="equal" />
-            <DRELineItem label="(-) Depreciação" value={dreData.depreciacao} indent={1} operation="subtract" />
+            <DRELineItem label="(-) Depreciação" value={dreData.depreciacao} indent={1} operation="subtract" hint="estimativa" />
+
+            {/* Despesas financeiras */}
+            <div className="mt-2">
+              <button
+                onClick={() => toggleSection('financeira')}
+                className="flex items-center justify-between gap-2 text-slate-300 hover:text-white text-sm w-full py-2 px-4 rounded-lg hover:bg-slate-700/30 transition-colors ml-6"
+              >
+                <span className="flex items-center gap-2">
+                  {expandedSections.financeira ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  (-) Despesas financeiras (juros, tarifas, empréstimos)
+                </span>
+                <span className="font-mono text-red-400">- {formatCurrency(dreData.despesasFinanceirasTotal)}</span>
+              </button>
+              {expandedSections.financeira && (
+                <div className="ml-10 space-y-2 border-l border-slate-700/50 pl-4 my-2">
+                  {catsGrupo('financeira').length === 0 && <p className="text-xs text-slate-500 px-4">Sem despesas financeiras no período.</p>}
+                  {catsGrupo('financeira').map((c) => (
+                    <DRELineItem key={c.categoria} label={`${c.categoria} (${c.qtd})`} value={c.valor} indent={1} operation="subtract" />
+                  ))}
+                </div>
+              )}
+            </div>
+
             <DRELineItem label="RESULTADO ANTES DO IR/CSLL" value={dreData.resultadoAntesIR} isTotal operation="equal" />
-            <DRELineItem label="(-) IR/CSLL" value={dreData.irCsll} indent={1} operation="subtract" />
-            <DRELineItem label="LUCRO LÍQUIDO DO EXERCÍCIO" value={dreData.lucroLiquido} isTotal isBold operation="equal" />
+            <DRELineItem label={`(-) IR/CSLL (${premissas.aliquotaIRPct || 0}%)`} value={dreData.irCsll} indent={1} operation="subtract" hint="estimativa" />
+            <DRELineItem label="LUCRO LÍQUIDO DO PERÍODO" value={dreData.lucroLiquido} isTotal isBold operation="equal" />
           </div>
         </motion.div>
 
@@ -380,14 +520,16 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
             transition={{ delay: 0.3 }}
             className="bg-slate-900/60 backdrop-blur-xl rounded-xl border border-slate-700/50 p-6"
           >
-            <h3 className="text-lg font-bold text-white mb-4">Evolução do DRE</h3>
+            <h3 className="text-lg font-bold text-white mb-4">Composição do Resultado</h3>
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={chartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                 <XAxis dataKey="name" stroke="#94A3B8" />
                 <YAxis stroke="#94A3B8" />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="valor" fill="#3B82F6" />
+                <Bar dataKey="valor">
+                  {chartData.map((d) => <Cell key={d.name} fill={d.fill} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </motion.div>
@@ -404,8 +546,10 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                 <XAxis dataKey="name" stroke="#94A3B8" />
                 <YAxis stroke="#94A3B8" />
-                <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="valor" fill="#8B5CF6" />
+                <Tooltip content={<CustomTooltip formatter={(v) => `${Number(v || 0).toFixed(1)}%`} />} />
+                <Bar dataKey="valor">
+                  {margenData.map((d) => <Cell key={d.name} fill={d.fill} />)}
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </motion.div>
@@ -422,12 +566,13 @@ Margem Líquida: ${dreData.margemLiquida.toFixed(2)}%
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <p className="text-sm text-slate-400 mb-4">
-                <strong className="text-white">Análise de Lucratividade:</strong> A empresa apresenta margem bruta de {dreData.margemBruta.toFixed(1)}%, indicando que {dreData.receitaLiquida > 0 ? ((dreData.lucroBruto / dreData.receitaLiquida) * 100).toFixed(1) : '0.0'}% da receita líquida permanece após os custos diretos. A margem operacional de {dreData.margemOperacional.toFixed(1)}% reflete a eficiência operacional, enquanto a margem líquida de {dreData.margemLiquida.toFixed(1)}% mostra o resultado final.
+                <strong className="text-white">Lucratividade:</strong> receita líquida de {formatCurrency(dreData.receitaLiquida)} no período, com margem bruta de {dreData.margemBruta.toFixed(1)}%, margem operacional de {dreData.margemOperacional.toFixed(1)}% e margem líquida de {dreData.margemLiquida.toFixed(1)}%.
               </p>
             </div>
             <div>
               <p className="text-sm text-slate-400">
-                <strong className="text-white">Principais Drivers:</strong> Os custos de serviços (CSP) representam {dreData.receitaLiquida > 0 ? ((dreData.cspTotal / dreData.receitaLiquida) * 100).toFixed(1) : '0.0'}% da receita, enquanto despesas operacionais consomem {dreData.receitaLiquida > 0 ? ((dreData.despesasOperacionaisTotal / dreData.receitaLiquida) * 100).toFixed(1) : '0.0'}%. A relação entre receita bruta ({formatCurrency(dreData.receitaBruta)}) e lucro líquido ({formatCurrency(dreData.lucroLiquido)}) demonstra a estrutura de custos da operação.
+                <strong className="text-white">Principais drivers:</strong> custos diretos (CSP) representam {dreData.receitaLiquida > 0 ? ((dreData.cspTotal / dreData.receitaLiquida) * 100).toFixed(1) : '0.0'}% da receita líquida e despesas operacionais {dreData.receitaLiquida > 0 ? ((dreData.despesasOperacionaisTotal / dreData.receitaLiquida) * 100).toFixed(1) : '0.0'}%.
+                {dreData.categorias[0] && <> Maior categoria de custo: <strong className="text-slate-200">{dreData.categorias[0].categoria}</strong> ({formatCurrency(dreData.categorias[0].valor)}).</>}
               </p>
             </div>
           </div>

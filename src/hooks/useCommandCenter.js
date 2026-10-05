@@ -356,11 +356,12 @@ export function useCommandCenter(obraId) {
   const fetchCampo = useCallback(async () => {
     if (!obraId) return null;
     try {
-      let qExp = supabase.from('expedicoes').select('id, numero_romaneio, obra_id, status, peso_total, pecas, data_expedicao, transportadora, motorista, placa, destino, observacoes, created_at, updated_at');
+      let qExp = supabase.from('expedicoes').select('*');
       if (!isAll) qExp = qExp.eq('obra_id', obraId);
       const { data: expedicoes } = await qExp;
 
-      const items = expedicoes || [];
+      // Romaneios soft-deletados (excluir_romaneio) não contam
+      const items = (expedicoes || []).filter(i => !i.deleted_at);
       const enviados = items.filter(i => {
         const st = (i.status || '').toUpperCase();
         return st === 'ENVIADO' || st === 'ENTREGUE' || st === 'EM_TRANSITO';

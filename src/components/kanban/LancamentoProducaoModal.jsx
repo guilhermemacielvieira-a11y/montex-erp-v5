@@ -26,6 +26,9 @@ import {
   Loader2, RefreshCw, Search, AlertCircle, Check, ArrowRight, Layers
 } from 'lucide-react';
 import { supabase, supabaseAdmin } from '@/api/supabaseClient';
+import { splitPeca, moverEtapa } from '@/api/producaoRpc';
+import { normalizarEtapa, proximaEtapaProducao, passosAte, validarTransicao } from '@/services/fluxoEtapas';
+import { parseLocalDate } from '@/utils/financeiroCalc';
 import { useEquipes } from '@/contexts/ERPContext';
 
 // ─── Constantes ────────────────────────────────────────────────────────────────
@@ -62,9 +65,51 @@ function formatPeso(kg) {
   return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 }
 
+// Data LOCAL (YYYY-MM-DD). toISOString() dava o dia seguinte após 21h (UTC-3).
 function hoje() {
-  return new Date().toISOString().split('T')[0];
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+
+// 'YYYY-MM-DD' → ISO da MEIA-NOITE LOCAL (sem o shift de -1 dia do UTC-3).
+function dataLocalISO(str) {
+  const d = parseLocalDate(str);
+  return d && !isNaN(d.getTime()) ? d.toISOString() : new Date().toISOString();
+}
+
+// timestamptz do banco → 'YYYY-MM-DD'. Usa a parte de data da string (UTC):
+// cobre tanto o legado (meia-noite UTC) quanto o novo (meia-noite local = 03:00Z).
+function dataDoBanco(v) {
+  if (!v) return hoje();
+  const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : hoje();
+}
+
+// Lê a peça FRESCA do banco (etapa/quantidade reais — não a da tela).
+async function lerPecaAtual(client, id) {
+  const { data, error } = await client
+    .from('pecas_producao')
+    .select('id, etapa, quantidade')
+    .eq('id', id)
+    .single();
+  if (error) throw new Error(`Peça ${id} não encontrada: ${error.message}`);
+  return data;
+}
+
+// Move a peça INTEIRA até `destino` pela RPC mover_etapa (1 etapa por vez;
+// 'aguardando' passa por 'fabricacao'). Valida o caminho antes de gravar.
+async function moverAte(id, etapaDb, destino, opts) {
+  const passos = passosAte(etapaDb, destino);
+  let atual = etapaDb;
+  for (const passo of passos) {
+    const chk = validarTransicao(atual, passo);
+    if (!chk.ok) throw new Error(chk.motivo);
+    atual = passo;
+  }
+  for (const passo of passos) await moverEtapa(id, passo, opts);
+}
+
+const MSG_ENVIO_EXPEDICAO = 'Envio para a obra é feito pela Expedição (romaneio) — a peça fica em Expedido';
 
 function gerarId() {
   return 'LANC-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
@@ -236,7 +281,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
           mapa[k] = {
             funcionario_id:   ce.func,
             funcionario_nome: '', // resolvido depois pela lista de funcionários
-            data_producao:    ce.dt ? new Date(ce.dt).toISOString().split('T')[0] : hoje(),
+            data_producao:    ce.dt ? dataDoBanco(ce.dt) : hoje(),
             observacoes:      '',
             quantidade:       peca._conjuntoTotal || 1,
             _origem:          'pecas_producao',
@@ -368,10 +413,11 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
 
       // 1. Upsert em entity_store (por ID virtual — independente por conjunto)
       if (lan._storeId) {
-        await client
+        const { error: updErr } = await client
           .from('entity_store')
           .update({ data: dataLan })
           .eq('id', lan._storeId);
+        if (updErr) throw updErr;
       } else {
         const novoId = gerarId();
         const { error: insErr } = await client
@@ -388,7 +434,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       const histId = `HIST-${originalId}-${etapa}-${Date.now()}`;
       const etapaParaMap = { fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', expedido: 'enviado', enviado: 'concluido' };
       const obsHist = `[QTD:${qtdLan}/${peca._conjuntoTotal || 1}] ${lan.observacoes || ''}`.trim();
-      await client
+      const { error: histErr } = await client
         .from('producao_historico')
         .upsert({
           id:               histId,
@@ -397,9 +443,10 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
           etapa_para:       etapaParaMap[etapa] || etapa,
           funcionario_id:   lan.funcionario_id,
           funcionario_nome: lan.funcionario_nome,
-          data_inicio:      lan.data_producao ? new Date(lan.data_producao).toISOString() : new Date().toISOString(),
+          data_inicio:      lan.data_producao ? dataLocalISO(lan.data_producao) : new Date().toISOString(),
           observacoes:      obsHist,
         }, { onConflict: 'id' });
+      if (histErr) console.warn('[LancamentoModal] producao_historico:', histErr.message); // analytics — não bloqueia
 
       // 3. Atualizar pecas_producao usando o ID ORIGINAL (não virtual)
       //    para peças com múltiplos conjuntos, grava o último conjunto salvo
@@ -408,12 +455,13 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       if (campoFunc) {
         const update = { [campoFunc]: lan.funcionario_id };
         if (campoData && lan.data_producao) {
-          update[campoData] = new Date(lan.data_producao).toISOString();
+          update[campoData] = dataLocalISO(lan.data_producao);
         }
-        await client
+        const { error: pecaErr } = await client
           .from('pecas_producao')
           .update(update)
           .eq('id', originalId);
+        if (pecaErr) throw pecaErr;
       }
 
       // 4. Para corte: atualizar materiais_corte usando ID original
@@ -426,9 +474,11 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
 
       const etapaInfo = ETAPAS.find(e => e.key === etapa);
       toast.success(`${etapaInfo?.label || etapa}${conjLabel}: ${lan.funcionario_nome} ✓`);
+      return true;
     } catch (err) {
       console.error('[LancamentoModal] Erro ao salvar:', err);
-      toast.error('Erro ao salvar lançamento');
+      toast.error(`Erro ao salvar lançamento: ${err?.message || ''}`);
+      return false;
     } finally {
       setSaving(prev => ({ ...prev, [k]: false }));
     }
@@ -456,99 +506,69 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       return;
     }
 
+    const originalId = peca._originalId || peca.id;
+    const client = supabaseAdmin || supabase;
+    const label = ETAPAS.find(e => e.key === etapa)?.label || etapa;
+
+    // Etapa/quantidade REAIS do banco (a tela pode estar defasada)
+    let atual;
+    try {
+      atual = await lerPecaAtual(client, originalId);
+    } catch (err) {
+      toast.error(err.message);
+      return;
+    }
+    const etapaDb = atual.etapa || 'aguardando';
+    const etapaAtualPeca = normalizarEtapa(etapaDb) === 'aguardando' ? 'fabricacao' : etapaDb;
+    const totalDb = Math.max(1, parseInt(atual.quantidade, 10) || 1);
+
     // Avanço sequencial: só move +1 etapa SE a linha clicada for a ETAPA ATUAL
     // da peça (concluir a etapa). Linhas passadas (histórico) ou futuras
     // (pré-atribuição) apenas gravam o lançamento sem movimentar.
-    const ordemKanban = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
-    const etapaRaw = peca.etapa || 'fabricacao';
-    const etapaAtualPeca = ['aguardando', 'corte'].includes(etapaRaw) ? 'fabricacao' : etapaRaw;
-    const idxAtualPeca = ordemKanban.indexOf(etapaAtualPeca);
-    const idxEtapaClick = ordemKanban.indexOf(etapa);
-    const label = ETAPAS.find(e => e.key === etapa)?.label || etapa;
-
-    if (idxEtapaClick !== idxAtualPeca) {
-      // Não é a etapa atual → grava sem mover
-      await salvarUm(peca, etapa);
-      if (idxEtapaClick < idxAtualPeca) {
+    if (etapa !== etapaAtualPeca) {
+      const ok = await salvarUm(peca, etapa);
+      if (!ok) return;
+      const ordem = ['fabricacao', 'solda', 'pintura', 'expedido', 'enviado'];
+      if (ordem.indexOf(etapa) < ordem.indexOf(etapaAtualPeca)) {
         toast.success(`Lançamento histórico de ${label} gravado ✓`);
       } else {
-        toast(`Pré-atribuição de ${label} gravada — peça avança quando concluir ${ETAPAS.find(e => e.key === etapaAtualPeca)?.label}`, { icon: '⏳' });
+        toast(`Pré-atribuição de ${label} gravada — peça avança quando concluir ${ETAPAS.find(e => e.key === etapaAtualPeca)?.label || etapaAtualPeca}`, { icon: '⏳' });
       }
       return;
     }
 
     // 1. Persiste o lançamento (com a quantidade) — etapa concluída
-    await salvarUm(peca, etapa);
+    if (!(await salvarUm(peca, etapa))) return;
 
-    // 2. Determina a próxima etapa do Kanban (+1 da atual)
-    const idxAtual = ordemKanban.indexOf(etapa);
-    const proxima = ordemKanban[idxAtual + 1];
-
-    const originalId = peca._originalId || peca.id;
-    const client = supabaseAdmin || supabase;
-
+    // 2. Próxima etapa de PRODUÇÃO (+1). Enviado só pela Expedição.
+    const proxima = proximaEtapaProducao(etapa);
     if (!proxima) {
-      // Etapa final — apenas grava status final, sem mover
-      toast.success('Etapa final atingida — lançamento gravado ✓');
+      toast.success(etapa === 'expedido' ? MSG_ENVIO_EXPEDICAO : 'Etapa final atingida — lançamento gravado ✓');
       onSaved?.();
       return;
     }
 
+    // Qtd não informada = peça inteira (pela quantidade REAL do banco)
+    const qtdMover = (lan.quantidade == null || lan.quantidade === '') ? totalDb : Math.min(qtdAvancar, totalDb);
+    const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
     try {
-      if (qtdAvancar >= total) {
-        // Move toda a peça
-        await client
-          .from('pecas_producao')
-          .update({ etapa: proxima, updated_at: new Date().toISOString() })
-          .eq('id', originalId);
-        const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
-        toast.success(`Peça ${peca.marca || peca.id} (${total}) → ${proxLabel}`);
+      if (qtdMover >= totalDb) {
+        // Move toda a peça (RPC mover_etapa — valida o fluxo no banco)
+        await moverAte(originalId, etapaDb, proxima, {});
+        toast.success(`Peça ${peca.marca || peca.id} (${totalDb}) → ${proxLabel}`);
       } else {
-        // SPLIT — cria nova peça com qtdAvancar na próxima etapa
-        const { data: orig } = await client
-          .from('pecas_producao')
-          .select('*')
-          .eq('id', originalId)
-          .single();
-        if (!orig) throw new Error('Peça original não encontrada');
-
-        const pesoUnit = (orig.peso_total || 0) / (orig.quantidade || 1);
-        const pesoMovido = pesoUnit * qtdAvancar;
-        const pesoRestante = pesoUnit * (orig.quantidade - qtdAvancar);
-
-        const novaPeca = { ...orig };
-        delete novaPeca.id;
-        novaPeca.id = `${originalId}__split_${proxima}_${Date.now()}`;
-        novaPeca.quantidade = qtdAvancar;
-        novaPeca.peso_total = pesoMovido;
-        novaPeca.etapa = proxima;
-        novaPeca.created_at = new Date().toISOString();
-        novaPeca.updated_at = new Date().toISOString();
-        // Propaga funcionário/data desta etapa para a nova peça
-        const campoFunc = ETAPA_CAMPO_FUNC[etapa];
-        const campoData = ETAPA_CAMPO_DATA[etapa];
-        if (campoFunc) novaPeca[campoFunc] = lan.funcionario_id;
-        if (campoData && lan.data_producao) novaPeca[campoData] = new Date(lan.data_producao).toISOString();
-
-        const { error: insErr } = await client.from('pecas_producao').insert(novaPeca);
-        if (insErr) throw insErr;
-
-        // Reduz a peça original
-        await client
-          .from('pecas_producao')
-          .update({
-            quantidade: orig.quantidade - qtdAvancar,
-            peso_total: pesoRestante,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', originalId);
-
-        const proxLabel = ETAPAS.find(e => e.key === proxima)?.label || proxima;
-        toast.success(`Split: ${qtdAvancar} → ${proxLabel} · ${orig.quantidade - qtdAvancar} ficam em ${ETAPAS.find(e => e.key === etapa)?.label}`);
+        // SPLIT atômico (RPC split_peca): nova linha com qtdMover na próxima
+        // etapa + original reduzida, numa única transação.
+        await splitPeca(originalId, qtdMover, proxima, {
+          funcionario: lan.funcionario_id,
+          data: lan.data_producao,
+          etapaFuncionario: etapa,
+        });
+        toast.success(`Split: ${qtdMover} → ${proxLabel} · ${totalDb - qtdMover} ficam em ${label}`);
       }
     } catch (err) {
       console.error('[LancamentoModal] Erro ao avançar etapa:', err);
-      toast.error('Erro ao avançar a peça de etapa');
+      toast.error(`Erro ao avançar a peça: ${err.message}`);
       return;
     }
 
@@ -577,135 +597,89 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       for (const etapa of ETAPAS) {
         const k = chave(peca.id, etapa.key);
         if (lancamentos[k]?.funcionario_id) {
-          try {
-            await salvarUm(peca, etapa.key);
-            lancOk++;
-          } catch (e) {
-            erros.push(`${peca.id}/${etapa.key}: ${e?.message || 'erro'}`);
-          }
+          const ok = await salvarUm(peca, etapa.key);
+          if (ok) lancOk++;
+          else erros.push(`${peca.id}/${etapa.key}: falha ao gravar lançamento`);
         }
       }
     }
 
     if (lancOk === 0) {
-      toast.error('Nenhum funcionário selecionado em nenhuma etapa');
+      toast.error(erros.length ? 'Nenhum lançamento foi gravado — ver erros' : 'Nenhum funcionário selecionado em nenhuma etapa');
       setLoading(false);
       return;
     }
 
     // ─── 2. CASCADE — desmembramento em cascata etapa-por-etapa ────────────
-    // Algoritmo: para cada peça, itera as etapas a partir da etapa-atual.
-    // A cada iteração:
-    //   - lê a Qtd da etapa atual nos lançamentos
-    //   - se qtd >= restante → move a peça inteira para a próxima etapa
-    //   - se qtd < restante → SPLIT: cria uma peça nova com qtd em next-etapa
-    //                          e reduz a quantidade da peça atual
-    //   - usa o SPLIT (ou a peça movida) como peça-corrente da próxima iteração
-    // Resultado: 70 Fab → 70 Solda, 30 das 70 → Pintura, 30 das 30 → Expedido…
-    // ----------------------------------------------------------------------
+    // Para cada peça, a partir da etapa REAL no banco:
+    //   - qtd da etapa corrente >= restante → move a peça inteira (RPC mover_etapa)
+    //   - qtd < restante → SPLIT atômico (RPC split_peca) e a nova linha segue
+    //     como peça-corrente na próxima iteração
+    // Resultado: 70 Fab → 70 Solda, 30 das 70 → Pintura, 30 das 30 → Expedido.
+    // Cada passo é uma transação no banco: uma falha no meio NÃO perde nem
+    // duplica unidades (o que já foi gravado fica consistente).
+    // Expedido → Enviado NÃO é feito aqui (só pela Expedição/romaneio).
+    let avisoEnvio = false;
     for (const peca of pecasFiltradas) {
       const originalId = peca._originalId || peca.id;
-      const total = peca._conjuntoTotal || 1;
-      const etapaAtualRaw = peca.etapa || 'fabricacao';
-      const etapaAtualPeca = ['aguardando', 'corte'].includes(etapaAtualRaw) ? 'fabricacao' : etapaAtualRaw;
 
       try {
-        // Carrega dados completos da peça original (template para splits)
-        const { data: orig } = await client
-          .from('pecas_producao').select('*').eq('id', originalId).single();
-        if (!orig) {
-          erros.push(`${originalId}: peça não encontrada`);
-          continue;
-        }
-        const pesoUnit = (orig.peso_total || 0) / (orig.quantidade || 1);
+        const fresca = await lerPecaAtual(client, originalId);
+        let currentId     = originalId;
+        let currentQty    = Math.max(1, parseInt(fresca.quantidade, 10) || 1);
+        let currentEtapaDb = fresca.etapa || 'aguardando';
+        let currentEtapa  = normalizarEtapa(currentEtapaDb) === 'aguardando' ? 'fabricacao' : currentEtapaDb;
 
-        // Estado da iteração — o "current" sempre representa a peça/sub-grupo
-        // que está sendo cascateado adiante
-        let currentId  = originalId;
-        let currentQty = total;
-        let currentEtapa = etapaAtualPeca;
-        let primeiraIteracao = true;
-
-        while (true) {
-          const idxCur = ORDEM_KANBAN.indexOf(currentEtapa);
-          const proxEtapa = ORDEM_KANBAN[idxCur + 1];
-          if (!proxEtapa) break; // chegou ao fim do fluxo
-
-          // Lê a atribuição da etapa atual nos lançamentos (sempre indexado
-          // pelo peca.id original que o usuário vê no modal)
+        for (let guard = 0; guard < ORDEM_KANBAN.length; guard++) {
+          // Lê a atribuição da etapa atual (indexada pelo id que o usuário vê)
           const lan = lancamentos[chave(peca.id, currentEtapa)];
           if (!lan?.funcionario_id) break; // sem responsável aqui → para de cascatear
+
+          const proxEtapa = proximaEtapaProducao(currentEtapa);
+          if (!proxEtapa) {
+            if (currentEtapa === 'expedido') avisoEnvio = true;
+            break;
+          }
 
           const qtdLanRaw = parseInt(lan.quantidade ?? currentQty, 10) || currentQty;
           const qtdAvancar = Math.max(0, Math.min(qtdLanRaw, currentQty));
           if (qtdAvancar <= 0) break;
 
-          const cf = ETAPA_CAMPO_FUNC[currentEtapa];
-          const cd = ETAPA_CAMPO_DATA[currentEtapa];
-
           if (qtdAvancar >= currentQty) {
-            // Move toda a peça-corrente para proxEtapa (sem split)
-            const update = {
-              etapa: proxEtapa,
-              updated_at: new Date().toISOString(),
-            };
-            if (cf) update[cf] = lan.funcionario_id;
-            if (cd && lan.data_producao) update[cd] = new Date(lan.data_producao).toISOString();
-            await client.from('pecas_producao').update(update).eq('id', currentId);
+            await moverAte(currentId, currentEtapaDb, proxEtapa, {
+              funcionario: lan.funcionario_id,
+              etapaFuncionario: currentEtapa,
+              data: lan.data_producao,
+            });
             movsOk++;
-            // currentId continua o mesmo, currentEtapa avança
-            currentEtapa = proxEtapa;
           } else {
-            // SPLIT: cria nova peça com qtdAvancar em proxEtapa
-            const novaPeca = { ...orig };
-            delete novaPeca.id;
-            const newId = `${originalId}__split_${proxEtapa}_${Date.now()}_${Math.floor(Math.random()*9999)}`;
-            novaPeca.id = newId;
-            novaPeca.quantidade = qtdAvancar;
-            novaPeca.peso_total = pesoUnit * qtdAvancar;
-            novaPeca.etapa = proxEtapa;
-            novaPeca.created_at = new Date().toISOString();
-            novaPeca.updated_at = new Date().toISOString();
-            if (cf) novaPeca[cf] = lan.funcionario_id;
-            if (cd && lan.data_producao) novaPeca[cd] = new Date(lan.data_producao).toISOString();
-            const { error: insErr } = await client.from('pecas_producao').insert(novaPeca);
-            if (insErr) throw insErr;
+            const res = await splitPeca(currentId, qtdAvancar, proxEtapa, {
+              funcionario: lan.funcionario_id,
+              data: lan.data_producao,
+              etapaFuncionario: currentEtapa,
+            });
             splitsOk++;
-
-            // Reduz a peça-corrente (que fica em currentEtapa)
-            const qtdRestanteCorrente = currentQty - qtdAvancar;
-            if (qtdRestanteCorrente === 0) {
-              await client.from('pecas_producao').delete().eq('id', currentId);
-            } else {
-              await client.from('pecas_producao').update({
-                quantidade: qtdRestanteCorrente,
-                peso_total: pesoUnit * qtdRestanteCorrente,
-                updated_at: new Date().toISOString(),
-              }).eq('id', currentId);
-            }
-
-            // O "current" agora é a peça split que acabou de ser criada
-            currentId    = newId;
-            currentQty   = qtdAvancar;
-            currentEtapa = proxEtapa;
+            currentId  = res?.nova?.id || currentId;
+            currentQty = qtdAvancar;
           }
-          primeiraIteracao = false;
+          currentEtapa = proxEtapa;
+          currentEtapaDb = proxEtapa;
         }
-
-        if (primeiraIteracao) continue;
       } catch (e) {
         erros.push(`cascade ${originalId}: ${e?.message || 'erro'}`);
       }
     }
+    if (avisoEnvio) toast(MSG_ENVIO_EXPEDICAO, { icon: '🚚' });
 
     // ─── 4. Resumo ────────────────────────────────────────────────────────────
     const resumoPartes = [`${lancOk} lançamento(s)`];
     if (movsOk > 0) resumoPartes.push(`${movsOk} peça(s) movida(s)`);
     if (splitsOk > 0) resumoPartes.push(`${splitsOk} split(s)`);
-    toast.success(`✓ ${resumoPartes.join(' · ')}`);
     if (erros.length > 0) {
       console.error('[LancamentoModal] Erros durante salvar+avançar:', erros);
-      toast.error(`${erros.length} erro(s) — ver console`);
+      toast.error(`${erros.length} erro(s): ${erros[0]}${erros.length > 1 ? ' …(ver console)' : ''}`);
+    } else {
+      toast.success(`✓ ${resumoPartes.join(' · ')}`);
     }
     onSaved?.();
     setLoading(false);

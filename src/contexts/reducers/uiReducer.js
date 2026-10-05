@@ -40,6 +40,18 @@ export function uiReducer(state, action) {
         listas: [...state.listas, action.payload]
       };
 
+    // Tabela carregada sob demanda (ERPContext.ensureLoaded). Mescla por id:
+    // linhas do banco + itens adicionados localmente antes da carga terminar
+    // (ex.: IMPORTAR_MATERIAIS/IMPORTAR_LISTA) que ainda não vieram do banco.
+    case ACTIONS.LAZY_TABLE_LOADED: {
+      const { key, rows } = action.payload || {};
+      if (!key) return state;
+      const fromDb = Array.isArray(rows) ? rows : [];
+      const ids = new Set(fromDb.map(r => r && r.id).filter(Boolean));
+      const locais = (state[key] || []).filter(r => r && r.id && !ids.has(r.id));
+      return { ...state, [key]: [...fromDb, ...locais] };
+    }
+
     case ACTIONS.INIT_FROM_SUPABASE:
       return {
         ...state,

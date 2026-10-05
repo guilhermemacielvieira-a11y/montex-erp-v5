@@ -44,7 +44,7 @@ import {
   Bell
 } from 'lucide-react';
 
-import { useCompras, useMateriais, useERP, useObras, useLancamentos } from '@/contexts/ERPContext';
+import { useCompras, useMateriais, useERP, useObras, useLancamentos, useEnsureLoaded } from '@/contexts/ERPContext';
 import { fornecedoresApi } from '@/api/supabaseClient';
 import AbastecimentoAutomatico from '@/components/compras/AbastecimentoAutomatico';
 import ReposicaoEstoque from '@/components/compras/ReposicaoEstoque';
@@ -630,6 +630,7 @@ export default function ComprasPage() {
   const { compras: comprasContext, addCompra, updateCompra, receberCompra } = useCompras();
   const { materiaisEstoque, importarMateriais } = useMateriais();
   const { notasFiscais } = useERP();
+  useEnsureLoaded('notasFiscais', 'materiaisEstoque'); // tabelas fora do boot do ERPContext
   const { lancamentosDespesas, addLancamento } = useLancamentos();
   const { obras, obraAtual, obraAtualData } = useObras();
 

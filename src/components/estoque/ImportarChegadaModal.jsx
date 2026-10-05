@@ -19,9 +19,9 @@ import { X, FileSpreadsheet, FileText, Upload, Plus, Trash2, Check, Loader2, Ale
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { estoqueApi, movEstoqueApi, supabase } from '@/api/supabaseClient';
+import { movimentarEstoque } from '@/api/producaoRpc';
 
 const N = (v) => { const n = parseFloat(String(v ?? '').replace(/[^\d,.-]/g, '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
-const r2 = (n) => Math.round(n * 100) / 100;
 const hojeLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const linhaVazia = () => ({ descricao: '', codigo: '', quantidade: '', unidade: 'UN', preco: '' });
 
@@ -178,23 +178,27 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
       const qtd = N(r.quantidade);
       try {
         const existente = acharExistente(r);
-        let itemId;
+        const motivoMov = 'Chegada de material' + (nf.trim() ? ` (NF ${nf.trim()})` : '');
         if (existente) {
-          itemId = existente.id;
-          // Chegada = material recebido: soma no saldo (quantidade) E no `comprado`
-          // (o que os KPIs/relatórios leem como chegou/entregue), recalculando a
-          // `falta` (pedido − comprado). Assim cobertura e fabricabilidade refletem
-          // a chegada.
-          const novoComprado = (Number(existente.comprado) || 0) + qtd;
-          await estoqueApi.update(existente.id, {
-            quantidade: (Number(existente.quantidade) || 0) + qtd,
-            comprado: r2(novoComprado),
-            falta: Math.max(0, r2((Number(existente.pedido) || 0) - novoComprado)),
-            ...(N(r.preco) > 0 ? { preco: N(r.preco) } : {}),
-            ...(fornecedor.trim() ? { fornecedor: fornecedor.trim() } : {}),
-            ultima_entrada: hoje,
-            updated_at: nowISO,
+          // Chegada = material recebido: delta ATÔMICO no banco (RPC
+          // movimentar_estoque) somando no saldo E no `comprado` (o que os
+          // KPIs leem como chegou/entregue), recalculando a `falta`, e gravando
+          // a movimentação na MESMA transação — sem sobrescrever o saldo com o
+          // valor (possivelmente desatualizado) carregado na tela.
+          await movimentarEstoque(existente.id, qtd, {
+            tipo: 'entrada',
+            origem,
+            obraId: obra || undefined,
+            material: r.descricao.trim(),
+            motivo: motivoMov,
+            notaFiscal: nf.trim() || undefined,
+            documentoUrl: docUrl || undefined,
+            custoUnitario: N(r.preco),
+            contaComprado: true,
           });
+          if (fornecedor.trim()) {
+            await estoqueApi.update(existente.id, { fornecedor: fornecedor.trim() });
+          }
           atualizados++;
         } else {
           const novo = await estoqueApi.create({
@@ -210,23 +214,24 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
             ultima_entrada: hoje,
             updated_at: nowISO,
           });
-          itemId = novo?.id;
           novos++;
+          await movEstoqueApi.create({
+            item_id: novo?.id || null,
+            obra_id: obra || null,
+            tipo: 'entrada',
+            quantidade: qtd,
+            unidade: r.unidade || 'UN',
+            material: r.descricao.trim(),
+            nota_fiscal: nf.trim() || null,
+            custo_unitario: N(r.preco) || null,
+            documento_url: docUrl || null,
+            origem,
+            motivo: motivoMov,
+            saldo_anterior: 0,
+            saldo_novo: qtd,
+            data: nowISO,
+          });
         }
-        await movEstoqueApi.create({
-          item_id: itemId || null,
-          obra_id: obra || null,
-          tipo: 'entrada',
-          quantidade: qtd,
-          unidade: r.unidade || 'UN',
-          material: r.descricao.trim(),
-          nota_fiscal: nf.trim() || null,
-          custo_unitario: N(r.preco) || null,
-          documento_url: docUrl || null,
-          origem,
-          motivo: 'Chegada de material' + (nf.trim() ? ` (NF ${nf.trim()})` : ''),
-          data: nowISO,
-        });
       } catch (err) {
         falhas++;
         console.error('[ImportarChegada] falha na linha', r, err);

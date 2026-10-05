@@ -514,11 +514,21 @@ export default function ProducaoPage() {
   };
 
   // Callback após seleção de funcionário
-  const handleFuncionarioConfirm = (funcionarioId, funcionarioNome) => {
+  const handleFuncionarioConfirm = async (funcionarioId, funcionarioNome) => {
     if (!pecaPendente || !etapaPendente) return;
 
     const etapaAnterior = pecaPendente.etapa || 'aguardando';
-    moverPecaEtapa(pecaPendente.id, etapaPendente, funcionarioId);
+    try {
+      // mover_etapa valida o fluxo no banco; em erro o contexto já reverte a
+      // peça e mostra o motivo — NÃO registrar histórico nem toast de sucesso.
+      await moverPecaEtapa(pecaPendente.id, etapaPendente, funcionarioId);
+    } catch (err) {
+      console.error('[Produção] Falha ao mover etapa:', err);
+      setModalFuncionario(false);
+      setPecaPendente(null);
+      setEtapaPendente(null);
+      return;
+    }
 
     // Registrar no histórico de produção
     registrarTransicao(

@@ -9,12 +9,11 @@
 import React, { useState, useEffect } from 'react';
 import { X, ArrowDownLeft, ArrowUpRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { estoqueApi, movEstoqueApi } from '@/api/supabaseClient';
+import { movimentarEstoque } from '@/api/producaoRpc';
 import AnexoDocumento from '@/components/ui/AnexoDocumento';
 
 const N = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : 0; };
 const r2 = (n) => Math.round(n * 100) / 100;
-const hojeLocal = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 export default function MovimentacaoModal({ open, item, tipo = 'entrada', obraAtual = null, onClose, onSaved }) {
   const ehEntrada = tipo === 'entrada';
@@ -37,39 +36,25 @@ export default function MovimentacaoModal({ open, item, tipo = 'entrada', obraAt
     if (!ehEntrada && q > saldoAtual) { toast.error(`Saída (${q}) maior que o saldo atual (${saldoAtual})`); return; }
     setSalvando(true);
     try {
-      const now = new Date().toISOString();
-      // ENTRADA = material recebido: além do saldo (quantidade), soma no `comprado`
-      // e recalcula `falta` (pedido − comprado). Os KPIs/relatórios de obra leem
-      // `comprado` (chegouItem/entregue) e `falta` — sem atualizá-los, cobertura e
-      // fabricabilidade NÃO refletiriam a chegada. SAÍDA (consumo) não altera o
-      // comprado, só o saldo.
-      const patch = { quantidade: novoSaldo, updated_at: now };
-      if (ehEntrada) {
-        const novoComprado = (Number(item.comprado) || 0) + q;
-        patch.comprado = r2(novoComprado);
-        patch.falta = Math.max(0, r2((Number(item.pedido) || 0) - novoComprado));
-        patch.ultima_entrada = hojeLocal();
-      } else {
-        patch.ultima_saida = hojeLocal();
-      }
-      await estoqueApi.update(item.id, patch);
-      await movEstoqueApi.create({
-        item_id: item.id,
-        obra_id: item.obra_id || item.obraId || obraAtual || null,
+      // Delta ATÔMICO no banco (RPC movimentar_estoque): o saldo é somado/
+      // subtraído no servidor com a linha travada e a movimentação é gravada na
+      // MESMA transação — duas pessoas lançando ao mesmo tempo não perdem
+      // atualização. ENTRADA = material recebido: também soma em `comprado` e
+      // recalcula `falta` (pedido − comprado), que os KPIs de cobertura leem.
+      // Saída maior que o saldo REAL do banco é rejeitada pelo servidor.
+      const res = await movimentarEstoque(item.id, ehEntrada ? q : -q, {
         tipo,
-        quantidade: q,
-        unidade: item.unidade || 'UN',
-        material: item.descricao || item.codigo || null,
-        motivo: motivo.trim() || (ehEntrada ? 'Entrada manual' : 'Saída manual'),
-        responsavel: responsavel.trim() || null,
-        nota_fiscal: ehEntrada ? (nf.trim() || null) : null,
-        documento_url: anexo || null,
-        saldo_anterior: saldoAtual,
-        saldo_novo: novoSaldo,
         origem: 'manual',
-        data: now,
+        obraId: item.obra_id || item.obraId || obraAtual || null,
+        material: item.descricao || item.codigo || undefined,
+        motivo: motivo.trim() || (ehEntrada ? 'Entrada manual' : 'Saída manual'),
+        responsavel: responsavel.trim() || undefined,
+        notaFiscal: ehEntrada ? (nf.trim() || undefined) : undefined,
+        documentoUrl: anexo || undefined,
+        contaComprado: ehEntrada,
       });
-      toast.success(`${ehEntrada ? 'Entrada' : 'Saída'} registrada — novo saldo: ${novoSaldo} ${item.unidade || ''}`);
+      const saldoFinal = r2(Number(res?.saldo_novo ?? novoSaldo));
+      toast.success(`${ehEntrada ? 'Entrada' : 'Saída'} registrada — novo saldo: ${saldoFinal} ${item.unidade || ''}`);
       onSaved?.();
       onClose?.();
     } catch (e) {

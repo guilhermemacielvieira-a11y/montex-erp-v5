@@ -27,7 +27,8 @@
  * - O Suspense fallback está configurado no App.jsx
  */
 
-import { lazy } from 'react';
+import { lazy, createElement } from 'react';
+import { Navigate } from 'react-router-dom';
 
 // ===== CORE =====
 const DashboardPremium = lazy(() => import('./pages/DashboardPremium'));
@@ -74,7 +75,10 @@ const SimuladorPage = lazy(() => import('./pages/SimuladorPage'));
 const MedicaoAutomaticaPage = lazy(() => import('./pages/MedicaoAutomaticaPage'));
 
 // ===== EXPEDIÇÃO =====
-const ExpedicaoIntegrado = lazy(() => import('./pages/ExpedicaoIntegrado'));
+// ExpedicaoIntegrado ("Romaneios Integrado") foi DESATIVADA: gravava romaneios
+// fora do fluxo transacional (RPCs criar/despachar/excluir_romaneio). A URL antiga
+// redireciona para a página canônica de Envios.
+const RedirectEnviosExpedicao = () => createElement(Navigate, { to: '/EnviosExpedicaoPage', replace: true });
 const EnviosExpedicaoPage = lazy(() => import('./pages/EnviosExpedicaoPage'));
 
 // ===== BI & ANALYTICS =====
@@ -171,7 +175,7 @@ export const PAGES = {
     "MedicaoAutomaticaPage": MedicaoAutomaticaPage,
 
     // Expedição
-    "ExpedicaoIntegrado": ExpedicaoIntegrado,
+    "ExpedicaoIntegrado": RedirectEnviosExpedicao, // redirect (página desativada)
     "EnviosExpedicaoPage": EnviosExpedicaoPage,
 
     // BI & Analytics

@@ -14,6 +14,7 @@
 // aviso "já apontada". Gated por producao.lancar_avanco.
 // ============================================================
 import React, { useMemo, useState, useEffect, useRef } from 'react';
+import { proximaEtapaProducao, normalizarEtapa } from '@/services/fluxoEtapas';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'react-hot-toast';
@@ -51,10 +52,9 @@ const ETAPAS = [
   { key: 'entregue', label: 'Entregue', icon: PackageCheck, color: 'green' },
 ];
 const ORDEM = ETAPAS.map(e => e.key);
-const proximaEtapa = (etapa) => {
-  const i = ORDEM.indexOf((etapa || 'aguardando').toLowerCase());
-  return i >= 0 && i < ORDEM.length - 1 ? ORDEM[i + 1] : null;
-};
+// Avanço pela PRODUÇÃO para em Expedido: enviado/entregue só pela Expedição
+// (romaneio) — o banco (RPC mover_etapa) rejeita a transição.
+const proximaEtapa = (etapa) => proximaEtapaProducao(etapa);
 const labelDe = (key) => ETAPAS.find(e => e.key === key)?.label || key;
 
 const C_BG = { slate: 'bg-slate-700/30 border-slate-600', blue: 'bg-blue-500/15 border-blue-500/30', amber: 'bg-amber-500/15 border-amber-500/30', purple: 'bg-violet-500/15 border-violet-500/30', orange: 'bg-orange-500/15 border-orange-500/30', yellow: 'bg-yellow-500/15 border-yellow-500/30', emerald: 'bg-emerald-500/15 border-emerald-500/30', green: 'bg-green-500/15 border-green-500/30' };
@@ -145,7 +145,12 @@ export default function ProducaoMobile() {
   const avancar = async () => {
     if (!pecaSel || !moverPecaEtapa) return;
     const prox = proximaEtapa(pecaSel.etapa);
-    if (!prox) { toast('Peça já está na etapa final'); return; }
+    if (!prox) {
+      toast(normalizarEtapa(pecaSel.etapa) === 'expedido'
+        ? 'Envio para a obra é feito pela Expedição (romaneio)'
+        : 'Peça já está na etapa final');
+      return;
+    }
     if (!isOnline()) {
       // Offline: aplica otimisticamente (dispatch local imediato; remoto falha e é
       // ignorado) e ENFILEIRA para sincronizar ao reconectar. moverPecaEtapa é

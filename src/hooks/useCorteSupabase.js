@@ -10,15 +10,18 @@
 //   'finalizado'  → Corte concluído
 // ============================================
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
-import { supabase, estoqueApi, movEstoqueApi } from '../api/supabaseClient';
-import { planejarBaixaCorte, planejarEstornoCorte } from '../services/consumoProducao';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { supabase } from '../api/supabaseClient';
+import { baixarCorte, estornarCorte } from '../api/producaoRpc';
+
+const PAGE_SIZE = 1000;
 
 /**
  * Hook que fornece dados de corte da tabela materiais_corte do Supabase.
  *
  * @returns {object} { items, metrics, categorias, iniciarCorte, finalizarCorte,
- *                      resetarCorte, finalizarCorteEmLote, contarCortadasParaConjunto, loading }
+ *                      resetarCorte, finalizarCorteEmLote, contarCortadasParaConjunto,
+ *                      emAndamento (Set de ids com operação em curso), loading }
  */
 export function useCorteSupabase(obraId) {
   const [rawItems, setRawItems] = useState([]);
@@ -32,14 +35,23 @@ export function useCorteSupabase(obraId) {
       return;
     }
     try {
-      const { data, error } = await supabase
-        .from('materiais_corte')
-        .select('*')
-        .eq('obra_id', obraId)
-        .order('marca', { ascending: true });
-
-      if (error) throw error;
-      setRawItems(data || []);
+      // PAGINAÇÃO: PostgREST corta em 1000 linhas/req. Ordem estável
+      // (marca, id) para não pular/duplicar linhas entre páginas.
+      const all = [];
+      for (let offset = 0, i = 0; i < 50; i++, offset += PAGE_SIZE) {
+        const { data, error } = await supabase
+          .from('materiais_corte')
+          .select('*')
+          .eq('obra_id', obraId)
+          .order('marca', { ascending: true })
+          .order('id', { ascending: true })
+          .range(offset, offset + PAGE_SIZE - 1);
+        if (error) throw error;
+        if (!data || data.length === 0) break;
+        all.push(...data);
+        if (data.length < PAGE_SIZE) break;
+      }
+      setRawItems(all);
     } catch (err) {
       console.error('[useCorteSupabase] Erro ao carregar materiais_corte:', err);
       setRawItems([]);
@@ -72,177 +84,100 @@ export function useCorteSupabase(obraId) {
     }));
   }, [rawItems]);
 
-  // ===== CONSUMO AUTOMÁTICO DE ESTOQUE (baixa por corte) =====
-  // Ao finalizar um corte, dá baixa no estoque (item casado pelo perfil) no peso
-  // teórico do corte, registra a movimentação de saída e marca baixa_estoque_kg
-  // (idempotência). Best-effort: falha aqui NÃO impede a finalização do corte.
-  // `estoqueList` é mutado localmente p/ acumular baixas do mesmo perfil no lote.
-  const baixarCorteNoEstoque = useCallback(async (rawCorte, estoqueList) => {
-    const plano = planejarBaixaCorte(rawCorte, estoqueList);
-    if (!plano) return;
-    const now = new Date().toISOString();
-    try {
-      await estoqueApi.update(plano.itemId, { quantidade: plano.saldoNovo, ultima_saida: now.split('T')[0], updated_at: now });
-      await movEstoqueApi.create({
-        item_id: plano.itemId,
-        tipo: 'saida',
-        quantidade: plano.kg,
-        peso: plano.kg,
-        unidade: 'kg',
-        material_perfil: plano.perfil,
-        material: plano.material,
-        custo_unitario: plano.preco || null,
-        motivo: `Consumo produção — corte ${rawCorte.marca || rawCorte.id}`,
-        obra_id: rawCorte.obra_id || null,
-        peca_id: rawCorte.peca_id || rawCorte.id || null,
-        setor: 'producao',
-        origem: 'producao',
-        saldo_anterior: plano.saldoAnterior,
-        saldo_novo: plano.saldoNovo,
-        data: now,
-      });
-      await supabase.from('materiais_corte').update({ baixa_estoque_kg: plano.kg, updated_at: now }).eq('id', rawCorte.id);
-      const it = estoqueList.find((e) => e.id === plano.itemId);
-      if (it) it.quantidade = plano.saldoNovo; // acumula p/ próximos cortes do mesmo perfil
-    } catch (err) {
-      console.error('⚠️ Falha na baixa de estoque do corte', rawCorte.id, err.message);
-    }
-  }, []);
-
-  // Estorno: ao resetar um corte já baixado, devolve o kg ao estoque e zera a baixa.
-  const estornarCorteNoEstoque = useCallback(async (rawCorte) => {
-    if (Number(rawCorte?.baixa_estoque_kg) <= 0) return;
-    const estoqueList = await estoqueApi.getAll().catch(() => []);
-    const plano = planejarEstornoCorte(rawCorte, estoqueList);
-    if (!plano) return;
-    const now = new Date().toISOString();
-    try {
-      if (plano.itemId) {
-        await estoqueApi.update(plano.itemId, { quantidade: plano.saldoNovo, ultima_entrada: now.split('T')[0], updated_at: now });
-        await movEstoqueApi.create({
-          item_id: plano.itemId,
-          tipo: 'entrada',
-          quantidade: plano.kg,
-          peso: plano.kg,
-          unidade: 'kg',
-          material_perfil: plano.perfil,
-          material: plano.material,
-          motivo: `Estorno consumo produção — corte ${rawCorte.marca || rawCorte.id}`,
-          obra_id: rawCorte.obra_id || null,
-          peca_id: rawCorte.peca_id || rawCorte.id || null,
-          setor: 'producao',
-          origem: 'estorno_producao',
-          saldo_anterior: plano.saldoAnterior,
-          saldo_novo: plano.saldoNovo,
-          data: now,
-        });
-      }
-      await supabase.from('materiais_corte').update({ baixa_estoque_kg: 0, updated_at: now }).eq('id', rawCorte.id);
-    } catch (err) {
-      console.error('⚠️ Falha no estorno de estoque do corte', rawCorte.id, err.message);
-    }
-  }, []);
-
   // ===== AÇÕES DE CORTE (com persistência Supabase) =====
+  // A baixa/estorno de aço no estoque acontece NO BANCO, na mesma transação
+  // da mudança de status: RPC baixar_corte/estornar_corte → trigger
+  // tg_corte_baixa_estoque (estoque_aplicar_movimento). O kg efetivamente
+  // deduzido fica em materiais_corte.baixa_estoque_kg e o estorno devolve
+  // exatamente esse valor. As RPCs são idempotentes (compare-and-set): duplo
+  // clique, duas abas ou retry não baixam duas vezes.
+  //
+  // Guarda de operação em andamento por id: a UI usa `emAndamento` para
+  // desabilitar os botões e o hook recusa uma 2ª operação no mesmo corte.
+  const inFlight = useRef(new Set());
+  const [emAndamento, setEmAndamento] = useState(() => new Set());
+  const marcar = useCallback((id, on) => {
+    if (on) inFlight.current.add(id); else inFlight.current.delete(id);
+    setEmAndamento(new Set(inFlight.current));
+  }, []);
+  const comGuarda = useCallback(async (id, fn) => {
+    if (inFlight.current.has(id)) return { ok: false, emAndamento: true };
+    marcar(id, true);
+    try {
+      return await fn();
+    } finally {
+      marcar(id, false);
+    }
+  }, [marcar]);
 
   const iniciarCorte = useCallback(async (id, funcionarioId = null) => {
     try {
-      const agora = new Date().toISOString();
-      const updateData = {
-        status_corte: 'cortando',
-        data_inicio: agora,
-        updated_at: agora
-      };
-      if (funcionarioId) {
-        updateData.funcionario_corte = funcionarioId;
-      }
-      const { error } = await supabase
-        .from('materiais_corte')
-        .update(updateData)
-        .eq('id', id);
-      if (error) throw error;
+      const r = await comGuarda(id, async () => {
+        const agora = new Date().toISOString();
+        const updateData = { status_corte: 'cortando', data_inicio: agora, updated_at: agora };
+        if (funcionarioId) updateData.funcionario_corte = funcionarioId;
+        // Só inicia se ainda não foi finalizado (não "desfinaliza" por engano)
+        const { error } = await supabase
+          .from('materiais_corte')
+          .update(updateData)
+          .eq('id', id)
+          .not('status_corte', 'in', '("finalizado","cortado","concluido")');
+        if (error) throw error;
+        return { ok: true };
+      });
+      if (r?.emAndamento) return false;
       await fetchData();
       return true;
     } catch (err) {
       console.error('Erro ao iniciar corte:', err);
       return false;
     }
-  }, [fetchData]);
+  }, [fetchData, comGuarda]);
 
-  const finalizarCorte = useCallback(async (id) => {
+  // Finaliza (inclusive direto de 'aguardando'): status + baixa de estoque
+  // atômicos. Retorna o resultado da RPC ({ baixa_kg, ja_finalizado }) ou
+  // false em erro. `funcionarioId` opcional (finalizar direto).
+  const finalizarCorte = useCallback(async (id, funcionarioId = null) => {
     try {
-      const { error } = await supabase
-        .from('materiais_corte')
-        .update({
-          status_corte: 'finalizado',
-          data_fim: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-      if (error) throw error;
-      // Baixa automática de estoque (best-effort, não bloqueia a finalização)
-      const rawCorte = rawItems.find((r) => r.id === id);
-      if (rawCorte) {
-        const estoqueList = await estoqueApi.getAll().catch(() => []);
-        await baixarCorteNoEstoque(rawCorte, estoqueList);
-      }
+      const r = await comGuarda(id, () => baixarCorte(id, { funcionario: funcionarioId }));
+      if (r?.emAndamento) return false;
       await fetchData();
-      return true;
+      return r || true;
     } catch (err) {
       console.error('Erro ao finalizar corte:', err);
       return false;
     }
-  }, [fetchData, rawItems, baixarCorteNoEstoque]);
+  }, [fetchData, comGuarda]);
 
   const resetarCorte = useCallback(async (id) => {
     try {
-      // Estorna a baixa de estoque ANTES de zerar o corte (usa baixa_estoque_kg atual)
-      const rawCorte = rawItems.find((r) => r.id === id);
-      if (rawCorte) await estornarCorteNoEstoque(rawCorte);
-      const { error } = await supabase
-        .from('materiais_corte')
-        .update({
-          status_corte: 'aguardando',
-          data_inicio: null,
-          data_fim: null,
-          maquina: null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', id);
-      if (error) throw error;
+      const r = await comGuarda(id, () => estornarCorte(id));
+      if (r?.emAndamento) return false;
       await fetchData();
-      return true;
+      return r || true;
     } catch (err) {
       console.error('Erro ao resetar corte:', err);
       return false;
     }
-  }, [fetchData, rawItems, estornarCorteNoEstoque]);
+  }, [fetchData, comGuarda]);
 
   const finalizarCorteEmLote = useCallback(async (ids) => {
     let count = 0;
-    const dataFim = new Date().toISOString();
-    // Carrega o estoque UMA vez; as baixas rodam em sequência para acumular
-    // corretamente o saldo de itens do mesmo perfil.
-    const estoqueList = await estoqueApi.getAll().catch(() => []);
+    // Sequencial: cada RPC trava o item de estoque do perfil, então rodar em
+    // paralelo só geraria espera de lock.
     for (const id of ids) {
       const item = allItems.find(i => i.id === id);
       if (!item || item.status === 'finalizado') continue;
       try {
-        const { error } = await supabase
-          .from('materiais_corte')
-          .update({ status_corte: 'finalizado', data_fim: dataFim, updated_at: dataFim })
-          .eq('id', id);
-        if (error) throw error;
-        count++;
-        const rawCorte = rawItems.find((r) => r.id === id);
-        if (rawCorte) await baixarCorteNoEstoque(rawCorte, estoqueList);
+        const r = await comGuarda(id, () => baixarCorte(id));
+        if (r && !r.emAndamento && !r.ja_finalizado) count++;
       } catch (err) {
         console.error('Erro ao finalizar ' + id + ':', err);
       }
     }
     await fetchData();
     return count;
-  }, [allItems, rawItems, fetchData, baixarCorteNoEstoque]);
+  }, [allItems, fetchData, comGuarda]);
 
   // ===== MÉTRICAS / KPIs =====
   const metrics = useMemo(() => {
@@ -326,6 +261,7 @@ export function useCorteSupabase(obraId) {
     resetarCorte,
     finalizarCorteEmLote,
     contarCortadasParaConjunto,
+    emAndamento,
     loading
   };
 }

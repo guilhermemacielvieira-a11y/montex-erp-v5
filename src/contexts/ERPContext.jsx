@@ -9,7 +9,7 @@
  * Cada contexto é memoizado com apenas suas state slices, reduzindo re-renders desnecessários.
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState, useRef } from 'react';
 
 // Constantes de negócio (sempre importadas - não são mock data)
 import {
@@ -17,8 +17,7 @@ import {
   ETAPAS_PRODUCAO,
   STATUS_CORTE,
   STATUS_EXPEDICAO,
-  getEstatisticasGerais
-} from '../data/database';
+} from '../data/constants';
 
 // Tipos de ações, transformadores e reducer combinado
 import { ACTIONS } from './actions';
@@ -71,6 +70,32 @@ import {
   checkConnection
 } from '@/api/supabaseClient';
 import { matchEstoqueItem, montarNovoItemEstoque } from '@/services/abastecimento';
+import { validarTransicao } from '@/services/fluxoEtapas';
+import { moverEtapa as moverEtapaRpc, movimentarEstoque } from '@/api/producaoRpc';
+import { criarRomaneio, despacharRomaneio, excluirRomaneio } from '@/api/expedicaoRpc';
+import { montarPayloadCriarRomaneio, normalizarStatusRomaneio, hojeLocalISO, STATUS_ROMANEIO } from '@/services/romaneio';
+
+// ========================================
+// TABELAS CARREGADAS SOB DEMANDA (fora do boot)
+// Grandes e usadas por poucas páginas — cada página chama
+// ensureLoaded('<chave>') (ou o hook useEnsureLoaded) ao montar.
+// Chave = nome da fatia no estado (o shape do contexto não muda).
+// ========================================
+const LAZY_TABLES = {
+  movimentacoesEstoque: { fetch: () => movEstoqueApi.getAll(), operationName: 'movimentacoesEstoque' }, // EstoquePageV2
+  notasFiscais: { fetch: () => notasFiscaisApi.getAll(), operationName: 'notasFiscais' },               // ComprasPage, MateriaisPage
+  materiaisEstoque: { fetch: () => pedidosMaterialApi.getAll(), operationName: 'pedidosMaterial' },     // ComprasPage, ImportRomaneioPage
+  listas: { fetch: () => listasApi.getAll(), operationName: 'listas' },                                 // sem consumidores diretos hoje
+};
+const LAZY_TABLE_ALIASES = {
+  movimentacoes: 'movimentacoesEstoque',
+  movimentacoes_estoque: 'movimentacoesEstoque',
+  notas: 'notasFiscais',
+  notas_fiscais: 'notasFiscais',
+  pedidos: 'materiaisEstoque',
+  pedidosMaterial: 'materiaisEstoque',
+  pedidos_material: 'materiaisEstoque',
+};
 
 // ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
@@ -128,6 +153,17 @@ export function ERPProvider({ children }) {
   const [supabaseConnected, setSupabaseConnected] = useState(false);
   const [dataSource, setDataSource] = useState('loading'); // 'loading' | 'supabase' | 'mock_dev' | 'error'
   const [connectionError, setConnectionError] = useState(null);
+
+  // ===== CARGA SOB DEMANDA — portão do boot =====
+  // ensureLoaded() espera o boot terminar (para saber se a fonte é Supabase)
+  // antes de buscar tabelas adiadas. Ver LAZY_TABLES e ensureLoaded abaixo.
+  const bootGateRef = useRef(null);
+  if (!bootGateRef.current) {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    bootGateRef.current = { promise, resolve, supabase: false };
+  }
+  const lazyLoadsRef = useRef({});
 
   // ===== CARREGAR DADOS DO SUPABASE =====
   useEffect(() => {
@@ -190,14 +226,16 @@ export function ERPProvider({ children }) {
         }
 
         setSupabaseConnected(true);
-        console.log('🔌 Conectado ao Supabase — carregando 17 tabelas em paralelo...');
+        bootGateRef.current.supabase = true;
+        console.log('🔌 Conectado ao Supabase — carregando 13 tabelas do boot em paralelo...');
 
-        // Carregar tudo em paralelo
+        // Carregar tabelas do boot em paralelo. Tabelas grandes/raras
+        // (movimentacoes_estoque, notas_fiscais, listas, pedidos_material)
+        // são carregadas sob demanda via ensureLoaded() — ver LAZY_TABLES.
         const [
           clientesData,
           obrasData,
           orcamentosData,
-          listasData,
           estoqueData,
           pecasData,
           funcionariosData,
@@ -207,15 +245,11 @@ export function ERPProvider({ children }) {
           medicoesData,
           expData,
           configMedData,
-          pedidosMatData,
-          lancamentosData,
-          notasFiscaisData,
-          movEstoqueData
+          lancamentosData
         ] = await Promise.all([
           retryWithBackoff(() => clientesApi.getAll(), { operationName: 'clientes' }).catch(() => []),
           retryWithBackoff(() => obrasApi.getAll(), { operationName: 'obras' }).catch(() => []),
           retryWithBackoff(() => orcamentosApi.getAll(), { operationName: 'orcamentos' }).catch(() => []),
-          retryWithBackoff(() => listasApi.getAll(), { operationName: 'listas' }).catch(() => []),
           retryWithBackoff(() => estoqueApi.getAll(), { operationName: 'estoque' }).catch(() => []),
           retryWithBackoff(() => pecasApi.getAll('id', true), { operationName: 'pecas' }).catch(() => []),
           retryWithBackoff(() => funcionariosApi.getAll(), { operationName: 'funcionarios' }).catch(() => []),
@@ -225,10 +259,7 @@ export function ERPProvider({ children }) {
           retryWithBackoff(() => medicoesApi.getAll(), { operationName: 'medicoes' }).catch(() => []),
           retryWithBackoff(() => expedicoesApi.getAll(), { operationName: 'expedicoes' }).catch(() => []),
           retryWithBackoff(() => configMedicaoApi.getAll(), { operationName: 'configMedicao' }).catch(() => []),
-          retryWithBackoff(() => pedidosMaterialApi.getAll(), { operationName: 'pedidosMaterial' }).catch(() => []),
-          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => []),
-          retryWithBackoff(() => notasFiscaisApi.getAll(), { operationName: 'notasFiscais' }).catch(() => []),
-          retryWithBackoff(() => movEstoqueApi.getAll(), { operationName: 'movimentacoesEstoque' }).catch(() => [])
+          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => [])
         ]);
 
         // Se tem dados no Supabase, usar eles
@@ -243,7 +274,9 @@ export function ERPProvider({ children }) {
             clientes: transformArray(clientesData),
             obras: obrasComProgresso,
             orcamentos: transformOrcamentoArray(orcamentosData),
-            listas: transformArray(listasData),
+            // listas, materiaisEstoque, notasFiscais, movimentacoesEstoque:
+            // fora do payload de boot (sob demanda) — o spread do
+            // INIT_FROM_SUPABASE preserva o que já estiver no estado.
             estoque: transformArray(estoqueData),
             pecas: pecasTransformadas,
             funcionarios: transformArray(funcionariosData),
@@ -252,10 +285,7 @@ export function ERPProvider({ children }) {
             maquinas: transformArray(maquinasData),
             medicoes: transformArray(medicoesData),
             expedicoes: transformArray(expData),
-            materiaisEstoque: transformArray(pedidosMatData),
-            lancamentosDespesas: transformArray(lancamentosData),
-            notasFiscais: transformArray(notasFiscaisData),
-            movimentacoesEstoque: transformArray(movEstoqueData)
+            lancamentosDespesas: transformArray(lancamentosData)
           };
 
           // configMedicao é um objeto, não array
@@ -287,9 +317,7 @@ export function ERPProvider({ children }) {
             pecas: pecasData.length,
             estoque: estoqueData.length,
             funcionarios: funcionariosData.length,
-            pedidosMaterial: pedidosMatData.length,
             lancamentos: lancamentosData.length,
-            notasFiscais: notasFiscaisData.length,
             obraAtual: payload.obraAtual || 'nenhuma'
           });
         } else {
@@ -307,7 +335,38 @@ export function ERPProvider({ children }) {
       }
     }
 
-    loadFromSupabase();
+    // Libera ensureLoaded() quando o boot termina (sucesso, mock ou erro).
+    loadFromSupabase().finally(() => bootGateRef.current.resolve());
+  }, []);
+
+  // ===== CARGA SOB DEMANDA (tabelas fora do boot) =====
+  // ensureLoaded('movimentacoesEstoque') / ensureLoaded(['notasFiscais', 'materiaisEstoque'])
+  // - Idempotente: cada tabela é buscada uma vez por sessão (promise em cache).
+  //   { force: true } refaz a busca.
+  // - Em modo mock/erro (sem Supabase) não faz nada.
+  // - Falha não fica em cache: a próxima chamada tenta de novo.
+  const ensureLoaded = useCallback(async (keys, opts = {}) => {
+    const lista = (Array.isArray(keys) ? keys : [keys])
+      .map((k) => LAZY_TABLE_ALIASES[k] || k)
+      .filter((k) => LAZY_TABLES[k]);
+    if (!lista.length) return;
+    await bootGateRef.current.promise;
+    if (!bootGateRef.current.supabase) return;
+    const cache = lazyLoadsRef.current;
+    await Promise.all(lista.map((key) => {
+      if (cache[key] && !opts.force) return cache[key];
+      const { fetch, operationName } = LAZY_TABLES[key];
+      cache[key] = retryWithBackoff(fetch, { operationName })
+        .then((rows) => {
+          dispatch({ type: ACTIONS.LAZY_TABLE_LOADED, payload: { key, rows: transformArray(rows || []) } });
+          console.log(`✅ [ERP] ${key} carregado sob demanda: ${(rows || []).length}`);
+        })
+        .catch((err) => {
+          delete cache[key];
+          console.warn(`⚠️ [ERP] Falha ao carregar ${key} sob demanda:`, err?.message || err);
+        });
+      return cache[key];
+    }));
   }, []);
 
   // ===== AÇÕES - OBRAS =====
@@ -432,42 +491,68 @@ export function ERPProvider({ children }) {
   }, [dataSource]);
 
   // ===== AÇÕES - ESTOQUE =====
-  const consumirEstoque = useCallback(async (itemId, quantidade, obraId) => {
-    dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade, obraId } });
+  // Saldo de estoque: delta ATÔMICO no banco via RPC `movimentar_estoque`
+  // (UPDATE quantidade = quantidade + delta com lock + movimentação na mesma
+  // transação). Antes era read-modify-write absoluto com o saldo da TELA →
+  // duas saídas simultâneas perdiam uma (lost update). Em erro, desfaz o
+  // otimista e relança. Saída que deixaria saldo negativo é rejeitada no banco.
+  const aplicarSaldoServidor = useCallback((itemId, res) => {
+    if (res?.item) {
+      dispatch({ type: ACTIONS.UPDATE_ESTOQUE, payload: { id: itemId, data: { quantidade: Number(res.item.quantidade) || 0, pesoKg: res.item.peso_kg } } });
+    }
+  }, []);
+
+  const consumirEstoque = useCallback(async (itemId, quantidade, obraId, opts = {}) => {
+    const qtd = Math.abs(Number(quantidade) || 0);
+    if (!qtd) return null;
+    dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade: qtd, obraId } });
     if (dataSource === 'supabase') {
       try {
-        const item = state.estoque.find(e => e.id === itemId);
-        if (item) {
-          await estoqueApi.update(itemId, {
-            quantidade: (item.quantidade || 0) - quantidade,
-            reservado: Math.max(0, (item.reservado || 0) - quantidade)
-          });
-          console.log(`✅ Estoque ${itemId} consumido no Supabase`);
-        }
+        const res = await movimentarEstoque(itemId, -qtd, {
+          tipo: 'saida',
+          origem: opts.origem || 'manual',
+          motivo: opts.motivo || 'Saída de estoque',
+          responsavel: opts.responsavel,
+          obraId,
+          ref: opts.ref,
+        });
+        aplicarSaldoServidor(itemId, res);
+        console.log(`✅ Estoque ${itemId} consumido no Supabase (saldo ${res?.saldo_novo})`);
+        return res;
       } catch (err) {
+        dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade: qtd } }); // rollback
         console.error('❌ Erro ao consumir estoque no Supabase:', err.message);
         throw err;
       }
     }
-  }, [dataSource, state.estoque]);
+    return null;
+  }, [dataSource, aplicarSaldoServidor]);
 
-  const adicionarEstoque = useCallback(async (itemId, quantidade, compraId) => {
-    dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade, compraId } });
+  const adicionarEstoque = useCallback(async (itemId, quantidade, compraId, opts = {}) => {
+    const qtd = Math.abs(Number(quantidade) || 0);
+    if (!qtd) return null;
+    dispatch({ type: ACTIONS.ADICIONAR_ESTOQUE, payload: { itemId, quantidade: qtd, compraId } });
     if (dataSource === 'supabase') {
       try {
-        const item = state.estoque.find(e => e.id === itemId);
-        if (item) {
-          await estoqueApi.update(itemId, {
-            quantidade: (item.quantidade || 0) + quantidade
-          });
-          console.log(`✅ Estoque ${itemId} adicionado no Supabase`);
-        }
+        const res = await movimentarEstoque(itemId, qtd, {
+          tipo: 'entrada',
+          origem: opts.origem || (compraId ? 'compra' : 'manual'),
+          motivo: opts.motivo || (compraId ? `Entrada compra ${compraId}` : 'Entrada de estoque'),
+          responsavel: opts.responsavel,
+          ref: compraId || opts.ref,
+          contaComprado: opts.contaComprado ?? !!compraId,
+        });
+        aplicarSaldoServidor(itemId, res);
+        console.log(`✅ Estoque ${itemId} adicionado no Supabase (saldo ${res?.saldo_novo})`);
+        return res;
       } catch (err) {
+        dispatch({ type: ACTIONS.CONSUMIR_ESTOQUE, payload: { itemId, quantidade: qtd } }); // rollback
         console.error('❌ Erro ao adicionar estoque no Supabase:', err.message);
         throw err;
       }
     }
-  }, [dataSource, state.estoque]);
+    return null;
+  }, [dataSource, aplicarSaldoServidor]);
 
   const reservarEstoque = useCallback(async (itemId, quantidade, obraId) => {
     dispatch({ type: ACTIONS.RESERVAR_ESTOQUE, payload: { itemId, quantidade, obraId } });
@@ -489,46 +574,50 @@ export function ERPProvider({ children }) {
   }, [dataSource, state.estoque]);
 
   // ===== AÇÕES - PRODUÇÃO =====
-  const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId) => {
+  // Move a peça INTEIRA de etapa. Persistência ATÔMICA via RPC `mover_etapa`
+  // (valida o fluxo no banco: 1 etapa por vez; voltar só com opts.force;
+  // enviado/entregue só via Expedição). Otimista com ROLLBACK: se o banco
+  // rejeitar, a peça volta ao estado anterior, mostra toast.error e relança.
+  // opts: { force, etapaFuncionario, data, silencioso, etapaAtual }
+  const moverPecaEtapa = useCallback(async (pecaId, novaEtapa, funcionarioId, opts = {}) => {
+    const anterior = state.pecas.find(p => p.id === pecaId) || null;
+    if (anterior) {
+      // opts.etapaAtual: etapa já confirmada pelo banco num passo anterior
+      // (a closure de state.pecas pode estar defasada em passos encadeados).
+      const check = validarTransicao(opts.etapaAtual ?? anterior.etapa, novaEtapa, { force: !!opts.force });
+      if (!check.ok) {
+        if (!opts.silencioso) toast.error(check.motivo);
+        const e = new Error(check.motivo);
+        e.code = 'TRANSICAO_INVALIDA';
+        throw e;
+      }
+    }
+
     dispatch({ type: ACTIONS.MOVER_PECA_ETAPA, payload: { pecaId, novaEtapa, funcionarioId } });
 
-    // Persistir no Supabase
     if (dataSource === 'supabase') {
       try {
-        const updateData = { etapa: novaEtapa };
-        const agora = new Date().toISOString();
-        // Mapear etapa final para status
-        if (novaEtapa === 'expedido') {
-          updateData.status = 'concluido';
-          updateData.data_fim_real = agora;
-        } else if (novaEtapa !== 'aguardando') {
-          updateData.status = 'em_producao';
-          // Registrar data de início na primeira vez que entra em produção
-          const pecaAtual = state.pecas.find(p => p.id === pecaId);
-          if (pecaAtual && !pecaAtual.dataInicio) {
-            updateData.data_inicio = agora;
-          }
+        const res = await moverEtapaRpc(pecaId, novaEtapa, {
+          funcionario: funcionarioId,
+          force: !!opts.force,
+          etapaFuncionario: opts.etapaFuncionario,
+          data: opts.data,
+        });
+        // Reconcilia com a linha devolvida pelo banco (fonte de verdade)
+        if (res?.peca) {
+          const [fresca] = transformPecaArray([res.peca]);
+          if (fresca) dispatch({ type: ACTIONS.UPDATE_PECA, payload: { id: pecaId, data: fresca } });
         }
-        if (funcionarioId) {
-          updateData.responsavel = funcionarioId;
-          // Registrar funcionário responsável por etapa específica
-          if (novaEtapa === 'fabricacao') {
-            updateData.funcionario_fabricacao = funcionarioId;
-          } else if (novaEtapa === 'solda') {
-            updateData.funcionario_solda = funcionarioId;
-          } else if (novaEtapa === 'pintura') {
-            updateData.funcionario_pintura = funcionarioId;
-          } else if (novaEtapa === 'expedido') {
-            updateData.funcionario_expedido = funcionarioId;
-          }
-        }
-
-        // Filtrar apenas campos validos antes de enviar ao Supabase
-        const safeData = pecaToSupabase({ id: pecaId, ...updateData });
-        await pecasApi.update(pecaId, safeData);
         console.log(`✅ Peça ${pecaId} → ${novaEtapa} (func: ${funcionarioId || 'N/A'}) salva no Supabase`);
       } catch (err) {
+        // Offline: mantém o otimista (o chamador enfileira p/ sincronizar).
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) throw err;
+        // ROLLBACK do otimista
+        if (anterior) {
+          dispatch({ type: 'RESTORE_PECA', payload: anterior });
+        }
         console.error('❌ Erro ao salvar etapa no Supabase:', err.message);
+        if (!opts.silencioso) toast.error(`Não foi possível mover a peça: ${err.message}`);
         throw err;
       }
     }
@@ -737,229 +826,104 @@ export function ERPProvider({ children }) {
   }, [dataSource, reloadLancamentos, reloadMedicoes, reloadPecas]);
 
   // ===== AÇÕES - EXPEDIÇÃO =====
+  // REGRA DO FLUXO (migração 2026100530_expedicao_romaneio_transacional.sql):
+  //  • Criar romaneio NÃO move peças: continuam 'expedido' (Fila de Embarque),
+  //    reservadas no romaneio; envio parcial vira split próprio (ainda 'expedido').
+  //  • Despacho (em_transito/entregue) → peças 'enviado' (Em Obra / Auto-Pull da
+  //    MontagemPage). Voltar para preparando/aguardando/problema → 'expedido'.
+  //  • Tudo via RPC transacional: sem estado otimista, sem erro engolido. Em
+  //    sucesso recarrega peças + romaneios do banco; em falha lança o erro (a
+  //    página mostra o toast com a mensagem).
   const addExpedicao = useCallback(async (expedicao) => {
-    dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: expedicao });
-
-    // Determinar quais peças foram totalmente enviadas vs parcialmente enviadas
-    const detalhes = expedicao.pecas_detalhes || [];
-    // Number() obrigatório: strings comparam lexicograficamente ('5' < '10' = false)
-    const pecasParciais = new Set(
-      detalhes
-        .filter(d => Number(d.qtd_enviada) < Number(d.qtd_total))
-        .map(d => String(d.id))
-    );
-
-    // Só muda etapa para ENVIADO se a peça foi TOTALMENTE enviada
-    // Peças com envio parcial permanecem como 'expedido' na fila de embarque
-    expedicao.pecas.forEach(pecaId => {
-      if (!pecasParciais.has(String(pecaId))) {
-        dispatch({
-          type: ACTIONS.UPDATE_PECA,
-          payload: { id: pecaId, data: { etapa: ETAPAS_PRODUCAO.ENVIADO || 'enviado' } }
-        });
-      }
+    const detalhes = expedicao.pecas_detalhes || expedicao.pecasDetalhes
+      || (expedicao.pecas || expedicao.pecas_ids || []).map(id => ({ id }));
+    const payload = montarPayloadCriarRomaneio({
+      id: expedicao.id || null,
+      numero: expedicao.numero || expedicao.numero_romaneio || expedicao.numeroRomaneio,
+      data: expedicao.data_envio || expedicao.dataEnvio || expedicao.data_expedicao || hojeLocalISO(),
+      status: expedicao.status || 'preparando',
+      transportadora: expedicao.transportadora,
+      motorista: expedicao.motorista,
+      placa: expedicao.placa,
+      observacoes: expedicao.observacoes,
+      destino: expedicao.obra_nome || expedicao.obraNome || null,
+      itens: detalhes.map(d => ({
+        id: typeof d === 'object' ? d.id : d,
+        qtd: typeof d === 'object' ? (d.qtd ?? d.qtd_enviada ?? d.qtdEnviada) : undefined,
+      })),
     });
 
-    // Persistir no Supabase
-    if (dataSource === 'supabase') {
-      try {
-        // SPLIT AUTOMÁTICO DE ENVIO PARCIAL (fluxo Expedição→Montagem):
-        // se o romaneio leva 5 de 10 unidades, cria peça split com qtd=5 e
-        // etapa='enviado' (entra no Auto-Pull da MontagemPage) e reduz a
-        // original para 5 em 'expedido' (continua na Fila de Embarque).
-        // Mesmo padrão de split do Kanban (LancamentoProducaoModal).
-        const idRemap = new Map(); // id original -> id do split enviado
-        for (const d of detalhes) {
-          const qtdEnviada = parseInt(d.qtd_enviada) || 0;
-          if (!pecasParciais.has(String(d.id)) || qtdEnviada <= 0) continue;
-          try {
-            const orig = await pecasApi.getById(d.id);
-            if (!orig) continue;
-            const qtdOrig = Math.max(1, parseInt(orig.quantidade) || 1);
-            const restante = qtdOrig - qtdEnviada;
-            if (restante <= 0) {
-              // Banco diz que não sobra nada: trata como envio total
-              await pecasApi.update(d.id, { etapa: 'enviado', status: 'enviado' });
-              continue;
-            }
-            const agora = new Date().toISOString();
-            const pesoUnit = (orig.peso_total || 0) / qtdOrig;
-            const splitId = `${d.id}__split_enviado_${Date.now()}_${Math.floor(Math.random() * 9999)}`;
-            await pecasApi.create({
-              ...orig,
-              id: splitId,
-              quantidade: qtdEnviada,
-              peso_total: pesoUnit * qtdEnviada,
-              etapa: 'enviado',
-              status: 'enviado',
-              created_at: agora,
-              updated_at: agora,
-            });
-            try {
-              await pecasApi.update(d.id, {
-                quantidade: restante,
-                peso_total: pesoUnit * restante,
-                updated_at: agora,
-              });
-            } catch (updErr) {
-              // ROLLBACK: sem reduzir a original, o split duplicaria unidades
-              // (5 'enviado' + 10 'expedido'). Remove o split e mantém o
-              // comportamento antigo (peça inteira na fila) para esta peça.
-              await pecasApi.delete(splitId).catch(() => {});
-              throw updErr;
-            }
-            idRemap.set(String(d.id), splitId);
-          } catch (splitErr) {
-            console.error(`⚠️ Erro no split parcial da peça ${d.id}:`, splitErr.message);
-            toast.error(`Envio parcial da peça ${d.id} não registrado — ela permanece inteira na Fila de Embarque`);
-          }
-        }
-
-        // Mapeamento específico para a tabela expedicoes do Supabase
-        const record = {
-          id: expedicao.id || `EXP-${Date.now()}`,
-          obra_id: expedicao.obra_id || expedicao.obraId || null,
-          numero_romaneio: expedicao.numero || expedicao.numero_romaneio || null,
-          data_expedicao: expedicao.data_envio || expedicao.dataEnvio || new Date().toISOString().split('T')[0],
-          status: (expedicao.status || 'preparando').toLowerCase(),
-          transportadora: expedicao.transportadora || null,
-          motorista: expedicao.motorista || null,
-          placa: expedicao.placa || null,
-          peso_total: expedicao.peso_total || expedicao.pesoTotal || 0,
-          // Parciais splitadas apontam para o id do split (envio TOTAL daquela
-          // linha) — evita dupla contagem na lista de Envios e no despacho.
-          pecas: (expedicao.pecas_detalhes || []).map(d => {
-              const splitId = idRemap.get(String(d.id));
-              if (splitId) {
-                return { id: splitId, qtd_enviada: d.qtd_enviada, qtd_total: d.qtd_enviada, id_original: d.id };
-              }
-              return { id: d.id, qtd_enviada: d.qtd_enviada, qtd_total: d.qtd_total };
-            }),
-          destino: expedicao.obra_nome || expedicao.obraNome || null,
-          observacoes: expedicao.observacoes || null,
-        };
-        await expedicoesApi.create(record);
-        // Atualizar etapa das peças no Supabase — só marca 'enviado' se envio total
-        // (parciais já foram resolvidas via split acima)
-        for (const pecaId of (expedicao.pecas || [])) {
-          if (!pecasParciais.has(String(pecaId))) {
-            await pecasApi.update(pecaId, { etapa: 'enviado', status: 'enviado' }).catch(() => {});
-          }
-        }
-        // Recarrega peças para o state refletir splits/reduções
-        if (idRemap.size > 0) await reloadPecas().catch(() => {});
-        console.log(`✅ Expedição ${record.id} criada no Supabase (${idRemap.size} split(s) parciais)`);
-      } catch (err) {
-        console.error('❌ Erro ao criar expedição no Supabase:', err.message);
-        throw err;
-      }
+    if (dataSource !== 'supabase') {
+      // Modo local/mock: só registra o romaneio (peças continuam 'expedido').
+      const local = {
+        ...expedicao,
+        id: payload.id || `EXP-${Date.now()}`,
+        numeroRomaneio: payload.numero_romaneio,
+        dataExpedicao: payload.data_expedicao,
+        status: payload.status,
+        pecas: payload.pecas.map(p => ({ id: p.id, qtd_enviada: p.qtd, qtd_total: p.qtd })),
+      };
+      dispatch({ type: ACTIONS.ADD_EXPEDICAO, payload: local });
+      return { expedicao: local, splits: [] };
     }
 
-    // Add notification for shipment
+    const result = await criarRomaneio(payload);
+    await Promise.all([reloadPecas(), reloadExpedicoes()]);
+    console.log(`✅ Romaneio ${result?.expedicao?.id} criado (${result?.splits?.length || 0} split(s) parciais)`);
+
     if (window.__notificationDispatch) {
-      const numPecas = expedicao.pecas?.length || 0;
+      const numPecas = payload.pecas.length;
       window.__notificationDispatch({
         type: 'shipping',
-        title: `Romaneio #${expedicao.id} expedido`,
-        message: `${numPecas} peça${numPecas !== 1 ? 's' : ''} foram despachadas para ${expedicao.obraId || 'obra'}. Prazo: 2-3 dias úteis.`,
+        title: `Romaneio ${result?.expedicao?.numero_romaneio || result?.expedicao?.id || ''} criado`,
+        message: `${numPecas} peça${numPecas !== 1 ? 's' : ''} reservada${numPecas !== 1 ? 's' : ''} para ${result?.expedicao?.destino || result?.expedicao?.obra_id || 'obra'}. Peças seguem na Fila de Embarque até o despacho.`,
         icon: 'Truck'
       });
     }
-  }, [dataSource, reloadPecas]);
+    return result;
+  }, [dataSource, reloadPecas, reloadExpedicoes]);
 
-  const updateExpedicao = useCallback(async (id, data) => {
-    dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data } });
-
-    const statusUpper = (data.status || '').toUpperCase();
-
-    if (dataSource === 'supabase') {
-      // 1) PERSISTIR O STATUS DA EXPEDIÇÃO PRIMEIRO.
-      //    Esta é a fonte de verdade do badge na Lista de Envios. Precisa ser
-      //    gravada ANTES de qualquer atualização de peças, senão um envio com
-      //    muitas peças (ex: ENV-08 com 106) demora ~15-30s no loop e, se a
-      //    página for recarregada antes do fim, o status nunca era salvo e
-      //    voltava para "Preparando". (bug de não-persistência)
-      try {
-        const snakeData = reverseTransformRecord(data);
-        delete snakeData.id;
-        await expedicoesApi.update(id, snakeData);
-        console.log(`✅ Expedição ${id} atualizada no Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao atualizar expedição no Supabase:', err.message);
-        throw err;
-      }
+  const updateExpedicao = useCallback(async (id, data = {}) => {
+    const { status, motivoProblema, motivo_problema, ...resto } = data || {};
+    const novoStatus = status != null ? normalizarStatusRomaneio(status) : null;
+    if (novoStatus != null && !STATUS_ROMANEIO.includes(novoStatus)) {
+      throw new Error(`Status de romaneio inválido: ${status}`);
     }
 
-    // 2) Se status mudou para ENTREGUE ou EM_TRANSITO, atualizar etapa das peças
-    //    REGRA DO FLUXO: peças SEMPRE vão para 'enviado' quando expedição é
-    //    despachada (status ENTREGUE/EM_TRANSITO). Isso é o gatilho do Auto-Pull
-    //    da MontagemPage (etapa='enviado' = Aguardando Montagem em campo).
-    //    NÃO usar etapa='entregue' aqui — isso tira a peça do escopo do módulo
-    //    de Montagem e quebra os KPIs (peso embarcado vira "fora de escopo").
-    //    "Montado" é gerenciado SEPARADAMENTE via entity_store/localStorage na
-    //    MontagemPage (NÃO altera etapa do banco).
-    if (statusUpper === 'ENTREGUE' || statusUpper === 'EM_TRANSITO') {
-      // Buscar a expedição para pegar os IDs das peças
-      const exp = state.expedicoes.find(e => e.id === id);
-      if (exp) {
-        const pecasIds = exp.pecas_ids || exp.pecasIds || exp.pecas || [];
-        // ENVIO PARCIAL: peças com qtd_enviada < qtd_total NÃO podem virar
-        // 'enviado' por inteiro (inflaria as unidades disponíveis na Montagem
-        // e o EM_OBRA do 3D). Romaneios novos já resolvem parciais via split
-        // no addExpedicao; aqui protege os legados.
-        const rawDetalhes = exp.pecas_detalhes || exp.pecasDetalhes
-          || (Array.isArray(exp.pecas) ? exp.pecas : []);
-        const parciais = new Set(
-          rawDetalhes
-            .filter(p => p && typeof p === 'object'
-              && p.qtd_enviada != null && p.qtd_total != null
-              && Number(p.qtd_enviada) < Number(p.qtd_total))
-            .map(p => String(p.id))
-        );
-        const ids = pecasIds
-          .map(p => typeof p === 'object' ? (p.id || p) : p)
-          .filter(Boolean)
-          .filter(pid => !parciais.has(String(pid)));
-        // SEMPRE 'enviado' — independente de EM_TRANSITO ou ENTREGUE.
-        // Romaneio "Entregue" significa que saiu da fábrica e chegou em obra;
-        // peça vai para "Aguardando Montagem" no fluxo da MontagemPage.
-        const novaEtapa = 'enviado';
-
-        // Atualizar no state local
-        ids.forEach(pecaId => {
-          dispatch({
-            type: ACTIONS.UPDATE_PECA,
-            payload: { id: pecaId, data: { etapa: novaEtapa } }
-          });
-        });
-
-        // Atualizar no Supabase — UMA única query (PATCH ... WHERE id IN (...))
-        // em vez de N updates sequenciais. Mais rápido e atômico por chunk.
-        if (dataSource === 'supabase' && ids.length) {
-          try {
-            await pecasApi.updateMany(ids, { etapa: novaEtapa, status: novaEtapa });
-            console.log(`✅ ${ids.length} peças atualizadas para etapa '${novaEtapa}' (Auto-Pull MontagemPage)`);
-          } catch (err) {
-            // Não relança: o status da expedição (passo 1) já foi salvo.
-            console.error('⚠️ Erro ao atualizar etapa das peças:', err.message);
-          }
-        }
-      }
+    if (dataSource !== 'supabase') {
+      dispatch({ type: ACTIONS.UPDATE_EXPEDICAO, payload: { id, data: { ...resto, ...(novoStatus ? { status: novoStatus } : {}) } } });
+      return;
     }
-  }, [dataSource, state.expedicoes]);
+
+    // 1) Campos cadastrais (número, data, transportadora, motorista, placa, obs).
+    //    Status/peças/datas de despacho/soft-delete NUNCA vão por aqui — só pelas RPCs.
+    const snakeData = reverseTransformRecord(resto);
+    ['id', 'status', 'pecas', 'pecas_ids', 'pecas_detalhes', 'obra_id', 'peso_total',
+      'deleted_at', 'data_saida', 'data_entrega', 'created_at', 'updated_at'].forEach(k => delete snakeData[k]);
+    if (Object.keys(snakeData).length > 0) {
+      await expedicoesApi.update(id, snakeData);
+    }
+
+    // 2) Status → RPC de despacho (move as peças na mesma transação)
+    if (novoStatus) {
+      const res = await despacharRomaneio(id, novoStatus, motivoProblema ?? motivo_problema ?? null);
+      console.log(`✅ Romaneio ${id} → ${novoStatus} (${res?.pecas_movidas ?? 0} peça(s) movida(s))`);
+      await Promise.all([reloadPecas(), reloadExpedicoes()]);
+    } else {
+      await reloadExpedicoes();
+    }
+  }, [dataSource, reloadPecas, reloadExpedicoes]);
 
   const deleteExpedicao = useCallback(async (id) => {
-    dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
-    if (dataSource === 'supabase') {
-      try {
-        await expedicoesApi.delete(id);
-        console.log(`✅ Expedição ${id} deletada do Supabase`);
-      } catch (err) {
-        console.error('❌ Erro ao deletar expedição no Supabase:', err.message);
-        throw err;
-      }
+    if (dataSource !== 'supabase') {
+      dispatch({ type: ACTIONS.DELETE_EXPEDICAO, payload: id });
+      return;
     }
-  }, [dataSource]);
+    const res = await excluirRomaneio(id);
+    console.log(`✅ Romaneio ${id} excluído (${res?.pecas_retornadas ?? 0} peça(s) de volta à fila, ${res?.splits_reunidos ?? 0} split(s) reunido(s))`);
+    await Promise.all([reloadPecas(), reloadExpedicoes()]);
+    return res;
+  }, [dataSource, reloadPecas, reloadExpedicoes]);
 
   // ===== AÇÕES - COMPRAS =====
   const addCompra = useCallback(async (compra) => {
@@ -1039,22 +1003,36 @@ export function ERPProvider({ children }) {
           let itemId = item.item_id || item.itemId || null;
           const est = (itemId ? estoqueAtual.find((e) => e.id === itemId) : null)
             || (perfil ? matchEstoqueItem(estoqueAtual, perfil) : null);
-          let saldoAnterior = null, saldoNovo = null;
+          const nf = compra?.notaFiscal || compra?.documentoOrigem || null;
+          const motivo = `Recebimento compra ${compraId} — ${item.descricao || material || ''}`.trim();
           if (est) {
-            saldoAnterior = Number(est.quantidade) || 0;
-            saldoNovo = saldoAnterior + qtd;
-            itemId = est.id;
-            // Recebimento = material chegou: sobe saldo E `comprado` (o que os KPIs
-            // leem como chegou/entregue), recalculando `falta` (pedido − comprado).
-            const novoComprado = (Number(est.comprado) || 0) + qtd;
-            await estoqueApi.update(est.id, {
-              quantidade: saldoNovo,
-              comprado: Math.round(novoComprado * 100) / 100,
-              falta: Math.max(0, Math.round(((Number(est.pedido) || 0) - novoComprado) * 100) / 100),
-              ultima_entrada: hoje,
-              updated_at: now,
-            }).catch((e) => console.error('⚠️ Falha ao atualizar saldo do estoque:', e.message));
-          } else if (perfil || material) {
+            if (!(qtd > 0)) continue;
+            // Item existente: delta ATÔMICO (saldo + comprado/falta + movimentação
+            // na MESMA transação) — sem read-modify-write do saldo da tela.
+            try {
+              await movimentarEstoque(est.id, qtd, {
+                tipo: 'entrada',
+                origem: 'compra',
+                setor: 'suprimentos',
+                motivo,
+                notaFiscal: nf,
+                custoUnitario: custo,
+                obraId: compra?.obraId || null,
+                contaComprado: true,
+                materialPerfil: perfil || undefined,
+                material: material || undefined,
+                peso: item.peso || qtd,
+              });
+              est.quantidade = (Number(est.quantidade) || 0) + qtd; // p/ próximos itens do lote
+            } catch (e) {
+              console.error('⚠️ Falha ao dar entrada no estoque:', e.message);
+              toast.error(`Entrada de ${item.descricao || perfil || 'item'} no estoque falhou: ${e.message}`);
+            }
+            continue;
+          }
+
+          let saldoAnterior = null, saldoNovo = null;
+          if (perfil || material) {
             // Perfil NOVO (sem item no estoque): cria o item de fábrica para o
             // material recebido aparecer no saldo. Best-effort.
             const novoItem = montarNovoItemEstoque(item, compra, { hoje, nowISO: now });
@@ -1082,8 +1060,8 @@ export function ERPProvider({ children }) {
             material_perfil: perfil || null,
             material,
             custo_unitario: custo || null,
-            motivo: `Recebimento compra ${compraId} — ${item.descricao || material || ''}`.trim(),
-            nota_fiscal: compra?.notaFiscal || compra?.documentoOrigem || null,
+            motivo,
+            nota_fiscal: nf,
             obra_id: compra?.obraId || null,
             setor: 'suprimentos',
             origem: 'compra',
@@ -1546,8 +1524,23 @@ export function ERPProvider({ children }) {
     return state.medicoes.filter(m => m.obraId === obraIdAtiva);
   }, [state.medicoes, obraIdAtiva]);
 
+  // Antes chamava getEstatisticasGerais() de data/database (calculado sobre
+  // os dados MOCK e arrastando ~350 KB de mock para o bundle inicial).
+  // Mesmo shape, agora a partir do estado real.
   const estatisticasGerais = useMemo(() => {
-    return getEstatisticasGerais();
+    const obras = state.obras || [];
+    const estoque = state.estoque || [];
+    const obrasAtivas = obras.filter(o => ![STATUS_OBRA.CONCLUIDA, STATUS_OBRA.CANCELADA, STATUS_OBRA.ORCAMENTO].includes(o.status));
+    return {
+      totalObras: obras.length,
+      obrasAtivas: obrasAtivas.length,
+      pesoTotalKg: obrasAtivas.reduce((acc, o) => acc + (Number(o.pesoTotal) || 0), 0),
+      valorTotalContratos: obrasAtivas.reduce((acc, o) => acc + (Number(o.valorContrato) || 0), 0),
+      funcionariosAtivos: (state.funcionarios || []).filter(f => f.ativo).length,
+      equipesAtivas: (state.equipes || []).filter(e => e.obraAtual).length,
+      itensEstoque: estoque.length,
+      alertasEstoque: estoque.filter(e => (e.quantidadeAtual ?? e.quantidade ?? 0) <= (e.quantidadeMinima ?? e.minimo ?? 0)).length,
+    };
   }, [state.obras, state.funcionarios, state.equipes, state.estoque]);
 
   const alertasEstoque = useMemo(() => {
@@ -1573,7 +1566,8 @@ export function ERPProvider({ children }) {
     setFiltros,
     notificacoes: state.notificacoes,
     addNotificacao,
-    removeNotificacao
+    removeNotificacao,
+    ensureLoaded
   }), [
     supabaseConnected,
     dataSource,
@@ -1586,7 +1580,8 @@ export function ERPProvider({ children }) {
     setFiltros,
     state.notificacoes,
     addNotificacao,
-    removeNotificacao
+    removeNotificacao,
+    ensureLoaded
   ]);
 
   // 2. ObrasContext: obras + orcamentos + clientes
@@ -1944,6 +1939,20 @@ export function useERP() {
     ...supply,
     ...operacoes
   };
+}
+
+/**
+ * Garante que tabelas carregadas sob demanda (fora do boot) estejam no estado.
+ * Uso numa página: `useEnsureLoaded('movimentacoesEstoque')` ou
+ * `useEnsureLoaded('notasFiscais', 'materiaisEstoque')`. Idempotente.
+ */
+export function useEnsureLoaded(...keys) {
+  const core = useContext(ERPCoreContext);
+  const ensureLoaded = core?.ensureLoaded;
+  const assinatura = keys.join('|');
+  useEffect(() => {
+    if (ensureLoaded && assinatura) ensureLoaded(assinatura.split('|'));
+  }, [ensureLoaded, assinatura]);
 }
 
 // ===== HOOKS ESPECÍFICOS (Domain-based) =====

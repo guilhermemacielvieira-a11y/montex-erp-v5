@@ -54,9 +54,87 @@ export const ehCheque = (mov) => {
   return /\bcheque\b|\bch[ \-]?\d+\b|\bch\.\s?\d+/i.test(txt) || (mov?.formaPagto || '').toLowerCase().includes('cheque');
 };
 
-// Definição ÚNICA de "quitado" (receita recebida OU despesa paga, com variantes)
-export const STATUS_QUITADO = ['pago', 'paga', 'recebido', 'faturado', 'confirmado'];
-export const ehPago = (mov) => STATUS_QUITADO.includes(mov?.status);
+// Definição ÚNICA de "quitado" (receita recebida OU despesa paga, com variantes).
+// `faturado` NÃO é quitado: nota emitida ≠ dinheiro em caixa (ver financeiroStatus).
+export const STATUS_QUITADO = ['pago', 'paga', 'recebido', 'recebida', 'confirmado', 'quitado'];
+export const ehPago = (mov) => STATUS_QUITADO.includes(String(mov?.status || '').toLowerCase());
+
+// ===== DATAS LOCAIS =====
+// Formata um Date como 'YYYY-MM-DD' no fuso LOCAL. NÃO usar
+// toISOString().split('T')[0] para "hoje": em UTC-3, após 21h vira o dia seguinte.
+export const toLocalISO = (date = new Date()) => {
+  const d = date instanceof Date ? date : parseLocalDate(date);
+  if (!d || isNaN(d.getTime())) return '';
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+};
+
+/** Data de hoje (fuso local) no formato 'YYYY-MM-DD'. */
+export const hojeLocalISO = (hoje = new Date()) => toLocalISO(hoje);
+
+/**
+ * Converte data brasileira 'dd/mm/yyyy' (ou 'dd/mm/yy', 'dd-mm-yyyy') em ISO
+ * 'YYYY-MM-DD'. Strings já em ISO são devolvidas (só a parte da data).
+ * Retorna '' quando inválida.
+ */
+export const parseDataBR = (str) => {
+  if (str === null || str === undefined) return '';
+  if (str instanceof Date) return toLocalISO(str);
+  const s = String(str).trim();
+  if (!s) return '';
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const br = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})$/);
+  if (!br) return '';
+  let ano = parseInt(br[3], 10);
+  if (br[3].length === 2) ano += 2000;
+  const mes = parseInt(br[2], 10);
+  const dia = parseInt(br[1], 10);
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return '';
+  const d = new Date(ano, mes - 1, dia);
+  if (d.getMonth() !== mes - 1) return ''; // ex.: 31/02
+  return toLocalISO(d);
+};
+
+/**
+ * Converte valor monetário em formato brasileiro/variado para número.
+ *   '1.234,56' → 1234.56 · '1234,56' → 1234.56 · '1234.56' → 1234.56
+ *   'R$ 1.234,56' → 1234.56 · '1.234' → 1234 · '-R$ 10,00' → -10 · '(10,00)' → -10
+ * Retorna 0 quando não interpretável.
+ */
+export const parseValorBR = (v) => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (v === null || v === undefined) return 0;
+  let s = String(v).trim();
+  if (!s) return 0;
+  let negativo = false;
+  if (/^\(.*\)$/.test(s)) { negativo = true; s = s.slice(1, -1); }
+  s = s.replace(/R\$/gi, '').replace(/\s/g, '');
+  if (s.startsWith('-')) { negativo = !negativo; s = s.slice(1); }
+  s = s.replace(/[^\d.,]/g, '');
+  if (!s) return 0;
+  const temVirgula = s.includes(',');
+  const temPonto = s.includes('.');
+  if (temVirgula && temPonto) {
+    // O último separador é o decimal
+    if (s.lastIndexOf(',') > s.lastIndexOf('.')) s = s.replace(/\./g, '').replace(',', '.');
+    else s = s.replace(/,/g, '');
+  } else if (temVirgula) {
+    const partes = s.split(',');
+    s = partes.length > 2 ? partes.join('') : s.replace(',', '.');
+  } else if (temPonto) {
+    const partes = s.split('.');
+    // '1.234' ou '1.234.567' (grupos de 3) = milhar; '1234.56' = decimal
+    if (partes.length > 2 || (partes.length === 2 && partes[1].length === 3 && partes[0].length <= 3)) {
+      s = partes.join('');
+    }
+  }
+  const n = parseFloat(s);
+  if (!Number.isFinite(n)) return 0;
+  return negativo ? -n : n;
+};
 
 // ===== OPERAÇÃO DE CHEQUE TROCADO (preview no modal Nova Movimentação) =====
 // chequesList: [{ valor, vencimento }], valorLiquido: string|number

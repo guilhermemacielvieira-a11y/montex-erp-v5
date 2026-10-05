@@ -1,4 +1,5 @@
 import React from 'react';
+import { captureException } from '@/lib/monitoring';
 
 /**
  * Error Boundary Global - Captura erros de renderização do React
@@ -41,9 +42,11 @@ class ErrorBoundary extends React.Component {
 
     console.error('[ErrorBoundary] Erro capturado:', errorReport);
 
-    // Enviar para serviço de monitoramento se configurado
-    // Para integrar com Sentry, LogRocket, etc., descomente e configure:
-    // if (window.__ERROR_REPORTER__) window.__ERROR_REPORTER__(errorReport);
+    // Enviar para o Sentry (no-op se VITE_SENTRY_DSN não estiver definido).
+    captureException(error, {
+      contexts: { react: { componentStack: errorInfo?.componentStack } },
+      tags: { boundary: 'global', chunk_error: ehErroDeChunk(error) ? 'yes' : 'no' },
+    });
     try {
       const storedErrors = JSON.parse(sessionStorage.getItem('montex-error-log') || '[]');
       storedErrors.push(errorReport);

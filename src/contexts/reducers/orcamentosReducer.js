@@ -7,7 +7,7 @@
  */
 
 import { ACTIONS } from '../actions';
-import { STATUS_OBRA } from '../../data/database';
+import { STATUS_OBRA } from '../../data/constants';
 
 export function orcamentosReducer(state, action) {
   switch (action.type) {
