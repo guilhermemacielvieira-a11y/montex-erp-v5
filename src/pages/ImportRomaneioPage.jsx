@@ -57,7 +57,7 @@ import {
 } from '@/components/ui/dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
-import { useObras, useProducao, useEstoque, useMateriais } from '@/contexts/ERPContext';
+import { useObras, useProducao, useEstoque, useMateriais, useEnsureLoaded } from '@/contexts/ERPContext';
 import { ETAPAS_PRODUCAO } from '@/data/database';
 import toast from 'react-hot-toast';
 
@@ -201,6 +201,7 @@ export default function ImportRomaneioPage() {
     importarMateriais,
     registrarEntregaMaterial
   } = useMateriais();
+  useEnsureLoaded('materiaisEstoque'); // tabela fora do boot do ERPContext
 
   // Estados
   const [tipoLista, setTipoLista] = useState(TIPO_LISTA.CORTE);

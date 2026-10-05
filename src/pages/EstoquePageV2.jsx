@@ -26,7 +26,7 @@ import {
 } from 'recharts';
 
 // Importa o contexto ERP
-import { useEstoque, useObras, useProducao } from '@/contexts/ERPContext';
+import { useEstoque, useObras, useProducao, useEnsureLoaded } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
 import {
   SAUDE, saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
@@ -220,6 +220,7 @@ function ItemEstoque({ item, onEdit, obraAtual, onEntrada, onSaida, onHistorico 
 export default function EstoquePageV2() {
   // Contexto ERP
   const { estoque, movimentacoesEstoque, reloadEstoque } = useEstoque();
+  useEnsureLoaded('movimentacoesEstoque'); // tabela fora do boot do ERPContext
   const { obras, obraAtual, obraAtualData } = useObras();
   const { pecasObraAtual } = useProducao();
 

@@ -9,7 +9,7 @@
  * Cada contexto é memoizado com apenas suas state slices, reduzindo re-renders desnecessários.
  */
 
-import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState, useRef } from 'react';
 
 // Constantes de negócio (sempre importadas - não são mock data)
 import {
@@ -72,6 +72,28 @@ import {
 import { matchEstoqueItem, montarNovoItemEstoque } from '@/services/abastecimento';
 
 // ========================================
+// TABELAS CARREGADAS SOB DEMANDA (fora do boot)
+// Grandes e usadas por poucas páginas — cada página chama
+// ensureLoaded('<chave>') (ou o hook useEnsureLoaded) ao montar.
+// Chave = nome da fatia no estado (o shape do contexto não muda).
+// ========================================
+const LAZY_TABLES = {
+  movimentacoesEstoque: { fetch: () => movEstoqueApi.getAll(), operationName: 'movimentacoesEstoque' }, // EstoquePageV2
+  notasFiscais: { fetch: () => notasFiscaisApi.getAll(), operationName: 'notasFiscais' },               // ComprasPage, MateriaisPage
+  materiaisEstoque: { fetch: () => pedidosMaterialApi.getAll(), operationName: 'pedidosMaterial' },     // ComprasPage, ImportRomaneioPage
+  listas: { fetch: () => listasApi.getAll(), operationName: 'listas' },                                 // sem consumidores diretos hoje
+};
+const LAZY_TABLE_ALIASES = {
+  movimentacoes: 'movimentacoesEstoque',
+  movimentacoes_estoque: 'movimentacoesEstoque',
+  notas: 'notasFiscais',
+  notas_fiscais: 'notasFiscais',
+  pedidos: 'materiaisEstoque',
+  pedidosMaterial: 'materiaisEstoque',
+  pedidos_material: 'materiaisEstoque',
+};
+
+// ========================================
 // PRODUÇÃO: ESTADO VAZIO (sem mock data)
 // Em produção, dados vêm exclusivamente do Supabase
 // ========================================
@@ -127,6 +149,17 @@ export function ERPProvider({ children }) {
   const [supabaseConnected, setSupabaseConnected] = useState(false);
   const [dataSource, setDataSource] = useState('loading'); // 'loading' | 'supabase' | 'mock_dev' | 'error'
   const [connectionError, setConnectionError] = useState(null);
+
+  // ===== CARGA SOB DEMANDA — portão do boot =====
+  // ensureLoaded() espera o boot terminar (para saber se a fonte é Supabase)
+  // antes de buscar tabelas adiadas. Ver LAZY_TABLES e ensureLoaded abaixo.
+  const bootGateRef = useRef(null);
+  if (!bootGateRef.current) {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    bootGateRef.current = { promise, resolve, supabase: false };
+  }
+  const lazyLoadsRef = useRef({});
 
   // ===== CARREGAR DADOS DO SUPABASE =====
   useEffect(() => {
@@ -189,14 +222,16 @@ export function ERPProvider({ children }) {
         }
 
         setSupabaseConnected(true);
-        console.log('🔌 Conectado ao Supabase — carregando 17 tabelas em paralelo...');
+        bootGateRef.current.supabase = true;
+        console.log('🔌 Conectado ao Supabase — carregando 13 tabelas do boot em paralelo...');
 
-        // Carregar tudo em paralelo
+        // Carregar tabelas do boot em paralelo. Tabelas grandes/raras
+        // (movimentacoes_estoque, notas_fiscais, listas, pedidos_material)
+        // são carregadas sob demanda via ensureLoaded() — ver LAZY_TABLES.
         const [
           clientesData,
           obrasData,
           orcamentosData,
-          listasData,
           estoqueData,
           pecasData,
           funcionariosData,
@@ -206,15 +241,11 @@ export function ERPProvider({ children }) {
           medicoesData,
           expData,
           configMedData,
-          pedidosMatData,
-          lancamentosData,
-          notasFiscaisData,
-          movEstoqueData
+          lancamentosData
         ] = await Promise.all([
           retryWithBackoff(() => clientesApi.getAll(), { operationName: 'clientes' }).catch(() => []),
           retryWithBackoff(() => obrasApi.getAll(), { operationName: 'obras' }).catch(() => []),
           retryWithBackoff(() => orcamentosApi.getAll(), { operationName: 'orcamentos' }).catch(() => []),
-          retryWithBackoff(() => listasApi.getAll(), { operationName: 'listas' }).catch(() => []),
           retryWithBackoff(() => estoqueApi.getAll(), { operationName: 'estoque' }).catch(() => []),
           retryWithBackoff(() => pecasApi.getAll('id', true), { operationName: 'pecas' }).catch(() => []),
           retryWithBackoff(() => funcionariosApi.getAll(), { operationName: 'funcionarios' }).catch(() => []),
@@ -224,10 +255,7 @@ export function ERPProvider({ children }) {
           retryWithBackoff(() => medicoesApi.getAll(), { operationName: 'medicoes' }).catch(() => []),
           retryWithBackoff(() => expedicoesApi.getAll(), { operationName: 'expedicoes' }).catch(() => []),
           retryWithBackoff(() => configMedicaoApi.getAll(), { operationName: 'configMedicao' }).catch(() => []),
-          retryWithBackoff(() => pedidosMaterialApi.getAll(), { operationName: 'pedidosMaterial' }).catch(() => []),
-          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => []),
-          retryWithBackoff(() => notasFiscaisApi.getAll(), { operationName: 'notasFiscais' }).catch(() => []),
-          retryWithBackoff(() => movEstoqueApi.getAll(), { operationName: 'movimentacoesEstoque' }).catch(() => [])
+          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => [])
         ]);
 
         // Se tem dados no Supabase, usar eles
@@ -242,7 +270,9 @@ export function ERPProvider({ children }) {
             clientes: transformArray(clientesData),
             obras: obrasComProgresso,
             orcamentos: transformOrcamentoArray(orcamentosData),
-            listas: transformArray(listasData),
+            // listas, materiaisEstoque, notasFiscais, movimentacoesEstoque:
+            // fora do payload de boot (sob demanda) — o spread do
+            // INIT_FROM_SUPABASE preserva o que já estiver no estado.
             estoque: transformArray(estoqueData),
             pecas: pecasTransformadas,
             funcionarios: transformArray(funcionariosData),
@@ -251,10 +281,7 @@ export function ERPProvider({ children }) {
             maquinas: transformArray(maquinasData),
             medicoes: transformArray(medicoesData),
             expedicoes: transformArray(expData),
-            materiaisEstoque: transformArray(pedidosMatData),
-            lancamentosDespesas: transformArray(lancamentosData),
-            notasFiscais: transformArray(notasFiscaisData),
-            movimentacoesEstoque: transformArray(movEstoqueData)
+            lancamentosDespesas: transformArray(lancamentosData)
           };
 
           // configMedicao é um objeto, não array
@@ -286,9 +313,7 @@ export function ERPProvider({ children }) {
             pecas: pecasData.length,
             estoque: estoqueData.length,
             funcionarios: funcionariosData.length,
-            pedidosMaterial: pedidosMatData.length,
             lancamentos: lancamentosData.length,
-            notasFiscais: notasFiscaisData.length,
             obraAtual: payload.obraAtual || 'nenhuma'
           });
         } else {
@@ -306,7 +331,38 @@ export function ERPProvider({ children }) {
       }
     }
 
-    loadFromSupabase();
+    // Libera ensureLoaded() quando o boot termina (sucesso, mock ou erro).
+    loadFromSupabase().finally(() => bootGateRef.current.resolve());
+  }, []);
+
+  // ===== CARGA SOB DEMANDA (tabelas fora do boot) =====
+  // ensureLoaded('movimentacoesEstoque') / ensureLoaded(['notasFiscais', 'materiaisEstoque'])
+  // - Idempotente: cada tabela é buscada uma vez por sessão (promise em cache).
+  //   { force: true } refaz a busca.
+  // - Em modo mock/erro (sem Supabase) não faz nada.
+  // - Falha não fica em cache: a próxima chamada tenta de novo.
+  const ensureLoaded = useCallback(async (keys, opts = {}) => {
+    const lista = (Array.isArray(keys) ? keys : [keys])
+      .map((k) => LAZY_TABLE_ALIASES[k] || k)
+      .filter((k) => LAZY_TABLES[k]);
+    if (!lista.length) return;
+    await bootGateRef.current.promise;
+    if (!bootGateRef.current.supabase) return;
+    const cache = lazyLoadsRef.current;
+    await Promise.all(lista.map((key) => {
+      if (cache[key] && !opts.force) return cache[key];
+      const { fetch, operationName } = LAZY_TABLES[key];
+      cache[key] = retryWithBackoff(fetch, { operationName })
+        .then((rows) => {
+          dispatch({ type: ACTIONS.LAZY_TABLE_LOADED, payload: { key, rows: transformArray(rows || []) } });
+          console.log(`✅ [ERP] ${key} carregado sob demanda: ${(rows || []).length}`);
+        })
+        .catch((err) => {
+          delete cache[key];
+          console.warn(`⚠️ [ERP] Falha ao carregar ${key} sob demanda:`, err?.message || err);
+        });
+      return cache[key];
+    }));
   }, []);
 
   // ===== AÇÕES - OBRAS =====
@@ -1587,7 +1643,8 @@ export function ERPProvider({ children }) {
     setFiltros,
     notificacoes: state.notificacoes,
     addNotificacao,
-    removeNotificacao
+    removeNotificacao,
+    ensureLoaded
   }), [
     supabaseConnected,
     dataSource,
@@ -1600,7 +1657,8 @@ export function ERPProvider({ children }) {
     setFiltros,
     state.notificacoes,
     addNotificacao,
-    removeNotificacao
+    removeNotificacao,
+    ensureLoaded
   ]);
 
   // 2. ObrasContext: obras + orcamentos + clientes
@@ -1958,6 +2016,20 @@ export function useERP() {
     ...supply,
     ...operacoes
   };
+}
+
+/**
+ * Garante que tabelas carregadas sob demanda (fora do boot) estejam no estado.
+ * Uso numa página: `useEnsureLoaded('movimentacoesEstoque')` ou
+ * `useEnsureLoaded('notasFiscais', 'materiaisEstoque')`. Idempotente.
+ */
+export function useEnsureLoaded(...keys) {
+  const core = useContext(ERPCoreContext);
+  const ensureLoaded = core?.ensureLoaded;
+  const assinatura = keys.join('|');
+  useEffect(() => {
+    if (ensureLoaded && assinatura) ensureLoaded(assinatura.split('|'));
+  }, [ensureLoaded, assinatura]);
 }
 
 // ===== HOOKS ESPECÍFICOS (Domain-based) =====
