@@ -425,7 +425,7 @@ function RankingSetorCard({ titulo, icon: Icon, color, performers, bgGradient, b
   );
 }
 
-function TopPerformersSection({ performers }) {
+function TopPerformersSection({ performers, filtroEtapa = 'todas' }) {
   if (!performers || performers.length === 0) return null;
 
   // Separar por setor/etapa principal de trabalho
@@ -1786,7 +1786,7 @@ export default function ProducaoFuncionarioPage() {
 
           {/* Tab Ranking */}
           <TabsContent value="ranking" className="mt-4">
-            <TopPerformersSection performers={topPerformers} />
+            <TopPerformersSection performers={topPerformers} filtroEtapa={filtroEtapa} />
           </TabsContent>
 
           {/* Tab Funcionários */}

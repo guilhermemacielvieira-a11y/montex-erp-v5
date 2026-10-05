@@ -9,6 +9,7 @@
 // corteStatusStore (que era 100% em memória).
 // ============================================
 
+import { supabase } from '@/api/supabaseClient';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   loadFromSupabase

@@ -336,7 +336,7 @@ export default function PainelFinanceiroGlobal() {
   useEffect(() => {
     const snapshot = () => (localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '');
     let last = snapshot();
-    return subscribeLocalKeys([RECEITAS_STORAGE_KEY, RECEITAS_OVERRIDES_KEY], (_key, origem) => {
+    return subscribeLocalKeys([RECEITAS_OVERRIDES_KEY], (_key, origem) => {
       const cur = snapshot();
       // storage de outra aba: sempre recalcula (comportamento anterior);
       // mesma aba/fallback: só quando o conteúdo mudou de fato.
