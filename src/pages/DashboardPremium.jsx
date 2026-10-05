@@ -18,6 +18,8 @@ import {
   Area, Line, Bar, ComposedChart, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, Cell, ReferenceLine, PieChart, Pie,
 } from 'recharts';
+import { useObras } from '../contexts/ERPContext';
+import { isEscopoGeral, rotuloEscopo } from '../lib/escopoObra';
 import { useFinanceiroGlobal } from '../hooks/useFinanceiroGlobal';
 
 // ============================================
@@ -106,7 +108,10 @@ const tooltipStyle = { backgroundColor: '#0f172a', border: '1px solid #334155', 
 // MAIN
 // ============================================
 export default function DashboardPremium() {
-  const fg = useFinanceiroGlobal();
+  // Filtro do topo: Geral = caixa da empresa (= Painel Global); obra/grupo =
+  // só essas obras (medições/receitas × material lançado na obra).
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
+  const fg = useFinanceiroGlobal({ obraIds: obraIdsEscopo });
   const k = fg.kpis;
   const mr = fg.metasReal;
   const metas = fg.metas;
@@ -148,7 +153,9 @@ export default function DashboardPremium() {
         <PremiumCard className="col-span-12 lg:col-span-8" gradient="linear-gradient(135deg, rgba(16,185,129,0.18), rgba(59,130,246,0.10) 50%, rgba(15,23,42,0.95))">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <p className="text-[10px] text-emerald-300/70 uppercase tracking-[0.3em] font-bold mb-1">Financeiro · Painel Global</p>
+              <p className="text-[11px] text-emerald-300/80 uppercase tracking-[0.2em] font-bold mb-1">
+                {isEscopoGeral(escopoObra) ? 'Financeiro · Caixa da empresa' : `Financeiro · ${rotuloEscopo(escopoObra, obras)}`}
+              </p>
               <h1 className="text-3xl font-black text-white tracking-tight">Painel Financeiro</h1>
               <p className="text-sm text-white/50 mt-1">{new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
             </div>
