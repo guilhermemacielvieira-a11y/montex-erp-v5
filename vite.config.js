@@ -2,10 +2,26 @@
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
 import path from 'path'
+import { execSync } from 'child_process'
+
+// Release do Sentry: SHA do commit (Vercel expõe VERCEL_GIT_COMMIT_SHA no
+// build); fallback para o git local; senão null.
+function resolveRelease() {
+  if (process.env.VERCEL_GIT_COMMIT_SHA) return process.env.VERCEL_GIT_COMMIT_SHA;
+  try {
+    return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || null;
+  } catch {
+    return null;
+  }
+}
+const APP_RELEASE = resolveRelease();
 
 // https://vite.dev/config/
 export default defineConfig({
   logLevel: 'info',
+  define: {
+    __APP_RELEASE__: JSON.stringify(APP_RELEASE),
+  },
   plugins: [
     react(),
   ],
