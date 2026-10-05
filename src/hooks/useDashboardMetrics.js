@@ -206,12 +206,12 @@ export function useDashboardMetrics() {
 
   // ===== SEÇÃO 6: EXPEDIÇÃO =====
   const expedicaoMetrics = useMemo(() => {
-    const ativas = expedicoes.filter(e => e.status !== 'entregue').length;
+    const ativas = expedicoes.filter(e => String(e.status || '').toLowerCase() !== 'entregue').length;
     const totalExpedicoes = expedicoes.length;
 
     // Calculate total weight delivered
     const pesoEntregue = expedicoes
-      .filter(e => e.status === 'entregue')
+      .filter(e => String(e.status || '').toLowerCase() === 'entregue')
       .reduce((sum, e) => sum + (e.pesoTotal || 0), 0);
 
     return {

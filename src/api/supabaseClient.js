@@ -334,7 +334,20 @@ export const lancamentosApi = createCrud('lancamentos_despesas', 'data_emissao')
 export const croquisApi = createCrud('croquis', 'marca');
 export const detalhamentosApi = createCrud('detalhamentos', 'numero');
 export const materiaisCorteApi = createCrud('materiais_corte', 'marca');
-export const expedicoesApi = createCrud('expedicoes', 'created_at');
+// Romaneios usam SOFT-DELETE (coluna deleted_at, RPC excluir_romaneio): as
+// leituras padrão ignoram os excluídos. Escritas de status/peças vão pelas RPCs
+// em src/api/expedicaoRpc.js.
+const expedicoesCrudBase = createCrud('expedicoes', 'created_at');
+const semExcluidos = (rows) => (Array.isArray(rows) ? rows.filter((r) => !r?.deleted_at) : rows);
+export const expedicoesApi = {
+  ...expedicoesCrudBase,
+  async getAll(...args) { return semExcluidos(await expedicoesCrudBase.getAll(...args)); },
+  async getByField(...args) { return semExcluidos(await expedicoesCrudBase.getByField(...args)); },
+  async getById(id) {
+    const row = await expedicoesCrudBase.getById(id);
+    return row && !row.deleted_at ? row : null;
+  },
+};
 export const tarefasApi = createCrud('tarefas', 'created_at');
 export const userProfilesApi = createCrud('user_profiles', 'created_at');
 

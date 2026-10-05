@@ -123,7 +123,7 @@ function ObraCard({ obra, pecas, expedicoes, medicoes, clientes, orcamentos, cor
   // Calcular peso das expedições entregues
   const expedicoesObra = expedicoes.filter(e => e.obraId === obra.id);
   const pesoExpedido = expedicoesObra.reduce((acc, e) => acc + (e.pesoTotal || 0), 0);
-  const pesoMontado = expedicoesObra.filter(e => e.status === 'entregue').reduce((acc, e) => acc + (e.pesoTotal || 0), 0);
+  const pesoMontado = expedicoesObra.filter(e => String(e.status || '').toLowerCase() === 'entregue').reduce((acc, e) => acc + (e.pesoTotal || 0), 0);
 
   // Calcular progresso físico e financeiro
   const progressoFisico = Math.round(
@@ -384,7 +384,7 @@ export default function MultiObrasPage() {
     return obrasFiltradas.map(obra => {
       const expedicoesObra = expedicoes.filter(e => e.obraId === obra.id);
       const pesoExpedido = expedicoesObra.reduce((acc, e) => acc + (e.pesoTotal || 0), 0);
-      const pesoMontado = expedicoesObra.filter(e => e.status === 'entregue')
+      const pesoMontado = expedicoesObra.filter(e => String(e.status || '').toLowerCase() === 'entregue')
         .reduce((acc, e) => acc + (e.pesoTotal || 0), 0);
 
       return {

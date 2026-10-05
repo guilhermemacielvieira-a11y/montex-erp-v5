@@ -62,7 +62,7 @@ const createMockNotifications = () => {
       timestamp: new Date(now.getTime() - 30 * 60000), // 30 min ago
       read: false,
       icon: 'Truck',
-      link: '/ExpedicaoIntegrado'
+      link: '/EnviosExpedicaoPage'
     },
     {
       id: 'notif-4',
