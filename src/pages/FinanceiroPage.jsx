@@ -300,6 +300,36 @@ export default function FinanceiroPage() {
     };
   }, [movimentacoesPeriodo]);
 
+  // ===== KPIs DA OBRA (acumulado, independe do filtro de período) =====
+  // O contrato é consumido por duas partes: Material lançado direto na obra
+  // (despesas da obra) e Montex (medições/receitas da obra). Receita − despesa
+  // aqui NÃO é lucro da obra; mostramos quanto do contrato cada parte consumiu.
+  const kpisObra = useMemo(() => {
+    const soma = (l) => l.reduce((s, m) => s + (m.valor || 0), 0);
+    const montexL = todasMovimentacoes.filter(m => m.tipo === 'receita' && !m.prevista);
+    const materialL = todasMovimentacoes.filter(m => m.tipo === 'despesa');
+    const montex = soma(montexL);
+    const material = soma(materialL);
+    const consumido = montex + material;
+    const contrato = contratoValor;
+    const contratoCadastrado = contrato > 0;
+    const pct = (v) => (contratoCadastrado ? (v / contrato) * 100 : 0);
+    const saldoContrato = contrato - consumido;
+    return {
+      contrato, contratoCadastrado, montex, material, consumido,
+      montexAReceber: montex - soma(montexL.filter(m => m.quitado)),
+      materialAPagar: material - soma(materialL.filter(m => m.quitado)),
+      previsto: soma(todasMovimentacoes.filter(m => m.tipo === 'receita' && m.prevista)),
+      pctMaterial: pct(material),
+      pctMontex: pct(montex),
+      pctConsumido: pct(consumido),
+      saldoContrato,
+      pctSaldo: pct(saldoContrato),
+      partMaterial: consumido > 0 ? (material / consumido) * 100 : 0,
+      partMontex: consumido > 0 ? (montex / consumido) * 100 : 0,
+    };
+  }, [todasMovimentacoes, contratoValor]);
+
   // ===== DADOS PARA GRÁFICOS =====
   // Pizza: despesas por categoria
   const dadosPizzaDespesas = useMemo(() => {
@@ -518,7 +548,7 @@ export default function FinanceiroPage() {
             <span className="text-slate-500 text-xs" title="Lançamentos daqui alimentam o Painel Financeiro Global; o que é lançado no Painel Global não volta para cá.">
               {ehFabrica
                 ? 'Lançamentos da fábrica · espelhados no Painel Global'
-                : 'Receita × Despesa só desta obra · despesas de obra fora do caixa da empresa'}
+                : 'Contrato: Material × Montex'}
             </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{kpis.qtdTotal} lançamentos</span>
@@ -721,7 +751,97 @@ export default function FinanceiroPage() {
         </div>
       </div>
 
-      {/* KPIs */}
+      {/* KPIs — OBRA: contrato consumido por Material (direto na obra) × Montex (medições).
+          Não é lucro: a despesa da obra é material comprado dentro do contrato. */}
+      {!ehFabrica && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                  <Building2 className="h-5 w-5 text-blue-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-400">Contrato</p>
+                  {kpisObra.contratoCadastrado ? (
+                    <>
+                      <p className="text-xl font-bold text-blue-400">{formatCurrency(kpisObra.contrato)}</p>
+                      <p className="text-xs text-slate-500">Consumido: {kpisObra.pctConsumido.toFixed(1)}%</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-base font-semibold text-slate-400">Não cadastrado</p>
+                      <p className="text-xs text-slate-500">Cadastre o valor na obra para ver %</p>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+                  <Receipt className="h-5 w-5 text-orange-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-400">Material (direto na obra)</p>
+                  <p className="text-xl font-bold text-orange-400">{formatCurrency(kpisObra.material)}</p>
+                  <p className="text-xs text-slate-500">
+                    {kpisObra.contratoCadastrado ? `${kpisObra.pctMaterial.toFixed(1)}% do contrato · ` : ''}a pagar {formatCurrency(kpisObra.materialAPagar)}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+                  <ArrowUpRight className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-400">Montex (medições)</p>
+                  <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpisObra.montex)}</p>
+                  <p className="text-xs text-slate-500">
+                    {kpisObra.contratoCadastrado ? `${kpisObra.pctMontex.toFixed(1)}% do contrato · ` : ''}a receber {formatCurrency(kpisObra.montexAReceber)}
+                  </p>
+                  {kpisObra.previsto > 0 && (
+                    <p className="text-xs text-slate-500">Previsto (não medido): {formatCurrency(kpisObra.previsto)}</p>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-slate-900/60 border-slate-700/50">
+            <CardContent className="p-4">
+              <p className="text-sm text-slate-400">Material × Montex</p>
+              <p className="text-xl font-bold text-white">
+                <span className="text-orange-400">{kpisObra.partMaterial.toFixed(1)}%</span>
+                <span className="text-slate-500 text-base mx-1">×</span>
+                <span className="text-emerald-400">{kpisObra.partMontex.toFixed(1)}%</span>
+              </p>
+              <div className="flex h-2 rounded-full overflow-hidden bg-slate-800 mt-1.5" title="Participação no valor consumido do contrato">
+                <div className="bg-orange-500" style={{ width: `${kpisObra.partMaterial}%` }} />
+                <div className="bg-emerald-500" style={{ width: `${kpisObra.partMontex}%` }} />
+              </div>
+              {kpisObra.contratoCadastrado ? (
+                <p className={cn("text-xs mt-1.5", kpisObra.saldoContrato >= 0 ? "text-slate-400" : "text-amber-400")}>
+                  Saldo do contrato: {formatCurrency(kpisObra.saldoContrato)} ({kpisObra.pctSaldo.toFixed(1)}%)
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 mt-1.5">Saldo do contrato: —</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* KPIs — FÁBRICA: receita × despesa do financeiro geral */}
+      {ehFabrica && (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="bg-slate-900/60 border-slate-700/50">
           <CardContent className="p-4">
@@ -730,11 +850,10 @@ export default function FinanceiroPage() {
                 <ArrowUpRight className="h-5 w-5 text-emerald-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">{ehFabrica ? 'Receitas' : 'Receitas da obra'}</p>
+                <p className="text-sm text-slate-400">Receitas</p>
                 <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpis.totalReceitas)}</p>
                 <p className="text-xs text-slate-500">
-                  {contratoValor > 0 ? `${(kpis.totalReceitas / contratoValor * 100).toFixed(1)}% do contrato` : `${kpis.qtdReceitas} lançamentos`}
-                  {kpis.totalPrevisto > 0 && ` · previsto ${formatCurrency(kpis.totalPrevisto)}`}
+                  {kpis.qtdReceitas} lançamentos
                 </p>
               </div>
             </div>
@@ -748,7 +867,7 @@ export default function FinanceiroPage() {
                 <ArrowDownRight className="h-5 w-5 text-red-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">{ehFabrica ? 'Despesas' : 'Despesas da obra'}</p>
+                <p className="text-sm text-slate-400">Despesas</p>
                 <p className="text-xl font-bold text-red-400">{formatCurrency(kpis.totalDespesas)}</p>
                 <p className="text-xs text-slate-500">{kpis.qtdDespesas} lançamentos</p>
               </div>
@@ -763,7 +882,7 @@ export default function FinanceiroPage() {
                 <TrendingUp className="h-5 w-5 text-blue-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">{ehFabrica ? 'Resultado da fábrica' : 'Resultado da obra'}</p>
+                <p className="text-sm text-slate-400">Resultado da fábrica</p>
                 <p className={cn("text-xl font-bold", kpis.lucro >= 0 ? "text-blue-400" : "text-red-400")}>
                   {formatCurrency(kpis.lucro)}
                 </p>
@@ -790,6 +909,8 @@ export default function FinanceiroPage() {
         </Card>
       </div>
 
+      )}
+
       {/* Gráficos */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Evolução Mensal */}
@@ -797,7 +918,7 @@ export default function FinanceiroPage() {
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <BarChart3 className="h-5 w-5 text-emerald-400" />
-              Evolução Receitas vs Despesas
+              {ehFabrica ? 'Evolução Receitas vs Despesas' : 'Evolução Montex × Material'}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -807,8 +928,8 @@ export default function FinanceiroPage() {
                 <XAxis dataKey="mes" stroke="#64748b" />
                 <YAxis stroke="#64748b" tickFormatter={(v) => `${(v/1000).toFixed(0)}k`} />
                 <Tooltip contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} formatter={(value) => formatCurrency(value)} />
-                <Bar dataKey="receitas" name="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="despesas" name="Despesas" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="receitas" name={ehFabrica ? 'Receitas' : 'Montex (medições)'} fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="despesas" name={ehFabrica ? 'Despesas' : 'Material'} fill={ehFabrica ? '#ef4444' : '#f97316'} radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
@@ -819,7 +940,7 @@ export default function FinanceiroPage() {
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Receipt className="h-5 w-5 text-rose-400" />
-              Despesas por Categoria
+              {ehFabrica ? 'Despesas por Categoria' : 'Material por Categoria'}
             </CardTitle>
           </CardHeader>
           <CardContent>
