@@ -97,7 +97,7 @@ const navigationCategories = [
     items: [
       { name: 'Visão Geral', href: 'VisaoGeralPage', icon: LayoutDashboard, badge: 'LIVE', badgeColor: 'bg-emerald-500/20 text-emerald-400' },
       { name: 'Dashboard', href: 'DashboardPremium', icon: LayoutDashboard },
-      { name: 'BI Analytics', href: 'DashboardBI', icon: Database, badge: 'OLAP', badgeColor: 'bg-blue-500/20 text-blue-400' },
+      { name: 'BI 360', href: 'BI360', icon: Database, badge: '360', badgeColor: 'bg-blue-500/20 text-blue-400' },
     ]
   },
   {

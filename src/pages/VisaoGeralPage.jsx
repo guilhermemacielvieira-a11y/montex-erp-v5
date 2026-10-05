@@ -11,7 +11,7 @@
 // - Activity feed live + alertas
 // ============================================
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import {
   Activity, AlertTriangle, Cpu, Shield, Truck, Wrench, RefreshCw, TrendingUp,
@@ -23,6 +23,7 @@ import {
   Legend, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar,
 } from 'recharts';
 import { useObras, useProducao, useLancamentos, useEstoque } from '../contexts/ERPContext';
+import { isEscopoGeral, rotuloEscopo } from '../lib/escopoObra';
 import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 import { supabase } from '../api/supabaseClient';
 import { resumoProducao, bloqueioFabricacao } from '../services/relatorioProducao';
@@ -193,12 +194,24 @@ function Sparkline({ data, color = '#06b6d4', height = 30, id: idProp }) {
 // MAIN
 // ============================================
 export default function VisaoGeralPage() {
-  const { obras } = useObras();
-  const { pecas } = useProducao();
-  const { estoque } = useEstoque();
-  const { lancamentosDespesas } = useLancamentos();
-  const fi = useFinancialIntelligence();
-  const historico = useHistoricoProducao();
+  // Filtro ÚNICO do topo (CLAUDE.md 1c): Geral = todas as obras; grupo/obra =
+  // só essas obras. As listas abaixo já chegam filtradas para o resto da página.
+  const { obras: obrasTodas, escopoObra, obraIdsEscopo } = useObras();
+  const { pecas: pecasTodas } = useProducao();
+  const { estoque: estoqueTodo } = useEstoque();
+  const { lancamentosDespesas: lancamentosTodos } = useLancamentos();
+  const naObra = useCallback((x) => !obraIdsEscopo || obraIdsEscopo.includes(x?.obraId ?? x?.obra_id), [obraIdsEscopo]);
+  const obras = useMemo(() => (obraIdsEscopo ? (obrasTodas || []).filter((o) => obraIdsEscopo.includes(o.id)) : obrasTodas), [obrasTodas, obraIdsEscopo]);
+  const pecas = useMemo(() => (pecasTodas || []).filter(naObra), [pecasTodas, naObra]);
+  const estoque = useMemo(() => (obraIdsEscopo ? (estoqueTodo || []).filter((e) => !(e.obraId || e.obra_id) || naObra(e)) : estoqueTodo), [estoqueTodo, obraIdsEscopo, naObra]);
+  const lancamentosDespesas = useMemo(() => (obraIdsEscopo ? (lancamentosTodos || []).filter(naObra) : lancamentosTodos), [lancamentosTodos, obraIdsEscopo, naObra]);
+  const fi = useFinancialIntelligence({ obraId: isEscopoGeral(escopoObra) ? 'todas' : escopoObra });
+  const historicoTodo = useHistoricoProducao();
+  const historico = useMemo(() => {
+    if (!obraIdsEscopo) return historicoTodo;
+    const ids = new Set(pecas.map((p) => p.id));
+    return (historicoTodo || []).filter((h) => ids.has(h.peca_id));
+  }, [historicoTodo, obraIdsEscopo, pecas]);
 
   // Produção global por PESO (ponderado) — fonte única
   const resumoProd = useMemo(() => resumoProducao(pecas || []), [pecas]);
@@ -444,7 +457,7 @@ export default function VisaoGeralPage() {
           </div>
           <div>
             <h1 className="text-base font-black text-white tracking-widest">MONTEX <span className="text-cyan-400">VISÃO GERAL</span></h1>
-            <p className="text-[10px] text-slate-500 tracking-wider">SYS::OPERATIONAL-HUD · V5 · ALL MODULES ONLINE</p>
+            <p className="text-[11px] text-slate-400 tracking-wider">ESCOPO: <span className="text-cyan-300">{rotuloEscopo(escopoObra, obrasTodas).toUpperCase()}</span></p>
           </div>
         </div>
 

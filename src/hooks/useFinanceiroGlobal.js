@@ -10,7 +10,7 @@
 //     comparativo MoM, forecast de receitas (aprovadas não pagas) e custos por
 //     categoria — tudo derivado da MESMA base do Painel.
 // ============================================================
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLancamentos, useMedicoes, useObras } from '../contexts/ERPContext';
 import { parseLocalDate, ehPago } from '../utils/financeiroCalc';
 import { loadBundleLocal, loadBundleRemote, saveBundleLocal, mergeBundles } from '../utils/painelFinanceiroSync';
@@ -35,7 +35,13 @@ const DEFAULT_METAS = {
 
 const lerLS = (key, dflt) => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) : dflt; } catch { return dflt; } };
 
-export function useFinanceiroGlobal() {
+// `obraIds` (opcional): sem ele = CAIXA DA EMPRESA (Painel Global — regra 1b).
+// Com ele (ex.: Dashboard seguindo o filtro do topo em obra/grupo) = só essas
+// obras: medições/receitas da obra × material lançado na obra; os lançamentos
+// próprios do Painel Global (empresa) ficam fora.
+export function useFinanceiroGlobal({ obraIds = null } = {}) {
+  const chaveObras = obraIds ? obraIds.join(',') : '';
+  const naObra = useCallback((id) => !chaveObras || chaveObras.split(',').includes(id), [chaveObras]);
   const { lancamentosDespesas } = useLancamentos();
   const { medicoes: todasMedicoes } = useMedicoes();
   const { obras } = useObras();
@@ -73,7 +79,7 @@ export function useFinanceiroGlobal() {
   // despesas lançadas direto na obra (GFO) NÃO entram; canceladas ficam fora.
   const despesasExternas = useMemo(() => (lancamentosDespesas || [])
     .filter((l) => normalizeStatusDespesa(l.status) !== 'cancelado')
-    .filter((l) => !(l.obraId || l.obra_id))
+    .filter((l) => (chaveObras ? naObra(l.obraId || l.obra_id) : !(l.obraId || l.obra_id)))
     .map((l) => ({
       obraId: l.obraId || l.obra_id || null,
       id: l.id, ovKey: `d:${l.id}`, origem: 'externo', tipo: 'despesa',
@@ -81,12 +87,12 @@ export function useFinanceiroGlobal() {
       descricao: l.descricao || l.nome || '-', fornecedor: l.fornecedor || '-',
       categoria: l.categoria || 'Outros', valor: l.valor || 0,
       status: l.status || 'pendente', vencimento: l.dataVencimento || l.vencimento || '-',
-    })), [lancamentosDespesas]);
+    })), [lancamentosDespesas, chaveObras, naObra]);
 
   // Espelho de medições (receitas) + overrides de receita
   const receitasMedicoesExt = useMemo(() => {
     const overrides = lerLS(RECEITAS_OVERRIDES_KEY, {});
-    return (todasMedicoes || []).map((m) => {
+    return (todasMedicoes || []).filter((m) => naObra(m.obraId || m.obra_id)).map((m) => {
       const obraId = m.obraId || m.obra_id;
       const obraNome = m.obraNome || m.obra_nome || obrasMap[obraId] || '-';
       const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
@@ -117,23 +123,25 @@ export function useFinanceiroGlobal() {
       base.previsto = base.status === 'previsto';
       return base;
     }).filter((m) => m.status !== 'cancelado');
-  }, [todasMedicoes, obrasMap]);
+  }, [todasMedicoes, obrasMap, naObra]);
 
   // Receitas manuais (tabela receitas_manuais)
   const { receitas: receitasManuaisFonte } = useReceitasManuais();
   const receitasManuaisExt = useMemo(() => (receitasManuaisFonte || [])
     .filter((r) => r.status !== 'cancelado')
+    .filter((r) => !chaveObras || naObra(r.obraId))
     .map((r) => ({
       id: r.id, ovKey: `r:${r.id}`, origem: 'externo', tipo: 'receita',
       data: r.data || r.vencimento || '', descricao: r.descricao || '-',
       fornecedor: r.cliente || '-', categoria: r.categoria || 'Outros', valor: r.valor || 0,
       status: r.status, // canônico: aberto | faturado | recebido
       vencimento: r.vencimento || '-', obraId: r.obraId || null,
-    })), [receitasManuaisFonte]);
+    })), [receitasManuaisFonte, chaveObras, naObra]);
 
-  const movsLocaisNorm = useMemo(() => (movsLocais || []).map((m) => ({
+  // Lançamentos próprios do Painel Global são da EMPRESA: fora quando há obra.
+  const movsLocaisNorm = useMemo(() => (chaveObras ? [] : (movsLocais || [])).map((m) => ({
     ...m, origem: 'local', origemObra: !!m.obraId,
-  })), [movsLocais]);
+  })), [movsLocais, chaveObras]);
 
   // Consolidação (mesma regra do Painel): overrides/hidden por ovKey|id,
   // exclui juros de operação, exclui deletados.

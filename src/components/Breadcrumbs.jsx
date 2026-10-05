@@ -6,7 +6,7 @@ import { useLocation, Link } from 'react-router-dom';
 const ROUTE_MAP = {
   '/': { label: 'Dashboard', parent: null },
   '/DashboardPremium': { label: 'Dashboard Premium', parent: '/' },
-  '/DashboardBI': { label: 'BI Dashboard', parent: '/' },
+
   '/BI360': { label: 'BI 360', parent: '/' },
   '/RadarAlertas': { label: 'Radar de Alertas', parent: '/BI360' },
   '/ProducaoPage': { label: 'Produção', parent: '/' },

@@ -82,7 +82,8 @@ const RedirectEnviosExpedicao = () => createElement(Navigate, { to: '/EnviosExpe
 const EnviosExpedicaoPage = lazy(() => import('./pages/EnviosExpedicaoPage'));
 
 // ===== BI & ANALYTICS =====
-const DashboardBI = lazy(() => import('./pages/DashboardBI'));
+// BI Analytics (DashboardBI) usava DRE_OBRA/commandCenterData estáticos → BI 360.
+const RedirectDashboardBI = () => createElement(Navigate, { to: '/BI360?aba=executivo', replace: true });
 // BI 360 substitui BI Estratégico/Tático/Operacional (dados fictícios); as URLs
 // antigas redirecionam para a aba correspondente.
 const BI360Page = lazy(() => import('./pages/BI360Page'));
@@ -183,7 +184,7 @@ export const PAGES = {
     "EnviosExpedicaoPage": EnviosExpedicaoPage,
 
     // BI & Analytics
-    "DashboardBI": DashboardBI,
+    "DashboardBI": RedirectDashboardBI, // redirect → BI 360
     "BI360": BI360Page,
     "RadarAlertas": RadarAlertasPage,
     "BIOperacional": RedirectBIOperacional, // redirect → BI 360 (Produção)
