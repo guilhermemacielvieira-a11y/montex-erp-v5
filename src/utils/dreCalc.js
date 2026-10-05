@@ -59,7 +59,12 @@ export function intervaloDoPeriodo(periodo, hoje = new Date()) {
 }
 
 const temObra = (x) => !!(x?.obraId || x?.obra_id);
-const noEscopo = (x, escopo) => (escopo === 'fabrica' ? !temObra(x) : escopo === 'obras' ? temObra(x) : true);
+// escopo 'empresa' (padrão, premissa do negócio): receitas pelo total;
+// despesas lançadas direto na obra (GFO) NÃO entram no resultado da empresa.
+const noEscopo = (x, escopo, tipo = 'receita') => {
+  if (escopo === 'empresa') return tipo === 'receita' ? true : !temObra(x);
+  return escopo === 'fabrica' ? !temObra(x) : escopo === 'obras' ? temObra(x) : true;
+};
 
 /**
  * @param {object} p
@@ -67,12 +72,12 @@ const noEscopo = (x, escopo) => (escopo === 'fabrica' ? !temObra(x) : escopo ===
  * @param {Array} p.receitasManuais     receitas manuais (formato app, status canônico)
  * @param {Array} p.despesas            lancamentos_despesas (ERPContext)
  * @param {Date|null} p.inicio / p.fim  intervalo (null = sem limite)
- * @param {'consolidado'|'fabrica'|'obras'} p.escopo
+ * @param {'empresa'|'consolidado'|'fabrica'|'obras'} p.escopo  (padrão 'empresa')
  * @param {object} p.premissas          { aliquotaImpostosPct, depreciacaoValor, aliquotaIRPct }
  */
 export function calcularDRE({
   medicoes = [], receitasManuais = [], despesas = [],
-  inicio = null, fim = null, escopo = 'consolidado',
+  inicio = null, fim = null, escopo = 'empresa',
   premissas = {},
 } = {}) {
   const aliquotaImpostosPct = num(premissas.aliquotaImpostosPct);
@@ -112,7 +117,7 @@ export function calcularDRE({
   const despPeriodo = (despesas || []).filter((l) => {
     if (l?.tipo === 'receita') return false;
     if (normalizeStatusDespesa(l?.status) === 'cancelado') return false;
-    if (!noEscopo(l, escopo)) return false;
+    if (!noEscopo(l, escopo, 'despesa')) return false;
     return dentro(l.dataEmissao || l.data_emissao || l.data, inicio, fim);
   });
   const porCategoria = {};

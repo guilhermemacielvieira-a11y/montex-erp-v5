@@ -46,7 +46,7 @@ describe('grupoDaCategoria', () => {
 });
 
 describe('calcularDRE', () => {
-  const dre = calcularDRE({ medicoes, receitasManuais, despesas, inicio, fim });
+  const dre = calcularDRE({ medicoes, receitasManuais, despesas, inicio, fim, escopo: 'consolidado' });
   it('receita bruta só com medições reconhecidas + manuais faturadas/recebidas', () => {
     expect(dre.receitaMedicoes).toBe(150000);
     expect(dre.receitaManual).toBe(3000);
@@ -72,7 +72,7 @@ describe('calcularDRE', () => {
   });
   it('premissas explícitas', () => {
     const d = calcularDRE({ medicoes, receitasManuais, despesas, inicio, fim,
-      premissas: { aliquotaImpostosPct: 10, depreciacaoValor: 2000, aliquotaIRPct: 34 } });
+      escopo: 'consolidado', premissas: { aliquotaImpostosPct: 10, depreciacaoValor: 2000, aliquotaIRPct: 34 } });
     expect(d.impostos).toBeCloseTo(15300);
     expect(d.resultadoAntesIR).toBeCloseTo(153000 - 5000 - 15300 - 70000 - 10000 - 2000 - 1000);
     expect(d.irCsll).toBeCloseTo(d.resultadoAntesIR * 0.34);
@@ -86,5 +86,11 @@ describe('calcularDRE', () => {
     const d = calcularDRE({ medicoes, receitasManuais, despesas, inicio, fim, escopo: 'obras' });
     expect(d.receitaBruta).toBe(151000);
     expect(d.cspTotal).toBe(40000);
+  });
+  it('escopo empresa (padrão): receitas pelo total, despesas lançadas na obra ficam fora', () => {
+    const d = calcularDRE({ medicoes, receitasManuais, despesas, inicio, fim });
+    const consolidado = calcularDRE({ medicoes, receitasManuais, despesas, inicio, fim, escopo: 'consolidado' });
+    expect(d.receitaBruta).toBe(consolidado.receitaBruta);
+    expect(d.cspTotal).toBe(30000); // só despesas sem obra
   });
 });
