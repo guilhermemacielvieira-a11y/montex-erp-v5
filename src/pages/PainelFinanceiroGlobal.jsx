@@ -63,6 +63,7 @@ import {
   deleteMovRemote,
 } from '../utils/painelFinanceiroSync';
 import { syncReceitas } from '../utils/receitasSync';
+import { subscribeLocalKeys } from '../utils/localSync';
 import {
   formatCurrency, parseLocalDate, formatDate, diasAteVencimento,
   ehCheque, ehPago,
@@ -312,7 +313,8 @@ export default function PainelFinanceiroGlobal() {
   // receitasManuaisExt dependia de [movsLocais] (errado) e receitasMedicoesExt
   // lia RECEITAS_OVERRIDES_KEY sem nenhuma dep → dado velho. Este tick
   // incrementa quando outra aba grava (evento storage) ou quando outro módulo
-  // grava na mesma aba (poll 3s, padrão de sync do app).
+  // grava na mesma aba (CustomEvent via notifyLocalChange; fallback de 30s
+  // no lugar do antigo poll de 3s).
   const [externalTick, setExternalTick] = useState(0);
   // Auto-sync das receitas manuais com a nuvem (converge entre PCs).
   useEffect(() => { syncReceitas().then((ch) => { if (ch) setExternalTick((t) => t + 1); }); }, []);
@@ -320,18 +322,13 @@ export default function PainelFinanceiroGlobal() {
     const snapshot = () =>
       (localStorage.getItem(RECEITAS_STORAGE_KEY) || '') + '|' +
       (localStorage.getItem(RECEITAS_OVERRIDES_KEY) || '');
-    const onStorage = (e) => {
-      if (!e.key || e.key === RECEITAS_STORAGE_KEY || e.key === RECEITAS_OVERRIDES_KEY) {
-        setExternalTick(t => t + 1);
-      }
-    };
-    window.addEventListener('storage', onStorage);
     let last = snapshot();
-    const iv = setInterval(() => {
+    return subscribeLocalKeys([RECEITAS_STORAGE_KEY, RECEITAS_OVERRIDES_KEY], (_key, origem) => {
       const cur = snapshot();
-      if (cur !== last) { last = cur; setExternalTick(t => t + 1); }
-    }, 3000);
-    return () => { window.removeEventListener('storage', onStorage); clearInterval(iv); };
+      // storage de outra aba: sempre recalcula (comportamento anterior);
+      // mesma aba/fallback: só quando o conteúdo mudou de fato.
+      if (origem === 'storage' || cur !== last) { last = cur; setExternalTick(t => t + 1); }
+    });
   }, []);
 
   // ===== UI STATE =====

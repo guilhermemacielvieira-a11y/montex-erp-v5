@@ -8,6 +8,7 @@
 // ressuscitadas pelo merge (inclusive vindas de outro PC).
 // ============================================
 import { supabase } from '../api/supabaseClient';
+import { notifyLocalChange } from './localSync';
 
 const KEY_R = 'montex_receitas_gerais';
 const KEY_O = 'montex_receitas_overrides';
@@ -39,6 +40,9 @@ async function gravarCloud(receitas, overrides, deletedIds) {
 }
 
 export async function syncReceitas() {
+  // Callers (ex.: ReceitasPage.salvarReceitas) gravam no localStorage e logo
+  // chamam syncReceitas — avisa a mesma aba já (leitores comparam snapshot).
+  notifyLocalChange(KEY_R);
   try {
     const locR = L(KEY_R, []);
     const locO = L(KEY_O, {});
@@ -59,6 +63,7 @@ export async function syncReceitas() {
     if (localMudou) {
       localStorage.setItem(KEY_R, JSON.stringify(mr));
       localStorage.setItem(KEY_O, JSON.stringify(mo));
+      notifyLocalChange(KEY_R);
     }
 
     const cloudMudou =
@@ -80,6 +85,7 @@ export async function deleteReceitaManual(id) {
   try {
     const locR = L(KEY_R, []).filter((r) => r && r.id !== id);
     localStorage.setItem(KEY_R, JSON.stringify(locR));
+    notifyLocalChange(KEY_R);
     const cloud = await lerCloud();
     const receitas = (cloud.receitas || []).filter((r) => r && r.id !== id);
     const deletedIds = Array.from(new Set([...(cloud.deletedIds || []), id]));
