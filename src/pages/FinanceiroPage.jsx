@@ -1,10 +1,13 @@
-// MONTEX ERP Premium - Financeiro da Obra (Receita × Despesa)
-// Analisa SOMENTE a obra selecionada: medições + receitas manuais vinculadas
-// à obra × despesas lançadas na obra (lancamentos_despesas.obra_id).
+// MONTEX ERP Premium - Painel Financeiro (comum)
+// Receita × Despesa de UM escopo por vez:
+//   - Fábrica (geral): lançamentos sem obra (Despesas/Receitas comuns)
+//   - Obra X: medições + receitas manuais + despesas com obra_id = X
+// Todo lançamento feito aqui escolhe o vínculo (Fábrica ou uma obra).
 //
-// PREMISSA (CLAUDE.md, "1b. Premissas do financeiro"): esta tela NÃO é o caixa
-// da empresa e NÃO se mistura com o Painel Financeiro Global. Ela não lê nem
-// grava lançamentos do Painel Global; despesas sem obra (fábrica) não entram.
+// PREMISSA (CLAUDE.md, "1b. Premissas do financeiro"): mão única. Os
+// lançamentos daqui (tabelas lancamentos_despesas / receitas_manuais) são
+// espelhados no Painel Financeiro Global; despesas de obra ficam fora do caixa
+// da empresa. Lançamentos feitos NO Painel Global nunca aparecem aqui.
 
 import React, { useState, useMemo, useCallback } from 'react';
 import {
@@ -106,7 +109,11 @@ const CORES_CATEGORIAS = {
   'Outros': '#64748b',
 };
 
+// Escopo 'fabrica' = financeiro geral (lançamentos sem obra)
+const FABRICA = 'fabrica';
 const obraDe = (x) => x?.obraId || x?.obra_id || null;
+const escopoDe = (x) => obraDe(x) || FABRICA;
+const obraIdDoEscopo = (escopo) => (!escopo || escopo === FABRICA ? null : escopo);
 const tempo = (d) => parseLocalDate(d)?.getTime() || 0;
 
 // Vencido e ainda não quitado → atrasado (datas locais)
@@ -121,7 +128,7 @@ export default function FinanceiroPage() {
   // ===== DADOS DO SUPABASE =====
   const { lancamentosDespesas, addLancamento, updateLancamento, deleteLancamento } = useLancamentos();
   const { medicoes: todasMedicoes } = useMedicoes();
-  const { obras, obraAtual } = useObras();
+  const { obras } = useObras();
 
   // ===== ESTADOS =====
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
@@ -134,26 +141,32 @@ export default function FinanceiroPage() {
   const [formData, setFormData] = useState({
     tipo: 'despesa', descricao: '', valor: '', categoria: '',
     fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente',
-    parcelas: 1, intervaloDias: 30,
+    parcelas: 1, intervaloDias: 30, vinculo: FABRICA,
   });
 
-  // Obra analisada: escolha do usuário > obra atual do ERP > primeira obra
+  // Escopo analisado: escolha do usuário (Fábrica ou obra); padrão Fábrica
   const filtroObra = useMemo(() => {
     const ids = new Set((obras || []).map(o => o.id));
-    if (obraSelecionada && ids.has(obraSelecionada)) return obraSelecionada;
-    if (obraAtual && ids.has(obraAtual)) return obraAtual;
-    return obras?.[0]?.id || null;
-  }, [obras, obraAtual, obraSelecionada]);
+    if (obraSelecionada && (obraSelecionada === FABRICA || ids.has(obraSelecionada))) return obraSelecionada;
+    return FABRICA;
+  }, [obras, obraSelecionada]);
+  const ehFabrica = filtroObra === FABRICA;
 
-  const obraInfo = useMemo(() => (obras || []).find(o => o.id === filtroObra) || null, [obras, filtroObra]);
-  const obraNome = obraInfo?.nome || obraInfo?.name || filtroObra || '-';
+  const nomeEscopo = useCallback((escopo) => {
+    if (!escopo || escopo === FABRICA) return 'Fábrica (geral)';
+    const o = (obras || []).find(x => x.id === escopo);
+    return o?.nome || o?.name || escopo;
+  }, [obras]);
+
+  const obraInfo = useMemo(() => (ehFabrica ? null : (obras || []).find(o => o.id === filtroObra) || null), [obras, filtroObra, ehFabrica]);
+  const obraNome = nomeEscopo(filtroObra);
   const contratoValor = Number(obraInfo?.contratoValorTotal ?? obraInfo?.contrato_valor_total ?? obraInfo?.valorContrato ?? 0) || 0;
 
   // ===== DESPESAS DA OBRA (lancamentos_despesas com obra_id = obra) =====
   const despesasObra = useMemo(() => {
     if (!filtroObra) return [];
     return (lancamentosDespesas || [])
-      .filter(l => obraDe(l) === filtroObra && !despesaCancelada(l.status))
+      .filter(l => escopoDe(l) === filtroObra && !despesaCancelada(l.status))
       .map(l => {
         const venc = l.dataVencimento || l.vencimento || '-';
         const pago = despesaPaga(l.status);
@@ -182,7 +195,7 @@ export default function FinanceiroPage() {
   const receitasMedicoes = useMemo(() => {
     if (!filtroObra) return [];
     return (todasMedicoes || [])
-      .filter(m => obraDe(m) === filtroObra && !receitaCancelada(m.status))
+      .filter(m => escopoDe(m) === filtroObra && !receitaCancelada(m.status))
       .map(m => {
         const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
         const venc = m.dataVencimento || m.data_vencimento || m.dataMedicao || m.data_medicao || '-';
@@ -214,7 +227,7 @@ export default function FinanceiroPage() {
   const receitasManuais = useMemo(() => {
     if (!filtroObra) return [];
     return (receitasManuaisFonte || [])
-      .filter(r => obraDe(r) === filtroObra && !receitaCancelada(r.status))
+      .filter(r => escopoDe(r) === filtroObra && !receitaCancelada(r.status))
       .map(r => {
         const venc = r.vencimento || '-';
         const status = normalizeStatusReceita(r.status);
@@ -332,11 +345,12 @@ export default function FinanceiroPage() {
   }, [todasMovimentacoes, filtroTipo, searchTerm, filtrarPorPeriodo]);
 
   // ===== HANDLERS =====
-  const formVazio = { tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', parcelas: 1, intervaloDias: 30 };
+  const formVazio = { tipo: 'despesa', descricao: '', valor: '', categoria: '', fornecedor: '', vencimento: '', formaPagto: '', status: 'pendente', parcelas: 1, intervaloDias: 30, vinculo: FABRICA };
 
   const handleNova = () => {
     setEditando(null);
-    setFormData(formVazio);
+    // Vínculo sugerido = escopo em tela (o usuário pode trocar no form)
+    setFormData({ ...formVazio, vinculo: filtroObra || FABRICA });
     setDialogOpen(true);
   };
 
@@ -355,6 +369,7 @@ export default function FinanceiroPage() {
       formaPagto: mov.formaPagto && mov.formaPagto !== '-' ? mov.formaPagto : '',
       status: quitado ? 'pago' : (mov.tipo === 'receita' && mov.status === 'faturado' ? 'faturado' : 'pendente'),
       parcelas: 1, intervaloDias: 30,
+      vinculo: filtroObra || FABRICA,
     });
     setDialogOpen(true);
   };
@@ -364,7 +379,8 @@ export default function FinanceiroPage() {
   const statusDespesaDoForm = (s) => (s === 'pago' ? 'pago' : 'pendente');
 
   const handleSalvar = async () => {
-    if (!filtroObra) { toast.error('Selecione uma obra'); return; }
+    const obraIdVinculo = obraIdDoEscopo(formData.vinculo);
+    const nomeVinculo = nomeEscopo(formData.vinculo);
     const valorNum = parseFloat(formData.valor);
     if (!formData.descricao || !(valorNum > 0)) {
       toast.error('Informe descrição e valor');
@@ -376,7 +392,7 @@ export default function FinanceiroPage() {
       if (editando) {
         if (editando.origem === 'receita_manual') {
           await atualizarReceitaManual(editando.id, {
-            obraId: filtroObra,
+            obraId: obraIdVinculo,
             descricao: formData.descricao,
             cliente: formData.fornecedor || null,
             categoria: formData.categoria || 'Outros',
@@ -395,9 +411,10 @@ export default function FinanceiroPage() {
             formaPagto: formData.formaPagto || '-',
             vencimento: formData.vencimento || '',
             status: statusDespesaDoForm(formData.status),
+            obraId: obraIdVinculo,
           });
         }
-        toast.success('Movimentação atualizada');
+        toast.success(`Movimentação atualizada · ${nomeVinculo}`);
       } else {
         // Parcelas (vencimentos a partir da 1ª parcela, datas locais)
         const qtdParcelas = Math.max(1, parseInt(formData.parcelas) || 1);
@@ -416,7 +433,7 @@ export default function FinanceiroPage() {
         if (ehReceita) {
           await criarReceitasManuais(vencimentos.map((venc, i) => ({
             id: `REC-${Date.now()}-${i + 1}-${Math.floor(Math.random() * 9999)}`,
-            obraId: filtroObra,
+            obraId: obraIdVinculo,
             descricao: `${formData.descricao}${sufixo(i)}`,
             cliente: formData.fornecedor || null,
             categoria: formData.categoria || 'Outros',
@@ -442,12 +459,12 @@ export default function FinanceiroPage() {
               dataEmissao: hoje,
               vencimento: venc,
               status: statusDespesaDoForm(formData.status),
-              obraId: filtroObra,
+              obraId: obraIdVinculo,
               ...(recorrenciaId ? { recorrenciaId, parcelaIdx: i + 1, parcelaTotal: qtdParcelas } : {}),
             });
           }
         }
-        toast.success(qtdParcelas > 1 ? `${qtdParcelas} parcelas lançadas em ${obraNome}` : `Lançado em ${obraNome}`);
+        toast.success(qtdParcelas > 1 ? `${qtdParcelas} parcelas lançadas em ${nomeVinculo}` : `Lançado em ${nomeVinculo}`);
       }
       setDialogOpen(false);
       setEditando(null);
@@ -491,15 +508,17 @@ export default function FinanceiroPage() {
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center">
               <DollarSign className="h-6 w-6 text-white" />
             </div>
-            Financeiro da Obra
+            Painel Financeiro
           </h1>
           <div className="flex items-center gap-3 mt-2 flex-wrap">
             <span className="inline-flex items-center px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm font-medium border border-emerald-500/30">
               <Building2 className="h-3.5 w-3.5 mr-1" />
               {obraNome}
             </span>
-            <span className="text-slate-500 text-xs" title="Esta análise considera apenas a obra selecionada e não altera o Painel Financeiro Global (caixa da empresa).">
-              Receita × Despesa só desta obra · não entra no Painel Global
+            <span className="text-slate-500 text-xs" title="Lançamentos daqui alimentam o Painel Financeiro Global; o que é lançado no Painel Global não volta para cá.">
+              {ehFabrica
+                ? 'Lançamentos da fábrica · espelhados no Painel Global'
+                : 'Receita × Despesa só desta obra · despesas de obra fora do caixa da empresa'}
             </span>
             <span className="text-slate-500 text-sm">|</span>
             <span className="text-slate-400 text-sm">{kpis.qtdTotal} lançamentos</span>
@@ -510,7 +529,7 @@ export default function FinanceiroPage() {
           </div>
         </div>
 
-        <Button className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600" onClick={handleNova} disabled={!filtroObra}>
+        <Button className="bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600" onClick={handleNova}>
           <Plus className="h-4 w-4 mr-2" />
           Nova Movimentação
         </Button>
@@ -521,9 +540,27 @@ export default function FinanceiroPage() {
         <DialogContent className="bg-slate-900 border-slate-700 max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-white">{editando ? 'Editar Movimentação' : 'Nova Movimentação'}</DialogTitle>
-            <p className="text-xs text-slate-400">Obra: <span className="text-emerald-400">{obraNome}</span></p>
           </DialogHeader>
           <div className="space-y-4 pt-4">
+            <div>
+              <Label className="text-slate-300">Vincular a *</Label>
+              <Select value={formData.vinculo || FABRICA} onValueChange={(v) => setFormData({...formData, vinculo: v})}>
+                <SelectTrigger className="mt-1 bg-slate-800 border-slate-700"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem value={FABRICA}>🏭 Fábrica (financeiro geral)</SelectItem>
+                  {(obras || []).map(o => (
+                    <SelectItem key={o.id} value={o.id}>🏗️ {o.nome || o.name || o.id}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-slate-500 mt-1">
+                {formData.vinculo === FABRICA || !formData.vinculo
+                  ? 'Entra no caixa da empresa (espelhado no Painel Financeiro Global).'
+                  : formData.tipo === 'receita'
+                    ? 'Receita da obra — entra no resultado da obra e no caixa da empresa.'
+                    : 'Despesa da obra — entra só no resultado da obra, não no caixa da empresa.'}
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label className="text-slate-300">Tipo</Label>
@@ -644,12 +681,13 @@ export default function FinanceiroPage() {
         {/* Seletor de Obra / Visão */}
         <div className="flex items-center gap-2">
           <Building2 className="h-4 w-4 text-slate-400" />
-          <span className="text-sm text-slate-400 mr-1">Obra:</span>
-          <Select value={filtroObra || undefined} onValueChange={setObraSelecionada}>
+          <span className="text-sm text-slate-400 mr-1">Visualizar:</span>
+          <Select value={filtroObra} onValueChange={setObraSelecionada}>
             <SelectTrigger className="w-[260px] bg-slate-800 border-slate-700 text-sm">
-              <SelectValue placeholder="Selecione a obra" />
+              <SelectValue placeholder="Fábrica ou obra" />
             </SelectTrigger>
             <SelectContent className="bg-slate-800 border-slate-700">
+              <SelectItem value={FABRICA}>Fábrica (financeiro geral)</SelectItem>
               {(obras || []).map(o => (
                 <SelectItem key={o.id} value={o.id}>{o.nome || o.name || o.id}</SelectItem>
               ))}
@@ -692,7 +730,7 @@ export default function FinanceiroPage() {
                 <ArrowUpRight className="h-5 w-5 text-emerald-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Receitas da obra</p>
+                <p className="text-sm text-slate-400">{ehFabrica ? 'Receitas' : 'Receitas da obra'}</p>
                 <p className="text-xl font-bold text-emerald-400">{formatCurrency(kpis.totalReceitas)}</p>
                 <p className="text-xs text-slate-500">
                   {contratoValor > 0 ? `${(kpis.totalReceitas / contratoValor * 100).toFixed(1)}% do contrato` : `${kpis.qtdReceitas} lançamentos`}
@@ -710,7 +748,7 @@ export default function FinanceiroPage() {
                 <ArrowDownRight className="h-5 w-5 text-red-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Despesas da obra</p>
+                <p className="text-sm text-slate-400">{ehFabrica ? 'Despesas' : 'Despesas da obra'}</p>
                 <p className="text-xl font-bold text-red-400">{formatCurrency(kpis.totalDespesas)}</p>
                 <p className="text-xs text-slate-500">{kpis.qtdDespesas} lançamentos</p>
               </div>
@@ -725,7 +763,7 @@ export default function FinanceiroPage() {
                 <TrendingUp className="h-5 w-5 text-blue-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Resultado da obra</p>
+                <p className="text-sm text-slate-400">{ehFabrica ? 'Resultado da fábrica' : 'Resultado da obra'}</p>
                 <p className={cn("text-xl font-bold", kpis.lucro >= 0 ? "text-blue-400" : "text-red-400")}>
                   {formatCurrency(kpis.lucro)}
                 </p>
@@ -918,7 +956,7 @@ export default function FinanceiroPage() {
                 {movimentacoesFiltradas.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-slate-500 py-8">
-                      {filtroObra ? 'Nenhuma movimentação desta obra no período.' : 'Selecione uma obra.'}
+                      {ehFabrica ? 'Nenhuma movimentação da fábrica no período.' : 'Nenhuma movimentação desta obra no período.'}
                     </TableCell>
                   </TableRow>
                 )}
