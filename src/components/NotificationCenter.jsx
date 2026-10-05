@@ -1,8 +1,10 @@
 /**
  * MONTEX ERP Premium - Notification Center
  *
- * Centro de notificações persistentes com histórico, agrupamento por data
- * e gerenciamento de leitura
+ * Sino do topo: notificações REAIS (tabela `notificacoes`, via
+ * NotificationContext) mescladas com avisos locais efêmeros do ERP.
+ * Este componente está dentro do AuthProvider/Router — informa a identidade
+ * do usuário ao contexto (que fica acima do AuthProvider em main.jsx).
  */
 
 import React from 'react';
@@ -31,7 +33,8 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useNotification } from '@/contexts/NotificationContext';
+import { useNotification, SEVERIDADE_VISUAL } from '@/contexts/NotificationContext';
+import { useAuth } from '@/lib/AuthContext';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 
@@ -98,9 +101,41 @@ const TYPE_CONFIG = {
   }
 };
 
+// Rótulo legível do tipo (avisos locais) — persistidas usam a severidade
+const TYPE_LABEL = {
+  info: 'Info',
+  warning: 'Atenção',
+  success: 'Sucesso',
+  error: 'Erro',
+  production: 'Produção',
+  shipping: 'Expedição',
+  financial: 'Financeiro'
+};
+
+function tempoRelativo(ts) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return '';
+  return formatDistanceToNow(d, { addSuffix: true, locale: ptBR });
+}
+
 function NotificationItem({ notification, onMarkAsRead, onRemove, onNavigate }) {
   const config = TYPE_CONFIG[notification.type] || TYPE_CONFIG.info;
   const IconComponent = ICON_MAP[notification.icon] || Bell;
+
+  const rotulo = notification.persistida
+    ? (notification.severidadeLabel || SEVERIDADE_VISUAL[notification.severidade]?.label || 'Info')
+    : (TYPE_LABEL[notification.type] || notification.type || 'Info');
+  const dataAbs = (() => {
+    const d = new Date(notification.timestamp);
+    return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('pt-BR');
+  })();
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleClick();
+    }
+  };
 
   const handleClick = () => {
     if (!notification.read) {
@@ -120,24 +155,28 @@ function NotificationItem({ notification, onMarkAsRead, onRemove, onNavigate }) 
       className={`border-b last:border-0 transition-all duration-200 ${notification.read ? 'opacity-60' : ''}`}
     >
       <div
-        className={`p-4 flex items-start gap-3 cursor-pointer hover:${config.bg} transition-colors`}
+        role="button"
+        tabIndex={0}
+        aria-label={`${notification.read ? '' : 'Não lida: '}${notification.title}${notification.link ? ' — abrir' : ''}`}
+        className={`p-4 flex items-start gap-3 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 transition-colors`}
         onClick={handleClick}
+        onKeyDown={handleKeyDown}
       >
         {/* Icon Container */}
         <div className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${config.bg} border ${config.border}`}>
-          <IconComponent className={`h-5 w-5 ${config.icon}`} />
+          <IconComponent className={`h-5 w-5 ${config.icon}`} aria-hidden="true" />
         </div>
 
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <p className={`font-semibold text-sm ${notification.read ? 'dark:text-slate-400 text-slate-500' : 'dark:text-white text-slate-900'}`}>
+                <p className={`font-semibold text-sm break-words ${notification.read ? 'dark:text-slate-400 text-slate-500' : 'dark:text-white text-slate-900'}`}>
                   {notification.title}
                 </p>
                 {!notification.read && (
-                  <div className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" />
+                  <div className="w-2 h-2 rounded-full bg-orange-500 flex-shrink-0" aria-hidden="true" />
                 )}
               </div>
               <p className="text-sm dark:text-slate-400 text-slate-600 mt-1 line-clamp-2">
@@ -145,7 +184,7 @@ function NotificationItem({ notification, onMarkAsRead, onRemove, onNavigate }) 
               </p>
               <div className="flex items-center gap-2 mt-2">
                 <Badge className={config.badge}>
-                  {notification.type}
+                  {rotulo}
                 </Badge>
               </div>
             </div>
@@ -155,24 +194,24 @@ function NotificationItem({ notification, onMarkAsRead, onRemove, onNavigate }) 
               variant="ghost"
               size="icon"
               className="h-6 w-6 flex-shrink-0 dark:hover:bg-slate-700 hover:bg-slate-200"
+              aria-label={notification.persistida ? 'Ocultar notificação' : 'Remover notificação'}
+              title={notification.persistida ? 'Ocultar (não apaga do sistema)' : 'Remover'}
+              onKeyDown={(e) => e.stopPropagation()}
               onClick={(e) => {
                 e.stopPropagation();
                 onRemove(notification.id);
               }}
             >
-              <X className="h-4 w-4" />
+              <X className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
 
           {/* Timestamp */}
           <div className="flex items-center gap-1 mt-2">
-            <Clock className="h-3 w-3 dark:text-slate-500 text-slate-400" />
-            <p className="text-xs dark:text-slate-500 text-slate-400">
-              {formatDistanceToNow(new Date(notification.timestamp), {
-                addSuffix: true,
-                locale: ptBR
-              })}
-            </p>
+            <Clock className="h-3 w-3 dark:text-slate-500 text-slate-400" aria-hidden="true" />
+            <time className="text-xs dark:text-slate-500 text-slate-400" dateTime={dataAbs ? new Date(notification.timestamp).toISOString() : undefined} title={dataAbs}>
+              {tempoRelativo(notification.timestamp)}
+            </time>
           </div>
         </div>
       </div>
@@ -207,12 +246,21 @@ function NotificationGroup({ title, notifications, onMarkAsRead, onRemove, onNav
 
 export default function NotificationCenter() {
   const navigate = useNavigate();
-  const { notifications, unreadCount, groupedNotifications, markAsRead, markAllAsRead, removeNotification, clearAll } = useNotification();
+  const { user } = useAuth();
+  const { notifications, unreadCount, groupedNotifications, markAsRead, markAllAsRead, removeNotification, clearAll, definirUsuario } = useNotification();
   const [open, setOpen] = React.useState(false);
 
+  // Informa ao contexto quem é o usuário (filtro destino_role/destino_user e
+  // gatilho da carga). Sem usuário → contexto não consulta o banco.
+  React.useEffect(() => {
+    definirUsuario(user ? { id: user.id, authId: user.authId, role: user.role } : null);
+  }, [user?.id, user?.authId, user?.role, definirUsuario]);
+
   const handleNavigate = (link) => {
+    if (!link) return;
     setOpen(false);
-    navigate(`/${link}`);
+    const destino = String(link).startsWith('/') ? String(link) : `/${link}`;
+    navigate(destino);
   };
 
   const groupLabels = {
@@ -228,12 +276,14 @@ export default function NotificationCenter() {
           variant="ghost"
           size="icon"
           className="relative dark:text-slate-400 dark:hover:text-white dark:hover:bg-slate-800 text-slate-700 hover:text-slate-900 hover:bg-slate-100"
+          aria-label={unreadCount > 0 ? `Notificações: ${unreadCount} não lida${unreadCount !== 1 ? 's' : ''}` : 'Notificações'}
         >
-          <Bell className="h-5 w-5" />
+          <Bell className="h-5 w-5" aria-hidden="true" />
           {unreadCount > 0 && (
             <motion.div
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
+              aria-hidden="true"
               className="absolute -top-1 -right-1 w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center shadow-lg"
             >
               <span className="text-xs font-bold text-white">
@@ -245,7 +295,7 @@ export default function NotificationCenter() {
       </PopoverTrigger>
 
       <PopoverContent
-        className="w-[420px] p-0 dark:border-slate-700 border-slate-200"
+        className="w-[420px] max-w-[calc(100vw-1rem)] p-0 dark:border-slate-700 border-slate-200"
         align="end"
       >
         <Card className="border-0 shadow-2xl dark:bg-slate-800 dark:text-white">
@@ -256,7 +306,7 @@ export default function NotificationCenter() {
                 <CardTitle className="text-lg">Notificações</CardTitle>
                 {unreadCount > 0 && (
                   <Badge className="dark:bg-orange-500/20 dark:text-orange-300 bg-orange-100 text-orange-700">
-                    {unreadCount} nova{unreadCount !== 1 ? 's' : ''}
+                    {unreadCount} não lida{unreadCount !== 1 ? 's' : ''}
                   </Badge>
                 )}
               </div>
@@ -265,7 +315,7 @@ export default function NotificationCenter() {
 
           {/* Content */}
           <CardContent className="p-0">
-            <div className="max-h-[550px] overflow-y-auto scrollbar-thin dark:scrollbar-thumb-slate-600 dark:scrollbar-track-slate-800 scrollbar-thumb-slate-300 scrollbar-track-slate-100">
+            <div aria-live="polite" className="max-h-[min(550px,70vh)] overflow-y-auto scrollbar-thin dark:scrollbar-thumb-slate-600 dark:scrollbar-track-slate-800 scrollbar-thumb-slate-300 scrollbar-track-slate-100">
               {notifications.length === 0 ? (
                 // Empty State
                 <motion.div
@@ -280,7 +330,7 @@ export default function NotificationCenter() {
                     Nenhuma notificação
                   </p>
                   <p className="dark:text-slate-500 text-slate-400 text-xs mt-1">
-                    Você está em dia com tudo
+                    Avisos do sistema e das automações aparecem aqui
                   </p>
                 </motion.div>
               ) : (
@@ -331,7 +381,7 @@ export default function NotificationCenter() {
                   onClick={markAllAsRead}
                   className="flex-1 dark:text-slate-300 dark:hover:bg-slate-700 text-slate-600 hover:bg-slate-100 h-8"
                 >
-                  <CheckCheck className="h-3.5 w-3.5 mr-2" />
+                  <CheckCheck className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
                   Marcar todas como lidas
                 </Button>
               )}
@@ -339,10 +389,11 @@ export default function NotificationCenter() {
                 size="sm"
                 variant="ghost"
                 onClick={clearAll}
+                title="Oculta da lista (não apaga do sistema)"
                 className="flex-1 dark:text-slate-300 dark:hover:bg-slate-700 text-slate-600 hover:bg-slate-100 h-8"
               >
-                <X className="h-3.5 w-3.5 mr-2" />
-                Limpar todas
+                <X className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
+                Limpar lista
               </Button>
             </div>
           )}
