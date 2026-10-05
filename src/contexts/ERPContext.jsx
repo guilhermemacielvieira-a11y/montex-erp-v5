@@ -9,6 +9,7 @@
  * Cada contexto é memoizado com apenas suas state slices, reduzindo re-renders desnecessários.
  */
 
+import { OBRA_GERAL, escopoValido, obraIdUnica, obraIdsDoEscopo } from '../lib/escopoObra';
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState, useRef } from 'react';
 
 // Constantes de negócio (sempre importadas - não são mock data)
@@ -293,16 +294,12 @@ export function ERPProvider({ children }) {
             payload.configMedicao = transformRecord(configMedData[0]);
           }
 
-          // Auto-detectar obraAtual: localStorage > obra-001 > primeira obra
-          if (obrasData.length > 0) {
+          // Escopo de obra (filtro único do topo): localStorage > 'geral'.
+          // state.obraAtual guarda o ESCOPO bruto ('geral' | grupo | obraId);
+          // os consumidores recebem obraAtual = id só quando é UMA obra.
+          {
             const savedObra = localStorage.getItem('montex_obra_atual');
-            if (savedObra && obrasData.some(o => o.id === savedObra)) {
-              payload.obraAtual = savedObra;
-            } else {
-              // Preferir obra de producao (obra-001) ao inves do financeiro-geral
-              const obraProducao = obrasData.find(o => o.id === 'obra-001');
-              payload.obraAtual = obraProducao ? obraProducao.id : obrasData[0].id;
-            }
+            payload.obraAtual = escopoValido(savedObra, obrasData) && savedObra ? savedObra : OBRA_GERAL;
           }
 
           // Calcular progresso das obras baseado nas pecas
@@ -370,10 +367,12 @@ export function ERPProvider({ children }) {
   }, []);
 
   // ===== AÇÕES - OBRAS =====
-  const setObraAtual = useCallback((obraId) => {
-    dispatch({ type: ACTIONS.SET_OBRA_ATUAL, payload: obraId });
+  // Aceita 'geral', id de grupo (GRUPOS_OBRAS) ou id de obra.
+  const setObraAtual = useCallback((escopo) => {
+    const valor = escopo || OBRA_GERAL;
+    dispatch({ type: ACTIONS.SET_OBRA_ATUAL, payload: valor });
     // Persistir selecao de obra no localStorage
-    try { localStorage.setItem('montex_obra_atual', obraId); } catch(e) {}
+    try { localStorage.setItem('montex_obra_atual', valor); } catch(e) {}
   }, []);
 
   const updateObra = useCallback(async (id, data) => {
@@ -1491,38 +1490,46 @@ export function ERPProvider({ children }) {
   }, []);
 
   // ===== SELETORES =====
-  const obraAtualData = useMemo(() => {
-    if (!state.obraAtual) return state.obras[0] || null;
-    return state.obras.find(o => o.id === state.obraAtual) || state.obras[0] || null;
-  }, [state.obras, state.obraAtual]);
+  // ESCOPO GLOBAL (filtro único do topo — ver src/lib/escopoObra.js)
+  //   escopoObra   = 'geral' | grupo | obraId (valor bruto do seletor)
+  //   obraIdAtiva  = id SÓ quando o escopo é uma obra (senão null)
+  //   obraIdsEscopo= lista de obras do escopo (null = todas)
+  // Sem fallback para obras[0]: "Geral" nunca vira silenciosamente a 1ª obra.
+  const escopoObra = state.obraAtual || OBRA_GERAL;
+  const obraIdAtiva = obraIdUnica(escopoObra);
+  const obraIdsEscopo = useMemo(() => obraIdsDoEscopo(escopoObra), [escopoObra]);
 
-  // Se obraAtual for null, usar a primeira obra disponível para filtros
-  const obraIdAtiva = state.obraAtual || (state.obras[0]?.id) || null;
+  const obraAtualData = useMemo(() => {
+    if (!obraIdAtiva) return null;
+    return state.obras.find(o => o.id === obraIdAtiva) || null;
+  }, [state.obras, obraIdAtiva]);
+
+  const noEscopo = useCallback((obraId) => !obraIdsEscopo || obraIdsEscopo.includes(obraId), [obraIdsEscopo]);
 
   const pecasObraAtual = useMemo(() => {
-    if (!obraIdAtiva) return state.pecas; // Sem obra selecionada → mostrar todas
-    return state.pecas.filter(p => p.obraId === obraIdAtiva);
-  }, [state.pecas, obraIdAtiva]);
+    if (!obraIdsEscopo) return state.pecas; // Geral → todas
+    return state.pecas.filter(p => noEscopo(p.obraId));
+  }, [state.pecas, obraIdsEscopo, noEscopo]);
 
   const estoqueObraAtual = useMemo(() => {
-    if (!obraIdAtiva) return state.estoque;
-    return state.estoque.filter(e => e.obraReservada === obraIdAtiva || !e.obraReservada);
-  }, [state.estoque, obraIdAtiva]);
+    if (!obraIdsEscopo) return state.estoque;
+    return state.estoque.filter(e => noEscopo(e.obraReservada) || !e.obraReservada);
+  }, [state.estoque, obraIdsEscopo, noEscopo]);
 
   const expedicoesObraAtual = useMemo(() => {
-    if (!obraIdAtiva) return state.expedicoes;
-    return state.expedicoes.filter(e => e.obraId === obraIdAtiva);
-  }, [state.expedicoes, obraIdAtiva]);
+    if (!obraIdsEscopo) return state.expedicoes;
+    return state.expedicoes.filter(e => noEscopo(e.obraId));
+  }, [state.expedicoes, obraIdsEscopo, noEscopo]);
 
   const comprasObraAtual = useMemo(() => {
-    if (!obraIdAtiva) return state.compras;
-    return state.compras.filter(c => c.obraId === obraIdAtiva);
-  }, [state.compras, obraIdAtiva]);
+    if (!obraIdsEscopo) return state.compras;
+    return state.compras.filter(c => noEscopo(c.obraId));
+  }, [state.compras, obraIdsEscopo, noEscopo]);
 
   const medicoesObraAtual = useMemo(() => {
-    if (!obraIdAtiva) return state.medicoes;
-    return state.medicoes.filter(m => m.obraId === obraIdAtiva);
-  }, [state.medicoes, obraIdAtiva]);
+    if (!obraIdsEscopo) return state.medicoes;
+    return state.medicoes.filter(m => noEscopo(m.obraId));
+  }, [state.medicoes, obraIdsEscopo, noEscopo]);
 
   // Antes chamava getEstatisticasGerais() de data/database (calculado sobre
   // os dados MOCK e arrastando ~350 KB de mock para o bundle inicial).
@@ -1559,7 +1566,10 @@ export function ERPProvider({ children }) {
     dataSource,
     connectionError,
     loading: state.loading,
-    obraAtual: state.obraAtual,
+    // obraAtual = id da obra SÓ quando o escopo é uma obra; null em Geral/grupo
+    obraAtual: obraIdAtiva,
+    escopoObra,
+    obraIdsEscopo,
     obraAtualData,
     setObraAtual,
     filtros: state.filtros,
@@ -1573,7 +1583,9 @@ export function ERPProvider({ children }) {
     dataSource,
     connectionError,
     state.loading,
-    state.obraAtual,
+    obraIdAtiva,
+    escopoObra,
+    obraIdsEscopo,
     obraAtualData,
     setObraAtual,
     state.filtros,
@@ -2000,6 +2012,8 @@ export function useObras() {
     clientes: context.clientes,
     orcamentos: context.orcamentos,
     obraAtual: core.obraAtual,
+    escopoObra: core.escopoObra,
+    obraIdsEscopo: core.obraIdsEscopo,
     obraAtualData: core.obraAtualData,
     setObraAtual: core.setObraAtual,
     updateObra: context.updateObra,

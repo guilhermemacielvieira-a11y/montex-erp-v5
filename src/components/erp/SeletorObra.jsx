@@ -15,11 +15,42 @@ import {
   Hammer,
   Truck,
   CheckCircle2,
-  Factory
+  Factory,
+  Layers,
+  Globe
 } from 'lucide-react';
 import * as Select from '@radix-ui/react-select';
 import { useObras } from '../../contexts/ERPContext';
 import { STATUS_OBRA } from '../../data/constants';
+import { OBRA_GERAL, GRUPOS_OBRAS, rotuloEscopo, isEscopoGeral, grupoDoEscopo } from '../../lib/escopoObra';
+
+// Opções fixas do topo: Geral (padrão) + grupos consolidados
+const itemClass = 'flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer hover:bg-slate-700/50 outline-none data-[highlighted]:bg-slate-700/50';
+function OpcoesEscopo() {
+  return (
+    <>
+      <Select.Item value={OBRA_GERAL} className={itemClass}>
+        <Globe className="w-4 h-4 text-cyan-400" />
+        <div className="flex-1 min-w-0">
+          <Select.ItemText><span className="text-sm text-white font-medium">Geral</span></Select.ItemText>
+          <div className="text-xs text-slate-400 truncate">Todas as obras · financeiro da fábrica</div>
+        </div>
+        <Select.ItemIndicator><Check className="w-4 h-4 text-orange-400" /></Select.ItemIndicator>
+      </Select.Item>
+      {Object.values(GRUPOS_OBRAS).map(g => (
+        <Select.Item key={g.id} value={g.id} className={itemClass}>
+          <Layers className="w-4 h-4 text-purple-400" />
+          <div className="flex-1 min-w-0">
+            <Select.ItemText><span className="text-sm text-white font-medium truncate">{g.label}</span></Select.ItemText>
+            <div className="text-xs text-slate-400 truncate">Grupo · {g.obraIds.length} obras</div>
+          </div>
+          <Select.ItemIndicator><Check className="w-4 h-4 text-orange-400" /></Select.ItemIndicator>
+        </Select.Item>
+      ))}
+      <Select.Separator className="h-px bg-slate-700 my-1" />
+    </>
+  );
+}
 
 const statusConfig = {
   [STATUS_OBRA.ORCAMENTO]: { label: 'Orçamento', color: 'text-gray-400', bg: 'bg-gray-500/20', icon: Clock },
@@ -39,7 +70,10 @@ const statusConfig = {
 };
 
 export default function SeletorObra({ compact = false }) {
-  const { obras, obraAtual, obraAtualData, setObraAtual } = useObras();
+  const { obras, escopoObra, obraAtualData, setObraAtual } = useObras();
+  const valorEscopo = escopoObra || OBRA_GERAL;
+  const geral = isEscopoGeral(valorEscopo);
+  const grupo = grupoDoEscopo(valorEscopo);
 
   const obrasAtivas = obras.filter(o => o.status !== STATUS_OBRA.CANCELADA);
 
@@ -48,12 +82,12 @@ export default function SeletorObra({ compact = false }) {
 
   if (compact) {
     return (
-      <Select.Root value={obraAtual} onValueChange={setObraAtual}>
+      <Select.Root value={valorEscopo} onValueChange={setObraAtual}>
         <Select.Trigger className="flex items-center gap-2 px-3 py-2 bg-slate-800/50 border border-slate-700/50 rounded-lg hover:bg-slate-700/50 transition-colors outline-none cursor-pointer">
           <Building2 className="w-4 h-4 text-orange-400" />
           <Select.Value>
             <span className="text-sm text-white font-medium truncate max-w-[200px]">
-              {obraAtualData ? `${obraAtualData.codigo} | ${obraAtualData.nome}` : 'Selecionar obra'}
+              {rotuloEscopo(valorEscopo, obras)}
             </span>
           </Select.Value>
           <ChevronDown className="w-4 h-4 text-slate-400" />
@@ -66,6 +100,7 @@ export default function SeletorObra({ compact = false }) {
             className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[9999] min-w-[300px]"
           >
             <Select.Viewport className="p-2 max-h-[400px]">
+              <OpcoesEscopo />
               {obrasAtivas.map(obra => {
                 const Icon = statusConfig[obra.status]?.icon || Building2;
                 return (
@@ -101,19 +136,19 @@ export default function SeletorObra({ compact = false }) {
         <div>
           <div className="text-xs text-slate-400 uppercase tracking-wider">Obra Ativa</div>
           <div className={`text-xs font-medium ${statusInfo?.color || 'text-slate-400'}`}>
-            {statusInfo?.label || 'Nenhuma'}
+            {statusInfo?.label || (geral ? 'Sem obra selecionada' : grupo ? 'Consolidado' : 'Nenhuma')}
           </div>
         </div>
       </div>
 
-      <Select.Root value={obraAtual} onValueChange={setObraAtual}>
+      <Select.Root value={valorEscopo} onValueChange={setObraAtual}>
         <Select.Trigger className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-slate-900/50 border border-slate-700/50 rounded-xl hover:bg-slate-800/50 transition-colors outline-none group">
           <div className="flex-1 text-left min-w-0">
             <div className="text-lg font-bold text-white truncate">
-              {obraAtualData?.codigo || 'Selecione uma obra'}
+              {obraAtualData?.codigo || (geral ? 'Geral' : grupo ? 'Grupo' : 'Selecione')}
             </div>
             <div className="text-sm text-slate-400 truncate">
-              {obraAtualData?.nome || 'Nenhuma obra selecionada'}
+              {obraAtualData?.nome || (geral ? 'Todas as obras' : grupo ? grupo.label : 'Nenhuma obra selecionada')}
             </div>
           </div>
           <ChevronDown className="w-5 h-5 text-slate-400 group-hover:text-white transition-colors" />
@@ -126,6 +161,7 @@ export default function SeletorObra({ compact = false }) {
             className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl overflow-hidden z-[9999] min-w-[320px]"
           >
             <Select.Viewport className="p-2 max-h-[400px]">
+              <OpcoesEscopo />
               {obrasAtivas.map(obra => {
                 const Icon = statusConfig[obra.status]?.icon || Building2;
                 const info = statusConfig[obra.status];

@@ -35,6 +35,14 @@ A `DespesasPage` é o módulo independente de despesas da FÁBRICA. Despesas vin
 - **Resultado por obra** fica só na Gestão Financeira da Obra (GFO) e na Margem por Obra — nunca misturar com o resultado da empresa.
 - **`FinanceiroPage` = Painel Financeiro comum:** visualiza receita × despesa de UM escopo — `Fábrica (geral)` (lançamentos sem obra, padrão) ou uma obra (medições + `receitas_manuais.obra_id` + `lancamentos_despesas.obra_id`). Todo lançamento lá escolhe o vínculo (Fábrica ou obra). Lançamentos comuns (Despesas/Receitas/FinanceiroPage) são espelhados no Painel Global; os feitos NO Global nunca voltam. NÃO redirecionar para o Painel Global.
 
+### 1c. Filtro de obra ÚNICO (seletor do topo) — definido pelo CEO em 05/10/2026
+- O seletor do topo (`SeletorObra`) é o ÚNICO filtro de obra. Páginas NÃO têm filtro de obra próprio (evita divergência entre módulos).
+- Valores (`escopoObra` no ERPContext, `src/lib/escopoObra.js`): `'geral'` (padrão, sem obra) | grupo de `GRUPOS_OBRAS` (ex.: `temec`) | id de obra.
+- `obraAtual`/`obraAtualData` só têm valor quando o escopo é UMA obra; em Geral/grupo são `null` (sem fallback para `obras[0]`). Use `obraIdsEscopo` (null = todas) / `pertenceAoEscopo()`.
+- **Geral** por tipo: operacionais (Produção, Kanban, Expedição, Montagem, Estoque, Compras, BI) = todas as obras; FinanceiroPage/Despesas/Metas = Fábrica (sem obra); Receitas = todas; Painel Global = sempre empresa.
+- Telas de uma obra só (GFO, 3D, Kanban Corte, Import Romaneio) mostram `<ExigeObra/>` em Geral/grupo.
+- Campos "obra" em formulários de CADASTRO não são filtro e continuam existindo.
+
 ### 2. Status nunca hardcoded
 Bug recorrente: `status: STATUS_LANCAMENTO.PENDENTE` sobrescreve a escolha do usuário no form.
 **SEMPRE preserve o status do formulário:** `status: novoLanc.status || STATUS_LANCAMENTO.PENDENTE`.
