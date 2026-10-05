@@ -242,16 +242,14 @@ const navigationCategories = [
     color: 'text-pink-400',
     activeColor: 'bg-pink-500/15 border-pink-500/40',
     items: [
-      { name: 'Sugestões IA', href: 'SugestoesIAPage', icon: Sparkles, badge: 'AI', badgeColor: 'bg-pink-500/20 text-pink-400' },
+      { name: 'Copiloto MONTEX', href: 'Copiloto', icon: MessageSquare, badge: 'IA', badgeColor: 'bg-pink-500/20 text-pink-400' },
+      { name: 'Insights IA', href: 'InsightsIA', icon: Sparkles, badge: 'IA', badgeColor: 'bg-pink-500/20 text-pink-400' },
       { name: 'Tarefas', href: 'Tarefas', icon: CheckSquare },
       { name: 'Colaboração', href: 'ColaboracaoProjetos', icon: Users },
-      { name: 'Relatórios IA', href: 'RelatoriosIA', icon: FileSearch },
       { name: 'Relatórios', href: 'Relatorios', icon: FileBarChart, badge: 'NEW', badgeColor: 'bg-orange-500/20 text-orange-400' },
       { name: 'Gerenciador Relatórios', href: 'GerenciadorRelatorios', icon: FileBarChart },
       { name: 'Agendamento Relatórios', href: 'AgendamentosRelatorios', icon: FileBarChart },
       { name: 'Automações', href: 'Automacoes', icon: Zap },
-      { name: 'Analisador', href: 'Analisador', icon: FileSearch },
-      { name: 'Chatbot', href: 'Chatbot', icon: MessageSquare },
     ]
   },
   {

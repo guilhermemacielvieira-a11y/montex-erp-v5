@@ -33,11 +33,10 @@ const pages = [
   { name: 'Tarefas', href: 'Tarefas', icon: CheckSquare, keywords: ['atividades', 'todo'] },
   { name: 'Produção', href: 'AtualizacaoProducaoIndependente', icon: Package, keywords: ['fabricação', 'montagem'] },
   { name: 'Orçamentos', href: 'Orcamentos', icon: Calculator, keywords: ['propostas', 'cotações'] },
-  { name: 'Relatórios IA', href: 'RelatoriosIA', icon: FileSearch, keywords: ['análises', 'reports'] },
+  { name: 'Insights IA', href: 'InsightsIA', icon: FileSearch, keywords: ['análises', 'reports', 'sugestões', 'ia'] },
   { name: 'Financeiro', href: 'RelatoriosFinanceiros', icon: DollarSign, keywords: ['contas', 'despesas'] },
   { name: 'Automações', href: 'Automacoes', icon: Zap, keywords: ['workflows', 'regras'] },
-  { name: 'Analisador', href: 'Analisador', icon: FileSearch, keywords: ['memorial', 'análise'] },
-  { name: 'Chatbot', href: 'Chatbot', icon: MessageSquare, keywords: ['assistente', 'chat'] },
+  { name: 'Copiloto MONTEX', href: 'Copiloto', icon: MessageSquare, keywords: ['assistente', 'chat', 'ia', 'chatbot', 'analisador'] },
   { name: 'Clientes', href: 'Clientes', icon: Users, keywords: ['contatos', 'empresas'] },
 ];
 

@@ -48,9 +48,9 @@ const quickActions = [
   },
   {
     id: 'relatorios',
-    label: 'Relatórios',
+    label: 'Insights IA',
     icon: BarChart3,
-    href: 'RelatoriosIA',
+    href: 'InsightsIA',
     gradient: 'from-indigo-500 to-purple-500',
     shortcut: 'Alt+R',
   },

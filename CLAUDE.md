@@ -18,6 +18,7 @@ ERP de gestão para o **Grupo MONTEX** (fabricação de estruturas metálicas em
 - **Visualização:** MontexERP3DPage (IFC integrado ao ERP)
 - **Dashboards:** VisaoGeralPage (HUD sci-fi), DashboardPremium (BI), CommandCenterUltrawide (NEXUS), CommandCenterUltra (OMEGA)
 - **BI:** `BI360` (abas Executivo/Obras/Produção/Financeiro/Suprimentos) + `RadarAlertas` — motor puro em `src/services/bi/` (testado), dados via `useBIData` (escopo do topo, `producao_historico` paginado). ZERO dado fictício. BI Estratégico/Tático/Operacional antigos redirecionam para o BI 360.
+- **IA:** `Copiloto` (chat com ferramentas executadas no navegador sobre o motor do BI) e `InsightsIA` (análise executiva estruturada). Tudo via Edge Function `ia-copiloto` (Claude; secret `ANTHROPIC_API_KEY`, modelo `IA_COPILOTO_MODEL`, limite `IA_LIMITE_DIARIO`, uso em `ia_uso`). NUNCA chamar a API do Claude direto do navegador. `base44.integrations.Core.InvokeLLM` é um shim para essa função.
 
 ---
 

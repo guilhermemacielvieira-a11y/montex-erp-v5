@@ -470,7 +470,37 @@ export const base44 = {
       }
     },
     delete: async (url) => true
-  }
+  },
+  // Integrações legadas do Base44. Antes não existiam (base44.integrations
+  // era undefined → TypeError em Tarefas, Relatórios, Chat, Analisador...).
+  // Agora a IA passa pela Edge Function `ia-copiloto` (Claude via Supabase).
+  integrations: {
+    Core: {
+      InvokeLLM: async ({ prompt, response_json_schema } = {}) => {
+        const { promptIA } = await import('@/services/ia/iaClient');
+        if (!response_json_schema) return promptIA(prompt);
+        const instrucao = `${prompt}\n\nResponda SOMENTE com um JSON válido (sem texto antes ou depois, sem cercas de código) que siga este JSON Schema:\n${JSON.stringify(response_json_schema)}`;
+        const txt = await promptIA(instrucao);
+        let t = String(txt || '').trim();
+        const cerca = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (cerca) t = cerca[1].trim();
+        const a = t.search(/[[{]/);
+        const b = Math.max(t.lastIndexOf('}'), t.lastIndexOf(']'));
+        if (a >= 0 && b > a) t = t.slice(a, b + 1);
+        try { return JSON.parse(t); } catch { throw new Error('A IA respondeu em formato inesperado. Tente de novo.'); }
+      },
+      UploadFile: async ({ file } = {}) => {
+        const r = await base44.storage.upload(file);
+        return { file_url: r.url, name: r.name };
+      },
+      ExtractDataFromUploadedFile: async () => {
+        throw new Error('Extração automática de arquivos foi movida para o Copiloto MONTEX (anexe o PDF/imagem no chat).');
+      },
+      SendEmail: async () => {
+        throw new Error('Envio de e-mail ainda não está configurado no MONTEX ERP.');
+      },
+    },
+  },
 };
 
 export default base44;

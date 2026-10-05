@@ -127,6 +127,8 @@ export function useBIData() {
       financeiro: { ...mov, mensal, aging: agingInfo, fluxo, fornecedores, categorias, geralEmpresa: !obraIds },
       suprimentos: { kpis: estoqueKpis, abc: estoqueABC, itens: estoqueEscopo },
       alertas,
+      // Dados brutos (Copiloto MONTEX consulta com o mesmo motor)
+      bruto: { obras, pecas, medicoes, lancamentos: lancamentosDespesas, receitasManuais, estoque, transicoes: todasTransicoes },
     };
   }, [obras, obraIdsEscopo, escopoObra, pecas, medicoes, lancamentosDespesas, estoque, receitasManuais, historico, hoje, carregando, erro, atualizadoEm, recarregar]);
 }

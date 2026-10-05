@@ -110,17 +110,19 @@ const MontexERP3DPage = lazy(() => import('./pages/MontexERP3DPage'));
 
 // ===== RELATÓRIOS & FERRAMENTAS =====
 const Relatorios = lazy(() => import('./pages/Relatorios'));
-const RelatoriosIA = lazy(() => import('./pages/RelatoriosIA'));
+// Colaboração & IA (Fase 2): Copiloto substitui Chatbot/Analisador; Insights IA
+// substitui Sugestões IA/Relatórios IA (regras fixas e números aleatórios).
+const CopilotoPage = lazy(() => import('./pages/CopilotoPage'));
+const InsightsIAPage = lazy(() => import('./pages/InsightsIAPage'));
+const RedirectCopiloto = () => createElement(Navigate, { to: '/Copiloto', replace: true });
+const RedirectInsightsIA = () => createElement(Navigate, { to: '/InsightsIA', replace: true });
 const GerenciadorRelatorios = lazy(() => import('./pages/GerenciadorRelatorios'));
 const AgendamentosRelatorios = lazy(() => import('./pages/AgendamentosRelatorios'));
-const Analisador = lazy(() => import('./pages/Analisador'));
-const SugestoesIAPage = lazy(() => import('./pages/SugestoesIAPage'));
 
 // ===== OUTROS =====
 const Tarefas = lazy(() => import('./pages/Tarefas'));
 const Automacoes = lazy(() => import('./pages/Automacoes'));
 const ColaboracaoProjetos = lazy(() => import('./pages/ColaboracaoProjetos'));
-const Chatbot = lazy(() => import('./pages/Chatbot'));
 const MultiObrasPage = lazy(() => import('./pages/MultiObrasPage'));
 const GestaoObrasPage = lazy(() => import('./pages/GestaoObrasPage'));
 const VendasPage = lazy(() => import('./pages/VendasPage'));
@@ -209,17 +211,19 @@ export const PAGES = {
 
     // Relatórios & Ferramentas
     "Relatorios": Relatorios,
-    "RelatoriosIA": RelatoriosIA,
+    "Copiloto": CopilotoPage,
+    "InsightsIA": InsightsIAPage,
+    "RelatoriosIA": RedirectInsightsIA, // redirect → Insights IA
     "GerenciadorRelatorios": GerenciadorRelatorios,
     "AgendamentosRelatorios": AgendamentosRelatorios,
-    "Analisador": Analisador,
-    "SugestoesIAPage": SugestoesIAPage,
+    "Analisador": RedirectCopiloto, // redirect → Copiloto
+    "SugestoesIAPage": RedirectInsightsIA, // redirect → Insights IA
 
     // Outros
     "Tarefas": Tarefas,
     "Automacoes": Automacoes,
     "ColaboracaoProjetos": ColaboracaoProjetos,
-    "Chatbot": Chatbot,
+    "Chatbot": RedirectCopiloto, // redirect → Copiloto
     "MultiObrasPage": MultiObrasPage,
     "GestaoObrasPage": GestaoObrasPage,
     "VendasPage": VendasPage,
