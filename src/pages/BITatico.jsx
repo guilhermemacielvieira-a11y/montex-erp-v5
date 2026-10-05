@@ -50,8 +50,8 @@ export default function BITatico() {
   const [showFilter, setShowFilter] = useState(false);
 
   // Hooks do ERPContext
-  const { obras, obraAtualData } = useObras();
-  const { pecas } = useProducao();
+  const { obras, obraAtualData, obraIdsEscopo } = useObras();
+  const { pecasObraAtual: pecasEscopo = [] } = useProducao();
   const { medicoes, medicoesObraAtual } = useMedicoes();
   const fi = useFinancialIntelligence();
 
@@ -67,20 +67,27 @@ export default function BITatico() {
     // Calcula despesas usando Financial Intelligence
     const despesas = fi?.despesasTotal || fi?.custoTotalGeral || 0;
 
-    // Produção real
-    const pecasObraAtual = pecas.filter(p => p.obraId === obraAtualData?.id);
-    const producaoTotal = pecasObraAtual.filter(p => p.etapa === 'expedicao').length;
-    const metaTotal = pecasObraAtual.length;
+    // Produção real — peças do escopo do topo (Geral = todas; grupo = soma)
+    const producaoTotal = pecasEscopo.filter(p => p.etapa === 'expedicao').length;
+    const metaTotal = pecasEscopo.length;
+
+    // Progresso: da obra selecionada; em Geral/grupo, média das obras do escopo
+    const obrasProg = obraAtualData
+      ? [obraAtualData]
+      : (obraIdsEscopo ? obras.filter(o => obraIdsEscopo.includes(o.id)) : projetosAtivos);
+    const mediaProg = (key) => (obrasProg.length
+      ? Math.round(obrasProg.reduce((acc, o) => acc + (Number(o.progresso?.[key]) || 0), 0) / obrasProg.length)
+      : 0);
 
     return {
       projetosAndamento: projetosAtivos.length,
-      taxaConversao: obraAtualData?.progresso?.fabricacao || 0,
+      taxaConversao: mediaProg('fabricacao'),
       producaoVsMeta: metaTotal > 0 ? Math.round((producaoTotal / metaTotal) * 100) : 0,
       margemOperacional: receitas > 0 ? Math.round(((receitas - despesas) / receitas) * 100) : 0,
-      eficienciaGeral: obraAtualData?.progresso?.corte || 0,
+      eficienciaGeral: mediaProg('corte'),
       prazoMedio: 0
     };
-  }, [obras, obraAtualData, pecas, medicoesObraAtual]);
+  }, [obras, obraAtualData, obraIdsEscopo, pecasEscopo, medicoesObraAtual]);
 
   // Trend data com dados reais
   const trendData = useMemo(() => {

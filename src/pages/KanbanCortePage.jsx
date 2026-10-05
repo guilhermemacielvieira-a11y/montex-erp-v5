@@ -16,6 +16,7 @@ import {
 } from '../data/corteStatusStore';
 import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
 import { useObras } from '../contexts/ERPContext';
+import ExigeObra from '../components/erp/ExigeObra';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 // LancamentoProducaoModal removido — o lançamento de funcionário no Corte é
 // feito exclusivamente pelo FuncionarioSelectorModal (setor='corte') desta página.
@@ -80,9 +81,22 @@ const GRID_COLS = '36px 62px 125px minmax(140px,1fr) 80px minmax(100px,1fr) 48px
 // ==========================================
 // COMPONENTE PRINCIPAL
 // ==========================================
+// Wrapper: o Kanban de Corte trabalha com UMA obra (seletor do topo). Em
+// Geral/grupo obraAtual é null → aviso <ExigeObra/>, sem chamar o hook de dados
+// (nenhum hook é executado condicionalmente dentro do quadro).
 export default function KanbanCortePage() {
-  // --- Obra selecionada ---
   const { obraAtual } = useObras();
+  if (!obraAtual) {
+    return (
+      <div className="p-6">
+        <ExigeObra titulo="Kanban de Corte" />
+      </div>
+    );
+  }
+  return <KanbanCorteBoard obraAtual={obraAtual} />;
+}
+
+function KanbanCorteBoard({ obraAtual }) {
 
   // --- Hook de dados reais do Supabase (filtrado por obra) ---
   const {

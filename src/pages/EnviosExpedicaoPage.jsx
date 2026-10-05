@@ -4,7 +4,7 @@ import toast from 'react-hot-toast';
 import { exportToExcel, exportRomaneioPDF, exportFilaEmbarquePDF } from '@/utils/exportUtils';
 import { useExpedicao, useObras, useERP } from '../contexts/ERPContext';
 import PrevisaoCargasCard from '../components/expedicao/PrevisaoCargasCard';
-import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
+import { isEscopoGeral, rotuloEscopo } from '../lib/escopoObra';
 import { pecasApi } from '../api/supabaseClient';
 import { transformPecaArray } from '../contexts/transforms';
 import {
@@ -52,20 +52,17 @@ const novoEnvioVazio = () => ({ numero: '', data: hojeLocalISO(), transportadora
 export default function EnviosExpedicaoPage() {
   // ==== DADOS DO ERP CONTEXT ====
   const { expedicoes, addExpedicao, updateExpedicao, deleteExpedicao } = useExpedicao();
-  const { obras } = useObras();
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
   // Peças completas do ERP (paginadas) — base da previsão de cargas por obra
   const { pecas: pecasErp = [] } = useERP?.() || {};
 
-  // ==== FILTRO DE OBRA ====
-  const [obraFiltro, setObraFiltro] = useState('todas');
-
-  // Helper: testa obra_id contra filtro (suporta grupo TEMEC consolidado)
+  // ==== ESCOPO DE OBRA (filtro único do topo) ====
+  // Geral = todas as obras; grupo (ex.: TEMEC) = soma das obras do grupo.
+  const escopoGeral = isEscopoGeral(escopoObra);
   const matchObraExp = useCallback((oid) => {
-    if (obraFiltro === 'todas') return true;
-    if (GRUPOS_OBRAS[obraFiltro]) return GRUPOS_OBRAS[obraFiltro].obraIds.includes(oid);
-    return oid === obraFiltro;
-  }, [obraFiltro]);
-  const isGrupoExp = !!GRUPOS_OBRAS[obraFiltro];
+    if (!obraIdsEscopo) return true;
+    return obraIdsEscopo.includes(oid);
+  }, [obraIdsEscopo]);
 
   // A obra do romaneio é SEMPRE derivada das peças selecionadas (planejarRomaneio)
   // — nunca do filtro da tela (com "todas" ou grupo TEMEC isso gravava a obra errada).
@@ -180,25 +177,25 @@ export default function EnviosExpedicaoPage() {
 
   // ==== FILTRAR PEÇAS POR OBRA SELECIONADA ====
   const pecasExpedidas = useMemo(() => {
-    if (!obraFiltro || obraFiltro === 'todas') return pecasExpedidasRaw;
+    if (escopoGeral) return pecasExpedidasRaw;
     return pecasExpedidasRaw.filter(p => matchObraExp(p.obraId || p.obra_id));
-  }, [pecasExpedidasRaw, obraFiltro, matchObraExp]);
+  }, [pecasExpedidasRaw, escopoGeral, matchObraExp]);
 
   const pecasPintura = useMemo(() => {
-    if (!obraFiltro || obraFiltro === 'todas') return pecasPinturaRaw;
+    if (escopoGeral) return pecasPinturaRaw;
     return pecasPinturaRaw.filter(p => matchObraExp(p.obraId || p.obra_id));
-  }, [pecasPinturaRaw, obraFiltro, matchObraExp]);
+  }, [pecasPinturaRaw, escopoGeral, matchObraExp]);
 
   const pecasEnviadas = useMemo(() => {
-    if (!obraFiltro || obraFiltro === 'todas') return pecasEnviadasRaw;
+    if (escopoGeral) return pecasEnviadasRaw;
     return pecasEnviadasRaw.filter(p => matchObraExp(p.obraId || p.obra_id));
-  }, [pecasEnviadasRaw, obraFiltro, matchObraExp]);
+  }, [pecasEnviadasRaw, escopoGeral, matchObraExp]);
 
   // ==== EXPEDIÇÕES FILTRADAS POR OBRA ====
   const expedicoesFiltradas = useMemo(() => {
-    if (!obraFiltro || obraFiltro === 'todas') return expedicoes || [];
+    if (escopoGeral) return expedicoes || [];
     return (expedicoes || []).filter(e => matchObraExp(e.obra_id || e.obraId));
-  }, [expedicoes, obraFiltro, matchObraExp]);
+  }, [expedicoes, escopoGeral, matchObraExp]);
 
   // ==== KPIs ====
   const kpis = useMemo(() => {
@@ -487,34 +484,14 @@ export default function EnviosExpedicaoPage() {
           <p className="text-gray-400 text-sm mt-1">Controle de remessas e entregas</p>
         </div>
         <div className="flex items-center gap-3">
-          {/* Filtro de Obra */}
-          <Select.Root value={obraFiltro} onValueChange={setObraFiltro}>
-            <Select.Trigger className="flex items-center gap-2 bg-gray-900 border border-gray-700 text-white px-3 py-2 rounded-lg text-sm min-w-[200px]">
-              <Building2 className="w-4 h-4 text-teal-400 flex-shrink-0" />
-              <Select.Value placeholder="Selecionar Obra" />
-              <ChevronDown className="w-4 h-4 ml-auto" />
-            </Select.Trigger>
-            <Select.Portal>
-              <Select.Content className="bg-gray-900 border border-gray-700 rounded-lg shadow-xl z-50 overflow-hidden">
-                <Select.Viewport className="p-1">
-                  <Select.Item value="todas" className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none">
-                    <Select.ItemText>🏗 Todas as Obras</Select.ItemText>
-                  </Select.Item>
-                  {/* Grupos consolidados (TEMEC) */}
-                  {Object.values(GRUPOS_OBRAS).map(g => (
-                    <Select.Item key={g.id} value={g.id} className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none border-l-2 border-purple-500/40">
-                      <Select.ItemText>{g.label}</Select.ItemText>
-                    </Select.Item>
-                  ))}
-                  {(obras || []).map(o => (
-                    <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-white hover:bg-gray-800 rounded cursor-pointer outline-none">
-                      <Select.ItemText>{o.nome || o.name || `Obra ${o.id?.slice(0, 6)}`}</Select.ItemText>
-                    </Select.Item>
-                  ))}
-                </Select.Viewport>
-              </Select.Content>
-            </Select.Portal>
-          </Select.Root>
+          {/* Escopo de obra = filtro único do topo (somente leitura) */}
+          <span
+            className="flex items-center gap-1.5 bg-gray-900 border border-gray-800 text-gray-300 px-2.5 py-1 rounded-md text-xs"
+            title="Altere a obra no seletor do topo"
+          >
+            <Building2 className="w-3.5 h-3.5 text-teal-400 flex-shrink-0" />
+            Escopo: {rotuloEscopo(escopoObra, obras)}
+          </span>
           <Button variant="outline" size="sm" onClick={() => exportToExcel(enviosFiltrados, 'envios')}>
             <Download className="w-4 h-4 mr-1" /> Exportar
           </Button>
@@ -549,7 +526,7 @@ export default function EnviosExpedicaoPage() {
         pecas={pecasErp}
         expedicoes={expedicoes || []}
         obras={obras || []}
-        obraIds={obraFiltro === 'todas' ? null : (GRUPOS_OBRAS[obraFiltro] ? GRUPOS_OBRAS[obraFiltro].obraIds : [obraFiltro])}
+        obraIds={obraIdsEscopo}
       />
 
       {/* Tabs */}
@@ -630,9 +607,9 @@ export default function EnviosExpedicaoPage() {
                       }
                       const obrasMap = {};
                       (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.codigo || o.id; });
-                      const obraNome = obraFiltro === 'todas'
+                      const obraNome = escopoGeral
                         ? 'Todas as obras'
-                        : (GRUPOS_OBRAS[obraFiltro]?.label || obrasMap[obraFiltro] || obraFiltro);
+                        : rotuloEscopo(escopoObra, obras);
                       const r = exportFilaEmbarquePDF(pecasFiltradas, obrasMap, obraNome);
                       if (r.success) {
                         toast.success(`Relatório gerado: ${r.filename}`);

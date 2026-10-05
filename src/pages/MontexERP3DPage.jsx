@@ -8,6 +8,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
+import ExigeObra from '../components/erp/ExigeObra';
 import { useAuth } from '../lib/AuthContext';
 import { loadConcluidasSmart, loadConcluidasLocal, saveConcluidasSmart, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
 import { subscribeLocalKeys } from '../utils/localSync';
@@ -746,7 +747,24 @@ function parseViaWorker(buffer, onProgress, onStage) {
 // COMPONENTE PRINCIPAL
 // ==============================================
 
-export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
+// Wrapper: o 3D só funciona com UMA obra (seletor do topo). Em Geral/grupo
+// obraAtual é null → aviso <ExigeObra/>. O visualizador fica num componente
+// separado para que (a) nenhum hook rode condicionalmente e (b) a cena Three.js
+// seja montada do zero quando uma obra for escolhida (o init depende do
+// containerRef existir no mount).
+export default function MontexERP3DPage(props) {
+  const { obraAtual } = useObras();
+  if (!obraAtual) {
+    return (
+      <div className="p-6">
+        <ExigeObra titulo="Visualização 3D" />
+      </div>
+    );
+  }
+  return <MontexERP3DViewer {...props} />;
+}
+
+function MontexERP3DViewer({ obraAtualData: obraAtualDataProp }) {
   const { obraAtual, obraAtualData: obraAtualDataCtx } = useObras();
   const obraAtualData = obraAtualDataProp || obraAtualDataCtx;
   const { hasPermission } = useAuth() || {};
@@ -2198,7 +2216,7 @@ export default function MontexERP3DPage({ obraAtualData: obraAtualDataProp }) {
     };
   }, [ifcElements, statusMap]);
 
-  const obraName = obraAtualData?.nome || 'SUPER LUNA - BELO VALE';
+  const obraName = obraAtualData?.nome || obraAtual;
 
   // ==============================================
   // RENDER

@@ -14,7 +14,7 @@
 // A extração automática de itens de foto/PDF (OCR/IA) pode ser plugada depois
 // no mesmo preview — o documento já fica arquivado (documento_url).
 // ============================================================
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, FileSpreadsheet, FileText, Upload, Plus, Trash2, Check, Loader2, AlertCircle, Sparkles, Camera, Images } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
@@ -53,6 +53,9 @@ export default function ImportarChegadaModal({ open, estoque = [], obras = [], o
   const [fornecedor, setFornecedor] = useState('');
   const [obra, setObra] = useState(obraAtual || '');
   const [resultado, setResultado] = useState({ ok: 0, novos: 0, atualizados: 0 });
+  // Obra sugerida = obra do seletor do topo (null em Geral/grupo → sem vínculo).
+  // Re-sincroniza a cada abertura para não ficar presa à obra do 1º render.
+  useEffect(() => { if (open) setObra(obraAtual || ''); }, [open, obraAtual]);
 
   const reset = () => { setFonte(null); setEtapa('fonte'); setRows([]); setErro(''); setDocUrl(''); setDocNome(''); setDocFile(null); setExtraindo(false); setNf(''); setFornecedor(''); setResultado({ ok: 0, novos: 0, atualizados: 0 }); };
   const fechar = () => { reset(); onClose?.(); };

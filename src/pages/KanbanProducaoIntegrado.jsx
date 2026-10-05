@@ -32,7 +32,7 @@ import {
 
 // Contexto ERP e Database
 import { useObras, useProducao, useEstoque } from '@/contexts/ERPContext';
-import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
+import { grupoDoEscopo, rotuloEscopo } from '@/lib/escopoObra';
 import { supabase } from '@/api/supabaseClient';
 import { splitPeca, distribuirPeca } from '@/api/producaoRpc';
 import { validarTransicao, validarSplit, passosAte, normalizarEtapa, etapaAnterior } from '@/services/fluxoEtapas';
@@ -92,7 +92,7 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
-  const { obras, obraAtual } = useObras();
+  const { obras, obraAtual, escopoObra, obraIdsEscopo } = useObras();
   const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, addPecas: addPecasContext, reloadPecas } = useProducao();
   const { estoque: estoqueGlobal } = useEstoque();
 
@@ -103,22 +103,20 @@ export default function KanbanProducaoIntegrado() {
   const [ordemProducaoAtual, setOrdemProducaoAtual] = useState(null);
   const initialLoadDone = useRef(false);
 
-  // Estados de filtro
-  const [obraFiltro, setObraFiltro] = useState('todas');
+  // Escopo de obra = seletor ÚNICO do topo (Geral = todas as obras consolidadas).
+  // Mapa nome→id para cards legados que só têm obraNome.
+  const obraIdPorNome = useMemo(() => {
+    const m = {};
+    (obras || []).forEach(o => { if (o?.nome) m[o.nome] = o.id; });
+    return m;
+  }, [obras]);
 
-  // Helper: testa se peça/conjunto pertence ao filtro de obra (suporta grupo consolidado)
-  // c.obraNome ou c.obraId pode ser usado pra match.
+  // Helper: testa se peça/conjunto pertence ao escopo do topo (obra, grupo ou Geral)
   const matchObraFiltroFn = useCallback((c) => {
-    if (obraFiltro === 'todas') return true;
-    // Grupo consolidado: aceita peças cuja obraId pertence ao grupo
-    if (GRUPOS_OBRAS[obraFiltro]) {
-      const obraIdsGrupo = GRUPOS_OBRAS[obraFiltro].obraIds;
-      return obraIdsGrupo.includes(c?.obraId);
-    }
-    // Obra individual: match por nome (legado)
-    return c?.obraNome === obraFiltro;
-  }, [obraFiltro]);
-  const isGrupoConsolidadoFiltro = !!GRUPOS_OBRAS[obraFiltro];
+    if (!obraIdsEscopo) return true; // Geral
+    const oid = c?.obraId || obraIdPorNome[c?.obraNome] || null;
+    return !!oid && obraIdsEscopo.includes(oid);
+  }, [obraIdsEscopo, obraIdPorNome]);
   const [prioridadeFiltro, setPrioridadeFiltro] = useState('todas');
   const [tipoFiltro, setTipoFiltro] = useState('todos');
   const [busca, setBusca] = useState('');
@@ -169,11 +167,11 @@ export default function KanbanProducaoIntegrado() {
   const [itensPorPagina, setItensPorPagina] = useState(25);
   const [ordenacao, setOrdenacao] = useState({ campo: 'conjunto', direcao: 'asc' });
 
-  // Reset ao mudar de obra
+  // Reset ao mudar de escopo (obra/grupo/Geral) no topo
   useEffect(() => {
     initialLoadDone.current = false;
     setProducaoFabrica([]);
-  }, [obraAtual]);
+  }, [escopoObra]);
 
   // ========================================
   // AUTO-CARREGAR dados do SUPABASE (via ERPContext) no mount
@@ -773,7 +771,7 @@ export default function KanbanProducaoIntegrado() {
       agrupado[col.id] = conjuntosFiltrados.filter(c => c.status === col.id);
     });
     return agrupado;
-  }, [producaoFabrica, obraFiltro, prioridadeFiltro, tipoFiltro, busca]);
+  }, [producaoFabrica, matchObraFiltroFn, prioridadeFiltro, tipoFiltro, busca]);
 
   // KPIs
   const kpis = useMemo(() => {
@@ -825,23 +823,10 @@ export default function KanbanProducaoIntegrado() {
     // Peso CADASTRADO da obra (do registro em obras) — usado como referência se maior que peso de peças
     let pesoCadastroObra = 0;
     if (Array.isArray(obras) && obras.length > 0) {
-      if (GRUPOS_OBRAS[obraFiltro]) {
-        // Grupo consolidado: somar peso de todas as obras do grupo
-        const ids = GRUPOS_OBRAS[obraFiltro].obraIds;
-        pesoCadastroObra = obras
-          .filter(o => ids.includes(o.id))
-          .reduce((s, o) => s + (parseFloat(o.pesoTotal || o.peso_total) || 0), 0);
-      } else if (obraFiltro === 'todas') {
-        const obraAtivaObj = obras.find(o => o.id === obraAtual);
-        if (obraAtivaObj) {
-          pesoCadastroObra = parseFloat(obraAtivaObj.pesoTotal || obraAtivaObj.peso_total) || 0;
-        } else {
-          pesoCadastroObra = obras.reduce((s, o) => s + (parseFloat(o.pesoTotal || o.peso_total) || 0), 0);
-        }
-      } else {
-        const obraObj = obras.find(o => (o.nome || '') === obraFiltro || o.id === obraFiltro);
-        pesoCadastroObra = obraObj ? (parseFloat(obraObj.pesoTotal || obraObj.peso_total) || 0) : 0;
-      }
+      // Obra / grupo: soma do cadastro das obras do escopo · Geral: todas as obras
+      pesoCadastroObra = obras
+        .filter(o => !obraIdsEscopo || obraIdsEscopo.includes(o.id))
+        .reduce((s, o) => s + (parseFloat(o.pesoTotal || o.peso_total) || 0), 0);
     }
 
     // Usa o MAIOR: cadastro da obra (planejado) OU soma real das peças (produzido)
@@ -884,7 +869,7 @@ export default function KanbanProducaoIntegrado() {
       qtdEnviadas,
       pesoEnviadas,
     };
-  }, [producaoFabrica, obraFiltro, pecasSupabase, obras, obraAtual]);
+  }, [producaoFabrica, matchObraFiltroFn, pecasSupabase, obras, obraIdsEscopo]);
 
   // Dados para gráfico
   const dadosGrafico = COLUNAS_PRODUCAO.map((col, idx) => {
@@ -902,13 +887,7 @@ export default function KanbanProducaoIntegrado() {
     const ETAPAS_ENVIADAS = ['enviado', 'entregue', 'montagem'];
     return (pecasSupabase || [])
       .filter(p => ETAPAS_ENVIADAS.includes(p.etapa))
-      .filter(p => {
-        if (obraFiltro === 'todas') return true;
-        if (GRUPOS_OBRAS[obraFiltro]) {
-          return GRUPOS_OBRAS[obraFiltro].obraIds.includes(p.obraId);
-        }
-        return (p.obraNome || '') === obraFiltro;
-      })
+      .filter(p => matchObraFiltroFn(p))
       .map(p => ({
         id: p.id,
         conjunto: p.marca || p.nome || '',
@@ -926,13 +905,7 @@ export default function KanbanProducaoIntegrado() {
         obraNome: p.obraNome || '',
         dataExpedicao: p.dataFimReal || p.updatedAt || null,
       }));
-  }, [pecasSupabase, obraFiltro]);
-
-  // Obter obras únicas para filtro
-  const obrasUnicas = useMemo(() => {
-    const nomes = new Set(producaoFabrica.map(c => c.obraNome));
-    return Array.from(nomes);
-  }, [producaoFabrica]);
+  }, [pecasSupabase, matchObraFiltroFn]);
 
   // Obter tipos únicos para filtro
   const tiposUnicos = useMemo(() => {
@@ -973,7 +946,7 @@ export default function KanbanProducaoIntegrado() {
     });
 
     return conjuntosFiltrados;
-  }, [producaoFabrica, obraFiltro, prioridadeFiltro, tipoFiltro, busca, ordenacao]);
+  }, [producaoFabrica, matchObraFiltroFn, prioridadeFiltro, tipoFiltro, busca, ordenacao]);
 
   // Paginação
   const totalPaginas = Math.ceil(listaFiltrada.length / itensPorPagina);
@@ -991,7 +964,7 @@ export default function KanbanProducaoIntegrado() {
 
   useEffect(() => {
     setPaginaAtual(1);
-  }, [busca, obraFiltro, prioridadeFiltro, tipoFiltro]);
+  }, [busca, escopoObra, prioridadeFiltro, tipoFiltro]);
 
   // Cor da prioridade
   const corPrioridade = (p) => {
@@ -1065,7 +1038,7 @@ export default function KanbanProducaoIntegrado() {
       <RelatorioProducaoCard
         pecas={pecasSupabase || []}
         obra={(obras || []).find(o => o.id === obraAtual) || null}
-        estoque={(estoqueGlobal || []).filter(e => (e.obraId || e.obra_id) === obraAtual)}
+        estoque={(estoqueGlobal || []).filter(e => !obraIdsEscopo || obraIdsEscopo.includes(e.obraId || e.obra_id))}
       />
 
       {/* Ordem de Produção Atual */}
@@ -1232,35 +1205,16 @@ export default function KanbanProducaoIntegrado() {
             className="pl-10 bg-slate-800/50 border-slate-700 text-white"
           />
         </div>
-        <Select.Root value={obraFiltro} onValueChange={setObraFiltro}>
-          <Select.Trigger className="flex items-center justify-between w-64 px-3 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-white">
-            <div className="flex items-center gap-2">
-              <Building2 className="h-4 w-4 text-slate-400" />
-              <Select.Value placeholder="Filtrar por obra" />
-            </div>
-            <ChevronDown className="h-4 w-4 text-slate-400" />
-          </Select.Trigger>
-          <Select.Portal>
-            <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
-              <Select.Viewport className="p-1">
-                <Select.Item value="todas" className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                  <Select.ItemText>🏗 Todas as Obras</Select.ItemText>
-                </Select.Item>
-                {/* Grupos consolidados (TEMEC) */}
-                {Object.values(GRUPOS_OBRAS).map(g => (
-                  <Select.Item key={g.id} value={g.id} className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded cursor-pointer outline-none border-l-2 border-purple-500/40">
-                    <Select.ItemText>{g.label}</Select.ItemText>
-                  </Select.Item>
-                ))}
-                {obrasUnicas.map(obraNome => (
-                  <Select.Item key={obraNome} value={obraNome} className="px-3 py-2 text-sm text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>{obraNome}</Select.ItemText>
-                  </Select.Item>
-                ))}
-              </Select.Viewport>
-            </Select.Content>
-          </Select.Portal>
-        </Select.Root>
+        {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
+        <div
+          className="flex items-center gap-2 px-3 py-2 bg-slate-800/30 border border-slate-700/60 rounded-lg text-xs text-slate-400 max-w-xs"
+          title="Altere a obra no seletor do topo"
+        >
+          <Building2 className="h-4 w-4 text-slate-500 shrink-0" />
+          <span className="truncate">
+            Escopo: <span className={grupoDoEscopo(escopoObra) ? 'text-purple-300' : 'text-slate-200'}>{rotuloEscopo(escopoObra, obras)}</span>
+          </span>
+        </div>
         <Select.Root value={tipoFiltro} onValueChange={setTipoFiltro}>
           <Select.Trigger className="flex items-center justify-between w-40 px-3 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-white">
             <Select.Value placeholder="Tipo" />

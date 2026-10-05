@@ -18,6 +18,7 @@ import {
 import * as THREE from 'three';
 import { supabase } from '../api/supabaseClient';
 import { useObras } from '../contexts/ERPContext';
+import { grupoDoEscopo, rotuloEscopo } from '../lib/escopoObra';
 
 // ==================== 3D CHART COMPONENT ====================
 function Production3DChart({ data, width = 700, height = 400, title }) {
@@ -346,49 +347,49 @@ const CHART_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#e
 const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 // ==================== GRUPOS DE OBRAS (CONSOLIDADOS) ====================
-// Permite agregar várias obras numa única análise.
-// Adicionado em escopo de módulo para garantir disponibilidade nas refs.
-export const GRUPOS_OBRAS = {
-  temec: {
-    id: 'temec',
-    label: '🏢 TEMEC Consolidado (CC027 + CC002)',
-    obraIds: ['obra-004', 'obra-005'],
-    modo: 'unidade',
-    valor: 20,
-    qtdContrato: 2000, // 500 + 1500
-  },
-};
+// Definição movida para src/lib/escopoObra.js (filtro único do topo).
+// Re-export mantido para compatibilidade com imports antigos.
+export { GRUPOS_OBRAS } from '../lib/escopoObra';
+
+// ==================== PAGINAÇÃO SUPABASE ====================
+// PostgREST limita a 1000 linhas por request — pagina com .range().
+// `obraIds` null = todas as obras (escopo Geral).
+async function fetchPaginado(tabela, colunas, obraIds, pageSize = 1000) {
+  const out = [];
+  for (let from = 0; ; from += pageSize) {
+    let q = supabase.from(tabela).select(colunas).order('id', { ascending: true }).range(from, from + pageSize - 1);
+    if (obraIds) q = q.in('obra_id', obraIds);
+    const { data, error } = await q;
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return out;
+}
 
 // ==================== MAIN PAGE ====================
 export default function AnaliseProducaoPage() {
-  const { obraAtual, obras } = useObras();
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
   const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
 
-  // Filtro local de obra (independente do sidebar)
-  // Aceita: 'atual' | obraId | 'temec' (grupo consolidado)
-  const [filtroObraLocal, setFiltroObraLocal] = useState('atual');
+  // Escopo vem do seletor ÚNICO do topo: Geral (todas) | grupo (ex.: temec) | obra.
+  // obraIdsEfetivos: array de ids, ou null = todas as obras (Geral).
+  const obraIdsEfetivos = obraIdsEscopo || null;
+  const grupoAtivo = grupoDoEscopo(escopoObra);
 
-  // Resolve para um ou mais obraIds dependendo do filtro
-  const obraIdsEfetivos = useMemo(() => {
-    if (filtroObraLocal === 'atual') return obraAtual ? [obraAtual] : [];
-    if (GRUPOS_OBRAS[filtroObraLocal]) return GRUPOS_OBRAS[filtroObraLocal].obraIds;
-    return [filtroObraLocal];
-  }, [filtroObraLocal, obraAtual]);
-
-  // ID único para keys de cache (string das obras ordenadas)
-  const obraIdEfetivo = useMemo(() => obraIdsEfetivos.join(','), [obraIdsEfetivos]);
-  const isGrupoConsolidado = !!GRUPOS_OBRAS[filtroObraLocal];
+  // ID único para keys de cache (string das obras) — '*' = todas
+  const obraIdEfetivo = obraIdsEfetivos ? obraIdsEfetivos.join(',') : '*';
+  const isGrupoConsolidado = !!grupoAtivo;
 
   // Filtro de período temporal
   const [filtroPeriodo, setFiltroPeriodo] = useState('mensal'); // 'diario' | 'semanal' | 'mensal' | 'geral'
 
   // Detectar se obra é "modo unidade" (TEMEC seriado) — config no localStorage ou grupo
   const configObra = useMemo(() => {
-    if (GRUPOS_OBRAS[filtroObraLocal]) {
-      const g = GRUPOS_OBRAS[filtroObraLocal];
-      return { modo: g.modo, valor: g.valor, qtdContrato: g.qtdContrato };
+    if (grupoAtivo) {
+      return { modo: grupoAtivo.modo, valor: grupoAtivo.valor, qtdContrato: grupoAtivo.qtdContrato };
     }
-    if (obraIdsEfetivos.length !== 1) return null;
+    if (!obraIdsEfetivos || obraIdsEfetivos.length !== 1) return null;
     const obraId = obraIdsEfetivos[0];
     try {
       const cfg = JSON.parse(localStorage.getItem('medicao_config_obras_v1') || '{}');
@@ -398,7 +399,7 @@ export default function AnaliseProducaoPage() {
       };
       return { ...seeds, ...cfg }[obraId] || null;
     } catch { return null; }
-  }, [filtroObraLocal, obraIdsEfetivos]);
+  }, [grupoAtivo, obraIdEfetivo]);
   const isModoUnidade = configObra?.modo === 'unidade';
 
   const [pecas, setPecas] = useState([]);
@@ -413,29 +414,24 @@ export default function AnaliseProducaoPage() {
 
   // Fetch data from Supabase (filtrado por obra ou grupo de obras)
   useEffect(() => {
-    if (!obraIdsEfetivos || obraIdsEfetivos.length === 0) {
+    if (obraIdsEfetivos && obraIdsEfetivos.length === 0) {
       setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setMateriaisCorte([]); setLoading(false); return;
     }
     const fetchData = async () => {
       try {
         setLoading(true);
-        // Buscar peças de produção — usa .in() para suportar múltiplas obras (grupo TEMEC)
-        // .limit(5000) para evitar cap default de 1000 do PostgREST em obras grandes
-        const { data, error } = await supabase
-          .from('pecas_producao')
-          .select('*')
-          .in('obra_id', obraIdsEfetivos)
-          .limit(5000);
-        if (error) throw error;
+        // Buscar peças de produção — .in() para grupo/obra; sem filtro em Geral (todas)
+        // Paginado: pecas_producao tem >1000 linhas (limite PostgREST)
+        const data = await fetchPaginado('pecas_producao', '*', obraIdsEfetivos);
         setPecas(data || []);
 
         // Buscar materiais_corte (preparação independente dos conjuntos)
         try {
-          const { data: corteData } = await supabase
-            .from('materiais_corte')
-            .select('id, obra_id, marca, peca, perfil, comprimento_mm, quantidade, peso_teorico, status_corte, funcionario_corte, data_inicio, data_fim')
-            .in('obra_id', obraIdsEfetivos)
-            .limit(20000);
+          const corteData = await fetchPaginado(
+            'materiais_corte',
+            'id, obra_id, marca, peca, perfil, comprimento_mm, quantidade, peso_teorico, status_corte, funcionario_corte, data_inicio, data_fim',
+            obraIdsEfetivos,
+          );
           setMateriaisCorte(corteData || []);
         } catch (corteErr) {
           console.warn('Erro materiais_corte:', corteErr);
@@ -446,12 +442,19 @@ export default function AnaliseProducaoPage() {
         try {
           const ids = (data || []).map(p => p.id);
           if (ids.length > 0) {
-            const { data: hist } = await supabase
-              .from('producao_historico')
-              .select('peca_id, etapa_de, etapa_para, data_inicio, funcionario_id, funcionario_nome')
-              .in('peca_id', ids)
-              .order('data_inicio', { ascending: true });
-            setHistoricoProducao(hist || []);
+            // Em lotes de 300 ids para não estourar o tamanho da URL (Geral = muitas peças)
+            const hist = [];
+            for (let i = 0; i < ids.length; i += 300) {
+              const { data: h } = await supabase
+                .from('producao_historico')
+                .select('peca_id, etapa_de, etapa_para, data_inicio, funcionario_id, funcionario_nome')
+                .in('peca_id', ids.slice(i, i + 300))
+                .order('data_inicio', { ascending: true })
+                .limit(10000);
+              hist.push(...(h || []));
+            }
+            hist.sort((a, b) => String(a.data_inicio || '').localeCompare(String(b.data_inicio || '')));
+            setHistoricoProducao(hist);
           } else {
             setHistoricoProducao([]);
           }
@@ -462,11 +465,12 @@ export default function AnaliseProducaoPage() {
 
         // Buscar expedições ENTREGUE para identificar peças já entregues em obra
         try {
-          const { data: exps } = await supabase
+          let qExp = supabase
             .from('expedicoes')
             .select('*')
-            .in('obra_id', obraIdsEfetivos)
-            .in('status', ['entregue', 'ENTREGUE']); // status normalizado p/ minúsculo (migração 2026100530)
+            .in('status', ['entregue', 'ENTREGUE']);
+          if (obraIdsEfetivos) qExp = qExp.in('obra_id', obraIdsEfetivos);
+          const { data: exps } = await qExp; // status normalizado p/ minúsculo (migração 2026100530)
           const entregues = (exps || []).filter(e => !e.deleted_at); // ignora romaneios excluídos (soft-delete)
           const ids = new Set();
           let pesoEnt = 0;
@@ -658,7 +662,7 @@ export default function AnaliseProducaoPage() {
   // Ratio de avanço por obra: % de conjuntos que já saíram do corte
   const ratioCortePorObra = useMemo(() => {
     const map = {};
-    obraIdsEfetivos.forEach(oid => { map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 }; });
+    (obraIdsEfetivos || []).forEach(oid => { map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 }; });
     pecas.forEach(p => {
       const oid = p.obra_id;
       if (!map[oid]) map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 };
@@ -671,7 +675,7 @@ export default function AnaliseProducaoPage() {
       r.ratio = r.totalConj > 0 ? r.conjEmFab / r.totalConj : 0;
     });
     return map;
-  }, [pecas, obraIdsEfetivos]);
+  }, [pecas, obraIdEfetivo]);
 
   const kpisCorte = useMemo(() => {
     const STATUS_CORTADO = ['finalizado', 'cortado'];
@@ -973,25 +977,13 @@ export default function AnaliseProducaoPage() {
           </div>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
-          {/* Obra Filter (local) — inclui grupos consolidados */}
-          <select
-            value={filtroObraLocal}
-            onChange={(e) => setFiltroObraLocal(e.target.value)}
-            className="px-3 py-2 bg-slate-800/80 rounded-lg border border-slate-700/50 text-slate-300 hover:text-white hover:border-slate-600 transition-all text-sm focus:outline-none min-w-[280px]"
+          {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
+          <span
+            className="px-3 py-1.5 bg-slate-800/60 rounded-lg border border-slate-700/50 text-slate-400 text-xs"
+            title="Altere a obra no seletor do topo"
           >
-            <option value="atual">🏗 Obra Ativa (sidebar)</option>
-            {/* Grupos consolidados */}
-            <optgroup label="── Grupos Consolidados ──">
-              {Object.values(GRUPOS_OBRAS).map(g => (
-                <option key={g.id} value={g.id}>{g.label}</option>
-              ))}
-            </optgroup>
-            <optgroup label="── Obras Individuais ──">
-              {obrasAtivas.map(o => (
-                <option key={o.id} value={o.id}>{o.codigo ? `${o.codigo} · ` : ''}{o.nome}</option>
-              ))}
-            </optgroup>
-          </select>
+            Escopo: <span className="text-slate-200">{rotuloEscopo(escopoObra, obras)}</span>
+          </span>
 
           {/* Período Filter */}
           <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg border border-slate-700/50 p-0.5">
@@ -1053,14 +1045,14 @@ export default function AnaliseProducaoPage() {
             </p>
             <p className={`${isGrupoConsolidado ? 'text-purple-200/70' : 'text-emerald-200/70'} text-xs mt-0.5`}>
               {isGrupoConsolidado
-                ? `${GRUPOS_OBRAS[filtroObraLocal]?.label} · Contrato consolidado: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un = R$ ${(configObra?.qtdContrato * configObra?.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                : `${obrasAtivas.find(o => o.id === obraIdsEfetivos[0])?.nome || 'Obra'} · Contrato: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un`}
+                ? `${grupoAtivo?.label} · Contrato consolidado: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un = R$ ${(configObra?.qtdContrato * configObra?.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+                : `${obrasAtivas.find(o => o.id === obraIdsEfetivos?.[0])?.nome || 'Obra'} · Contrato: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un`}
             </p>
           </div>
           {isGrupoConsolidado && (
             <div className="flex gap-2 text-xs">
               <span className="px-2 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                {GRUPOS_OBRAS[filtroObraLocal]?.obraIds.length} obras
+                {grupoAtivo?.obraIds.length} obras
               </span>
             </div>
           )}

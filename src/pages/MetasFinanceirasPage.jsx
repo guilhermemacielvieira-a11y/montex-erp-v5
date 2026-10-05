@@ -71,7 +71,7 @@ import {
 } from 'recharts';
 import { useFinancialIntelligence } from '@/hooks/useFinancialIntelligence';
 import { useObras } from '@/contexts/ERPContext';
-import { GRUPOS_OBRAS } from '@/pages/AnaliseProducaoPage';
+import { isEscopoGeral, rotuloEscopo } from '@/lib/escopoObra';
 
 // Componente de KPI
 function KPICard({ title, value, subtitle, icon: Icon, color, trend, trendLabel, isNegativeTrendGood = false }) {
@@ -215,14 +215,13 @@ function EstagioCard({ etapa, formatCurrency }) {
 
 export default function MetasFinanceirasPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [filtroObra, setFiltroObra] = useState('todas');
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
 
-  const { obras } = useObras();
-  const obrasAtivas = useMemo(
-    () => (obras || []).filter(o => !['cancelada', 'orcamento'].includes(o.status)),
-    [obras]
-  );
+  // Escopo = filtro único do topo. Geral → 'todas' (financeiro geral, sem
+  // vínculo a obra); grupo (ex.: 'temec') ou obraId são repassados como estão
+  // (useFinancialIntelligence já trata grupo consolidado).
+  const { obras, escopoObra } = useObras();
+  const filtroObra = isEscopoGeral(escopoObra) ? 'todas' : escopoObra;
 
   const fi = useFinancialIntelligence({ obraId: filtroObra, periodo: filtroPeriodo });
 
@@ -336,7 +335,7 @@ export default function MetasFinanceirasPage() {
             <Flag className="h-4 w-4 text-amber-400" />
             Filtros:
           </div>
-          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
             <div>
               <Label className="text-xs text-slate-400 mb-1 block">Período</Label>
               <Select value={filtroPeriodo} onValueChange={setFiltroPeriodo}>
@@ -352,23 +351,13 @@ export default function MetasFinanceirasPage() {
               </Select>
             </div>
             <div>
-              <Label className="text-xs text-slate-400 mb-1 block">Obra</Label>
-              <Select value={filtroObra} onValueChange={setFiltroObra}>
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-white h-9">
-                  <SelectValue placeholder="Todas (geral / sem obra)" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="todas">Todas (geral — sem vínculo a obra)</SelectItem>
-                  {Object.values(GRUPOS_OBRAS || {}).map(g => (
-                    <SelectItem key={g.id} value={g.id}>{g.label}</SelectItem>
-                  ))}
-                  {obrasAtivas.map(o => (
-                    <SelectItem key={o.id} value={o.id}>
-                      {o.codigo || o.id} — {o.nome || o.nome_cliente || 'Sem nome'}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {/* Escopo somente-leitura: a obra é escolhida no seletor do topo */}
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700 text-xs text-slate-300"
+                title="Altere a obra no seletor do topo"
+              >
+                Escopo: {isEscopoGeral(escopoObra) ? 'Fábrica (geral — sem vínculo a obra)' : rotuloEscopo(escopoObra, obras)}
+              </div>
             </div>
           </div>
           {fi.isFiltroObraAtivo && (

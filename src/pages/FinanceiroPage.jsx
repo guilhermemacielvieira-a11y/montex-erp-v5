@@ -1,7 +1,8 @@
 // MONTEX ERP Premium - Painel Financeiro (comum)
-// Receita × Despesa de UM escopo por vez:
-//   - Fábrica (geral): lançamentos sem obra (Despesas/Receitas comuns)
+// Receita × Despesa de UM escopo por vez (definido pelo seletor ÚNICO do topo):
+//   - Geral → Fábrica: lançamentos sem obra (Despesas/Receitas comuns)
 //   - Obra X: medições + receitas manuais + despesas com obra_id = X
+//   - Grupo (ex.: TEMEC): soma das obras do grupo
 // Todo lançamento feito aqui escolhe o vínculo (Fábrica ou uma obra).
 //
 // PREMISSA (CLAUDE.md, "1b. Premissas do financeiro"): mão única. Os
@@ -87,6 +88,7 @@ import {
   normalizeStatusReceita, receitaCancelada, receitaRecebida,
 } from '../utils/financeiroStatus';
 import { formatCurrency, formatDate, hojeLocalISO, parseLocalDate } from '../utils/financeiroCalc';
+import { isEscopoGeral, obraIdUnica, rotuloEscopo } from '../lib/escopoObra';
 
 // ========== HELPERS ==========
 const ETAPA_LABELS = {
@@ -125,7 +127,6 @@ const lerOverrides = () => {
 const formatValor = (v) => new Intl.NumberFormat('pt-BR', {
   style: 'currency', currency: 'BRL', minimumFractionDigits: 2, maximumFractionDigits: 2,
 }).format(v || 0);
-const escopoDe = (x) => obraDe(x) || FABRICA;
 const obraIdDoEscopo = (escopo) => (!escopo || escopo === FABRICA ? null : escopo);
 const tempo = (d) => parseLocalDate(d)?.getTime() || 0;
 
@@ -141,12 +142,11 @@ export default function FinanceiroPage() {
   // ===== DADOS DO SUPABASE =====
   const { lancamentosDespesas, addLancamento, updateLancamento, deleteLancamento } = useLancamentos();
   const { medicoes: todasMedicoes } = useMedicoes();
-  const { obras } = useObras();
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
 
   // ===== ESTADOS =====
   const [filtroPeriodo, setFiltroPeriodo] = useState('geral');
   const [filtroTipo, setFiltroTipo] = useState('todos');
-  const [obraSelecionada, setObraSelecionada] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editando, setEditando] = useState(null);
@@ -157,13 +157,16 @@ export default function FinanceiroPage() {
     parcelas: 1, intervaloDias: 30, vinculo: FABRICA,
   });
 
-  // Escopo analisado: escolha do usuário (Fábrica ou obra); padrão Fábrica
-  const filtroObra = useMemo(() => {
-    const ids = new Set((obras || []).map(o => o.id));
-    if (obraSelecionada && (obraSelecionada === FABRICA || ids.has(obraSelecionada))) return obraSelecionada;
-    return FABRICA;
-  }, [obras, obraSelecionada]);
-  const ehFabrica = filtroObra === FABRICA;
+  // Escopo analisado = filtro único do topo (ver src/lib/escopoObra.js):
+  //   Geral → Fábrica (lançamentos sem obra); obra → aquela obra;
+  //   grupo → soma das obras do grupo.
+  const ehFabrica = isEscopoGeral(escopoObra) || !obraIdsEscopo;
+  const obraUnica = obraIdUnica(escopoObra);
+  const noEscopo = useCallback((x) => {
+    const oid = obraDe(x);
+    if (ehFabrica) return !oid;
+    return !!oid && obraIdsEscopo.includes(oid);
+  }, [ehFabrica, obraIdsEscopo]);
 
   const nomeEscopo = useCallback((escopo) => {
     if (!escopo || escopo === FABRICA) return 'Fábrica (geral)';
@@ -171,15 +174,21 @@ export default function FinanceiroPage() {
     return o?.nome || o?.name || escopo;
   }, [obras]);
 
-  const obraInfo = useMemo(() => (ehFabrica ? null : (obras || []).find(o => o.id === filtroObra) || null), [obras, filtroObra, ehFabrica]);
-  const obraNome = nomeEscopo(filtroObra);
-  const contratoValor = Number(obraInfo?.contratoValorTotal ?? obraInfo?.contrato_valor_total ?? obraInfo?.valorContrato ?? 0) || 0;
+  // Obras do escopo (1 obra ou as obras do grupo); contrato = soma dos contratos
+  const obrasDoEscopo = useMemo(() => (
+    ehFabrica ? [] : (obras || []).filter(o => obraIdsEscopo.includes(o.id))
+  ), [obras, obraIdsEscopo, ehFabrica]);
+  const obraNome = ehFabrica
+    ? nomeEscopo(FABRICA)
+    : (obraUnica ? nomeEscopo(obraUnica) : rotuloEscopo(escopoObra, obras));
+  const contratoValor = obrasDoEscopo.reduce((s, o) => (
+    s + (Number(o?.contratoValorTotal ?? o?.contrato_valor_total ?? o?.valorContrato ?? 0) || 0)
+  ), 0);
 
   // ===== DESPESAS DA OBRA (lancamentos_despesas com obra_id = obra) =====
   const despesasObra = useMemo(() => {
-    if (!filtroObra) return [];
     return (lancamentosDespesas || [])
-      .filter(l => escopoDe(l) === filtroObra && !despesaCancelada(l.status))
+      .filter(l => noEscopo(l) && !despesaCancelada(l.status))
       .map(l => {
         const venc = l.dataVencimento || l.vencimento || '-';
         const pago = despesaPaga(l.status);
@@ -197,9 +206,10 @@ export default function FinanceiroPage() {
           formaPagto: l.formaPagto || '-',
           vencimento: venc,
           origem: 'despesa',
+          obraId: obraDe(l),
         };
       });
-  }, [lancamentosDespesas, filtroObra]);
+  }, [lancamentosDespesas, noEscopo]);
 
   // ===== RECEITAS DA OBRA: MEDIÇÕES =====
   // Reconhecida (aprovada/faturada/paga) conta como receita; prevista/em
@@ -223,10 +233,9 @@ export default function FinanceiroPage() {
   }, []);
 
   const receitasMedicoes = useMemo(() => {
-    if (!filtroObra) return [];
     const overrides = lerOverrides();
     return (todasMedicoes || [])
-      .filter(m => escopoDe(m) === filtroObra)
+      .filter(m => noEscopo(m))
       .map(m => {
         const ov = overrides[m.id] || null;
         const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
@@ -244,7 +253,7 @@ export default function FinanceiroPage() {
           tipo: 'receita',
           data: m.dataMedicao || m.data_medicao || m.dataReferencia || m.data_referencia || '',
           descricao: ov?.descricao || m.descricao || `Medição #${m.numero || '?'} - ${etapaLabel}`,
-          fornecedor: obraNome,
+          fornecedor: obraUnica ? obraNome : nomeEscopo(obraDe(m)),
           categoria: ov?.categoria || (m.isAvulsa ? 'Serviço Avulso' : 'Medição'),
           valor: Number.isFinite(valorOv) ? valorOv : (Number(m.valorBruto ?? m.valor_bruto ?? 0) || 0),
           valorBanco: Number(m.valorBruto ?? m.valor_bruto ?? 0) || 0,
@@ -258,17 +267,17 @@ export default function FinanceiroPage() {
           numero: m.numero,
           etapaLabel,
           origem: 'medicao',
+          obraId: obraDe(m),
         };
       })
       .filter(Boolean);
-  }, [todasMedicoes, filtroObra, obraNome, overridesTick]);
+  }, [todasMedicoes, noEscopo, obraUnica, obraNome, nomeEscopo, overridesTick]);
 
   // ===== RECEITAS DA OBRA: MANUAIS (receitas_manuais.obra_id = obra) =====
   const { receitas: receitasManuaisFonte } = useReceitasManuais();
   const receitasManuais = useMemo(() => {
-    if (!filtroObra) return [];
     return (receitasManuaisFonte || [])
-      .filter(r => escopoDe(r) === filtroObra && !receitaCancelada(r.status))
+      .filter(r => noEscopo(r) && !receitaCancelada(r.status))
       .map(r => {
         const venc = r.vencimento || '-';
         const status = normalizeStatusReceita(r.status);
@@ -289,9 +298,10 @@ export default function FinanceiroPage() {
           formaPagto: r.formaPagto || '-',
           vencimento: venc,
           origem: 'receita_manual',
+          obraId: obraDe(r),
         };
       });
-  }, [receitasManuaisFonte, filtroObra]);
+  }, [receitasManuaisFonte, noEscopo]);
 
   // ===== MOVIMENTAÇÕES DA OBRA =====
   const todasMovimentacoes = useMemo(() => (
@@ -420,8 +430,9 @@ export default function FinanceiroPage() {
 
   const handleNova = () => {
     setEditando(null);
-    // Vínculo sugerido = escopo em tela (o usuário pode trocar no form)
-    setFormData({ ...formVazio, vinculo: filtroObra || FABRICA });
+    // Vínculo sugerido = obra do topo quando o escopo é UMA obra; senão
+    // Fábrica (o usuário pode trocar no form)
+    setFormData({ ...formVazio, vinculo: obraUnica || FABRICA });
     setDialogOpen(true);
   };
 
@@ -440,7 +451,8 @@ export default function FinanceiroPage() {
       formaPagto: mov.formaPagto && mov.formaPagto !== '-' ? mov.formaPagto : '',
       status: quitado ? 'pago' : (mov.tipo === 'receita' && mov.status === 'faturado' ? 'faturado' : 'pendente'),
       parcelas: 1, intervaloDias: 30,
-      vinculo: filtroObra || FABRICA,
+      // Vínculo atual do próprio lançamento (em grupo há várias obras)
+      vinculo: mov.obraId || FABRICA,
     });
     setDialogOpen(true);
   };
@@ -747,23 +759,17 @@ export default function FinanceiroPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Filtros: Visualização + Período */}
+      {/* Escopo (filtro único do topo) + Período */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-        {/* Seletor de Obra / Visão */}
-        <div className="flex items-center gap-2">
-          <Building2 className="h-4 w-4 text-slate-400" />
-          <span className="text-sm text-slate-400 mr-1">Visualizar:</span>
-          <Select value={filtroObra} onValueChange={setObraSelecionada}>
-            <SelectTrigger className="w-[260px] bg-slate-800 border-slate-700 text-sm">
-              <SelectValue placeholder="Fábrica ou obra" />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-slate-700">
-              <SelectItem value={FABRICA}>Fábrica (financeiro geral)</SelectItem>
-              {(obras || []).map(o => (
-                <SelectItem key={o.id} value={o.id}>{o.nome || o.name || o.id}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        {/* Escopo somente-leitura: a obra é escolhida no seletor do topo */}
+        <div
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700 text-xs text-slate-300"
+          title="Altere a obra no seletor do topo"
+        >
+          <Building2 className="h-3.5 w-3.5 text-slate-400" />
+          <span>
+            Escopo: {ehFabrica ? 'Fábrica (financeiro geral — lançamentos sem obra)' : rotuloEscopo(escopoObra, obras)}
+          </span>
         </div>
 
         {/* Filtro Período */}

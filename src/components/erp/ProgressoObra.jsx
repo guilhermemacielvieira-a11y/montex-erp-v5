@@ -4,7 +4,7 @@
  * Visualização do progresso em todas as etapas
  */
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import { motion } from 'framer-motion';
 import {
   Scissors,
@@ -26,17 +26,34 @@ const etapasConfig = [
 ];
 
 export default function ProgressoObra({ compact = false }) {
-  const { obraAtualData } = useObras();
+  const { obras, obraAtualData, obraIdsEscopo } = useObras();
 
-  if (!obraAtualData) {
+  // Geral/grupo (obraAtualData null) → progresso CONSOLIDADO = média simples
+  // por etapa das obras do escopo (Geral: obras ativas).
+  const consolidado = useMemo(() => {
+    if (obraAtualData) return null;
+    const lista = (obras || []).filter(o => (obraIdsEscopo
+      ? obraIdsEscopo.includes(o.id)
+      : !['cancelada', 'concluida', 'orcamento'].includes(o.status)));
+    if (!lista.length) return null;
+    const media = {};
+    etapasConfig.forEach(({ key }) => {
+      const soma = lista.reduce((acc, o) => acc + (Number(o.progresso?.[key]) || 0), 0);
+      media[key] = Math.round(soma / lista.length);
+    });
+    return media;
+  }, [obras, obraAtualData, obraIdsEscopo]);
+
+  if (!obraAtualData && !consolidado) {
+    if (compact) return null;
     return (
       <div className="bg-slate-800/50 rounded-xl p-4 text-center text-slate-500">
-        Selecione uma obra para ver o progresso
+        Sem obras no escopo selecionado
       </div>
     );
   }
 
-  const progresso = obraAtualData.progresso || {};
+  const progresso = (obraAtualData ? obraAtualData.progresso : consolidado) || {};
 
   if (compact) {
     return (
@@ -70,7 +87,7 @@ export default function ProgressoObra({ compact = false }) {
     <div className="bg-gradient-to-br from-slate-800/80 to-slate-900/80 backdrop-blur-xl rounded-2xl border border-slate-700/50 p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-white">Progresso da Produção</h3>
-        <span className="text-xs text-slate-400">{obraAtualData.codigo}</span>
+        <span className="text-xs text-slate-400">{obraAtualData ? obraAtualData.codigo : 'Consolidado'}</span>
       </div>
 
       <div className="space-y-4">

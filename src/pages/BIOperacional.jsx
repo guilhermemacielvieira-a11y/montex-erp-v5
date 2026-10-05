@@ -680,7 +680,7 @@ export default function BIOperacional() {
                       }`} />
                     </motion.div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-white font-medium truncate">{obraAtualData?.nome || 'Obra em Progresso'}</p>
+                      <p className="text-sm text-white font-medium truncate">{obraAtualData?.nome || (obras || []).find(o => o.id === (expedicao.obraId || expedicao.obra_id))?.nome || 'Obra em Progresso'}</p>
                       <p className="text-xs text-slate-400 truncate">Medição {expedicao.numero}</p>
                     </div>
                     <div className="text-right">

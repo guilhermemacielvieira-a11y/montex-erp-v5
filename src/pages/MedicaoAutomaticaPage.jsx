@@ -18,7 +18,7 @@ import {
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts';
 import { useObras, useExpedicao, useMedicoes } from '../contexts/ERPContext';
-import { GRUPOS_OBRAS } from './AnaliseProducaoPage';
+import { grupoDoEscopo, rotuloEscopo } from '../lib/escopoObra';
 
 // Configurações de valores por kg (editáveis) - vinculado ao contrato
 const configInicial = {
@@ -56,20 +56,19 @@ const saveConfigObras = (cfg) => {
 const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
 
 export default function MedicaoAutomaticaPage() {
-  const { obras, obraAtualData } = useObras();
+  // Escopo de obra = seletor ÚNICO do topo (Geral = todas as obras consolidadas)
+  const { obras, obraAtual, escopoObra, obraIdsEscopo } = useObras();
   const { expedicoes } = useExpedicao();
   const { medicoes: medicoesDB } = useMedicoes();
   const obrasAtivas = obras.filter(o => o.status !== 'cancelada');
 
-  const [obraSelecionada, setObraSelecionada] = useState('todas');
+  // obraSelecionada: id de UMA obra, ou null (Geral / grupo)
+  const obraSelecionada = obraAtual || null;
+  const grupoAtivo = grupoDoEscopo(escopoObra);
 
-  // Resolve obraIds (suporta grupo consolidado TEMEC)
-  const obraIdsEfetivos = useMemo(() => {
-    if (obraSelecionada === 'todas') return null; // null = todas obras
-    if (GRUPOS_OBRAS[obraSelecionada]) return GRUPOS_OBRAS[obraSelecionada].obraIds;
-    return [obraSelecionada];
-  }, [obraSelecionada]);
-  const isGrupoConsolidado = !!GRUPOS_OBRAS[obraSelecionada];
+  // obraIds do escopo (null = todas / Geral; grupo TEMEC = várias)
+  const obraIdsEfetivos = obraIdsEscopo || null;
+  const isGrupoConsolidado = !!grupoAtivo;
   const [config, setConfig] = useState(configInicial);
   const [editandoConfig, setEditandoConfig] = useState(null);
   const [novoValorKg, setNovoValorKg] = useState('');
@@ -85,15 +84,15 @@ export default function MedicaoAutomaticaPage() {
   // Config ATUAL = se obra/grupo selecionada tem config própria, usa ela; senão usa o default kg
   const configObraAtual = useMemo(() => {
     // Grupo consolidado (TEMEC): usa config do grupo direto
-    if (GRUPOS_OBRAS[obraSelecionada]) {
-      const g = GRUPOS_OBRAS[obraSelecionada];
+    if (grupoAtivo) {
+      const g = grupoAtivo;
       return { modo: g.modo, valor: g.valor, qtdContrato: g.qtdContrato, descricao: 'R$/unidade · análise consolidada' };
     }
-    if (obraSelecionada !== 'todas' && configObras[obraSelecionada]) {
+    if (obraSelecionada && configObras[obraSelecionada]) {
       return configObras[obraSelecionada];
     }
     return { modo: 'kg', valor: config.producao.valorKg, qtdContrato: 0, descricao: config.producao.descricao };
-  }, [obraSelecionada, configObras, config.producao.valorKg, config.producao.descricao]);
+  }, [grupoAtivo, obraSelecionada, configObras, config.producao.valorKg, config.producao.descricao]);
 
   const isModoUnidade = configObraAtual.modo === 'unidade';
 
@@ -109,13 +108,19 @@ export default function MedicaoAutomaticaPage() {
     let cancel = false;
     (async () => {
       try {
-        // .limit(5000) para evitar cap default de 1000 do PostgREST em obras grandes
-        const { data, error } = await supabase
-          .from('pecas_producao')
-          .select('etapa,quantidade,peso_total,obra_id')
-          .in('obra_id', obraIdsEfetivos)
-          .limit(5000);
-        if (error || cancel) return;
+        // Paginado (.range) — pecas_producao passa do limite de 1000 linhas do PostgREST
+        const data = [];
+        for (let from = 0; ; from += 1000) {
+          const { data: page, error } = await supabase
+            .from('pecas_producao')
+            .select('id,etapa,quantidade,peso_total,obra_id')
+            .in('obra_id', obraIdsEfetivos)
+            .order('id', { ascending: true })
+            .range(from, from + 999);
+          if (error || cancel) return;
+          data.push(...(page || []));
+          if (!page || page.length < 1000) break;
+        }
         const acc = { expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 };
         (data || []).forEach(p => {
           const peso = parseFloat(p.peso_total) || 0;
@@ -139,7 +144,7 @@ export default function MedicaoAutomaticaPage() {
       } catch (e) { /* silencioso */ }
     })();
     return () => { cancel = true; };
-  }, [obraSelecionada, obraIdsEfetivos?.join(',')]);
+  }, [obraIdsEfetivos?.join(',')]);
 
   // Helper: testa se um obraId está nos filtros atuais
   const matchObra = (oid) => {
@@ -184,7 +189,7 @@ export default function MedicaoAutomaticaPage() {
           numero: m.numero,
         };
       });
-  }, [medicoesDB, obraSelecionada, obras, config.producao.valorKg]);
+  }, [medicoesDB, escopoObra, obras, config.producao.valorKg]);
 
   // Combinar medições locais + DB (evitar duplicatas por ID)
   const medicoesFiltradas = useMemo(() => {
@@ -221,7 +226,7 @@ export default function MedicaoAutomaticaPage() {
       matchObra(e.obra_id)
     );
     return expedicoesComRomaneio.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
-  }, [expedicoes, obraSelecionada]);
+  }, [expedicoes, escopoObra]);
 
   // Peso efetivamente ENTREGUE na obra (apenas expedições com status ENTREGUE)
   const pesoEntregueReal = useMemo(() => {
@@ -231,7 +236,7 @@ export default function MedicaoAutomaticaPage() {
       matchObra(e.obra_id)
     );
     return entregues.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
-  }, [expedicoes, obraSelecionada]);
+  }, [expedicoes, escopoObra]);
 
   const dadosObraSelecionada = useMemo(() => {
     const calcPesos = (obra) => {
@@ -270,7 +275,7 @@ export default function MedicaoAutomaticaPage() {
         pesoTotal: pt, previsaoProximaMedicao
       };
     };
-    if (obraSelecionada === 'todas') {
+    if (!obraIdsEfetivos) { // Geral: todas as obras consolidadas
       const consolidado = {
         pesoProduzido: 0, pesoExpedido: 0, pesoPintado: 0,
         pesoEmCorte: 0, pesoEmFabricacao: 0, pesoEmSolda: 0, pesoEmProcesso: 0,
@@ -283,8 +288,8 @@ export default function MedicaoAutomaticaPage() {
       return consolidado;
     }
     // Grupo consolidado: somar peças das obras do grupo
-    if (GRUPOS_OBRAS[obraSelecionada]) {
-      const obrasGrupo = obrasAtivas.filter(o => GRUPOS_OBRAS[obraSelecionada].obraIds.includes(o.id));
+    if (grupoAtivo) {
+      const obrasGrupo = obrasAtivas.filter(o => grupoAtivo.obraIds.includes(o.id));
       const consolidado = {
         pesoProduzido: 0, pesoExpedido: 0, pesoPintado: 0,
         pesoEmCorte: 0, pesoEmFabricacao: 0, pesoEmSolda: 0, pesoEmProcesso: 0,
@@ -298,7 +303,7 @@ export default function MedicaoAutomaticaPage() {
     }
     const obraSel = obrasAtivas.find(o => o.id === obraSelecionada);
     return calcPesos(obraSel);
-  }, [obraSelecionada, obrasAtivas]);
+  }, [obraIdsEfetivos, grupoAtivo, obraSelecionada, obrasAtivas]);
 
   // Total de medições já lançadas (valor bruto das medições no Supabase)
   // EXCLUI adiantamentos / entradas de contrato — apenas medições de produção são subtraídas
@@ -314,7 +319,7 @@ export default function MedicaoAutomaticaPage() {
     });
 
     return apenasMedicoes.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
-  }, [medicoesDB, obraSelecionada]);
+  }, [medicoesDB, escopoObra]);
 
   // Peso efetivamente ENTREGUE na obra
   // Ordem de prioridade:
@@ -378,8 +383,13 @@ export default function MedicaoAutomaticaPage() {
       return;
     }
 
-    // Se obra específica está selecionada → salva config dela; senão atualiza valor global por kg
-    if (obraSelecionada !== 'todas') {
+    // Grupo consolidado usa config fixa do grupo (GRUPOS_OBRAS) — não editável aqui
+    if (grupoAtivo) {
+      toast.error('Selecione uma obra no topo para alterar a configuração de medição');
+      return;
+    }
+    // Se obra específica está selecionada → salva config dela; senão (Geral) atualiza valor global por kg
+    if (obraSelecionada) {
       const nova = {
         ...configObras,
         [obraSelecionada]: {
@@ -476,7 +486,7 @@ export default function MedicaoAutomaticaPage() {
             <Download className="h-4 w-4 mr-2" />
             Exportar
           </Button>
-          <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => setModalNovaMedicao(true)}>
+          <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setFormMedicao(f => ({ ...f, obra: f.obra || obraSelecionada || '' })); setModalNovaMedicao(true); }}>
             <Plus className="h-4 w-4 mr-2" />
             Nova Medição
           </Button>
@@ -487,45 +497,26 @@ export default function MedicaoAutomaticaPage() {
         <div className="flex flex-col lg:flex-row lg:items-center gap-4">
           <div className="flex items-center gap-2">
             <Filter className="h-5 w-5 text-slate-400" />
-            <span className="text-slate-300 font-medium">Filtrar por Obra:</span>
+            <span className="text-slate-300 font-medium">Escopo:</span>
           </div>
-          <Select.Root value={obraSelecionada} onValueChange={setObraSelecionada}>
-            <Select.Trigger className="flex items-center justify-between min-w-[300px] px-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-white">
-              <Select.Value placeholder="Selecione uma obra" />
-              <ChevronDown className="h-4 w-4 text-slate-400" />
-            </Select.Trigger>
-            <Select.Portal>
-              <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
-                <Select.Viewport className="p-1">
-                  <Select.Item value="todas" className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>🏗 Todas as Obras (Consolidado)</Select.ItemText>
-                  </Select.Item>
-                  {/* Grupos consolidados */}
-                  {Object.values(GRUPOS_OBRAS).map(g => (
-                    <Select.Item key={g.id} value={g.id} className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none border-l-2 border-purple-500/40">
-                      <Select.ItemText>{g.label}</Select.ItemText>
-                    </Select.Item>
-                  ))}
-                  {obrasAtivas.map(obra => (
-                    <Select.Item key={obra.id} value={obra.id} className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                      <Select.ItemText>{obra.nome}</Select.ItemText>
-                    </Select.Item>
-                  ))}
-                </Select.Viewport>
-              </Select.Content>
-            </Select.Portal>
-          </Select.Root>
-          {obraSelecionada !== 'todas' && (
+          {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
+          <span
+            className="px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-sm text-slate-200"
+            title="Altere a obra no seletor do topo"
+          >
+            {rotuloEscopo(escopoObra, obras)}
+          </span>
+          {obraIdsEfetivos && (
             <div className="text-sm text-slate-400">
               {isGrupoConsolidado ? (
                 <>
                   Peso Total: <span className="text-purple-300 font-semibold">
                     {(obrasAtivas
-                      .filter(o => GRUPOS_OBRAS[obraSelecionada]?.obraIds.includes(o.id))
+                      .filter(o => grupoAtivo?.obraIds.includes(o.id))
                       .reduce((s, o) => s + (o.pesoTotal || 0), 0) / 1000).toFixed(1)}t
                   </span>
                   <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    {GRUPOS_OBRAS[obraSelecionada]?.obraIds.length} obras
+                    {grupoAtivo?.obraIds.length} obras
                   </span>
                 </>
               ) : (
@@ -561,7 +552,7 @@ export default function MedicaoAutomaticaPage() {
                   value={novoModoMedicao}
                   onChange={(e) => setNovoModoMedicao(e.target.value)}
                   className="px-3 py-2 bg-slate-900 border border-slate-600 rounded-md text-white text-sm"
-                  disabled={obraSelecionada === 'todas'}
+                  disabled={!obraSelecionada}
                 >
                   <option value="kg">📦 Por KG (peso)</option>
                   <option value="unidade">🔢 Por Unidade (peça)</option>

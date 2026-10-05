@@ -28,6 +28,7 @@ import {
 // Importa o contexto ERP
 import { useEstoque, useObras, useProducao, useEnsureLoaded } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
+import { rotuloEscopo } from '@/lib/escopoObra';
 import {
   SAUDE, saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
@@ -221,16 +222,17 @@ export default function EstoquePageV2() {
   // Contexto ERP
   const { estoque, movimentacoesEstoque, reloadEstoque } = useEstoque();
   useEnsureLoaded('movimentacoesEstoque'); // tabela fora do boot do ERPContext
-  const { obras, obraAtual, obraAtualData } = useObras();
+  const { obras, obraAtual, obraAtualData, escopoObra, obraIdsEscopo } = useObras();
   const { pecasObraAtual } = useProducao();
 
   // Estado local
   const [tabAtiva, setTabAtiva] = useState('visao-geral');
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
   const [filtroSaude, setFiltroSaude] = useState('todos');
-  // Default = obra ATUAL (selecionada no cabeçalho): ao abrir, os KPIs já
-  // refletem a obra, sem misturar todas as obras. 'obra_atual' segue obraAtual.
-  const [filtroObra, setFiltroObra] = useState('obra_atual');
+  // Obra = filtro ÚNICO do topo (escopoObra). Geral = todas (inclui sem obra).
+  // "Só estoque geral" NÃO é filtro de obra: restringe aos itens da fábrica
+  // (sem obra vinculada) — antigo 'sem_obra' do seletor local.
+  const [soEstoqueGeral, setSoEstoqueGeral] = useState(false);
   const [flagSemPreco, setFlagSemPreco] = useState(false);
   const [flagSemMinimo, setFlagSemMinimo] = useState(false);
   const [busca, setBusca] = useState('');
@@ -242,50 +244,58 @@ export default function EstoquePageV2() {
   const [filtroMovMaterial, setFiltroMovMaterial] = useState('');
   const [filtroMovPeriodo, setFiltroMovPeriodo] = useState('todos');
 
-  // 'obra_atual' é o default (escopo da obra), não conta como filtro ativo.
-  const filtrosAtivos = busca || filtroCategoria !== 'todas' || filtroSaude !== 'todos' || filtroObra !== 'obra_atual' || flagSemPreco || flagSemMinimo;
+  // O escopo de obra vem do topo — não conta como filtro local ativo.
+  const filtrosAtivos = busca || filtroCategoria !== 'todas' || filtroSaude !== 'todos' || soEstoqueGeral || flagSemPreco || flagSemMinimo;
   const limparFiltros = () => {
     setBusca(''); setFiltroCategoria('todas'); setFiltroSaude('todos');
-    setFiltroObra('obra_atual'); setFlagSemPreco(false); setFlagSemMinimo(false);
+    setSoEstoqueGeral(false); setFlagSemPreco(false); setFlagSemMinimo(false);
   };
 
   // ─── MATERIAL NECESSÁRIO para a obra selecionada (vindo de materiais_corte) ──
   const [materiaisNecessarios, setMateriaisNecessarios] = useState([]);
   const [carregandoNecessarios, setCarregandoNecessarios] = useState(false);
 
-  // 1) Pré-filtro por OBRA.
-  //  - Se a obra tem ESTOQUE PRÓPRIO (itens com obraId da obra), mostra SÓ ELE
-  //    (estrito) — evita contaminar KPIs com itens de outras obras/fábrica.
-  //  - Se a obra NÃO tem itens próprios, cai no fallback por BOM: itens de
-  //    FÁBRICA (sem obra) cujo perfil está no BOM — nunca itens de outra obra.
-  const estoquePorObra = useMemo(() => {
-    const base = estoque || [];
-    const escopo = (() => {
-      if (filtroObra === 'todas') return base;
-      if (filtroObra === 'sem_obra') return base.filter(it => !it.obraId && !it.obra_id);
-      const alvo = filtroObra === 'obra_atual' ? obraAtual : filtroObra;
-      if (!alvo) return base;
-
-      const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
-      if (proprios.length) return proprios; // obra tem estoque próprio → só ele
-
+  // 1) Pré-filtro por ESCOPO (seletor do topo).
+  //  - "Só estoque geral": apenas itens da fábrica (sem obra).
+  //  - Geral: todos os itens (todas as obras + fábrica).
+  //  - UMA obra: se a obra tem ESTOQUE PRÓPRIO (itens com obraId da obra), mostra
+  //    SÓ ELE (estrito); senão cai no fallback por BOM: itens de FÁBRICA (sem
+  //    obra) cujo perfil está no BOM — nunca itens de outra obra.
+  //  - Grupo (ex.: TEMEC): itens das obras do grupo + itens gerais (sem obra).
+  const aplicarEscopoEstoque = useCallback((base, bom) => {
+    const semObra = (it) => !it.obraId && !it.obra_id;
+    if (soEstoqueGeral) return base.filter(semObra);
+    if (!obraIdsEscopo) return base; // Geral
+    if (!obraAtual) {
+      // Grupo
+      return base.filter(it => semObra(it) || obraIdsEscopo.includes(it.obraId || it.obra_id));
+    }
+    const alvo = obraAtual;
+    const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
+    let escopo = proprios;
+    if (!proprios.length) {
       const perfisBOM = new Set(
-        (materiaisNecessarios || []).map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean)
+        (bom || []).map(m => normalizar(m.perfil).slice(0, 12)).filter(Boolean)
       );
-      if (!perfisBOM.size) return proprios;
-      return base.filter(it => {
-        if (it.obraId || it.obra_id) return false; // ignora itens de qualquer obra
-        const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
-        for (const p of perfisBOM) if (chave.includes(p)) return true; // fábrica usada no BOM
-        return false;
-      });
-    })();
+      if (perfisBOM.size) {
+        escopo = base.filter(it => {
+          if (!semObra(it)) return false; // ignora itens de qualquer obra
+          const chave = normalizar(`${it.descricao || ''} ${it.codigo || ''} ${it.perfil || ''} ${it.material || ''}`);
+          for (const p of perfisBOM) if (chave.includes(p)) return true; // fábrica usada no BOM
+          return false;
+        });
+      }
+    }
     // "Necessário" derivado do BOM (materiais_corte) — fonte completa e autoritativa
     // — para KPIs/lista/PDF/saúde baterem com a aba "Necessário p/ Obra". Só quando
     // há UMA obra escopada (o BOM carregado é o dela; evita casar entre obras).
-    if (filtroObra === 'todas' || filtroObra === 'sem_obra') return escopo;
-    return enriquecerNecessarioBOM(escopo, materiaisNecessarios);
-  }, [estoque, filtroObra, obraAtual, materiaisNecessarios]);
+    return enriquecerNecessarioBOM(escopo, bom || []);
+  }, [soEstoqueGeral, obraIdsEscopo, obraAtual]);
+
+  const estoquePorObra = useMemo(
+    () => aplicarEscopoEstoque(estoque || [], materiaisNecessarios),
+    [estoque, aplicarEscopoEstoque, materiaisNecessarios]
+  );
 
   // 2) Filtro FUNCIONAL (busca/categoria/saúde/flags) + ordenação — via serviço
   const estoqueFiltrado = useMemo(() => {
@@ -296,11 +306,8 @@ export default function EstoquePageV2() {
     return ordenarEstoque(filtrado, ordenarPor, ordenarDir);
   }, [estoquePorObra, busca, filtroCategoria, filtroSaude, flagSemPreco, flagSemMinimo, ordenarPor, ordenarDir]);
 
-  const obraIdParaConsulta = useMemo(() => {
-    if (filtroObra === 'obra_atual') return obraAtual;
-    if (filtroObra === 'todas' || filtroObra === 'sem_obra') return null;
-    return filtroObra;
-  }, [filtroObra, obraAtual]);
+  // BOM só existe para UMA obra (escopo do topo = obra). Geral/grupo → null.
+  const obraIdParaConsulta = obraAtual || null;
 
   const carregarMateriaisNecessarios = useCallback(async () => {
     if (!obraIdParaConsulta) {
@@ -411,7 +418,7 @@ export default function EstoquePageV2() {
   // Reset de página quando o conjunto filtrado muda
   useEffect(() => {
     setPaginaItens(0);
-  }, [filtroObra, filtroCategoria, filtroSaude, flagSemPreco, flagSemMinimo, busca, ordenarPor, ordenarDir]);
+  }, [escopoObra, soEstoqueGeral, filtroCategoria, filtroSaude, flagSemPreco, flagSemMinimo, busca, ordenarPor, ordenarDir]);
 
   const paginationItens = useMemo(() => {
     const totalCount = estoqueFiltrado.length;
@@ -463,12 +470,13 @@ export default function EstoquePageV2() {
   const movimentacoesFiltradas = useMemo(() => {
     let movs = [...(movimentacoesEstoque || [])];
 
-    // Filtro GLOBAL por obra
-    if (filtroObra && filtroObra !== 'todas') {
+    // Filtro GLOBAL por escopo (obra/grupo do topo ou "só estoque geral")
+    if (obraIdsEscopo || soEstoqueGeral) {
       const idsEstoqueValidos = new Set((estoqueFiltrado || []).map(i => i.id));
+      const idsObra = soEstoqueGeral ? [] : (obraIdsEscopo || []);
       movs = movs.filter(m =>
-        (m.obra_id && m.obra_id === (filtroObra === 'obra_atual' ? obraAtual : filtroObra)) ||
-        (m.obraId && m.obraId === (filtroObra === 'obra_atual' ? obraAtual : filtroObra)) ||
+        (m.obra_id && idsObra.includes(m.obra_id)) ||
+        (m.obraId && idsObra.includes(m.obraId)) ||
         idsEstoqueValidos.has(m.itemId) || idsEstoqueValidos.has(m.estoque_id)
       );
     }
@@ -515,7 +523,7 @@ export default function EstoquePageV2() {
     // Ordenar por data decrescente
     movs.sort((a, b) => new Date(b.data) - new Date(a.data));
     return movs;
-  }, [movimentacoesEstoque, filtroObra, busca, obraAtual, estoqueFiltrado, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
+  }, [movimentacoesEstoque, obraIdsEscopo, soEstoqueGeral, busca, estoqueFiltrado, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
 
   // Resumo das movimentações
   const resumoMovimentacoes = useMemo(() => {
@@ -603,13 +611,8 @@ export default function EstoquePageV2() {
       // dos dados FRESCOS (não do estado em memória, que poderia estar defasado).
       const freshEstoque = (await reloadEstoque?.()) || estoque || [];
       const freshBOM = await carregarMateriaisNecessarios();
-      // Reaplica o escopo de obra (itens próprios; senão fábrica) + enriquecimento
-      // pelo BOM, espelhando estoquePorObra.
-      let escopo = freshEstoque;
-      if (obraIdParaConsulta) {
-        const proprios = freshEstoque.filter((it) => it.obraId === obraIdParaConsulta || it.obra_id === obraIdParaConsulta);
-        escopo = enriquecerNecessarioBOM(proprios.length ? proprios : freshEstoque.filter((it) => !it.obraId && !it.obra_id), freshBOM || []);
-      }
+      // Reaplica o MESMO escopo da tela (aplicarEscopoEstoque) sobre os dados frescos.
+      const escopo = aplicarEscopoEstoque(freshEstoque, freshBOM || []);
       // Mesmos filtros/ordenação da tela.
       const filtrado = ordenarEstoque(
         filtrarEstoque(escopo, { busca, categoria: filtroCategoria, saude: filtroSaude, semPreco: flagSemPreco, semMinimo: flagSemMinimo }),
@@ -814,38 +817,23 @@ export default function EstoquePageV2() {
             Sem mínimo
           </button>
 
-          <Select.Root value={filtroObra} onValueChange={setFiltroObra}>
-            <Select.Trigger className="flex items-center gap-2 px-4 py-2 bg-slate-800/50 border border-slate-700 rounded-lg text-sm text-slate-300 min-w-[220px]">
-              <Building2 className="w-4 h-4" />
-              <Select.Value placeholder="Obra" />
-              <ChevronDown className="w-4 h-4 ml-auto" />
-            </Select.Trigger>
-            <Select.Portal>
-              <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg overflow-hidden z-50 max-h-72">
-                <Select.Viewport className="p-1">
-                  <Select.Item value="todas" className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>📦 Todas as Obras + Geral</Select.ItemText>
-                  </Select.Item>
-                  <Select.Item value="sem_obra" className="px-3 py-2 text-sm text-cyan-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                    <Select.ItemText>🏭 Fábrica (Geral — sem obra)</Select.ItemText>
-                  </Select.Item>
-                  {obraAtualData && (
-                    <Select.Item value="obra_atual" className="px-3 py-2 text-sm text-orange-400 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                      <Select.ItemText>🔗 Obra Atual ({obraAtualData?.codigo})</Select.ItemText>
-                    </Select.Item>
-                  )}
-                  <div className="my-1 border-t border-slate-700/60" />
-                  {(obras || []).map(o => (
-                    <Select.Item key={o.id} value={o.id} className="px-3 py-2 text-sm text-slate-300 hover:bg-slate-700 rounded cursor-pointer outline-none">
-                      <Select.ItemText>
-                        {o.codigo ? `${o.codigo} · ` : ''}{o.nome}
-                      </Select.ItemText>
-                    </Select.Item>
-                  ))}
-                </Select.Viewport>
-              </Select.Content>
-            </Select.Portal>
-          </Select.Root>
+          <button
+            onClick={() => setSoEstoqueGeral(v => !v)}
+            title="Mostra só os itens da fábrica (sem obra vinculada)"
+            className={cn('px-3 py-2 rounded-lg text-xs font-medium border transition-colors',
+              soEstoqueGeral ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-slate-800/50 text-slate-400 border-slate-700 hover:text-white')}
+          >
+            Só estoque geral
+          </button>
+
+          {/* Escopo de obra = filtro único do topo (somente leitura) */}
+          <span
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs bg-slate-800/50 border border-slate-700 text-slate-300"
+            title="Altere a obra no seletor do topo"
+          >
+            <Building2 className="w-3.5 h-3.5 text-orange-400" />
+            Escopo: {rotuloEscopo(escopoObra, obras)}
+          </span>
         </div>
       </div>
 
@@ -973,14 +961,12 @@ export default function EstoquePageV2() {
           <Tabs.Content value="itens">
             <div className="mb-3 text-xs text-slate-400">
               Exibindo <strong className="text-white">{paginationItens.totalCount}</strong> de <strong className="text-white">{estoque.length}</strong> itens
-              {filtroObra !== 'todas' && (
-                <span> · obra: <strong className="text-orange-400">{
-                  filtroObra === 'sem_obra' ? 'Fábrica (Geral)' :
-                  filtroObra === 'obra_atual' ? obraAtualData?.codigo :
-                  (obras || []).find(o => o.id === filtroObra)?.codigo || filtroObra
+              {(soEstoqueGeral || obraIdsEscopo) && (
+                <span> · {soEstoqueGeral ? 'estoque' : 'escopo'}: <strong className="text-orange-400">{
+                  soEstoqueGeral ? 'Fábrica (Geral — sem obra)' : rotuloEscopo(escopoObra, obras)
                 }</strong></span>
               )}
-              {(filtroObra !== 'todas' && filtroObra !== 'sem_obra') && (
+              {(!soEstoqueGeral && obraAtual) && (
                 <span className="text-slate-500"> · reservados + materiais do BOM da obra{carregandoNecessarios ? ' (carregando BOM…)' : ''}</span>
               )}
             </div>
@@ -1107,7 +1093,7 @@ export default function EstoquePageV2() {
                     <p className="text-xs text-slate-400">
                       {obraIdParaConsulta
                         ? `Obra selecionada: ${(obras || []).find(o => o.id === obraIdParaConsulta)?.codigo || obraIdParaConsulta}`
-                        : 'Selecione uma obra específica no filtro acima para ver os materiais necessários'}
+                        : 'Selecione uma obra específica no seletor do topo para ver os materiais necessários'}
                     </p>
                   </div>
                 </div>
@@ -1135,7 +1121,7 @@ export default function EstoquePageV2() {
               {!obraIdParaConsulta ? (
                 <div className="bg-slate-800/30 border border-dashed border-slate-700 rounded-xl p-10 text-center">
                   <Building2 className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                  <p className="text-slate-400">Filtre por uma obra específica para visualizar a lista de material necessário.</p>
+                  <p className="text-slate-400">Selecione uma obra específica no seletor do topo para visualizar a lista de material necessário.</p>
                 </div>
               ) : (
                 <>
@@ -1477,19 +1463,15 @@ export default function EstoquePageV2() {
           {/* Vinculados à Obra */}
           <Tabs.Content value="vinculados">
             {(() => {
-              // Filtra estoque pela OBRA selecionada no filtro global.
-              // Se filtro = "todas" ou "sem_obra", usa a obra atual como fallback.
-              const obraFiltrada = filtroObra === 'obra_atual' ? obraAtual
-                                  : (filtroObra && filtroObra !== 'todas' && filtroObra !== 'sem_obra') ? filtroObra
-                                  : obraAtual;
-              const obraNome = (obras || []).find(o => o.id === obraFiltrada)?.codigo
-                              || obraAtualData?.codigo
-                              || '—';
-              const itensVinculados = (estoque || []).filter(i =>
-                i.obra_id === obraFiltrada ||
-                i.obraId === obraFiltrada ||
-                i.obraReservada === obraFiltrada
-              );
+              // Itens vinculados a obras do ESCOPO do topo (obra/grupo).
+              // Geral = itens vinculados a qualquer obra.
+              const obraDoItem = (i) => i.obra_id || i.obraId || i.obraReservada || null;
+              const obraNome = obraAtualData?.codigo || (obraIdsEscopo ? rotuloEscopo(escopoObra, obras) : 'todas as obras');
+              const itensVinculados = (estoque || []).filter(i => {
+                const oid = obraDoItem(i);
+                if (!oid) return false;
+                return !obraIdsEscopo || [i.obra_id, i.obraId, i.obraReservada].some(x => x && obraIdsEscopo.includes(x));
+              });
               return (
                 <div className="space-y-4">
                   <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-4 flex flex-wrap items-center gap-4 justify-between">
@@ -1498,7 +1480,7 @@ export default function EstoquePageV2() {
                       <div>
                         <h3 className="text-white font-semibold">Materiais Reservados para {obraNome}</h3>
                         <p className="text-slate-400 text-sm">
-                          {itensVinculados.length} item(ns) vinculado(s) {obraFiltrada ? '' : '· nenhuma obra selecionada'}
+                          {itensVinculados.length} item(ns) vinculado(s)
                         </p>
                       </div>
                     </div>
@@ -1525,7 +1507,7 @@ export default function EstoquePageV2() {
                         onEntrada={handleEntrada}
                         onSaida={handleSaida}
                         onHistorico={handleHistorico}
-                        obraAtual={(obras || []).find(o => o.id === obraFiltrada) || obraAtualData}
+                        obraAtual={obraAtualData || (obras || []).find(o => o.id === obraDoItem(item)) || null}
                       />
                     ))}
                   </div>
@@ -1535,7 +1517,7 @@ export default function EstoquePageV2() {
                       <Package className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                       <p className="text-slate-400">Nenhum material reservado para esta obra</p>
                       <p className="text-slate-500 text-xs mt-1">
-                        Selecione uma obra no filtro acima para ver seus materiais reservados.
+                        O escopo segue o seletor de obra do topo.
                       </p>
                     </div>
                   )}

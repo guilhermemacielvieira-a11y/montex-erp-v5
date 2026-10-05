@@ -71,6 +71,7 @@ import {
   Legend,
 } from 'recharts';
 import { useMedicoes, useObras } from '../contexts/ERPContext';
+import { pertenceAoEscopo, isEscopoGeral, rotuloEscopo } from '../lib/escopoObra';
 
 // ========== STORAGE ==========
 // Receitas manuais: tabela `receitas_manuais` (via utils/receitasSync).
@@ -137,7 +138,9 @@ const mapEtapaToCategoria = (etapa, isAvulsa) => {
 export default function ReceitasPage() {
   // ERPContext - puxar MEDIÇÕES da Gestão Financeira Obra + nome das obras
   const { medicoes: todasMedicoes } = useMedicoes();
-  const { obras } = useObras();
+  // Escopo = filtro único do topo. Geral → todas as receitas; obra/grupo →
+  // só as receitas dessas obras (manuais sem obra aparecem só em Geral).
+  const { obras, escopoObra, obraAtual } = useObras();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('todos');
@@ -309,10 +312,21 @@ export default function ReceitasPage() {
     });
   }, [filtroPeriodo]);
 
+  // Receitas do escopo do topo. `receitas` continua com a lista COMPLETA
+  // (salvarOverrides/edição/exclusão operam sobre ela — não perder overrides
+  // de medições fora do escopo).
+  const receitasEscopo = useMemo(() => {
+    if (isEscopoGeral(escopoObra)) return receitas;
+    return receitas.filter(r => {
+      const oid = r.obraId || r.obra_id || null;
+      return !!oid && pertenceAoEscopo(oid, escopoObra);
+    });
+  }, [receitas, escopoObra]);
+
   // Receitas filtradas por período (para KPIs e gráficos) — canceladas fora
   const receitasPeriodo = useMemo(
-    () => filtrarPorPeriodo(receitas).filter(r => normalizeStatusReceita(r.status) !== 'cancelado'),
-    [receitas, filtrarPorPeriodo]
+    () => filtrarPorPeriodo(receitasEscopo).filter(r => normalizeStatusReceita(r.status) !== 'cancelado'),
+    [receitasEscopo, filtrarPorPeriodo]
   );
 
   // Dados para gráfico por categoria
@@ -377,7 +391,7 @@ export default function ReceitasPage() {
 
   // Filtrar receitas para tabela — usa statusEfetivo
   const receitasFiltradas = useMemo(() => {
-    let resultado = receitas.filter(r => {
+    let resultado = receitasEscopo.filter(r => {
       if (searchTerm && !(r.descricao || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
           !(r.cliente || '').toLowerCase().includes(searchTerm.toLowerCase()) &&
           !(r.obraNome || '').toLowerCase().includes(searchTerm.toLowerCase())) return false;
@@ -389,12 +403,14 @@ export default function ReceitasPage() {
       return true;
     });
     return filtrarPorPeriodo(resultado);
-  }, [receitas, searchTerm, filtroStatus, filtroCategoria, filtrarPorPeriodo]);
+  }, [receitasEscopo, searchTerm, filtroStatus, filtroCategoria, filtrarPorPeriodo]);
 
   // Abrir form para cadastrar nova receita
   const handleNovaReceita = () => {
     setEditando(null);
-    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'aberto', obraId: '', parcelas: 1, intervaloDias: 30 });
+    // Obra sugerida = obra do topo quando o escopo é UMA obra (o usuário pode trocar)
+    const obraSugerida = obraAtual && obrasAtivasReceita.some(o => o.id === obraAtual) ? obraAtual : '';
+    setFormData({ descricao: '', cliente: '', categoria: '', valor: '', vencimento: '', formaPagto: '', status: 'aberto', obraId: obraSugerida, parcelas: 1, intervaloDias: 30 });
     setDialogOpen(true);
   };
 
@@ -539,8 +555,8 @@ export default function ReceitasPage() {
   };
 
   // Contadores de origem
-  const countObra = receitas.filter(r => r.origemObra).length;
-  const countManual = receitas.filter(r => !r.origemObra).length;
+  const countObra = receitasEscopo.filter(r => r.origemObra).length;
+  const countManual = receitasEscopo.filter(r => !r.origemObra).length;
 
   return (
     <div className="space-y-6">
@@ -822,7 +838,15 @@ export default function ReceitasPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Filtros de Período */}
+      {/* Escopo (filtro único do topo) + Período */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+      <div
+        className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-800/60 border border-slate-700 text-xs text-slate-300"
+        title="Altere a obra no seletor do topo"
+      >
+        <Building2 className="h-3.5 w-3.5 text-slate-400" />
+        <span>Escopo: {rotuloEscopo(escopoObra, obras)}</span>
+      </div>
       <div className="flex items-center gap-2">
         <Calendar className="h-4 w-4 text-slate-400" />
         <span className="text-sm text-slate-400 mr-1">Período:</span>
@@ -845,6 +869,7 @@ export default function ReceitasPage() {
             {p.label}
           </button>
         ))}
+      </div>
       </div>
 
       {/* KPIs */}
