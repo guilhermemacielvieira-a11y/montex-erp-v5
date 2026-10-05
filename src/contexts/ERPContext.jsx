@@ -150,7 +150,14 @@ const OperacoesContext = createContext(null);
 const ERPContext = ERPCoreContext;
 
 export function ERPProvider({ children }) {
-  const [state, dispatch] = useReducer(erpReducer, initialState);
+  // Escopo de obra salvo (filtro único do topo) restaurado já no 1º render,
+  // em qualquer modo (Supabase, mock/offline). Valores inválidos são
+  // corrigidos na carga do Supabase (escopoValido).
+  const [state, dispatch] = useReducer(erpReducer, initialState, (s0) => {
+    let salvo = null;
+    try { salvo = localStorage.getItem('montex_obra_atual'); } catch { /* sem storage */ }
+    return { ...s0, obraAtual: salvo || OBRA_GERAL };
+  });
   const [supabaseConnected, setSupabaseConnected] = useState(false);
   const [dataSource, setDataSource] = useState('loading'); // 'loading' | 'supabase' | 'mock_dev' | 'error'
   const [connectionError, setConnectionError] = useState(null);

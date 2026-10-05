@@ -1,7 +1,7 @@
 // MONTEX ERP Premium - Import Listas GADE
 // Importação de Lista de Corte (Peças) e Resumo de Material (Estoque)
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 import {
@@ -28,13 +28,6 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import {
   Table,
   TableBody,
   TableCell,
@@ -58,6 +51,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { cn } from '@/lib/utils';
 import { useObras, useProducao, useEstoque, useMateriais, useEnsureLoaded } from '@/contexts/ERPContext';
+import ExigeObra from '@/components/erp/ExigeObra';
 import { ETAPAS_PRODUCAO } from '@/data/database';
 import toast from 'react-hot-toast';
 
@@ -205,7 +199,9 @@ export default function ImportRomaneioPage() {
 
   // Estados
   const [tipoLista, setTipoLista] = useState(TIPO_LISTA.CORTE);
-  const [obraSelecionada, setObraSelecionada] = useState(obraAtual || '');
+  // Obra = SEMPRE a do seletor do topo (filtro único). null em Geral/grupo →
+  // a página mostra <ExigeObra/>.
+  const obraSelecionada = obraAtual || '';
   const [arquivoSelecionado, setArquivoSelecionado] = useState(null);
   const [etapa, setEtapa] = useState('upload');
   const [previewData, setPreviewData] = useState([]);
@@ -473,6 +469,15 @@ export default function ImportRomaneioPage() {
     setProgresso(0);
   };
 
+  // Troca de obra no topo durante o preview descarta o preview (evita importar
+  // na obra errada). Durante 'processando' não interrompe.
+  const obraPreviewRef = useRef(obraAtual);
+  useEffect(() => {
+    if (obraPreviewRef.current === obraAtual) return;
+    obraPreviewRef.current = obraAtual;
+    if (etapa === 'preview') handleReset();
+  }, [obraAtual]);
+
   // Toggle seleção
   const toggleItem = (index) => {
     setItensSelecionados(prev =>
@@ -516,7 +521,10 @@ export default function ImportRomaneioPage() {
         )}
       </div>
 
-      {/* Tabs para diferentes funcionalidades */}
+      {/* Tabs para diferentes funcionalidades — exigem UMA obra no topo */}
+      {!obraAtual ? (
+        <ExigeObra titulo="Importar Romaneio" />
+      ) : (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="bg-slate-800 border border-slate-700">
           <TabsTrigger value="importar" className="data-[state=active]:bg-emerald-500">
@@ -579,30 +587,22 @@ export default function ImportRomaneioPage() {
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-6"
               >
-                {/* Seleção de Obra */}
+                {/* Obra de destino = seletor do topo (somente leitura) */}
                 <Card className="bg-slate-900/60 border-slate-700/50">
                   <CardHeader>
                     <CardTitle className="text-white flex items-center gap-2">
                       <Building2 className="h-5 w-5 text-blue-400" />
-                      Selecione a Obra
+                      Obra de destino
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <Select value={obraSelecionada} onValueChange={setObraSelecionada}>
-                      <SelectTrigger className="w-full bg-slate-800 border-slate-700">
-                        <SelectValue placeholder="Selecione uma obra" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-slate-700">
-                        {obras.map(obra => (
-                          <SelectItem key={obra.id} value={obra.id}>
-                            <span className="font-mono text-cyan-400">{obra.codigo}</span>
-                            <span className="mx-2">-</span>
-                            <span>{obra.nome}</span>
-                            <span className="text-slate-500 ml-2">({obra.cliente})</span>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-300">
+                      <span className="font-mono text-cyan-400">{obraAtualData?.codigo}</span>
+                      <span>-</span>
+                      <span>{obraAtualData?.nome || obraSelecionada}</span>
+                      {obraAtualData?.cliente && <span className="text-slate-500">({obraAtualData.cliente})</span>}
+                      <span className="text-xs text-slate-500 ml-auto">Para trocar, use o seletor de obra do topo.</span>
+                    </div>
                   </CardContent>
                 </Card>
 
@@ -1115,6 +1115,7 @@ export default function ImportRomaneioPage() {
           </Card>
         </TabsContent>
       </Tabs>
+      )}
 
       {/* Modal de Entrega */}
       <Dialog open={showEntregaModal} onOpenChange={setShowEntregaModal}>

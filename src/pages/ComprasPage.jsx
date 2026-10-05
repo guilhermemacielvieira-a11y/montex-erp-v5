@@ -46,6 +46,7 @@ import {
 
 import { useCompras, useMateriais, useERP, useObras, useLancamentos, useEnsureLoaded } from '@/contexts/ERPContext';
 import { fornecedoresApi } from '@/api/supabaseClient';
+import { rotuloEscopo } from '@/lib/escopoObra';
 import AbastecimentoAutomatico from '@/components/compras/AbastecimentoAutomatico';
 import ReposicaoEstoque from '@/components/compras/ReposicaoEstoque';
 import {
@@ -632,7 +633,7 @@ export default function ComprasPage() {
   const { notasFiscais } = useERP();
   useEnsureLoaded('notasFiscais', 'materiaisEstoque'); // tabelas fora do boot do ERPContext
   const { lancamentosDespesas, addLancamento } = useLancamentos();
-  const { obras, obraAtual, obraAtualData } = useObras();
+  const { obras, obraAtual, obraAtualData, escopoObra, obraIdsEscopo } = useObras();
 
   // ===== HISTÓRICO DE PREÇOS (todas as NFs, todas as origens) =====
   // Base de dados p/ alertas em pedidos/cotações futuras
@@ -641,16 +642,26 @@ export default function ComprasPage() {
     [notasFiscais]
   );
 
-  // ===== ESCOPO: OBRA SELECIONADA × MONTEX (EMPRESA) × GERAL =====
+  // ===== ORIGEM: OBRA(S) DO TOPO × MONTEX (EMPRESA) × TODAS =====
   // Mesma convenção do financeiro do ERP (DespesasPage/FinanceiroPage):
   // obra_id NULL = despesa geral da empresa (MONTEX); obra_id = obra específica.
-  const [escopo, setEscopo] = useState('obra'); // 'obra' | 'montex' | 'geral'
+  // A OBRA vem do filtro único do topo (obraIdsEscopo: null = todas as obras;
+  // grupo = obras do grupo). 'origem' local NÃO é filtro de obra — é a categoria
+  // do registro (de obra × da empresa).
+  const [escopo, setEscopo] = useState('geral'); // 'obra' | 'montex' | 'geral' — padrão 'geral' = tudo do escopo do topo + MONTEX
+  const noEscopoTopo = useCallback(
+    (obraId) => !obraIdsEscopo || obraIdsEscopo.includes(obraId),
+    [obraIdsEscopo]
+  );
 
   const matchEscopo = useCallback((obraId) => {
-    if (escopo === 'geral') return true;
     if (escopo === 'montex') return !obraId; // sem obra = MONTEX/empresa
-    return obraId === obraAtual; // escopo 'obra'
-  }, [escopo, obraAtual]);
+    if (escopo === 'geral') return !obraId || noEscopoTopo(obraId); // obra(s) do topo + MONTEX
+    return !!obraId && noEscopoTopo(obraId); // 'obra': registros das obras do escopo do topo
+  }, [escopo, noEscopoTopo]);
+
+  const rotuloObrasTopo = obraAtualData?.nome
+    || (obraIdsEscopo ? rotuloEscopo(escopoObra, obras) : 'Todas as obras');
 
   const obrasMap = useMemo(() => {
     const m = {};
@@ -662,7 +673,7 @@ export default function ComprasPage() {
     ? 'MONTEX (Geral)'
     : escopo === 'geral'
       ? 'Todas as origens'
-      : (obraAtualData?.nome || obrasMap[obraAtual] || 'Obra atual');
+      : rotuloObrasTopo;
 
   // ===== FORNECEDORES (tabela `fornecedores` + dados derivados do uso real) =====
   const [fornecedoresCadastrados, setFornecedoresCadastrados] = useState([]);
@@ -1012,7 +1023,7 @@ export default function ComprasPage() {
           onClick={() => setEscopo('obra')}
         >
           <Building2 className="h-4 w-4" />
-          {obraAtualData?.nome || obrasMap[obraAtual] || 'Obra atual'}
+          {rotuloObrasTopo}
         </Button>
         <Button
           variant={escopo === 'montex' ? 'default' : 'outline'}
@@ -1033,8 +1044,8 @@ export default function ComprasPage() {
           {escopo === 'montex'
             ? 'Despesas e compras gerais da empresa — independentes de obra'
             : escopo === 'obra'
-              ? 'Somente registros vinculados à obra selecionada no topo'
-              : 'Todas as obras + MONTEX'}
+              ? (obraIdsEscopo ? 'Somente registros vinculados à(s) obra(s) do seletor do topo' : 'Registros de todas as obras (seletor do topo em Geral)')
+              : (obraIdsEscopo ? 'Obra(s) do seletor do topo + MONTEX' : 'Todas as obras + MONTEX')}
         </span>
       </div>
 

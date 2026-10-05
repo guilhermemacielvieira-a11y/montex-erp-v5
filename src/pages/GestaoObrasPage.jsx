@@ -344,7 +344,9 @@ function ModalImportarObra({ open, onClose, onImport }) {
 function ModalExportar({ open, onClose, obra, allObras }) {
   const [exporting, setExporting] = useState(false);
   const [exportType, setExportType] = useState('json'); // json | csv
-  const [scope, setScope] = useState('obra'); // obra | todas | completo
+  // Sem obra (seletor do topo em Geral/grupo) → padrão 'todas' (as opções
+  // por obra ficam ocultas e exportariam null).
+  const [scope, setScope] = useState(obra ? 'obra' : 'todas'); // obra | todas | completo
 
   const handleExport = async () => {
     setExporting(true);

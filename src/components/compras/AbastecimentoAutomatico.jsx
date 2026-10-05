@@ -51,6 +51,9 @@ function Kpi({ icon: Icon, label, value, sub, tone = 'default' }) {
 
 export default function AbastecimentoAutomatico({ obras = [], obraAtual, notasFiscais = [], addCompra, onGerado }) {
   const [obraId, setObraId] = useState(obraAtual || '');
+  // Acompanha o seletor do topo quando ele aponta UMA obra (Geral/grupo → null:
+  // mantém a escolha local, pois o BOM é calculado por obra).
+  useEffect(() => { if (obraAtual) setObraId(obraAtual); }, [obraAtual]);
   const [loading, setLoading] = useState(false);
   const [dados, setDados] = useState({ bom: [], estoque: [], mov: [] });
   const [sel, setSel] = useState({});

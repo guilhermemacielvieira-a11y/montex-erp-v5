@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils';
 import { useObras, useProducao, useEquipes } from '../contexts/ERPContext';
 import { loadConcluidasSmart, saveConcluidasSmart, loadConcluidasLocal, MONTAGEM_LS_KEY, getMontadasCount } from '../utils/montagemSync';
 import { subscribeLocalKeys } from '../utils/localSync';
+import { rotuloEscopo } from '../lib/escopoObra';
 
 // ============================================
 // HELPERS
@@ -302,12 +303,14 @@ function PecaCard({ peca, obra, onAvancar, onRetornar, onAbrirDetalhe, isSelecte
 // MAIN
 // ============================================
 export default function MontagemPage() {
-  const { obras } = useObras();
+  const { obras, escopoObra, obraIdsEscopo } = useObras();
   const { pecas } = useProducao();
   const { equipes, funcionarios } = useEquipes();
 
+  // Escopo de obra = filtro único do topo (Geral = todas; grupo = soma das obras)
+  const noEscopo = (p) => !obraIdsEscopo || obraIdsEscopo.includes(p.obraId || p.obra_id);
+
   // Filtros
-  const [obraFiltro, setObraFiltro] = useState('todas');
   const [statusFiltro, setStatusFiltro] = useState('todos');
   const [busca, setBusca] = useState('');
   const [ordenacao, setOrdenacao] = useState('recente');
@@ -466,8 +469,8 @@ export default function MontagemPage() {
             naoEncontradas.push(linha);
             continue;
           }
-          const filtroObra = obraFiltro !== 'todas'
-            ? candidatas.filter(c => (c.obraId || c.obra_id) === obraFiltro)
+          const filtroObra = obraIdsEscopo
+            ? candidatas.filter(noEscopo)
             : candidatas;
           const usar = filtroObra.length > 0 ? filtroObra : candidatas;
           const enviadas = usar.filter(p => p.etapa === 'enviado');
@@ -553,8 +556,8 @@ export default function MontagemPage() {
     let arr = pecasMontagem;
 
     // Obra
-    if (obraFiltro !== 'todas') {
-      arr = arr.filter(p => p.obraId === obraFiltro || p.obra_id === obraFiltro);
+    if (obraIdsEscopo) {
+      arr = arr.filter(p => obraIdsEscopo.includes(p.obraId || p.obra_id));
     }
 
     // Status
@@ -583,7 +586,7 @@ export default function MontagemPage() {
     }
 
     return arr;
-  }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
+  }, [pecasMontagem, obraIdsEscopo, statusFiltro, busca, ordenacao]);
 
   // ===== Agrupamento por MARCA + OBRA =====
   // Unifica registros desmembrados da mesma marca (ex.: TS59A em 7 linhas) numa
@@ -592,8 +595,8 @@ export default function MontagemPage() {
   // status e a ordenação atuam no nível do grupo. Peça única → passa sem agrupar.
   const gruposFiltrados = useMemo(() => {
     let base = pecasMontagem;
-    if (obraFiltro !== 'todas') {
-      base = base.filter(p => p.obraId === obraFiltro || p.obra_id === obraFiltro);
+    if (obraIdsEscopo) {
+      base = base.filter(p => obraIdsEscopo.includes(p.obraId || p.obra_id));
     }
     if (busca.trim()) {
       const q = busca.toLowerCase().trim();
@@ -657,7 +660,7 @@ export default function MontagemPage() {
       grupos.sort((a, b) => String(a.obraId || '').localeCompare(String(b.obraId || '')));
     }
     return grupos;
-  }, [pecasMontagem, obraFiltro, statusFiltro, busca, ordenacao]);
+  }, [pecasMontagem, obraIdsEscopo, statusFiltro, busca, ordenacao]);
 
   // ===== Agrupamento Kanban (sobre grupos) =====
   // Grupos/peças PARCIAIS são DIVIDIDOS por quantidade entre as colunas
@@ -702,9 +705,9 @@ export default function MontagemPage() {
   // ===== KPIs (em UNIDADES físicas; respeitam filtro de obra) =====
   const kpis = useMemo(() => {
     // Peso total da OBRA (referência 100% do progresso geral)
-    // Quando obra é "todas", soma peso de todas obras ativas
-    const obrasReferencia = obraFiltro !== 'todas'
-      ? obras.filter(o => o.id === obraFiltro)
+    // Escopo Geral: soma peso de todas obras ativas; obra/grupo: obras do escopo
+    const obrasReferencia = obraIdsEscopo
+      ? obras.filter(o => obraIdsEscopo.includes(o.id))
       : obras.filter(o => !['cancelada','concluida','orcamento'].includes(o.status));
     const pesoObraTotal = obrasReferencia.reduce((s, o) =>
       s + (o.contratoPesoTotal || o.contrato_peso_total || o.pesoTotal || 0), 0);
@@ -767,7 +770,7 @@ export default function MontagemPage() {
       totalEquipes: equipesMontagem.length,
       totalPecas: pecasFiltradas.length,
     };
-  }, [pecasFiltradas, equipesMontagem, obras, obraFiltro]);
+  }, [pecasFiltradas, equipesMontagem, obras, obraIdsEscopo]);
 
   // ===== Ações (apenas localStorage — NÃO altera o banco) =====
 
@@ -1036,28 +1039,14 @@ export default function MontagemPage() {
           />
         </div>
 
-        {/* Filtro Obra */}
-        <Select.Root value={obraFiltro} onValueChange={setObraFiltro}>
-          <Select.Trigger className="flex items-center gap-2 px-3 py-2 bg-slate-900/60 border border-slate-800 rounded-lg text-sm text-white min-w-[180px]">
-            <Building2 className="h-4 w-4 text-slate-400" />
-            <Select.Value placeholder="Todas as obras" />
-            <ChevronDown className="h-4 w-4 text-slate-400 ml-auto" />
-          </Select.Trigger>
-          <Select.Portal>
-            <Select.Content className="bg-slate-900 border border-slate-700 rounded-lg shadow-2xl z-50 max-h-72 overflow-y-auto">
-              <Select.Viewport className="p-1">
-                <Select.Item value="todas" className="px-3 py-2 text-sm text-white hover:bg-slate-800 rounded cursor-pointer outline-none">
-                  <Select.ItemText>📊 Todas as Obras</Select.ItemText>
-                </Select.Item>
-                {obras.map(obra => (
-                  <Select.Item key={obra.id} value={obra.id} className="px-3 py-2 text-sm text-white hover:bg-slate-800 rounded cursor-pointer outline-none">
-                    <Select.ItemText>{obra.codigo} — {obra.nome}</Select.ItemText>
-                  </Select.Item>
-                ))}
-              </Select.Viewport>
-            </Select.Content>
-          </Select.Portal>
-        </Select.Root>
+        {/* Escopo de obra = filtro único do topo (somente leitura) */}
+        <span
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900/60 border border-slate-800 rounded-md text-xs text-slate-300 self-center"
+          title="Altere a obra no seletor do topo"
+        >
+          <Building2 className="h-3.5 w-3.5 text-slate-400" />
+          Escopo: {rotuloEscopo(escopoObra, obras)}
+        </span>
 
         {/* Filtro Status */}
         <Select.Root value={statusFiltro} onValueChange={setStatusFiltro}>
