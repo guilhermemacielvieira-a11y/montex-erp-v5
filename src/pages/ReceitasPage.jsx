@@ -22,7 +22,7 @@ import {
   syncReceitas, deleteReceitaManual, useReceitasManuais, criarReceitasManuais,
   atualizarReceitaManual, lerReceitasLegadasPendentes, importarReceitasLegadas,
 } from '../utils/receitasSync';
-import { normalizeStatusReceita, STATUS_RECEITA_LABELS } from '../utils/financeiroStatus';
+import { normalizeStatusReceita, statusReceitaParaMedicao, STATUS_RECEITA_LABELS } from '../utils/financeiroStatus';
 import { hojeLocalISO, toLocalISO, parseLocalDate, parseValorBR } from '../utils/financeiroCalc';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -137,7 +137,7 @@ const mapEtapaToCategoria = (etapa, isAvulsa) => {
 
 export default function ReceitasPage() {
   // ERPContext - puxar MEDIÇÕES da Gestão Financeira Obra + nome das obras
-  const { medicoes: todasMedicoes } = useMedicoes();
+  const { medicoes: todasMedicoes, updateMedicao } = useMedicoes();
   // Escopo = filtro único do topo. Geral → todas as receitas; obra/grupo →
   // só as receitas dessas obras (manuais sem obra aparecem só em Geral).
   const { obras, escopoObra, obraAtual } = useObras();
@@ -461,6 +461,20 @@ export default function ReceitasPage() {
           obraCodigo: obraSelecionadaEdit?.codigo || editando.obraCodigo || null,
         };
         if (editando.origemObra) {
+          // Grava valor, status e obra NA PRÓPRIA MEDIÇÃO (tabela medicoes),
+          // para GFO, Painel Financeiro e Painel Global lerem o mesmo dado.
+          // O override local continua só para campos de exibição.
+          const original = (todasMedicoes || []).find(m => m.id === editando.id);
+          if (original) {
+            const brutoOrig = Number(original.valorBruto ?? original.valor_bruto ?? 0) || 0;
+            const liqOrig = Number(original.valorLiquido ?? original.valor_liquido ?? brutoOrig) || 0;
+            await updateMedicao(editando.id, {
+              valorBruto: valorNum,
+              valorLiquido: Math.round((valorNum - (brutoOrig - liqOrig)) * 100) / 100,
+              status: statusReceitaParaMedicao(atualizada.status, original.status),
+              obraId: atualizada.obraId || original.obraId || original.obra_id,
+            });
+          }
           const novaLista = receitas.map(r => (r.id === editando.id ? { ...atualizada, _editadoLocal: true } : r));
           setReceitas(novaLista);
           salvarOverrides(novaLista);
