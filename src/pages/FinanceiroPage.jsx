@@ -158,13 +158,21 @@ export default function FinanceiroPage() {
   });
 
   // Escopo analisado = filtro único do topo (ver src/lib/escopoObra.js):
-  //   Geral → Fábrica (lançamentos sem obra); obra → aquela obra;
-  //   grupo → soma das obras do grupo.
+  //   Geral → despesas da Fábrica (sem obra) + TODAS as receitas (fábrica e
+  //           obras, igual à tela Receitas). Despesas lançadas na obra (GFO)
+  //           são pagas direto pelo cliente e abatem do contrato — NUNCA
+  //           entram no Geral.
+  //   obra → aquela obra; grupo → soma das obras do grupo.
   const ehFabrica = isEscopoGeral(escopoObra) || !obraIdsEscopo;
   const obraUnica = obraIdUnica(escopoObra);
-  const noEscopo = useCallback((x) => {
+  const despesaNoEscopo = useCallback((x) => {
     const oid = obraDe(x);
     if (ehFabrica) return !oid;
+    return !!oid && obraIdsEscopo.includes(oid);
+  }, [ehFabrica, obraIdsEscopo]);
+  const receitaNoEscopo = useCallback((x) => {
+    if (ehFabrica) return true;
+    const oid = obraDe(x);
     return !!oid && obraIdsEscopo.includes(oid);
   }, [ehFabrica, obraIdsEscopo]);
 
@@ -179,7 +187,7 @@ export default function FinanceiroPage() {
     ehFabrica ? [] : (obras || []).filter(o => obraIdsEscopo.includes(o.id))
   ), [obras, obraIdsEscopo, ehFabrica]);
   const obraNome = ehFabrica
-    ? nomeEscopo(FABRICA)
+    ? 'Geral'
     : (obraUnica ? nomeEscopo(obraUnica) : rotuloEscopo(escopoObra, obras));
   const contratoValor = obrasDoEscopo.reduce((s, o) => (
     s + (Number(o?.contratoValorTotal ?? o?.contrato_valor_total ?? o?.valorContrato ?? 0) || 0)
@@ -188,7 +196,7 @@ export default function FinanceiroPage() {
   // ===== DESPESAS DA OBRA (lancamentos_despesas com obra_id = obra) =====
   const despesasObra = useMemo(() => {
     return (lancamentosDespesas || [])
-      .filter(l => noEscopo(l) && !despesaCancelada(l.status))
+      .filter(l => despesaNoEscopo(l) && !despesaCancelada(l.status))
       .map(l => {
         const venc = l.dataVencimento || l.vencimento || '-';
         const pago = despesaPaga(l.status);
@@ -209,11 +217,11 @@ export default function FinanceiroPage() {
           obraId: obraDe(l),
         };
       });
-  }, [lancamentosDespesas, noEscopo]);
+  }, [lancamentosDespesas, despesaNoEscopo]);
 
   // ===== RECEITAS DA OBRA: MEDIÇÕES =====
-  // Reconhecida (aprovada/faturada/paga) conta como receita; prevista/em
-  // análise aparece na lista mas fica fora dos totais; rejeitada some.
+  // Toda receita não cancelada entra nos totais (mesma regra da tela Receitas);
+  // prevista/em análise só ganha o selo "Prevista" na lista e fica "a receber".
   // 'faturado' NÃO é recebido (nota emitida ≠ dinheiro em caixa).
   // Overrides da ReceitasPage: sincroniza com a nuvem ao abrir e reage a
   // edições feitas em outra aba/módulo.
@@ -235,7 +243,7 @@ export default function FinanceiroPage() {
   const receitasMedicoes = useMemo(() => {
     const overrides = lerOverrides();
     return (todasMedicoes || [])
-      .filter(m => noEscopo(m))
+      .filter(m => receitaNoEscopo(m))
       .map(m => {
         const ov = overrides[m.id] || null;
         const etapaLabel = m.isAvulsa ? 'Avulsa' : (ETAPA_LABELS[m.etapa] || m.etapa || 'Medição');
@@ -271,13 +279,13 @@ export default function FinanceiroPage() {
         };
       })
       .filter(Boolean);
-  }, [todasMedicoes, noEscopo, obraUnica, obraNome, nomeEscopo, overridesTick]);
+  }, [todasMedicoes, receitaNoEscopo, obraUnica, obraNome, nomeEscopo, overridesTick]);
 
   // ===== RECEITAS DA OBRA: MANUAIS (receitas_manuais.obra_id = obra) =====
   const { receitas: receitasManuaisFonte } = useReceitasManuais();
   const receitasManuais = useMemo(() => {
     return (receitasManuaisFonte || [])
-      .filter(r => noEscopo(r) && !receitaCancelada(r.status))
+      .filter(r => receitaNoEscopo(r) && !receitaCancelada(r.status))
       .map(r => {
         const venc = r.vencimento || '-';
         const status = normalizeStatusReceita(r.status);
@@ -301,7 +309,7 @@ export default function FinanceiroPage() {
           obraId: obraDe(r),
         };
       });
-  }, [receitasManuaisFonte, noEscopo]);
+  }, [receitasManuaisFonte, receitaNoEscopo]);
 
   // ===== MOVIMENTAÇÕES DA OBRA =====
   const todasMovimentacoes = useMemo(() => (
@@ -329,8 +337,7 @@ export default function FinanceiroPage() {
   // ===== KPIs (receita reconhecida × despesa da obra) =====
   const kpis = useMemo(() => {
     const soma = (l) => l.reduce((s, m) => s + (m.valor || 0), 0);
-    const receitas = movimentacoesPeriodo.filter(m => m.tipo === 'receita' && !m.prevista);
-    const previstas = movimentacoesPeriodo.filter(m => m.tipo === 'receita' && m.prevista);
+    const receitas = movimentacoesPeriodo.filter(m => m.tipo === 'receita');
     const despesas = movimentacoesPeriodo.filter(m => m.tipo === 'despesa');
     const totalReceitas = soma(receitas);
     const totalDespesas = soma(despesas);
@@ -345,8 +352,7 @@ export default function FinanceiroPage() {
       receitasRecebidas, receitasPendentes,
       despesasPagas, despesasPendentes,
       saldoCaixaObra: receitasRecebidas - despesasPagas,
-      totalPrevisto: soma(previstas),
-      qtdReceitas: receitas.length + previstas.length, qtdDespesas: despesas.length,
+      qtdReceitas: receitas.length, qtdDespesas: despesas.length,
       qtdTotal: movimentacoesPeriodo.length,
     };
   }, [movimentacoesPeriodo]);
@@ -357,7 +363,7 @@ export default function FinanceiroPage() {
   // aqui NÃO é lucro da obra; mostramos quanto do contrato cada parte consumiu.
   const kpisObra = useMemo(() => {
     const soma = (l) => l.reduce((s, m) => s + (m.valor || 0), 0);
-    const montexL = todasMovimentacoes.filter(m => m.tipo === 'receita' && !m.prevista);
+    const montexL = todasMovimentacoes.filter(m => m.tipo === 'receita');
     const materialL = todasMovimentacoes.filter(m => m.tipo === 'despesa');
     const montex = soma(montexL);
     const material = soma(materialL);
@@ -370,7 +376,6 @@ export default function FinanceiroPage() {
       contrato, contratoCadastrado, montex, material, consumido,
       montexAReceber: montex - soma(montexL.filter(m => m.quitado)),
       materialAPagar: material - soma(materialL.filter(m => m.quitado)),
-      previsto: soma(todasMovimentacoes.filter(m => m.tipo === 'receita' && m.prevista)),
       pctMaterial: pct(material),
       pctMontex: pct(montex),
       pctConsumido: pct(consumido),
@@ -394,11 +399,10 @@ export default function FinanceiroPage() {
     }));
   }, [movimentacoesPeriodo]);
 
-  // Evolução mensal (somente receitas reconhecidas × despesas)
+  // Evolução mensal (receitas × despesas)
   const evolucaoMensal = useMemo(() => {
     const meses = {};
     movimentacoesPeriodo.forEach(m => {
-      if (m.prevista) return;
       const d = parseLocalDate(m.data || (m.vencimento !== '-' ? m.vencimento : null));
       if (!d || isNaN(d.getTime())) return;
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -600,7 +604,7 @@ export default function FinanceiroPage() {
             </span>
             <span className="text-slate-500 text-xs" title="Lançamentos daqui alimentam o Painel Financeiro Global; o que é lançado no Painel Global não volta para cá.">
               {ehFabrica
-                ? 'Lançamentos da fábrica · espelhados no Painel Global'
+                ? 'Receitas de todas as obras · despesas só da fábrica'
                 : 'Contrato: Material × Montex'}
             </span>
             <span className="text-slate-500 text-sm">|</span>
@@ -768,7 +772,7 @@ export default function FinanceiroPage() {
         >
           <Building2 className="h-3.5 w-3.5 text-slate-400" />
           <span>
-            Escopo: {ehFabrica ? 'Fábrica (financeiro geral — lançamentos sem obra)' : rotuloEscopo(escopoObra, obras)}
+            Escopo: {ehFabrica ? 'Geral — receitas de todas as obras + despesas da fábrica' : rotuloEscopo(escopoObra, obras)}
           </span>
         </div>
 
@@ -855,9 +859,6 @@ export default function FinanceiroPage() {
                   <p className="text-xs text-slate-500">
                     {kpisObra.contratoCadastrado ? `${kpisObra.pctMontex.toFixed(1)}% do contrato · ` : ''}a receber {formatCurrency(kpisObra.montexAReceber)}
                   </p>
-                  {kpisObra.previsto > 0 && (
-                    <p className="text-xs text-slate-500">Previsto (não medido): {formatCurrency(kpisObra.previsto)}</p>
-                  )}
                 </div>
               </div>
             </CardContent>
@@ -887,7 +888,7 @@ export default function FinanceiroPage() {
         </div>
       )}
 
-      {/* KPIs — FÁBRICA: receita × despesa do financeiro geral */}
+      {/* KPIs — GERAL: todas as receitas × despesas da fábrica */}
       {ehFabrica && (
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="bg-slate-900/60 border-slate-700/50">
@@ -914,7 +915,7 @@ export default function FinanceiroPage() {
                 <ArrowDownRight className="h-5 w-5 text-red-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Despesas</p>
+                <p className="text-sm text-slate-400">Despesas da fábrica</p>
                 <p className="text-xl font-bold text-red-400">{formatCurrency(kpis.totalDespesas)}</p>
                 <p className="text-xs text-slate-500">{kpis.qtdDespesas} lançamentos</p>
               </div>
@@ -929,7 +930,7 @@ export default function FinanceiroPage() {
                 <TrendingUp className="h-5 w-5 text-blue-400" />
               </div>
               <div>
-                <p className="text-sm text-slate-400">Resultado da fábrica</p>
+                <p className="text-sm text-slate-400">Resultado</p>
                 <p className={cn("text-xl font-bold", kpis.lucro >= 0 ? "text-blue-400" : "text-red-400")}>
                   {formatCurrency(kpis.lucro)}
                 </p>
@@ -1129,7 +1130,7 @@ export default function FinanceiroPage() {
                 {movimentacoesFiltradas.length === 0 && (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center text-slate-500 py-8">
-                      {ehFabrica ? 'Nenhuma movimentação da fábrica no período.' : 'Nenhuma movimentação desta obra no período.'}
+                      {ehFabrica ? 'Nenhuma movimentação no período.' : 'Nenhuma movimentação desta obra no período.'}
                     </TableCell>
                   </TableRow>
                 )}
