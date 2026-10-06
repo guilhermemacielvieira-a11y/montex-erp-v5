@@ -297,7 +297,7 @@ export default function GestaoFinanceiraObra() {
 
 function GestaoFinanceiraObraConteudo({ obraId }) {
   // ERPContext - dados reais do Supabase
-  const { obras: obrasERP, escopoObra } = useObras();
+  const { obras: obrasERP, escopoObra, updateObra } = useObras();
   const { lancamentosDespesas: lancamentosSupabase, addLancamento: addLancamentoCtx, updateLancamento: updateLancamentoCtx, deleteLancamento: deleteLancamentoCtx } = useLancamentos();
   const { medicoes: todasMedicoes, addMedicao: addMedicaoCtx, updateMedicao: updateMedicaoCtx, deleteMedicao: deleteMedicaoCtx } = useMedicoes();
 
@@ -321,6 +321,35 @@ function GestaoFinanceiraObraConteudo({ obraId }) {
   const [medicoesReceitas, setMedicoesReceitas] = useState(MEDICOES_RECEITAS);
   const [composicaoContrato, setComposicaoContrato] = useState(COMPOSICAO_CONTRATO);
   const [medicoes, setMedicoes] = useState(MEDICOES);
+
+  // R$/kg da medição por peso: padrão salvo na obra (obras.valor_kg_*) e,
+  // como sugestão alternativa, o último R$/kg usado em medição dessa etapa.
+  const obraRealERP = useMemo(() => (obrasERP || []).find(o => o.id === obraId) || null, [obrasERP, obraId]);
+  const valorKgPadraoObra = useMemo(() => ({
+    fabricacao: Number(obraRealERP?.valorKgFabricacao ?? obraRealERP?.valor_kg_fabricacao) || null,
+    montagem: Number(obraRealERP?.valorKgMontagem ?? obraRealERP?.valor_kg_montagem) || null,
+  }), [obraRealERP]);
+  const ultimoValorKgObra = useMemo(() => {
+    const out = { fabricacao: null, montagem: null };
+    [...(medicoes || [])]
+      .filter(m => (m.obraId || m.obra_id) === obraId && Number(m.pesoMedido) > 0 && Number(m.valorBruto) > 0 && !m.isAvulsa)
+      .sort((a, b) => String(a.dataMedicao || '').localeCompare(String(b.dataMedicao || '')))
+      .forEach(m => {
+        const e = m.etapa === ETAPA_MEDICAO.MONTAGEM ? 'montagem' : m.etapa === ETAPA_MEDICAO.FABRICACAO ? 'fabricacao' : null;
+        if (e) out[e] = Math.round((Number(m.valorBruto) / Number(m.pesoMedido)) * 10000) / 10000;
+      });
+    return out;
+  }, [medicoes, obraId]);
+  const salvarValorKgPadrao = useCallback(async (etapa, valor) => {
+    if (!obraRealERP || !(valor > 0)) return;
+    const campo = etapa === 'montagem' ? 'valorKgMontagem' : 'valorKgFabricacao';
+    try {
+      await updateObra(obraRealERP.id, { [campo]: valor });
+      toast.success(`R$ ${valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}/kg salvo como padrão de ${etapa === 'montagem' ? 'montagem' : 'fabricação'} desta obra`);
+    } catch (e) {
+      toast.error('Não foi possível salvar o R$/kg padrão da obra', { description: e?.message });
+    }
+  }, [obraRealERP, updateObra]);
   const [materiais, setMateriais] = useState(PEDIDOS_MATERIAL);
   const [activeTab, setActiveTab] = useState('dashboard');
   const [filtroCategoria, setFiltroCategoria] = useState('todas');
@@ -2637,8 +2666,10 @@ function GestaoFinanceiraObraConteudo({ obraId }) {
 
                 <NovaMedicaoForm
                   setores={obra.setores}
-                  valoresKg={obra.valoresKg}
                   contrato={obra.contrato}
+                  valorKgPadrao={valorKgPadraoObra}
+                  ultimoValorKg={ultimoValorKgObra}
+                  onSalvarPadraoKg={salvarValorKgPadrao}
                   editando={editandoMedicao}
                   onSubmit={editandoMedicao ? (dados) => editarMedicao({ id: editandoMedicao.id, ...dados }) : adicionarMedicao}
                   onCancel={() => { setShowNovaMedicao(false); setEditandoMedicao(null); }}
@@ -2663,7 +2694,7 @@ const TIPOS_MEDICAO_AVULSA = [
   { id: 'outros', label: 'Outros', desc: 'Lançamento avulso diverso', color: '#94A3B8', icon: '📌' },
 ];
 
-function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, editando }) {
+function NovaMedicaoForm({ setores, contrato, valorKgPadrao = {}, ultimoValorKg = {}, onSalvarPadraoKg, onSubmit, onCancel, editando }) {
   const inputClass = "w-full px-3 py-2.5 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-colors";
   const labelClass = "text-sm text-slate-400 mb-1.5 block font-medium";
   const inputStyle = {
@@ -2688,10 +2719,19 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
     descricaoAvulsa: editando?.descricao || '',
     valorBrutoManual: editando?.isAvulsa ? (editando?.valorBruto || '') : '',
     aplicarRetencoes: editando?.retencoes?.total > 0 || false,
-    // Detalhamento por sub-etapa (modo peso)
-    detCorte: '', detFabricacao: '', detSolda: '', detPintura: '', detExpedicao: '',
-    detDescarga: '', detMontagem: '', detTorqueamento: '', detAcabamento: '',
   });
+
+  // R$/kg (modo peso): edição → valor da própria medição; nova → padrão da
+  // obra; senão o último R$/kg usado nessa etapa. Sempre editável.
+  const chaveEtapa = (et) => (et === ETAPA_MEDICAO.MONTAGEM ? 'montagem' : 'fabricacao');
+  const sugestaoKg = (et) => valorKgPadrao?.[chaveEtapa(et)] || ultimoValorKg?.[chaveEtapa(et)] || '';
+  const [valorKg, setValorKg] = useState(() => {
+    if (editando && !editando.isAvulsa && Number(editando.pesoMedido) > 0 && Number(editando.valorBruto) > 0) {
+      return String(Math.round((Number(editando.valorBruto) / Number(editando.pesoMedido)) * 10000) / 10000);
+    }
+    return String(sugestaoKg(editando?.etapa || ETAPA_MEDICAO.FABRICACAO) || '');
+  });
+  const [salvarPadrao, setSalvarPadrao] = useState(false);
 
   const pesoNum = parseFloat(formData.pesoMedido) || 0;
   const isFabricacao = formData.etapa === ETAPA_MEDICAO.FABRICACAO;
@@ -2716,50 +2756,25 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
       return { detalhamento: {}, bruto: valorBrutoManual, liquido: valorBrutoManual, retencoes: { iss: 0, inss: 0, contratual: 0, total: 0 } };
     }
 
-    // Modo peso
-    if (!valoresKg || pesoNum <= 0) return { detalhamento: {}, bruto: 0, liquido: 0, retencoes: {} };
-
-    let detalhamento = {};
-    if (isFabricacao) {
-      // FABRICAÇÃO — R$ 5,52/kg (SEM descarga)
-      // Montagem(4,12) + Torqueamento(0,80) + Acabamento(0,60) = 5,52
-      const vk = valoresKg.fabricacao || {};
-      detalhamento = {
-        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 4.12, valor: pesoNum * (vk.montagem     || 4.12) },
-        torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
-        acabamento:   { peso: pesoNum, valorKg: vk.acabamento   || 0.60, valor: pesoNum * (vk.acabamento   || 0.60) },
-      };
-    } else {
-      // MONTAGEM — R$ 6,40/kg (COM descarga)
-      // Descarga(0,50) + Montagem(4,50) + Torqueamento(0,80) + Acabamento(0,60) = 6,40
-      const vk = valoresKg.montagem || {};
-      detalhamento = {
-        descarga:     { peso: pesoNum, valorKg: vk.descarga     || 0.50, valor: pesoNum * (vk.descarga     || 0.50) },
-        montagem:     { peso: pesoNum, valorKg: vk.montagem     || 4.50, valor: pesoNum * (vk.montagem     || 4.50) },
-        torqueamento: { peso: pesoNum, valorKg: vk.torqueamento || 0.80, valor: pesoNum * (vk.torqueamento || 0.80) },
-        acabamento:   { peso: pesoNum, valorKg: vk.acabamento   || 0.60, valor: pesoNum * (vk.acabamento   || 0.60) },
-      };
-    }
-
-    Object.keys(detalhamento).forEach(key => {
-      const manualKey = `det${key.charAt(0).toUpperCase() + key.slice(1)}`;
-      const manualVal = parseFloat(formData[manualKey]);
-      if (!isNaN(manualVal) && manualVal > 0) detalhamento[key].valor = manualVal;
-    });
-
-    const totalBruto = Object.values(detalhamento).reduce((s, d) => s + d.valor, 0);
-    // Impostos NÃO abatidos — Valor Líquido = Valor Bruto
+    // Modo peso: valor = peso (kg) × R$/kg da etapa (editável). Sem impostos.
+    const vk = parseFloat(String(valorKg).replace(',', '.')) || 0;
+    if (pesoNum <= 0 || vk <= 0) return { detalhamento: {}, bruto: 0, liquido: 0, retencoes: {} };
+    const bruto = Math.round(pesoNum * vk * 100) / 100;
+    const chave = isFabricacao ? 'fabricacao' : 'montagem';
     return {
-      detalhamento,
-      bruto: totalBruto,
-      liquido: totalBruto,
+      detalhamento: { [chave]: { peso: pesoNum, valorKg: vk, valor: bruto } },
+      bruto,
+      liquido: bruto,
       retencoes: { iss: 0, inss: 0, contratual: 0, total: 0 },
     };
-  }, [modo, pesoNum, isFabricacao, valoresKg, contrato, formData, valorBrutoManual]);
+  }, [modo, pesoNum, isFabricacao, valorKg, contrato, formData, valorBrutoManual]);
 
+  const valorKgNum = parseFloat(String(valorKg).replace(',', '.')) || 0;
   const isValid = modo === 'avulsa'
     ? (formData.numero && valorBrutoManual > 0)
-    : (formData.numero && pesoNum > 0);
+    : (formData.numero && pesoNum > 0 && valorKgNum > 0);
+  const padraoAtual = valorKgPadrao?.[chaveEtapa(formData.etapa)] || null;
+  const difereDoPadrao = valorKgNum > 0 && Math.abs((padraoAtual || 0) - valorKgNum) > 0.00005;
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -2801,6 +2816,7 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
         retencoes: valoresCalculados.retencoes,
         detalhamento: valoresCalculados.detalhamento,
       });
+      if (salvarPadrao && difereDoPadrao && onSalvarPadraoKg) onSalvarPadraoKg(chaveEtapa(formData.etapa), valorKgNum);
     }
   };
 
@@ -2993,21 +3009,52 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
             </div>
             <div>
               <label className={labelClass}>Etapa</label>
-              <select value={formData.etapa} onChange={e => setField('etapa', e.target.value)}
-                className={inputClass} style={inputStyle}>
-                <option value={ETAPA_MEDICAO.FABRICACAO} style={{ background: '#1e293b' }}>Fabricação</option>
-                <option value={ETAPA_MEDICAO.MONTAGEM} style={{ background: '#1e293b' }}>Montagem</option>
-              </select>
+              <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Etapa da medição">
+                {[
+                  { id: ETAPA_MEDICAO.FABRICACAO, label: 'Fabricação' },
+                  { id: ETAPA_MEDICAO.MONTAGEM, label: 'Montagem' },
+                ].map(op => (
+                  <button key={op.id} type="button" role="radio" aria-checked={formData.etapa === op.id}
+                    onClick={() => {
+                      setField('etapa', op.id);
+                      if (!editando) { setValorKg(String(sugestaoKg(op.id) || '')); setSalvarPadrao(false); }
+                    }}
+                    className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-all border ${formData.etapa === op.id ? 'text-white border-purple-500/50 bg-purple-500/20' : 'text-slate-400 border-slate-700/50 hover:text-slate-200'}`}>
+                    {op.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className={labelClass}>Peso Medido (kg)</label>
-              <input type="number" step="0.01" value={formData.pesoMedido} onChange={e => setField('pesoMedido', e.target.value)}
+              <label className={labelClass}>Peso {isFabricacao ? 'fabricado' : 'montado'} (kg)</label>
+              <input type="number" step="0.01" min="0" value={formData.pesoMedido} onChange={e => setField('pesoMedido', e.target.value)}
                 className={inputClass} style={inputStyle} placeholder="Ex: 15000" required />
-              {pesoNum > 0 && <p className="text-[10px] text-slate-500 mt-1">{(Number(pesoNum) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>}
+              {pesoNum > 0 && <p className="text-[11px] text-slate-500 mt-1">{(Number(pesoNum) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} kg</p>}
             </div>
+            <div>
+              <label className={labelClass}>Valor {isFabricacao ? 'fabricação' : 'montagem'} (R$/kg)</label>
+              <input type="number" step="0.0001" min="0" value={valorKg} onChange={e => setValorKg(e.target.value)}
+                className={inputClass} style={inputStyle} placeholder="Ex: 2,80" required aria-describedby="ajuda-valor-kg" />
+              <p id="ajuda-valor-kg" className="text-[11px] text-slate-500 mt-1">
+                {padraoAtual
+                  ? `Padrão da obra: R$ ${padraoAtual.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}/kg`
+                  : (ultimoValorKg?.[chaveEtapa(formData.etapa)]
+                    ? `Sem padrão salvo · última medição: R$ ${ultimoValorKg[chaveEtapa(formData.etapa)].toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}/kg`
+                    : 'Sem padrão salvo para esta obra')}
+              </p>
+              {difereDoPadrao && onSalvarPadraoKg && (
+                <label className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                  <input type="checkbox" checked={salvarPadrao} onChange={e => setSalvarPadrao(e.target.checked)} className="accent-purple-500" />
+                  Salvar como padrão de {isFabricacao ? 'fabricação' : 'montagem'} desta obra
+                </label>
+              )}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Data Referência</label>
               <input type="date" value={formData.dataReferencia} onChange={e => setField('dataReferencia', e.target.value)}
@@ -3037,60 +3084,25 @@ function NovaMedicaoForm({ setores, valoresKg, contrato, onSubmit, onCancel, edi
             </div>
           </div>
 
-          {/* Preview peso */}
-          {pesoNum > 0 && (
-            <div className="rounded-xl border p-4 space-y-3" style={{
+          {/* Resultado: peso × R$/kg */}
+          {pesoNum > 0 && valorKgNum > 0 && (
+            <div className="rounded-xl border p-4" style={{
               background: 'linear-gradient(135deg, rgba(139,92,246,0.06), rgba(59,130,246,0.04))',
               borderColor: 'rgba(139,92,246,0.2)',
-              boxShadow: 'inset 0 1px 0 rgba(139,92,246,0.05)',
             }}>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2">
                 <Activity className="w-4 h-4 text-purple-400" />
-                <span className="text-sm font-semibold text-purple-300">Valores Calculados Automaticamente</span>
+                <span className="text-sm font-semibold text-purple-300">Cálculo da medição</span>
               </div>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-2">
-                {Object.entries(valoresCalculados.detalhamento).map(([etapa, dados]) => (
-                  <div key={etapa} className="flex items-center justify-between py-1.5 border-b" style={{ borderColor: 'rgba(56,72,100,0.2)' }}>
-                    <div className="flex items-center gap-2">
-                      <div className="w-1.5 h-1.5 rounded-full bg-purple-400" />
-                      <span className="text-xs text-slate-400 capitalize">{etapa}</span>
-                      <span className="text-[10px] text-slate-600">R$ {dados.valorKg?.toFixed(2)}/kg</span>
-                    </div>
-                    <span className="text-xs font-medium text-white">R$ {formatMoney(dados.valor)}</span>
-                  </div>
-                ))}
-              </div>
-              <div className="pt-3 mt-2 border-t space-y-2" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
-                <div className="flex justify-between">
-                  <span className="text-sm text-emerald-400 font-semibold">Valor Bruto</span>
-                  <span className="text-lg font-bold text-emerald-400">R$ {formatMoney(valoresCalculados.bruto)}</span>
-                </div>
+              <p className="text-sm text-slate-300 tabular-nums">
+                {(Number(pesoNum) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} kg × R$ {valorKgNum.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}/kg ({isFabricacao ? 'fabricação' : 'montagem'})
+              </p>
+              <div className="flex justify-between items-baseline pt-3 mt-2 border-t" style={{ borderColor: 'rgba(56,72,100,0.3)' }}>
+                <span className="text-sm text-emerald-400 font-semibold">Valor Bruto</span>
+                <span className="text-lg font-bold text-emerald-400 tabular-nums">R$ {formatMoney(valoresCalculados.bruto)}</span>
               </div>
             </div>
           )}
-
-          {/* Override manual */}
-          <details className="group">
-            <summary className="cursor-pointer text-xs text-slate-500 hover:text-slate-300 transition-colors flex items-center gap-1.5">
-              <ChevronDown className="w-3.5 h-3.5 group-open:rotate-180 transition-transform" />
-              Editar valores por sub-etapa manualmente (opcional)
-            </summary>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              {/* FABRICAÇÃO: sem Descarga (5,52/kg) | MONTAGEM: com Descarga (6,40/kg) */}
-              {(isFabricacao
-                ? ['Montagem','Torqueamento','Acabamento']
-                : ['Descarga','Montagem','Torqueamento','Acabamento']
-              ).map(etapa => (
-                <div key={etapa}>
-                  <label className="text-[11px] text-slate-500 mb-1 block">{etapa} (R$)</label>
-                  <input type="number" step="0.01" value={formData[`det${etapa}`]}
-                    onChange={e => setField(`det${etapa}`, e.target.value)}
-                    className={inputClass} style={inputStyle}
-                    placeholder={`Auto: R$ ${formatMoney(valoresCalculados.detalhamento[etapa.toLowerCase()]?.valor || 0)}`} />
-                </div>
-              ))}
-            </div>
-          </details>
         </>
       )}
 
