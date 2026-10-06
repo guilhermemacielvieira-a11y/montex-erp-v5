@@ -2665,7 +2665,6 @@ function GestaoFinanceiraObraConteudo({ obraId }) {
                 </Dialog.Title>
 
                 <NovaMedicaoForm
-                  setores={obra.setores}
                   contrato={obra.contrato}
                   valorKgPadrao={valorKgPadraoObra}
                   ultimoValorKg={ultimoValorKgObra}
@@ -2694,7 +2693,7 @@ const TIPOS_MEDICAO_AVULSA = [
   { id: 'outros', label: 'Outros', desc: 'Lançamento avulso diverso', color: '#94A3B8', icon: '📌' },
 ];
 
-function NovaMedicaoForm({ setores, contrato, valorKgPadrao = {}, ultimoValorKg = {}, onSalvarPadraoKg, onSubmit, onCancel, editando }) {
+function NovaMedicaoForm({ contrato, valorKgPadrao = {}, ultimoValorKg = {}, onSalvarPadraoKg, onSubmit, onCancel, editando }) {
   const inputClass = "w-full px-3 py-2.5 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/50 transition-colors";
   const labelClass = "text-sm text-slate-400 mb-1.5 block font-medium";
   const inputStyle = {
@@ -2707,7 +2706,7 @@ function NovaMedicaoForm({ setores, contrato, valorKgPadrao = {}, ultimoValorKg 
 
   const [formData, setFormData] = useState({
     numero: editando?.numero || '',
-    setor: editando?.setor || setores[0]?.nome || '',
+    setor: editando?.setor || '-', // campo Setor removido do formulário (mantém o valor ao editar)
     etapa: editando?.etapa || ETAPA_MEDICAO.FABRICACAO,
     pesoMedido: editando?.pesoMedido || '',
     dataReferencia: editando?.dataReferencia || hojeLocalISO(),
@@ -2928,16 +2927,6 @@ function NovaMedicaoForm({ setores, contrato, valorKgPadrao = {}, ultimoValorKg 
                 ))}
               </select>
             </div>
-            <div>
-              <label className={labelClass}>Setor (opcional)</label>
-              <select value={formData.setor} onChange={e => setField('setor', e.target.value)}
-                className={inputClass} style={inputStyle}>
-                <option value="" style={{ background: '#1e293b' }}>Nenhum</option>
-                {setores.map(s => (
-                  <option key={s.id} value={s.nome} style={{ background: '#1e293b' }}>{s.nome}</option>
-                ))}
-              </select>
-            </div>
             <div className="flex items-end pb-1">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input type="checkbox" checked={formData.aplicarRetencoes}
@@ -2992,20 +2981,11 @@ function NovaMedicaoForm({ setores, contrato, valorKgPadrao = {}, ultimoValorKg 
       ) : (
         <>
           {/* ===== MODO POR PESO ===== */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Nº Medição</label>
               <input type="number" value={formData.numero} onChange={e => setField('numero', e.target.value)}
                 className={inputClass} style={inputStyle} placeholder="Ex: 1" required />
-            </div>
-            <div>
-              <label className={labelClass}>Setor</label>
-              <select value={formData.setor} onChange={e => setField('setor', e.target.value)}
-                className={inputClass} style={inputStyle}>
-                {setores.map(s => (
-                  <option key={s.id} value={s.nome} style={{ background: '#1e293b' }}>{s.nome}</option>
-                ))}
-              </select>
             </div>
             <div>
               <label className={labelClass}>Etapa</label>
