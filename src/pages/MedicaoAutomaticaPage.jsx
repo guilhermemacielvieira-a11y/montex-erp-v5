@@ -1,863 +1,493 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { supabase } from '../api/supabaseClient';
-import { motion } from 'framer-motion';
-import toast from 'react-hot-toast';
+// ============================================================
+// GESTÃO DE MEDIÇÃO — FABRICAÇÃO (pleito de autorização)
+// ============================================================
+// Fluxo: fabricado elegível (entregue na obra + aguardando carga + processo
+// final pintura/solda) − já medido = disponível para nova medição.
+// Cálculo em services/medicaoPleito.js (testado). Exporta o pleito em PDF e
+// HTML no padrão visual dos relatórios Montex, para envio ao cliente.
+// Escopo = seletor ÚNICO do topo: 1 obra ou grupo → pleito; Geral → resumo
+// por obra.
+// ============================================================
+import React, { useCallback, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
 import {
-  Target, Weight, DollarSign,
-  Edit, Save, X, Plus, Download, Filter,
-  CheckCircle2, FileText, TrendingUp, Layers,
-  ChevronDown, BarChart3, PieChart as PieChartIcon, ArrowRight,
-  Truck
+  Target, FileDown, FileCode2, ArrowRight, Edit, Save, X, CheckCircle2, Clock,
+  Truck, Package, Flame, Paintbrush, Hammer, CircleDashed, Minus, Equal, AlertTriangle, Building2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
-import * as Select from '@radix-ui/react-select';
-import * as Dialog from '@radix-ui/react-dialog';
-import {
-  Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
-} from 'recharts';
-import { useObras, useExpedicao, useMedicoes } from '../contexts/ERPContext';
-import { grupoDoEscopo, rotuloEscopo } from '../lib/escopoObra';
+import { useObras, useProducao, useMedicoes } from '../contexts/ERPContext';
+import { grupoDoEscopo, rotuloEscopo, obraIdUnica } from '../lib/escopoObra';
+import { hojeLocalISO } from '../utils/financeiroCalc';
+import { apurarPleito, valorKgDaObra, INCLUIR_PADRAO, GRUPOS_ETAPA } from '../services/medicaoPleito';
+import { modeloPleito, fmtMoeda, fmtKg, fmtUn, fmtPct, fmtData } from '../services/relatorioMedicao';
 
-// Configurações de valores por kg (editáveis) - vinculado ao contrato
-const configInicial = {
-  producao: {
-    valorKg: 5.52,
-    descricao: 'Valor pago por kg produzido na fábrica (R$/kg contrato)',
-  },
-};
-
-// ----- CONFIG POR OBRA -----
-// Cada obra pode ter modo='kg' (R$/kg × peso) ou modo='unidade' (R$/un × qtd peças)
-// Persistido em localStorage. Para obras tipo "produto seriado" usar modo='unidade'.
+// Obras medidas por UNIDADE (produto seriado). Demais: por kg.
+// Persistido em localStorage (legado desta tela) + sementes do contrato.
 const STORAGE_KEY_CONFIG_OBRAS = 'medicao_config_obras_v1';
-
-// Defaults conhecidos do contrato (sementes — usuário pode editar via UI):
 const CONFIG_OBRAS_SEED = {
-  'obra-004': { modo: 'unidade', valor: 20.00, qtdContrato: 500, descricao: 'R$/unidade contratada' }, // TMC-CC027 — 500un × R$ 20,00
-  'obra-005': { modo: 'unidade', valor: 20.00, qtdContrato: 1500, descricao: 'R$/unidade contratada' }, // TMC-CC002 — 1500un × R$ 20,00 (se existir)
+  'obra-004': { modo: 'unidade', valor: 20.00, qtdContrato: 500 },
+  'obra-005': { modo: 'unidade', valor: 20.00, qtdContrato: 1500 },
+};
+const lerConfigObras = () => {
+  try { return { ...CONFIG_OBRAS_SEED, ...(JSON.parse(localStorage.getItem(STORAGE_KEY_CONFIG_OBRAS) || '{}') || {}) }; }
+  catch { return { ...CONFIG_OBRAS_SEED }; }
+};
+const gravarConfigObras = (cfg) => { try { localStorage.setItem(STORAGE_KEY_CONFIG_OBRAS, JSON.stringify(cfg)); } catch { /* quota */ } };
+
+const ICONES = { entregue: Truck, aguardandoCarga: Package, pintura: Paintbrush, solda: Flame, fabricacao: Hammer, naoIniciado: CircleDashed };
+const SITUACAO = {
+  paga: { txt: 'Paga', cls: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
+  aprovada: { txt: 'Aprovada', cls: 'bg-sky-500/15 text-sky-400 border-sky-500/30' },
+  em_analise: { txt: 'Em análise', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  cancelada: { txt: 'Cancelada', cls: 'bg-red-500/15 text-red-400 border-red-500/30' },
 };
 
-const loadConfigObras = () => {
-  try {
-    const saved = JSON.parse(localStorage.getItem(STORAGE_KEY_CONFIG_OBRAS) || '{}');
-    return { ...CONFIG_OBRAS_SEED, ...saved };
-  } catch {
-    return { ...CONFIG_OBRAS_SEED };
+const carregarLogo = async () => (await import('@/utils/montexLogos')).LOGO_M_MAIN_B64;
+
+/** Config de medição de um conjunto de obras (modo, R$/un, contrato). */
+function configDe({ obrasEsc, grupo, configObras }) {
+  if (grupo) return { modo: grupo.modo || 'kg', valorUnit: grupo.valor || 0, contrato: grupo.qtdContrato || 0, origem: 'grupo' };
+  if (obrasEsc.length === 1) {
+    const o = obrasEsc[0];
+    const cfg = configObras[o.id];
+    if (cfg?.modo === 'unidade') return { modo: 'unidade', valorUnit: cfg.valor || 0, contrato: cfg.qtdContrato || 0, origem: 'local' };
+    return { modo: 'kg', valorUnit: valorKgDaObra(o) || 0, contrato: 0, origem: 'obra' };
   }
-};
-
-const saveConfigObras = (cfg) => {
-  try { localStorage.setItem(STORAGE_KEY_CONFIG_OBRAS, JSON.stringify(cfg)); } catch {}
-};
-
-// Cores para gráficos
-const COLORS = ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ef4444'];
+  return { modo: 'kg', valorUnit: 0, contrato: 0, origem: 'nenhuma' };
+}
 
 export default function MedicaoAutomaticaPage() {
-  // Escopo de obra = seletor ÚNICO do topo (Geral = todas as obras consolidadas)
-  const { obras, obraAtual, escopoObra, obraIdsEscopo } = useObras();
-  const { expedicoes } = useExpedicao();
-  const { medicoes: medicoesDB } = useMedicoes();
-  const obrasAtivas = obras.filter(o => o.status !== 'cancelada');
+  const navigate = useNavigate();
+  const { obras, escopoObra, obraIdsEscopo, setObraAtual, updateObra } = useObras();
+  const { pecas } = useProducao();
+  const { medicoes } = useMedicoes();
 
-  // obraSelecionada: id de UMA obra, ou null (Geral / grupo)
-  const obraSelecionada = obraAtual || null;
-  const grupoAtivo = grupoDoEscopo(escopoObra);
+  const grupo = grupoDoEscopo(escopoObra);
+  const obraUnicaId = obraIdUnica(escopoObra);
+  const ehGeral = !obraIdsEscopo;
 
-  // obraIds do escopo (null = todas / Geral; grupo TEMEC = várias)
-  const obraIdsEfetivos = obraIdsEscopo || null;
-  const isGrupoConsolidado = !!grupoAtivo;
-  const [config, setConfig] = useState(configInicial);
-  const [editandoConfig, setEditandoConfig] = useState(null);
-  const [novoValorKg, setNovoValorKg] = useState('');
-  const [novoModoMedicao, setNovoModoMedicao] = useState('kg'); // 'kg' | 'unidade'
-  const [novoQtdContrato, setNovoQtdContrato] = useState('');
-  const [modalNovaMedicao, setModalNovaMedicao] = useState(false);
-  const [medicoes, setMedicoes] = useState([]);
-  const [formMedicao, setFormMedicao] = useState({ peso: '', obra: '' });
+  const [configObras, setConfigObras] = useState(lerConfigObras);
+  const [incluir, setIncluir] = useState({ ...INCLUIR_PADRAO });
+  const [dataBase, setDataBase] = useState(hojeLocalISO());
+  const [observacao, setObservacao] = useState('');
+  const [editandoValor, setEditandoValor] = useState(false);
+  const [novoValor, setNovoValor] = useState('');
+  const [exportando, setExportando] = useState(null);
 
-  // Config por obra (modo kg ou unidade) — carrega do localStorage
-  const [configObras, setConfigObras] = useState(() => loadConfigObras());
+  const obrasAtivas = useMemo(() => (obras || []).filter((o) => o.status !== 'cancelada'), [obras]);
+  const obrasEsc = useMemo(
+    () => (ehGeral ? [] : obrasAtivas.filter((o) => obraIdsEscopo.includes(o.id))),
+    [ehGeral, obrasAtivas, obraIdsEscopo],
+  );
 
-  // Config ATUAL = se obra/grupo selecionada tem config própria, usa ela; senão usa o default kg
-  const configObraAtual = useMemo(() => {
-    // Grupo consolidado (TEMEC): usa config do grupo direto
-    if (grupoAtivo) {
-      const g = grupoAtivo;
-      return { modo: g.modo, valor: g.valor, qtdContrato: g.qtdContrato, descricao: 'R$/unidade · análise consolidada' };
-    }
-    if (obraSelecionada && configObras[obraSelecionada]) {
-      return configObras[obraSelecionada];
-    }
-    return { modo: 'kg', valor: config.producao.valorKg, qtdContrato: 0, descricao: config.producao.descricao };
-  }, [grupoAtivo, obraSelecionada, configObras, config.producao.valorKg, config.producao.descricao]);
+  const cfg = useMemo(() => configDe({ obrasEsc, grupo, configObras }), [obrasEsc, grupo, configObras]);
+  const kg = cfg.modo !== 'unidade';
+  const fm = kg ? fmtKg : fmtUn;
 
-  const isModoUnidade = configObraAtual.modo === 'unidade';
+  // ===== Apuração do escopo (1 obra ou grupo) =====
+  const ap = useMemo(() => {
+    if (ehGeral) return null;
+    return apurarPleito({ obras: obrasEsc, pecas, medicoes, incluir, modo: cfg.modo, valorUnit: cfg.valorUnit, contrato: cfg.contrato });
+  }, [ehGeral, obrasEsc, pecas, medicoes, incluir, cfg]);
 
-  // ----- Buscar peças por etapa direto do Supabase para a obra selecionada -----
-  // Necessário para distinguir "expedido" (fila embarque) de "enviado" (saiu da fábrica)
-  // O calc agregado em transforms.js junta os dois — aqui separamos.
-  const [pesosPorEtapaReais, setPesosPorEtapaReais] = useState({ expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 });
-  useEffect(() => {
-    if (!obraIdsEfetivos || obraIdsEfetivos.length === 0) {
-      setPesosPorEtapaReais({ expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 });
-      return;
-    }
-    let cancel = false;
-    (async () => {
-      try {
-        // Paginado (.range) — pecas_producao passa do limite de 1000 linhas do PostgREST
-        const data = [];
-        for (let from = 0; ; from += 1000) {
-          const { data: page, error } = await supabase
-            .from('pecas_producao')
-            .select('id,etapa,quantidade,peso_total,obra_id')
-            .in('obra_id', obraIdsEfetivos)
-            .order('id', { ascending: true })
-            .range(from, from + 999);
-          if (error || cancel) return;
-          data.push(...(page || []));
-          if (!page || page.length < 1000) break;
-        }
-        const acc = { expedido: 0, enviado: 0, pintura: 0, total: 0, qtdEnviado: 0, qtdExpedido: 0, qtdPintura: 0, qtdTotal: 0 };
-        (data || []).forEach(p => {
-          const peso = parseFloat(p.peso_total) || 0;
-          const qtd = parseInt(p.quantidade) || 0;
-          acc.total += peso; acc.qtdTotal += qtd;
-          const e = p.etapa;
-          // Quem já passou da pintura conta como "pintado/produzido"
-          if (['pintura','expedido','enviado','entregue','montagem'].includes(e)) {
-            acc.pintura += peso; acc.qtdPintura += qtd;
-          }
-          // SOMENTE 'expedido' = Fila Embarque (produzido mas ainda não embarcado)
-          if (e === 'expedido') {
-            acc.expedido += peso; acc.qtdExpedido += qtd;
-          }
-          // 'enviado' / 'entregue' / 'montagem' = realmente saiu da fábrica
-          if (['enviado','entregue','montagem'].includes(e)) {
-            acc.enviado += peso; acc.qtdEnviado += qtd;
-          }
-        });
-        setPesosPorEtapaReais(acc);
-      } catch (e) { /* silencioso */ }
-    })();
-    return () => { cancel = true; };
-  }, [obraIdsEfetivos?.join(',')]);
+  // ===== Geral: resumo por obra =====
+  const resumoObras = useMemo(() => {
+    if (!ehGeral) return [];
+    return obrasAtivas.map((o) => {
+      const c = configDe({ obrasEsc: [o], grupo: null, configObras });
+      const r = apurarPleito({ obras: [o], pecas, medicoes, incluir, modo: c.modo, valorUnit: c.valorUnit, contrato: c.contrato });
+      return { obra: o, cfg: c, r };
+    }).filter(({ r }) => r.totalProjeto > 0 || r.medido > 0)
+      .sort((a, b) => b.r.valorDisponivel - a.r.valorDisponivel);
+  }, [ehGeral, obrasAtivas, pecas, medicoes, incluir, configObras]);
 
-  // Helper: testa se um obraId está nos filtros atuais
-  const matchObra = (oid) => {
-    if (!obraIdsEfetivos) return true; // sem filtro = todas
-    return obraIdsEfetivos.includes(oid);
-  };
+  const totaisGeral = useMemo(() => resumoObras.reduce((s, { r }) => ({
+    valor: s.valor + r.valorDisponivel,
+    semValor: s.semValor + (r.valorUnit > 0 ? 0 : 1),
+    obrasComSaldo: s.obrasComSaldo + (r.valorDisponivel > 0 ? 1 : 0),
+  }), { valor: 0, semValor: 0, obrasComSaldo: 0 }), [resumoObras]);
 
-  // Medições locais (criadas nesta página)
-  const medicoesLocaisFiltradas = useMemo(() => {
-    return medicoes.filter(m => {
-      if (m.tipo !== 'producao') return false;
-      if (!matchObra(m.obraId)) return false;
-      return true;
-    });
-  }, [medicoes, obraIdsEfetivos]);
-
-  // Medições do Supabase (Gestão Financeira Obra) formatadas para a tabela
-  const medicoesDBFormatadas = useMemo(() => {
-    if (!medicoesDB || medicoesDB.length === 0) return [];
-    const obrasMap = {};
-    (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.name || o.id; });
-
-    return medicoesDB
-      .filter(m => matchObra(m.obraId || m.obra_id))
-      .map(m => {
-        const obraId = m.obraId || m.obra_id;
-        return {
-          id: m.id,
-          tipo: 'producao',
-          obraId,
-          obra: m.obraNome || m.obra_nome || obrasMap[obraId] || '-',
-          periodo: m.dataMedicao || m.data_medicao
-            ? new Date(m.dataMedicao || m.data_medicao).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-            : '-',
-          pesoMedido: m.pesoMedido || m.peso_medido || m.peso || 0,
-          valorKg: config.producao.valorKg,
-          valorTotal: m.valorBruto || m.valor_bruto || 0,
-          status: ['pago', 'paga', 'faturado', 'confirmado'].includes(m.status) ? 'aprovada' : (m.status === 'rejeitada' ? 'rejeitada' : 'pendente'),
-          dataCriacao: m.dataMedicao || m.data_medicao || '',
-          origemDB: true,
-          descricao: m.descricao || `Medição #${m.numero || '?'}`,
-          numero: m.numero,
-        };
-      });
-  }, [medicoesDB, escopoObra, obras, config.producao.valorKg]);
-
-  // Combinar medições locais + DB (evitar duplicatas por ID)
-  const medicoesFiltradas = useMemo(() => {
-    const idsDB = new Set(medicoesDBFormatadas.map(m => m.id));
-    const locaisSemDup = medicoesLocaisFiltradas.filter(m => !idsDB.has(m.id));
-    return [...medicoesDBFormatadas, ...locaisSemDup]
-      .sort((a, b) => new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0));
-  }, [medicoesDBFormatadas, medicoesLocaisFiltradas]);
-
-  const totais = useMemo(() => {
-    const filtradas = medicoesFiltradas;
-    return {
-      pesoTotal: filtradas.reduce((a, m) => a + (m.pesoMedido || 0), 0),
-      valorTotal: filtradas.reduce((a, m) => a + (m.valorTotal || 0), 0),
-      qtdMedicoes: filtradas.length,
-      aprovadas: filtradas.filter(m => m.status === 'aprovada').length,
-      pendentes: filtradas.filter(m => m.status === 'pendente').length,
-    };
-  }, [medicoesFiltradas]);
-
-  const dadosPorObra = useMemo(() => {
-    const porObra = {};
-    medicoesFiltradas.forEach(m => {
-      if (!porObra[m.obra]) porObra[m.obra] = 0;
-      porObra[m.obra] += m.valorTotal;
-    });
-    return Object.entries(porObra).map(([name, value]) => ({ name, value }));
-  }, [medicoesFiltradas]);
-
-  const pesoExpedidoReal = useMemo(() => {
-    if (!expedicoes || expedicoes.length === 0) return 0;
-    const expedicoesComRomaneio = expedicoes.filter(e =>
-      e.status !== 'PREPARANDO' &&
-      matchObra(e.obra_id)
-    );
-    return expedicoesComRomaneio.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
-  }, [expedicoes, escopoObra]);
-
-  // Peso efetivamente ENTREGUE na obra (apenas expedições com status ENTREGUE)
-  const pesoEntregueReal = useMemo(() => {
-    if (!expedicoes || expedicoes.length === 0) return 0;
-    const entregues = expedicoes.filter(e =>
-      e.status === 'ENTREGUE' &&
-      matchObra(e.obra_id)
-    );
-    return entregues.reduce((sum, e) => sum + (parseFloat(e.peso_total) || 0), 0);
-  }, [expedicoes, escopoObra]);
-
-  const dadosObraSelecionada = useMemo(() => {
-    const calcPesos = (obra) => {
-      if (!obra) return {
-        pesoProduzido: 0, pesoExpedido: 0,
-        pesoEmCorte: 0, pesoEmFabricacao: 0, pesoEmSolda: 0, pesoEmProcesso: 0,
-        pesoTotal: 0, previsaoProximaMedicao: 0, pesoPintado: 0
-      };
-      const pe = obra.pesoPorEtapa;
-      const pt = obra.pesoTotal || 0;
-      const prog = obra.progresso || {};
-      if (pe && pe.total > 0) {
-        const pesoProduzido = pe.pintura || 0;
-        const pesoExpedido = pe.expedicao || 0;
-        const pesoEmCorte = Math.max(0, (pe.corte || 0) - (pe.fabricacao || 0));
-        const pesoEmFabricacao = Math.max(0, (pe.fabricacao || 0) - (pe.solda || 0));
-        const pesoEmSolda = Math.max(0, (pe.solda || 0) - (pe.pintura || 0));
-        const pesoEmProcesso = pesoEmCorte + pesoEmFabricacao + pesoEmSolda;
-        const previsaoProximaMedicao = pesoEmSolda;
-        return {
-          pesoProduzido, pesoExpedido, pesoPintado: pesoProduzido,
-          pesoEmCorte, pesoEmFabricacao, pesoEmSolda, pesoEmProcesso,
-          pesoTotal: pt, previsaoProximaMedicao
-        };
+  // ===== Editar valor unitário =====
+  const abrirEdicao = () => { setNovoValor(String(cfg.valorUnit || '')); setEditandoValor(true); };
+  const salvarValor = async () => {
+    const v = parseFloat(String(novoValor).replace(',', '.'));
+    if (!(v > 0)) { toast.error('Informe um valor maior que zero'); return; }
+    if (grupo) { toast.error('O valor do grupo é fixo no cadastro do grupo. Selecione uma obra para editar.'); return; }
+    const o = obrasEsc[0];
+    if (!o) return;
+    try {
+      if (cfg.modo === 'unidade') {
+        const novo = { ...configObras, [o.id]: { ...(configObras[o.id] || {}), modo: 'unidade', valor: v } };
+        setConfigObras(novo); gravarConfigObras(novo);
+      } else {
+        await updateObra(o.id, { valorKgFabricacao: v });
       }
-      const pesoProduzido = Math.round(pt * ((prog.pintura || 0) / 100));
-      const pesoExpedido = Math.round(pt * ((prog.expedicao || 0) / 100));
-      const pesoEmCorte = Math.round(pt * (Math.max(0, (prog.corte || 0) - (prog.fabricacao || 0)) / 100));
-      const pesoEmFabricacao = Math.round(pt * (Math.max(0, (prog.fabricacao || 0) - (prog.solda || 0)) / 100));
-      const pesoEmSolda = Math.round(pt * (Math.max(0, (prog.solda || 0) - (prog.pintura || 0)) / 100));
-      const pesoEmProcesso = pesoEmCorte + pesoEmFabricacao + pesoEmSolda;
-      const previsaoProximaMedicao = pesoEmSolda;
-      return {
-        pesoProduzido, pesoExpedido, pesoPintado: pesoProduzido,
-        pesoEmCorte, pesoEmFabricacao, pesoEmSolda, pesoEmProcesso,
-        pesoTotal: pt, previsaoProximaMedicao
-      };
+      toast.success(`Valor salvo: ${v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 4 })}/${kg ? 'kg' : 'un'}`);
+      setEditandoValor(false);
+    } catch (e) {
+      toast.error(`Erro ao salvar: ${e?.message || e}`);
+    }
+  };
+
+  // ===== Exportar =====
+  const infoRelatorio = useCallback(() => {
+    const o = obrasEsc[0];
+    return {
+      obraNome: grupo ? grupo.label.replace(/^[^\p{L}\p{N}]+/u, '') : (o?.nome || ''),
+      obraCodigo: grupo ? '' : (o?.codigo || ''),
+      cliente: o?.cliente || '',
+      numero: ap?.proximoNumero,
+      dataISO: dataBase,
+      observacao: observacao.trim(),
     };
-    if (!obraIdsEfetivos) { // Geral: todas as obras consolidadas
-      const consolidado = {
-        pesoProduzido: 0, pesoExpedido: 0, pesoPintado: 0,
-        pesoEmCorte: 0, pesoEmFabricacao: 0, pesoEmSolda: 0, pesoEmProcesso: 0,
-        pesoTotal: 0, previsaoProximaMedicao: 0
-      };
-      obrasAtivas.forEach(obra => {
-        const p = calcPesos(obra);
-        Object.keys(consolidado).forEach(k => { consolidado[k] += p[k] || 0; });
-      });
-      return consolidado;
+  }, [obrasEsc, grupo, ap, dataBase, observacao]);
+
+  const exportar = async (formato) => {
+    if (!ap) return;
+    if (!(ap.valorUnit > 0)) { toast.error(`Cadastre o valor por ${kg ? 'kg' : 'unidade'} antes de exportar`); return; }
+    setExportando(formato);
+    try {
+      const mod = modeloPleito(ap, infoRelatorio());
+      const logoDataUrl = await carregarLogo().catch(() => null);
+      if (formato === 'pdf') {
+        const { gerarPleitoMedicaoPDF } = await import('../services/relatorioMedicaoPDF');
+        const { paginas } = gerarPleitoMedicaoPDF(mod, { logoDataUrl });
+        toast.success(`PDF gerado (${paginas} página${paginas > 1 ? 's' : ''})`);
+      } else {
+        const { baixarPleitoMedicaoHTML } = await import('../services/relatorioMedicaoHTML');
+        baixarPleitoMedicaoHTML(mod, { logoDataUrl });
+        toast.success('HTML gerado');
+      }
+    } catch (e) {
+      console.error('[Medição] exportar', e);
+      toast.error(`Erro ao exportar: ${e?.message || e}`);
+    } finally {
+      setExportando(null);
     }
-    // Grupo consolidado: somar peças das obras do grupo
-    if (grupoAtivo) {
-      const obrasGrupo = obrasAtivas.filter(o => grupoAtivo.obraIds.includes(o.id));
-      const consolidado = {
-        pesoProduzido: 0, pesoExpedido: 0, pesoPintado: 0,
-        pesoEmCorte: 0, pesoEmFabricacao: 0, pesoEmSolda: 0, pesoEmProcesso: 0,
-        pesoTotal: 0, previsaoProximaMedicao: 0
-      };
-      obrasGrupo.forEach(obra => {
-        const p = calcPesos(obra);
-        Object.keys(consolidado).forEach(k => { consolidado[k] += p[k] || 0; });
-      });
-      return consolidado;
-    }
-    const obraSel = obrasAtivas.find(o => o.id === obraSelecionada);
-    return calcPesos(obraSel);
-  }, [obraIdsEfetivos, grupoAtivo, obraSelecionada, obrasAtivas]);
-
-  // Total de medições já lançadas (valor bruto das medições no Supabase)
-  // EXCLUI adiantamentos / entradas de contrato — apenas medições de produção são subtraídas
-  const totalMedicoesLancadas = useMemo(() => {
-    if (!medicoesDB || medicoesDB.length === 0) return 0;
-    const filtradas = medicoesDB.filter(m => matchObra(m.obraId || m.obra_id));
-
-    // Filtra apenas medições de produção (exclui entradas de contrato / adiantamentos)
-    const apenasMedicoes = filtradas.filter(m => {
-      const desc = (m.descricao || m.description || '').toLowerCase();
-      const isAdiantamento = desc.includes('entrada') || desc.includes('contrato') || desc.includes('adiantamento') || desc.includes('aporte');
-      return !isAdiantamento;
-    });
-
-    return apenasMedicoes.reduce((sum, m) => sum + (m.valorBruto || m.valor_bruto || 0), 0);
-  }, [medicoesDB, escopoObra]);
-
-  // Peso efetivamente ENTREGUE na obra
-  // Ordem de prioridade:
-  //   1. expedicoes com status=ENTREGUE (registros formais de entrega na obra)
-  //   2. peças em etapa=enviado/entregue/montagem (saíram da fábrica via romaneio)
-  //   3. fallback antigo (pesoExpedido — pode incluir peças em Fila Embarque)
-  // IMPORTANTE: peças em etapa=expedido (Fila Embarque) NÃO são consideradas entregues —
-  // estão aguardando romaneio. Devem aparecer como "Produzidas s/ Entrega" (libera medição).
-  let pesoBaseEntregue = 0;
-  if (pesoEntregueReal > 0) {
-    pesoBaseEntregue = pesoEntregueReal;
-  } else if (obraIdsEfetivos && pesosPorEtapaReais.total > 0) {
-    pesoBaseEntregue = pesosPorEtapaReais.enviado;
-  } else {
-    pesoBaseEntregue = dadosObraSelecionada.pesoExpedido;
-  }
-
-  // Peso PRODUZIDO (pintado) — preferir dado real direto do banco quando disponível
-  const pesoProduzidoBase = (obraIdsEfetivos && pesosPorEtapaReais.total > 0)
-    ? pesosPorEtapaReais.pintura
-    : dadosObraSelecionada.pesoProduzido;
-
-  // Peso produzido mas ainda não entregue (libera medição)
-  const pesoProduzidoNaoEntregue = Math.max(0, pesoProduzidoBase - pesoBaseEntregue);
-
-  // ----- Conversor peso → quantidade de peças (regra de 3 com peso total da obra) -----
-  const pesoTotalObra = dadosObraSelecionada.pesoTotal || 0;
-  const qtdContratoObra = configObraAtual.qtdContrato || 0;
-  const pesoParaQtd = (kg) => {
-    if (!isModoUnidade || pesoTotalObra <= 0 || qtdContratoObra <= 0) return 0;
-    return Math.round((kg / pesoTotalObra) * qtdContratoObra);
   };
 
-  // Quantidades equivalentes (modo unidade)
-  // Quando temos pecasPorEtapaReais (obra específica), usar qtd direta do banco. Senão, regra de 3.
-  const usarQtdReal = isModoUnidade && obraIdsEfetivos && pesosPorEtapaReais.total > 0;
-  const qtdProduzida = usarQtdReal ? pesosPorEtapaReais.qtdPintura : pesoParaQtd(pesoProduzidoBase);
-  const qtdEntregue = usarQtdReal ? pesosPorEtapaReais.qtdEnviado : pesoParaQtd(pesoBaseEntregue);
-  const qtdProduzidaNaoEntregue = Math.max(0, qtdProduzida - qtdEntregue);
-  const qtdPrevisaoProxima = pesoParaQtd(dadosObraSelecionada.previsaoProximaMedicao);
+  const toggleGrupo = (key) => setIncluir((s) => ({ ...s, [key]: !s[key] }));
 
-  // Medição Liberada — modo "kg" usa peso × R$/kg; modo "unidade" usa qtd × R$/un
-  const valorMedicaoLiberada = isModoUnidade
-    ? qtdProduzidaNaoEntregue * configObraAtual.valor
-    : pesoProduzidoNaoEntregue * config.producao.valorKg;
-
-  // Medição prevista (próxima): peso em solda → unidades estimadas
-  const valorMedicaoPrevista = isModoUnidade
-    ? (qtdPrevisaoProxima * configObraAtual.valor) + valorMedicaoLiberada
-    : (dadosObraSelecionada.previsaoProximaMedicao * config.producao.valorKg) + valorMedicaoLiberada;
-
-  const salvarConfig = () => {
-    const valor = parseFloat(novoValorKg);
-    if (isNaN(valor) || valor <= 0) {
-      toast.error('Valor inválido');
-      return;
-    }
-    const qtdC = parseFloat(novoQtdContrato) || 0;
-    if (novoModoMedicao === 'unidade' && qtdC <= 0) {
-      toast.error('Informe a quantidade contratada (unidades)');
-      return;
-    }
-
-    // Grupo consolidado usa config fixa do grupo (GRUPOS_OBRAS) — não editável aqui
-    if (grupoAtivo) {
-      toast.error('Selecione uma obra no topo para alterar a configuração de medição');
-      return;
-    }
-    // Se obra específica está selecionada → salva config dela; senão (Geral) atualiza valor global por kg
-    if (obraSelecionada) {
-      const nova = {
-        ...configObras,
-        [obraSelecionada]: {
-          modo: novoModoMedicao,
-          valor: valor,
-          qtdContrato: novoModoMedicao === 'unidade' ? qtdC : 0,
-          descricao: novoModoMedicao === 'unidade' ? 'R$/unidade contratada' : 'R$/kg contratado'
-        }
-      };
-      setConfigObras(nova);
-      saveConfigObras(nova);
-      toast.success(`Config salva para ${obrasAtivas.find(o => o.id === obraSelecionada)?.nome || 'obra'}`);
-    } else {
-      setConfig(prev => ({
-        ...prev,
-        producao: { ...prev.producao, valorKg: valor }
-      }));
-      toast.success('Valor por kg padrão atualizado');
-    }
-    setEditandoConfig(null);
-    setNovoValorKg('');
-    setNovoQtdContrato('');
-  };
-
-  const abrirEdicaoConfig = () => {
-    setEditandoConfig('producao');
-    setNovoValorKg(String(configObraAtual.valor));
-    setNovoModoMedicao(configObraAtual.modo);
-    setNovoQtdContrato(String(configObraAtual.qtdContrato || ''));
-  };
-
-  const formatMoney = (value) => {
-    return new Intl.NumberFormat('pt-BR', {
-      style: 'currency',
-      currency: 'BRL'
-    }).format(value);
-  };
-
-  const formatPeso = (kg) => {
-    return `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
-  };
-
-  const handleCriarMedicao = () => {
-    if (!formMedicao.peso || !formMedicao.obra) {
-      toast.error('Preencher peso e obra');
-      return;
-    }
-    const obraObj = obrasAtivas.find(o => o.id === formMedicao.obra);
-    const novaMedicao = {
-      id: `med-${Date.now()}`,
-      tipo: 'producao',
-      obraId: formMedicao.obra,
-      obra: obraObj?.nome || 'Obra',
-      periodo: new Date().toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' }),
-      pesoMedido: parseFloat(formMedicao.peso),
-      valorKg: config.producao.valorKg,
-      valorTotal: parseFloat(formMedicao.peso) * config.producao.valorKg,
-      status: 'pendente',
-      dataCriacao: new Date().toISOString().split('T')[0]
-    };
-    setMedicoes([...medicoes, novaMedicao]);
-    toast.success('Medição criada com sucesso!');
-    setModalNovaMedicao(false);
-    setFormMedicao({ peso: '', obra: '' });
-  };
-
-  const handleEditarMedicao = (medicao) => {
-    toast.success(`Editando medição ${medicao.id}`);
-  };
-
-  const handleDownloadMedicao = (medicao) => {
-    const csv = `ID,Obra,Período,Tipo,Peso,Valor/kg,Total,Status\n${medicao.id},${medicao.obra},${medicao.periodo},${medicao.tipo},${medicao.pesoMedido},${medicao.valorKg},${medicao.valorTotal},${medicao.status}`;
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `medicao-${medicao.id}.csv`;
-    a.click();
-    toast.success('Medição exportada com sucesso!');
-  };
-
+  // ====================== RENDER ======================
   return (
     <div className="space-y-6">
+      {/* Cabeçalho */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <Target className="h-7 w-7 text-emerald-500" />
-            Medição Automática - Produção
+            Gestão de Medição — Fabricação
           </h1>
-          <p className="text-slate-400 mt-1">Cálculo automático por valor de KG entregue na obra (abate entregas já realizadas)</p>
+          <p className="text-slate-400 mt-1 text-sm">
+            Fabricado elegível (entregue + aguardando carga + processo final) − já medido = disponível para nova medição
+          </p>
         </div>
-        <div className="flex gap-3">
-          <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
-            <Download className="h-4 w-4 mr-2" />
-            Exportar
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="border-slate-700 text-slate-200 hover:bg-slate-800" disabled={ehGeral || !!exportando} onClick={() => exportar('pdf')}
+            title={ehGeral ? 'Selecione uma obra no topo para gerar o pleito' : 'Pleito de medição em PDF para o cliente'}>
+            <FileDown className="h-4 w-4 mr-2" />{exportando === 'pdf' ? 'Gerando…' : 'Exportar PDF'}
           </Button>
-          <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { setFormMedicao(f => ({ ...f, obra: f.obra || obraSelecionada || '' })); setModalNovaMedicao(true); }}>
-            <Plus className="h-4 w-4 mr-2" />
-            Nova Medição
+          <Button variant="outline" className="border-slate-700 text-slate-200 hover:bg-slate-800" disabled={ehGeral || !!exportando} onClick={() => exportar('html')}
+            title={ehGeral ? 'Selecione uma obra no topo para gerar o pleito' : 'Pleito de medição em HTML (abre em qualquer navegador)'}>
+            <FileCode2 className="h-4 w-4 mr-2" />{exportando === 'html' ? 'Gerando…' : 'Exportar HTML'}
+          </Button>
+          <Button className="bg-emerald-600 hover:bg-emerald-700" disabled={!obraUnicaId} onClick={() => navigate('/GestaoFinanceiraObra')}
+            title={obraUnicaId ? 'Lançar a medição autorizada na Gestão Financeira da Obra' : 'Selecione uma obra no topo'}>
+            Lançar medição <ArrowRight className="h-4 w-4 ml-2" />
           </Button>
         </div>
       </div>
 
-      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-        <div className="flex flex-col lg:flex-row lg:items-center gap-4">
-          <div className="flex items-center gap-2">
-            <Filter className="h-5 w-5 text-slate-400" />
-            <span className="text-slate-300 font-medium">Escopo:</span>
-          </div>
-          {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
-          <span
-            className="px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-sm text-slate-200"
-            title="Altere a obra no seletor do topo"
-          >
-            {rotuloEscopo(escopoObra, obras)}
+      {/* Escopo + parâmetros do pleito */}
+      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex flex-col xl:flex-row xl:items-center gap-4 xl:justify-between">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-sm text-slate-200" title="Altere a obra no seletor do topo">
+            <Building2 className="h-4 w-4 text-slate-400" />{rotuloEscopo(escopoObra, obras)}
           </span>
-          {obraIdsEfetivos && (
-            <div className="text-sm text-slate-400">
-              {isGrupoConsolidado ? (
-                <>
-                  Peso Total: <span className="text-purple-300 font-semibold">
-                    {(obrasAtivas
-                      .filter(o => grupoAtivo?.obraIds.includes(o.id))
-                      .reduce((s, o) => s + (o.pesoTotal || 0), 0) / 1000).toFixed(1)}t
-                  </span>
-                  <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                    {grupoAtivo?.obraIds.length} obras
-                  </span>
-                </>
-              ) : (
-                <>Peso Total: <span className="text-white">{((obrasAtivas.find(o => o.id === obraSelecionada)?.pesoTotal || 0) / 1000).toFixed(1)}t</span></>
-              )}
-            </div>
+          {!ehGeral && (
+            editandoValor ? (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-400">R$/{kg ? 'kg' : 'un'}</span>
+                <Input autoFocus type="number" step="0.01" value={novoValor} onChange={(e) => setNovoValor(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') salvarValor(); if (e.key === 'Escape') setEditandoValor(false); }}
+                  className="w-28 h-9 bg-slate-900 border-slate-600 text-white" />
+                <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={salvarValor}><Save className="h-4 w-4" /></Button>
+                <Button size="sm" variant="ghost" className="text-slate-400" onClick={() => setEditandoValor(false)}><X className="h-4 w-4" /></Button>
+              </div>
+            ) : (
+              <button type="button" onClick={abrirEdicao} disabled={!!grupo}
+                className={cn('inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm',
+                  cfg.valorUnit > 0 ? 'bg-orange-500/10 border-orange-500/30 text-orange-300' : 'bg-red-500/10 border-red-500/40 text-red-300')}
+                title={grupo ? 'Valor fixo do grupo' : 'Editar valor unitário contratado'}>
+                {cfg.valorUnit > 0
+                  ? <>{cfg.valorUnit.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 4 })}/{kg ? 'kg' : 'un'}</>
+                  : <>Sem valor por {kg ? 'kg' : 'unidade'} — cadastrar</>}
+                {!grupo && <Edit className="h-3.5 w-3.5" />}
+              </button>
+            )
           )}
         </div>
+        {!ehGeral && (
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            <label className="flex items-center gap-2 text-slate-400">Data-base
+              <Input type="date" value={dataBase} onChange={(e) => setDataBase(e.target.value)} className="h-9 w-40 bg-slate-900 border-slate-600 text-white" />
+            </label>
+          </div>
+        )}
       </div>
 
-      <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-6">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <div className="p-4 rounded-xl bg-orange-500/20">
-              <DollarSign className="h-8 w-8 text-orange-400" />
+      {ehGeral ? (
+        <ResumoGeral resumo={resumoObras} totais={totaisGeral} onAbrir={(id) => setObraAtual(id)} />
+      ) : ap && (
+        <>
+          {/* HERO: disponível + fluxo */}
+          <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
+            <div className={cn('xl:col-span-2 rounded-xl p-6 border flex flex-col justify-between',
+              ap.disponivel > 0 ? 'bg-emerald-500/10 border-emerald-500/40' : 'bg-slate-800/50 border-slate-700')}>
+              <div>
+                <p className="text-xs font-semibold tracking-wider text-emerald-400 uppercase">Disponível para nova medição</p>
+                <p className="text-4xl font-bold text-white mt-2">{fmtMoeda(ap.valorDisponivel)}</p>
+                <p className="text-slate-300 mt-1">{fm(ap.disponivel)} × {(ap.valorUnit || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 4 })}/{ap.unidade}</p>
+              </div>
+              <div className="mt-6 grid grid-cols-2 gap-3 text-sm">
+                <div className="rounded-lg bg-slate-900/50 p-3">
+                  <p className="text-slate-400 text-xs">Próxima medição</p>
+                  <p className="text-white font-semibold">nº {ap.proximoNumero}</p>
+                </div>
+                <div className="rounded-lg bg-slate-900/50 p-3">
+                  <p className="text-slate-400 text-xs">Saldo do contrato</p>
+                  <p className="text-white font-semibold">{fm(ap.saldoContrato)}</p>
+                </div>
+              </div>
+              {ap.excedente > 0 && (
+                <p className="mt-3 text-xs text-red-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 shrink-0" />
+                  Já medido supera o fabricado elegível em {fm(ap.excedente)}.</p>
+              )}
+              {!(ap.valorUnit > 0) && (
+                <p className="mt-3 text-xs text-red-300 flex items-start gap-1.5"><AlertTriangle className="h-4 w-4 shrink-0" />
+                  Cadastre o valor por {kg ? 'kg' : 'unidade'} para calcular o valor e exportar.</p>
+              )}
             </div>
-            <div>
-              <h3 className="text-white font-semibold text-lg">
-                {isModoUnidade ? 'Valor por Unidade - Produção' : 'Valor por KG - Produção'}
-              </h3>
-              <p className="text-slate-400 text-sm">
-                {isModoUnidade
-                  ? `${configObraAtual.qtdContrato} un contratadas · ${formatMoney(configObraAtual.valor * (configObraAtual.qtdContrato || 0))} total`
-                  : configObraAtual.descricao}
-              </p>
+
+            <div className="xl:col-span-3 bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-white font-semibold">Memória de cálculo</h3>
+                <span className="text-xs text-slate-500">Marque o que entra no pleito</span>
+              </div>
+              <div className="space-y-1.5">
+                {ap.composicao.filter((c) => c.elegivel).map((c) => {
+                  const Icone = ICONES[c.key];
+                  return (
+                    <label key={c.key} className={cn('flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition',
+                      c.incluido ? 'bg-slate-900/60 border-slate-600' : 'bg-transparent border-slate-800 opacity-60')}>
+                      <input type="checkbox" checked={c.incluido} onChange={() => toggleGrupo(c.key)} className="accent-emerald-500 h-4 w-4" />
+                      <Icone className="h-4 w-4" style={{ color: c.cor }} />
+                      <span className="text-sm text-slate-200 flex-1">{c.label}</span>
+                      <span className="text-xs text-slate-500">{c.pecas} pç</span>
+                      <span className="text-sm font-semibold text-white w-28 text-right">{fm(c.medida)}</span>
+                    </label>
+                  );
+                })}
+              </div>
+              <div className="mt-3 space-y-1.5 text-sm">
+                <LinhaFluxo icone={Equal} label={`Fabricado elegível${ap.tetoElegivel < ap.elegivel ? ' (limitado ao contrato)' : ''}`} valor={fm(ap.tetoElegivel)} cls="bg-slate-700/40 text-white font-semibold" />
+                <LinhaFluxo icone={Minus} label="Já medido (fabricação)" valor={`${fm(ap.medido)} · ${fmtMoeda(ap.valorMedido)}`} cls="text-red-300" />
+                <LinhaFluxo icone={Equal} label="Disponível para medição" valor={fm(ap.disponivel)} cls="bg-emerald-500/15 text-emerald-300 font-bold" />
+              </div>
+              {ap.valorAdiantamentos > 0 && (
+                <p className="text-xs text-slate-500 mt-2">Adiantamentos/entradas de contrato ({fmtMoeda(ap.valorAdiantamentos)}) não abatem peso — aparecem só no histórico.</p>
+              )}
             </div>
           </div>
-          {editandoConfig === 'producao' ? (
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Modo de Cálculo</label>
-                <select
-                  value={novoModoMedicao}
-                  onChange={(e) => setNovoModoMedicao(e.target.value)}
-                  className="px-3 py-2 bg-slate-900 border border-slate-600 rounded-md text-white text-sm"
-                  disabled={!obraSelecionada}
-                >
-                  <option value="kg">📦 Por KG (peso)</option>
-                  <option value="unidade">🔢 Por Unidade (peça)</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">{novoModoMedicao === 'unidade' ? 'R$ por unidade' : 'R$ por kg'}</label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-sm">R$</span>
-                  <Input type="number" step="0.01" value={novoValorKg} onChange={(e) => setNovoValorKg(e.target.value)} className="pl-10 w-32 bg-slate-900 border-slate-600 text-white" autoFocus />
-                </div>
-              </div>
-              {novoModoMedicao === 'unidade' && (
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Qtd contratada</label>
-                  <Input type="number" step="1" value={novoQtdContrato} onChange={(e) => setNovoQtdContrato(e.target.value)} className="w-32 bg-slate-900 border-slate-600 text-white" placeholder="500" />
-                </div>
-              )}
-              <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={salvarConfig}>
-                <Save className="h-4 w-4 mr-1" /> Salvar
-              </Button>
-              <Button size="sm" variant="outline" className="border-slate-600" onClick={() => { setEditandoConfig(null); setNovoValorKg(''); setNovoQtdContrato(''); }}>
-                <X className="h-4 w-4" />
-              </Button>
+
+          {/* Situação do contrato */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+            <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+              <h3 className="text-white font-semibold">Situação do contrato</h3>
+              <span className="text-sm text-slate-400">Contratado: <b className="text-white">{fm(ap.contrato)}</b>{ap.valorContrato > 0 && <> · {fmtMoeda(ap.valorContrato)}</>}</span>
             </div>
-          ) : (
-            <div className="flex items-center gap-4">
-              <div className="text-right">
-                <p className="text-3xl font-bold text-white">
-                  {formatMoney(configObraAtual.valor)}
-                  <span className="text-lg text-slate-400 font-normal">{isModoUnidade ? '/un' : '/kg'}</span>
-                </p>
-                {isModoUnidade && (
-                  <p className="text-xs text-emerald-400 mt-1">
-                    {qtdProduzida}/{configObraAtual.qtdContrato} un produzidas · {qtdEntregue} entregues
+            <div className="flex h-5 rounded-md overflow-hidden bg-slate-900">
+              {ap.barra.filter((b) => b.pct > 0.05).map((b) => (
+                <div key={b.key} style={{ width: `${b.pct}%`, background: b.key === 'aFabricar' ? '#334155' : b.cor }} title={`${b.label}: ${fm(b.valor)} (${fmtPct(b.pct)})`} />
+              ))}
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+              {ap.barra.map((b) => (
+                <div key={b.key} className="rounded-lg bg-slate-900/50 p-3">
+                  <p className="text-xs text-slate-400 flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: b.key === 'aFabricar' ? '#475569' : b.cor }} />{b.label}
                   </p>
-                )}
-              </div>
-              <Button variant="outline" className="border-2 border-orange-500/50 text-orange-400 hover:bg-orange-500/20" onClick={abrirEdicaoConfig}>
-                <Edit className="h-4 w-4 mr-2" />
-                Editar Valor
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 lg:grid-cols-7 gap-4">
-        {[
-          {
-            label: isModoUnidade ? 'Qtd Entregue' : 'Peso Entregue',
-            value: isModoUnidade ? `${qtdEntregue} un` : formatPeso(pesoBaseEntregue),
-            icon: Truck, cor: 'emerald'
-          },
-          { label: 'Medição Liberada', value: formatMoney(valorMedicaoLiberada), icon: DollarSign, cor: 'green' },
-          {
-            label: isModoUnidade ? 'Produzidas s/ Entrega' : 'Produzido s/ Entrega',
-            value: isModoUnidade ? `${qtdProduzidaNaoEntregue} un` : formatPeso(pesoProduzidoNaoEntregue),
-            icon: Weight, cor: 'amber'
-          },
-          { label: 'Já Medido (R$)', value: formatMoney(totalMedicoesLancadas), icon: Target, cor: 'purple' },
-          { label: 'Medições Aprovadas', value: totais.aprovadas, icon: CheckCircle2, cor: 'emerald' },
-          { label: 'Em Processo', value: formatPeso(dadosObraSelecionada.pesoEmProcesso), icon: Layers, cor: 'cyan' },
-          { label: 'Medição Prevista (R$)', value: formatMoney(valorMedicaoPrevista), icon: DollarSign, cor: 'orange' },
-        ].map((kpi, idx) => (
-          <motion.div key={idx} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-slate-400 text-xs">{kpi.label}</p>
-                <p className="text-xl font-bold text-white mt-1">{kpi.value}</p>
-              </div>
-              <div className={cn("p-2 rounded-lg", kpi.cor === 'orange' && "bg-orange-500/20 text-orange-400", kpi.cor === 'cyan' && "bg-cyan-500/20 text-cyan-400", kpi.cor === 'purple' && "bg-purple-500/20 text-purple-400", kpi.cor === 'green' && "bg-green-500/20 text-green-400", kpi.cor === 'emerald' && "bg-emerald-500/20 text-emerald-400", kpi.cor === 'amber' && "bg-amber-500/20 text-amber-400")}>
-                <kpi.icon className="h-5 w-5" />
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <BarChart3 className="h-5 w-5 text-slate-400" />
-            Progresso da Produção
-          </h3>
-          <div className="space-y-4">
-            <ProgressBar label="Em Processo (Corte → Solda)" value={dadosObraSelecionada.pesoEmProcesso} max={dadosObraSelecionada.pesoTotal || 1} color="bg-amber-500" />
-            <ProgressBar label="Produzido (Pintado)" value={dadosObraSelecionada.pesoProduzido} max={dadosObraSelecionada.pesoTotal || 1} color="bg-emerald-500" />
-            <ProgressBar label="Expedido (Enviado)" value={pesoExpedidoReal || dadosObraSelecionada.pesoExpedido} max={dadosObraSelecionada.pesoProduzido || 1} color="bg-blue-500" />
-          </div>
-        </div>
-
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <Layers className="h-5 w-5 text-amber-400" />
-            Análise de Processo
-          </h3>
-          <p className="text-xs text-slate-500 mb-4">Peso em etapas intermediárias (antes da pintura - não elegível para medição)</p>
-          <div className="space-y-3">
-            {[
-              { label: 'Em Corte', value: dadosObraSelecionada.pesoEmCorte, color: 'text-slate-300', bg: 'bg-slate-600/30' },
-              { label: 'Em Fabricação', value: dadosObraSelecionada.pesoEmFabricacao, color: 'text-blue-400', bg: 'bg-blue-500/20' },
-              { label: 'Em Solda', value: dadosObraSelecionada.pesoEmSolda, color: 'text-orange-400', bg: 'bg-orange-500/20' },
-            ].map((etapa, idx) => (
-              <div key={idx} className={`flex items-center justify-between px-3 py-2 rounded-lg ${etapa.bg}`}>
-                <div className="flex items-center gap-2">
-                  <ArrowRight className={`h-3 w-3 ${etapa.color}`} />
-                  <span className={`text-sm font-medium ${etapa.color}`}>{etapa.label}</span>
+                  <p className="text-white font-semibold mt-1">{fm(b.valor)}</p>
+                  <p className="text-xs text-slate-500">{fmtPct(b.pct)}</p>
                 </div>
-                <span className="text-sm font-bold text-white">{formatPeso(etapa.value)}</span>
-              </div>
-            ))}
-          </div>
-          <div className="my-4 border-t border-slate-700" />
-          <div className="flex items-center justify-between px-3 py-2 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-            <span className="text-sm font-semibold text-amber-400">Total em Processo</span>
-            <span className="text-lg font-bold text-white">{formatPeso(dadosObraSelecionada.pesoEmProcesso)}</span>
-          </div>
-          <div className="my-4 border-t border-slate-700" />
-          <div className="flex items-center justify-between px-3 py-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg mb-3">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-400" />
-              <span className="text-sm font-semibold text-emerald-400">Peso Pintado (Produzido)</span>
+              ))}
             </div>
-            <span className="text-lg font-bold text-white">{formatPeso(dadosObraSelecionada.pesoProduzido)}</span>
           </div>
-          <div className="flex items-center justify-between px-3 py-2 bg-blue-500/10 border border-blue-500/30 rounded-lg mb-3">
-            <div className="flex items-center gap-2">
-              <Truck className="h-4 w-4 text-blue-400" />
-              <div>
-                <span className="text-sm font-semibold text-blue-400">Peso Expedido (Enviado)</span>
-                <p className="text-xs text-slate-500">Via romaneio do módulo de expedição</p>
-              </div>
-            </div>
-            <span className="text-lg font-bold text-white">{formatPeso(pesoExpedidoReal || dadosObraSelecionada.pesoExpedido)}</span>
-          </div>
-          <div className="mt-4 p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingUp className="h-4 w-4 text-emerald-400" />
-              <span className="text-xs font-semibold text-emerald-400 uppercase tracking-wider">Previsão Próxima Medição</span>
-            </div>
-            <p className="text-lg font-bold text-white">{formatPeso(dadosObraSelecionada.previsaoProximaMedicao)}</p>
-            <p className="text-xs text-slate-500 mt-1">Peso em Solda aguardando pintura para elegibilidade de medição</p>
-          </div>
-        </div>
-      </div>
 
-      {dadosPorObra.length > 0 && (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <PieChartIcon className="h-5 w-5 text-slate-400" />
-            Valor por Obra
-          </h3>
-          <div className="h-48">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie data={dadosPorObra} cx="50%" cy="50%" innerRadius={50} outerRadius={70} paddingAngle={5} dataKey="value">
-                  {dadosPorObra.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                  ))}
-                </Pie>
-                <Tooltip formatter={(value) => formatMoney(value)} contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155' }} />
-                <Legend />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-      )}
-
-      <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
-        <div className="p-4 border-b border-slate-700">
-          <h3 className="text-white font-semibold flex items-center gap-2">
-            <FileText className="h-5 w-5 text-slate-400" />
-            Medições Realizadas - Produção
-          </h3>
-        </div>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-slate-900/50">
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Obra</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Período</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Peso</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">R$/kg</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Valor Total</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-slate-400">Status</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-slate-400">Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              {medicoesFiltradas.length > 0 ? (
-                medicoesFiltradas.map((med, idx) => (
-                  <motion.tr key={med.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }} className="border-b border-slate-700/50 hover:bg-slate-800/50">
-                    <td className="px-4 py-3">
-                      <p className="text-white font-medium">{med.descricao || med.obra}</p>
-                      {med.origemDB && <p className="text-xs text-blue-400">{med.obra}</p>}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300">{med.periodo}</td>
-                    <td className="px-4 py-3 text-right text-white font-mono">{formatPeso(med.pesoMedido)}</td>
-                    <td className="px-4 py-3 text-right text-slate-300">{formatMoney(med.valorKg)}</td>
-                    <td className="px-4 py-3 text-right text-emerald-400 font-bold">{formatMoney(med.valorTotal)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={cn("px-2 py-1 rounded-full text-xs font-medium", med.status === 'aprovada' && "bg-emerald-500/20 text-emerald-400", med.status === 'pendente' && "bg-amber-500/20 text-amber-400", med.status === 'rejeitada' && "bg-red-500/20 text-red-400", med.status === 'paga' && "bg-emerald-500/20 text-emerald-400")}>
-                        {med.status === 'aprovada' ? 'Aprovada/Paga' : med.status === 'paga' ? 'Paga' : med.status === 'pendente' ? 'Pendente' : 'Rejeitada'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <Button size="sm" variant="ghost" className="text-slate-400 hover:text-white" onClick={() => handleEditarMedicao(med)}><Edit className="h-4 w-4" /></Button>
-                        <Button size="sm" variant="ghost" className="text-slate-400 hover:text-white" onClick={() => handleDownloadMedicao(med)}><Download className="h-4 w-4" /></Button>
-                      </div>
-                    </td>
-                  </motion.tr>
-                ))
-              ) : (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-slate-500">Nenhuma medição encontrada para os filtros selecionados</td></tr>
-              )}
-            </tbody>
-            {medicoesFiltradas.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-900/80">
-                  <td colSpan={2} className="px-4 py-3 text-white font-bold">TOTAL</td>
-                  <td className="px-4 py-3 text-right text-white font-bold font-mono">{formatPeso(totais.pesoTotal)}</td>
-                  <td className="px-4 py-3"></td>
-                  <td className="px-4 py-3 text-right text-emerald-400 font-bold text-lg">{formatMoney(totais.valorTotal)}</td>
-                  <td colSpan={2}></td>
-                </tr>
-              </tfoot>
+          {/* Pipeline da produção */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+            <h3 className="text-white font-semibold mb-3">Produção por etapa</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+              {[...GRUPOS_ETAPA].reverse().map((g) => {
+                const c = ap.composicao.find((x) => x.key === g.key);
+                const Icone = ICONES[g.key];
+                return (
+                  <div key={g.key} className={cn('rounded-lg p-3 border', c.incluido ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-slate-700 bg-slate-900/40')}>
+                    <div className="flex items-center justify-between">
+                      <Icone className="h-4 w-4" style={{ color: g.cor }} />
+                      {c.incluido ? <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" /> : <Clock className="h-3.5 w-3.5 text-slate-600" />}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2">{g.label}</p>
+                    <p className="text-white font-semibold">{fm(c.medida)}</p>
+                    <p className="text-xs text-slate-500">{c.pecas} peças · {fmtPct(ap.totalProjeto > 0 ? (c.medida / ap.totalProjeto) * 100 : 0)}</p>
+                  </div>
+                );
+              })}
+            </div>
+            {ap.previsaoProxima > 0 && (
+              <p className="text-xs text-slate-500 mt-3">Em fabricação ({fm(ap.previsaoProxima)}) entra nas próximas medições quando chegar à solda.</p>
             )}
-          </table>
-        </div>
-      </div>
+          </div>
 
-      <Dialog.Root open={modalNovaMedicao} onOpenChange={setModalNovaMedicao}>
-        <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" />
-          <Dialog.Content className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-lg bg-slate-900 border border-slate-700 rounded-2xl p-6 z-50">
-            <Dialog.Title className="text-xl font-bold text-white mb-6">Nova Medição - Produção</Dialog.Title>
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm text-slate-400 mb-2">Obra</label>
-                <Select.Root value={formMedicao.obra} onValueChange={(value) => setFormMedicao({...formMedicao, obra: value})}>
-                  <Select.Trigger className="w-full flex items-center justify-between px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white">
-                    <Select.Value placeholder="Selecione a obra" />
-                    <ChevronDown className="h-4 w-4 text-slate-400" />
-                  </Select.Trigger>
-                  <Select.Portal>
-                    <Select.Content className="bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-[60]">
-                      <Select.Viewport className="p-1">
-                        {obrasAtivas.map(obra => (
-                          <Select.Item key={obra.id} value={obra.id} className="px-4 py-2 text-white hover:bg-slate-700 rounded cursor-pointer outline-none">
-                            <Select.ItemText>{obra.nome}</Select.ItemText>
-                          </Select.Item>
-                        ))}
-                      </Select.Viewport>
-                    </Select.Content>
-                  </Select.Portal>
-                </Select.Root>
-              </div>
-              <div>
-                <label className="block text-sm text-slate-400 mb-2">Peso (kg)</label>
-                <Input type="number" placeholder="Ex: 15000" className="bg-slate-800 border-slate-700 text-white" value={formMedicao.peso} onChange={(e) => setFormMedicao({...formMedicao, peso: e.target.value})} />
-              </div>
-              <div className="bg-slate-800/50 rounded-lg p-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-400">Valor por kg:</span>
-                  <span className="text-white font-bold">{formatMoney(config.producao.valorKg)}</span>
-                </div>
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-slate-700">
-                  <span className="text-slate-400">Valor estimado:</span>
-                  <span className="text-emerald-400 font-bold text-lg">{formatMoney((parseFloat(formMedicao.peso) || 0) * config.producao.valorKg)}</span>
-                </div>
-              </div>
+          {/* Histórico */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between">
+              <h3 className="text-white font-semibold">Medições lançadas</h3>
+              <span className="text-xs text-slate-500">Fonte: Gestão Financeira da Obra</span>
             </div>
-            <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700">
-              <Dialog.Close asChild>
-                <Button variant="outline" className="border-slate-700 text-slate-300">Cancelar</Button>
-              </Dialog.Close>
-              <Button className="bg-emerald-600 hover:bg-emerald-700" onClick={handleCriarMedicao}>
-                <CheckCircle2 className="h-4 w-4 mr-2" />
-                Criar Medição
-              </Button>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-slate-900/50 text-slate-400 text-xs">
+                    <th className="px-4 py-2.5 text-left">Nº</th>
+                    <th className="px-4 py-2.5 text-left">Data</th>
+                    <th className="px-4 py-2.5 text-left">Descrição</th>
+                    <th className="px-4 py-2.5 text-right">{kg ? 'Peso' : 'Unidades'}</th>
+                    <th className="px-4 py-2.5 text-right">Valor</th>
+                    <th className="px-4 py-2.5 text-center">Situação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ap.historico.length ? ap.historico.map((h) => (
+                    <tr key={h.id} className={cn('border-b border-slate-700/50', h.tipo !== 'fabricacao' && 'opacity-60')}>
+                      <td className="px-4 py-2.5 text-slate-300">{h.numero != null ? `#${h.numero}` : '-'}</td>
+                      <td className="px-4 py-2.5 text-slate-300">{fmtData(h.data)}</td>
+                      <td className="px-4 py-2.5 text-white">
+                        {h.descricao}
+                        {h.tipo === 'adiantamento' && <span className="ml-2 text-xs text-slate-500">adiantamento</span>}
+                        {h.tipo === 'outra' && <span className="ml-2 text-xs text-slate-500">não é fabricação</span>}
+                      </td>
+                      <td className="px-4 py-2.5 text-right text-slate-200 font-mono">{h.tipo === 'fabricacao' ? fm(h.medida) : '—'}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-400 font-semibold">{fmtMoeda(h.valor)}</td>
+                      <td className="px-4 py-2.5 text-center">
+                        <span className={cn('px-2 py-0.5 rounded-full text-xs border', SITUACAO[h.situacao]?.cls)}>{SITUACAO[h.situacao]?.txt || h.situacao}</span>
+                      </td>
+                    </tr>
+                  )) : (
+                    <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Nenhuma medição lançada para esta obra.</td></tr>
+                  )}
+                </tbody>
+                {ap.historico.length > 0 && (
+                  <tfoot>
+                    <tr className="bg-slate-900/70 font-semibold">
+                      <td colSpan={3} className="px-4 py-2.5 text-white">Total medido (fabricação)</td>
+                      <td className="px-4 py-2.5 text-right text-white font-mono">{fm(ap.medido)}</td>
+                      <td className="px-4 py-2.5 text-right text-emerald-400">{fmtMoeda(ap.valorMedido)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
             </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog.Root>
+          </div>
+
+          {/* Observação do pleito */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
+            <label className="text-sm text-slate-300 font-medium">Observações para o cliente <span className="text-slate-500 font-normal">(saem no PDF/HTML)</span></label>
+            <textarea value={observacao} onChange={(e) => setObservacao(e.target.value)} rows={2} maxLength={800}
+              placeholder="Ex.: peças da Fila de Embarque com carregamento previsto para 10/10."
+              className="mt-2 w-full rounded-lg bg-slate-900 border border-slate-700 text-white text-sm p-3 focus:outline-none focus:border-emerald-500" />
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-function ProgressBar({ label, value, max, color }) {
-  const percentage = Math.min((value / max) * 100, 100);
-  const formatPeso = (kg) => `${(Number(kg) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
+function LinhaFluxo({ icone: Icone, label, valor, cls }) {
   return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-sm text-slate-400">{label}</span>
-        <span className="text-sm text-white font-medium">{formatPeso(value)}</span>
-      </div>
-      <div className="h-3 bg-slate-700 rounded-full overflow-hidden">
-        <motion.div initial={{ width: 0 }} animate={{ width: `${percentage}%` }} transition={{ duration: 0.8, ease: 'easeOut' }} className={cn("h-full rounded-full", color)} />
-      </div>
-      <div className="text-right mt-1">
-        <span className="text-xs text-slate-500">{percentage.toFixed(1)}%</span>
-      </div>
+    <div className={cn('flex items-center gap-3 px-3 py-2 rounded-lg', cls)}>
+      <Icone className="h-4 w-4 shrink-0" />
+      <span className="flex-1">{label}</span>
+      <span className="text-right">{valor}</span>
     </div>
+  );
+}
+
+function ResumoGeral({ resumo, totais, onAbrir }) {
+  return (
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="rounded-xl p-5 border bg-emerald-500/10 border-emerald-500/40">
+          <p className="text-xs font-semibold tracking-wider text-emerald-400 uppercase">Disponível para medição (todas as obras)</p>
+          <p className="text-3xl font-bold text-white mt-2">{fmtMoeda(totais.valor)}</p>
+        </div>
+        <div className="rounded-xl p-5 border bg-slate-800/50 border-slate-700">
+          <p className="text-xs text-slate-400">Obras com saldo a medir</p>
+          <p className="text-3xl font-bold text-white mt-2">{totais.obrasComSaldo}</p>
+        </div>
+        <div className={cn('rounded-xl p-5 border', totais.semValor ? 'bg-red-500/10 border-red-500/40' : 'bg-slate-800/50 border-slate-700')}>
+          <p className="text-xs text-slate-400">Obras sem valor por kg cadastrado</p>
+          <p className="text-3xl font-bold text-white mt-2">{totais.semValor}</p>
+        </div>
+      </div>
+      <div className="bg-slate-800/50 border border-slate-700 rounded-xl overflow-hidden">
+        <div className="p-4 border-b border-slate-700">
+          <h3 className="text-white font-semibold">Disponível por obra</h3>
+          <p className="text-xs text-slate-500 mt-0.5">Clique numa obra para abrir o pleito (muda o seletor do topo).</p>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-900/50 text-slate-400 text-xs">
+                <th className="px-4 py-2.5 text-left">Obra</th>
+                <th className="px-4 py-2.5 text-right">Contratado</th>
+                <th className="px-4 py-2.5 text-right">Fabricado elegível</th>
+                <th className="px-4 py-2.5 text-right">Já medido</th>
+                <th className="px-4 py-2.5 text-right">Disponível</th>
+                <th className="px-4 py-2.5 text-right">Valor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {resumo.length ? resumo.map(({ obra, r }) => {
+                const fm = r.modo === 'unidade' ? fmtUn : fmtKg;
+                return (
+                  <tr key={obra.id} className="border-b border-slate-700/50 hover:bg-slate-700/30 cursor-pointer" onClick={() => onAbrir(obra.id)}>
+                    <td className="px-4 py-2.5">
+                      <p className="text-white">{obra.nome}</p>
+                      <p className="text-xs text-slate-500">{obra.codigo}{obra.cliente ? ` · ${obra.cliente}` : ''}</p>
+                    </td>
+                    <td className="px-4 py-2.5 text-right text-slate-300">{fm(r.contrato)}</td>
+                    <td className="px-4 py-2.5 text-right text-slate-300">{fm(r.tetoElegivel)} <span className="text-xs text-slate-500">{fmtPct(r.pctElegivel)}</span></td>
+                    <td className="px-4 py-2.5 text-right text-slate-300">{fm(r.medido)} <span className="text-xs text-slate-500">{fmtPct(r.pctMedido)}</span></td>
+                    <td className={cn('px-4 py-2.5 text-right font-semibold', r.disponivel > 0 ? 'text-emerald-400' : 'text-slate-500')}>{fm(r.disponivel)}</td>
+                    <td className="px-4 py-2.5 text-right">
+                      {r.valorUnit > 0
+                        ? <span className={cn('font-semibold', r.valorDisponivel > 0 ? 'text-emerald-400' : 'text-slate-500')}>{fmtMoeda(r.valorDisponivel)}</span>
+                        : <span className="text-xs text-red-300">sem R$/{r.unidade}</span>}
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-slate-500">Nenhuma obra com produção ou medição.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </>
   );
 }
