@@ -36,7 +36,7 @@ export function eventosProducao(transicoes = [], expedicoes = []) {
     if (!(t.kg > 0)) return; // excedente (já concluída antes)
     out.push({
       setor: t.de, data: t.data, kg: t.kg, qtd: t.qtd, obraId: t.obraId, pecaId: t.pecaId,
-      marca: t.marca, tipo: t.tipo || 'Sem tipo', funcionario: t.funcionario,
+      marca: t.marca, tipo: t.tipo || 'Sem tipo', funcionario: t.funcionario, funcionarioId: t.funcionarioId || null,
     });
   });
   (expedicoes || []).forEach((e) => {

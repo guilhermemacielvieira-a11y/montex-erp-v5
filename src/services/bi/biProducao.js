@@ -52,10 +52,14 @@ export function normalizarHistorico(historico = [], pecas = []) {
   base.forEach(({ h, p, data }) => {
     const de = etapaCanonica(h.etapa_de ?? h.etapaDe);
     const para = etapaCanonica(h.etapa_para ?? h.etapaPara);
-    const funcionario = (h.funcionario_nome ?? h.funcionarioNome ?? '').trim() || null;
+    const funcionario = (h.funcionario_nome ?? h.funcionarioNome ?? '').replace(/\s+/g, ' ').trim() || null;
+    const funcionarioId = h.funcionario_id ?? h.funcionarioId ?? null;
     const obs = h.observacoes ?? h.observacao ?? '';
     const tok = String(obs).match(RE_QTD)?.[0] || '';
-    const chave = `${p.id}|${de}|${para}|${data.getFullYear()}-${data.getMonth()}-${data.getDate()}|${funcionario || ''}|${tok}`;
+    // Conjunto lançado pela aba Lançamentos (id HIST-<peça>__cN-<etapa>) é um
+    // registro próprio, não duplicata de outro conjunto da mesma peça.
+    const conj = String(h.id || '').match(/__c(\d+)-/)?.[1] || '';
+    const chave = `${p.id}|${de}|${para}|${data.getFullYear()}-${data.getMonth()}-${data.getDate()}|${funcionario || ''}|${tok}|${conj}`;
     if (vistos.has(chave)) { diag.duplicados += 1; return; }
     vistos.add(chave);
 
@@ -86,6 +90,7 @@ export function normalizarHistorico(historico = [], pecas = []) {
       qtd,
       kg: qtd * unit,
       funcionario,
+      funcionarioId,
     });
   });
   diag.kgExcedente = r1(diag.kgExcedente);
