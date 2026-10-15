@@ -52,6 +52,7 @@ Valor, status e obra de uma medição editada em Receitas são gravados NA TABEL
 ### 1e. Histórico de produção (`producao_historico`) tem ruído — NUNCA somar bruto
 Tem linhas duplicadas (mesma peça/movimento/dia/funcionário), movimentos parciais `[QTD:x/y]` em `observacoes` e peças `__split_*` que herdam o histórico da mãe. Somar `peso_total` por linha inflava a fabricação em ~2×.
 **Sempre use `normalizarHistorico()` / `transicoesComPeca()` (`src/services/bi/biProducao.js`)**: remove duplicatas, kg = unidades movidas × peso unitário, teto pela quantidade da peça. "Produção do setor" = kg que SAÍRAM da etapa (Pintura concluída = peça pronta); Embarque = romaneios pela `data_saida`. A `AnaliseProducaoPage` e o BI 360 usam esse mesmo motor (`biAnaliseProducao.js`).
+**Produção por pessoa** (`ProducaoFuncionarioPage`, motor `biFuncionarios.js`): pessoa = `funcionario_id` do apontamento (cadastro `funcionarios`), não o nome. Conjuntos da aba Lançamentos gravam `peca_id` REAL + `[QTD:1/N]` (id `HIST-<peça>__cN-<etapa>`, distinto entre conjuntos).
 
 ### 2. Status nunca hardcoded
 Bug recorrente: `status: STATUS_LANCAMENTO.PENDENTE` sobrescreve a escolha do usuário no form.

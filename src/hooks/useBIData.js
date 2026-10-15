@@ -34,7 +34,7 @@ export async function buscarHistorico({ forcar = false } = {}) {
   for (let de = 0; de < 100000; de += PAGINA) {
     const { data, error } = await supabase
       .from('producao_historico')
-      .select('peca_id, etapa_de, etapa_para, data_inicio, created_at, funcionario_nome, observacoes')
+      .select('id, peca_id, etapa_de, etapa_para, data_inicio, created_at, funcionario_nome, funcionario_id, observacoes')
       .order('id', { ascending: true })
       .range(de, de + PAGINA - 1);
     if (error) throw error;
