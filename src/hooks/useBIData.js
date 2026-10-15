@@ -28,13 +28,13 @@ const PAGINA = 1000;
 let cacheHistorico = null; // { em: timestamp, linhas }
 const CACHE_MS = 2 * 60 * 1000;
 
-async function buscarHistorico({ forcar = false } = {}) {
+export async function buscarHistorico({ forcar = false } = {}) {
   if (!forcar && cacheHistorico && Date.now() - cacheHistorico.em < CACHE_MS) return cacheHistorico.linhas;
   const linhas = [];
   for (let de = 0; de < 100000; de += PAGINA) {
     const { data, error } = await supabase
       .from('producao_historico')
-      .select('peca_id, etapa_de, etapa_para, data_inicio, created_at, funcionario_nome')
+      .select('peca_id, etapa_de, etapa_para, data_inicio, created_at, funcionario_nome, observacoes')
       .order('id', { ascending: true })
       .range(de, de + PAGINA - 1);
     if (error) throw error;

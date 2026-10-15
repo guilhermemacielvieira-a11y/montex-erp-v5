@@ -12,7 +12,7 @@
 
 import { useMemo } from 'react';
 import { useLancamentos, useObras, useProducao, useMedicoes, useEstoque } from '@/contexts/ERPContext';
-import { GRUPOS_OBRAS } from '@/pages/AnaliseProducaoPage';
+import { GRUPOS_OBRAS } from '@/lib/escopoObra';
 import { useReceitasManuais } from '@/utils/receitasSync';
 import { statusReceitaParaMedicao } from '@/utils/financeiroStatus';
 import { parseLocalDate } from '@/utils/financeiroCalc';
