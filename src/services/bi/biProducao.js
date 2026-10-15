@@ -6,30 +6,95 @@
 // ============================================================
 
 import {
-  r1, dataLocal, diasEntre, chaveSemana, semanasEntre, somaDias, mediana, percentil, media,
+  num, r1, dataLocal, diasEntre, chaveSemana, semanasEntre, somaDias, mediana, percentil, media,
   etapaCanonica, ordemFluxo, pesoPeca, obraDe, ETAPAS_FABRICA, ETAPAS_FLUXO,
 } from './biCore';
 
-/** Transições normalizadas, já ligadas à peça (peso/obra). Ignora órfãs. */
-export function transicoesComPeca(historico = [], pecas = []) {
+// Movimento parcial gravado pelo Kanban em observacoes: "[QTD:movida/total]".
+const RE_QTD = /\[QTD:\s*(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)\s*\]/i;
+export function qtdMovida(obs) {
+  const m = String(obs || '').match(RE_QTD);
+  if (!m) return null;
+  const q = Number(m[1].replace(',', '.'));
+  return Number.isFinite(q) && q > 0 ? q : null;
+}
+
+/**
+ * Normaliza o histórico de produção e devolve também um diagnóstico.
+ *
+ * O histórico tem ruído real que inflava o peso produzido:
+ *  - linhas DUPLICADAS (mesma peça, mesmo movimento, mesmo dia, mesmo
+ *    funcionário e mesma quantidade) — gravadas mais de uma vez;
+ *  - movimentos PARCIAIS "[QTD:x/y]" — só x unidades avançaram;
+ *  - peças divididas (__split_*) que herdam o histórico da peça-mãe e
+ *    idas-e-voltas de etapa.
+ * Regras: remove duplicatas exatas; kg = unidades movidas × peso unitário;
+ * cada peça só pode CONCLUIR uma etapa até a sua quantidade atual (o que
+ * passar disso é excedente e vale 0 kg).
+ */
+export function normalizarHistorico(historico = [], pecas = []) {
   const porId = new Map((pecas || []).map((p) => [p.id, p]));
-  const out = [];
-  (historico || []).forEach((h) => {
+  const diag = { brutos: 0, orfaos: 0, semData: 0, duplicados: 0, excedentes: 0, kgExcedente: 0, retrocessos: 0, validos: 0 };
+  const base = [];
+  (historico || []).forEach((h, i) => {
+    diag.brutos += 1;
     const p = porId.get(h.peca_id ?? h.pecaId);
-    if (!p) return;
+    if (!p) { diag.orfaos += 1; return; }
     const data = dataLocal(h.data_inicio ?? h.dataInicio ?? h.created_at ?? h.createdAt);
-    if (!data) return;
+    if (!data) { diag.semData += 1; return; }
+    base.push({ h, p, data, i });
+  });
+  base.sort((a, b) => a.data - b.data || a.i - b.i);
+
+  const vistos = new Set();
+  const usado = new Map(); // `${peca}|${etapaDe}` → unidades já concluídas
+  const out = [];
+  base.forEach(({ h, p, data }) => {
+    const de = etapaCanonica(h.etapa_de ?? h.etapaDe);
+    const para = etapaCanonica(h.etapa_para ?? h.etapaPara);
+    const funcionario = (h.funcionario_nome ?? h.funcionarioNome ?? '').trim() || null;
+    const obs = h.observacoes ?? h.observacao ?? '';
+    const tok = String(obs).match(RE_QTD)?.[0] || '';
+    const chave = `${p.id}|${de}|${para}|${data.getFullYear()}-${data.getMonth()}-${data.getDate()}|${funcionario || ''}|${tok}`;
+    if (vistos.has(chave)) { diag.duplicados += 1; return; }
+    vistos.add(chave);
+
+    const qtdPeca = Math.max(1, num(p.quantidade) || 1);
+    const kgPeca = pesoPeca(p);
+    const unit = kgPeca / qtdPeca;
+    const informada = Math.min(qtdMovida(obs) ?? qtdPeca, qtdPeca);
+    const avancou = ordemFluxo(para) > ordemFluxo(de);
+    let qtd = informada;
+    if (avancou) {
+      const k = `${p.id}|${de}`;
+      const ja = usado.get(k) || 0;
+      qtd = Math.max(0, Math.min(informada, qtdPeca - ja));
+      usado.set(k, ja + qtd);
+      if (qtd < informada) { diag.excedentes += 1; diag.kgExcedente += (informada - qtd) * unit; }
+    } else {
+      diag.retrocessos += 1;
+    }
+    diag.validos += 1;
     out.push({
       pecaId: p.id,
       obraId: obraDe(p),
-      de: etapaCanonica(h.etapa_de ?? h.etapaDe),
-      para: etapaCanonica(h.etapa_para ?? h.etapaPara),
+      marca: p.marca || p.codigo || p.nome || p.id,
+      tipo: p.tipo || null,
+      de,
+      para,
       data,
-      kg: pesoPeca(p),
-      funcionario: (h.funcionario_nome ?? h.funcionarioNome ?? '').trim() || null,
+      qtd,
+      kg: qtd * unit,
+      funcionario,
     });
   });
-  return out.sort((a, b) => a.data - b.data);
+  diag.kgExcedente = r1(diag.kgExcedente);
+  return { transicoes: out, diag };
+}
+
+/** Transições normalizadas, já ligadas à peça (peso/obra). Ignora órfãs. */
+export function transicoesComPeca(historico = [], pecas = []) {
+  return normalizarHistorico(historico, pecas).transicoes;
 }
 
 /**
@@ -159,7 +224,7 @@ export function produtividadeFuncionarios(transicoes = [], { hoje = new Date(), 
   const ini = somaDias(hoje, -dias);
   const mapa = new Map();
   transicoes.forEach((t) => {
-    if (t.data < ini || !t.funcionario) return;
+    if (t.data < ini || !t.funcionario || !(t.kg > 0)) return;
     if (!ETAPAS_FABRICA.includes(t.de) || ordemFluxo(t.para) <= ordemFluxo(t.de)) return;
     const k = t.funcionario;
     if (!mapa.has(k)) mapa.set(k, { funcionario: k, kg: 0, pecas: 0, etapas: {} });

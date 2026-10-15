@@ -49,6 +49,10 @@ A `DespesasPage` é o módulo independente de despesas da FÁBRICA. Despesas vin
 ### 1d. Medição editada na tela Receitas
 Valor, status e obra de uma medição editada em Receitas são gravados NA TABELA `medicoes` (não só no override `montex_receitas_overrides`), para GFO, Receitas e Painel Financeiro mostrarem o mesmo dado.
 
+### 1e. Histórico de produção (`producao_historico`) tem ruído — NUNCA somar bruto
+Tem linhas duplicadas (mesma peça/movimento/dia/funcionário), movimentos parciais `[QTD:x/y]` em `observacoes` e peças `__split_*` que herdam o histórico da mãe. Somar `peso_total` por linha inflava a fabricação em ~2×.
+**Sempre use `normalizarHistorico()` / `transicoesComPeca()` (`src/services/bi/biProducao.js`)**: remove duplicatas, kg = unidades movidas × peso unitário, teto pela quantidade da peça. "Produção do setor" = kg que SAÍRAM da etapa (Pintura concluída = peça pronta); Embarque = romaneios pela `data_saida`. A `AnaliseProducaoPage` e o BI 360 usam esse mesmo motor (`biAnaliseProducao.js`).
+
 ### 2. Status nunca hardcoded
 Bug recorrente: `status: STATUS_LANCAMENTO.PENDENTE` sobrescreve a escolha do usuário no form.
 **SEMPRE preserve o status do formulário:** `status: novoLanc.status || STATUS_LANCAMENTO.PENDENTE`.

@@ -1,1562 +1,465 @@
-// MONTEX ERP Premium - Analise de Producao
-// Dashboard completo com graficos 3D interativos
-// Dados reais do Kanban Corte e Kanban Producao (tabela pecas_producao)
-
-import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+// ============================================================
+// ANÁLISE DE PRODUÇÃO — módulo analítico (dia / semana / mês, obra, setor,
+// pessoas, fluxo e qualidade dos dados)
+// ============================================================
+// Motor puro e testado: services/bi/biAnaliseProducao.js + biProducao.js
+// (o MESMO do BI 360 → números iguais entre módulos).
+// "Produção de um setor" = kg que CONCLUÍRAM a etapa. Histórico limpo de
+// duplicatas, com movimentos parciais [QTD:x/y] e teto pela quantidade da peça.
+// Escopo = seletor ÚNICO do topo (Geral = todas as obras).
+// ============================================================
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BarChart3, Factory, Hammer, Paintbrush, Truck, Weight,
-  TrendingUp, TrendingDown, Activity, Filter, RefreshCw,
-  Layers, PieChart as PieIcon, Gauge, DollarSign,
-  ChevronDown, Maximize2, RotateCcw, Eye
-} from 'lucide-react';
-import {
-  PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  RadialBarChart, RadialBar, ComposedChart
+  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
 } from 'recharts';
-import * as THREE from 'three';
-import { supabase } from '../api/supabaseClient';
-import { useObras } from '../contexts/ERPContext';
-import { grupoDoEscopo, rotuloEscopo } from '../lib/escopoObra';
+import {
+  Activity, RefreshCw, TrendingUp, TrendingDown, Minus, Factory, Flame, Paintbrush, Truck,
+  AlertTriangle, CheckCircle2, Download, Building2, Users, GitBranch, ShieldCheck, CalendarDays,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { cn } from '@/lib/utils';
+import { useObras, useProducao, useExpedicao } from '../contexts/ERPContext';
+import { rotuloEscopo } from '../lib/escopoObra';
+import { buscarHistorico } from '../hooks/useBIData';
+import { normalizarHistorico, leadTimeEtapas, wipAtual, gargalo, ritmoSemanal, funilProducao } from '../services/bi/biProducao';
+import {
+  SETORES, PERIODOS, eventosProducao, intervaloPeriodo, resumoSetores, serieTemporal, agrupar,
+  produtividadePessoas, perfilDiaSemana, progressoObras, variacaoPct, mediaMovel,
+} from '../services/bi/biAnaliseProducao';
+import { noEscopo, isoLocal, fabricaConcluida, pesoPeca, ROTULO_ETAPA, ETAPAS_FLUXO } from '../services/bi/biCore';
 
-// ==================== 3D CHART COMPONENT ====================
-function Production3DChart({ data, width = 700, height = 400, title }) {
-  const mountRef = useRef(null);
-  const animRef = useRef(null);
-  const [isRotating, setIsRotating] = useState(true);
+const ICONE_SETOR = { fabricacao: Factory, solda: Flame, pintura: Paintbrush, expedicao: Truck };
+const COR = Object.fromEntries(SETORES.map((s) => [s.key, s.cor]));
+const ROT = Object.fromEntries(SETORES.map((s) => [s.key, s.label]));
+const kg = (v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
+const n0 = (v) => (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+const dataBR = (d) => (d ? (d instanceof Date ? d : new Date(`${d}T12:00:00`)).toLocaleDateString('pt-BR') : '—');
+const TOOLTIP = { contentStyle: { background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }, labelStyle: { color: '#e2e8f0' } };
 
-  useEffect(() => {
-    if (!mountRef.current || !data?.length) return;
-
-    while (mountRef.current.firstChild) {
-      mountRef.current.removeChild(mountRef.current.firstChild);
-    }
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0f1e);
-    scene.fog = new THREE.FogExp2(0x0a0f1e, 0.015);
-
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
-    camera.position.set(12, 10, 16);
-    camera.lookAt(0, 2, 0);
-
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    mountRef.current.appendChild(renderer.domElement);
-
-    // Lights
-    const ambientLight = new THREE.AmbientLight(0x404060, 0.5);
-    scene.add(ambientLight);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    dirLight.position.set(10, 15, 10);
-    dirLight.castShadow = true;
-    scene.add(dirLight);
-    const pointLight1 = new THREE.PointLight(0x10b981, 1.5, 50);
-    pointLight1.position.set(-8, 8, 8);
-    scene.add(pointLight1);
-    const pointLight2 = new THREE.PointLight(0x3b82f6, 1.2, 50);
-    pointLight2.position.set(8, 6, -8);
-    scene.add(pointLight2);
-    const pointLight3 = new THREE.PointLight(0xf59e0b, 0.8, 40);
-    pointLight3.position.set(0, 12, 0);
-    scene.add(pointLight3);
-
-    // Floor
-    const floorGeo = new THREE.PlaneGeometry(30, 30);
-    const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x0f172a, metalness: 0.3, roughness: 0.8
-    });
-    const floor = new THREE.Mesh(floorGeo, floorMat);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
-
-    // Grid
-    const gridHelper = new THREE.GridHelper(25, 25, 0x1e3a5f, 0x0d1b2a);
-    scene.add(gridHelper);
-
-    const maxValue = Math.max(...data.map(d => d.value || 0), 1);
-    const colors = [0x10b981, 0x3b82f6, 0xf59e0b, 0xef4444, 0x8b5cf6, 0xec4899, 0x06b6d4, 0xf97316];
-    const bars = [];
-
-    data.forEach((item, i) => {
-      const targetH = Math.max((item.value / maxValue) * 8, 0.2);
-      const barGeo = new THREE.BoxGeometry(1.2, 0.01, 1.2);
-      const color = colors[i % colors.length];
-      const barMat = new THREE.MeshPhysicalMaterial({
-        color, metalness: 0.4, roughness: 0.2, clearcoat: 0.5,
-        emissive: color, emissiveIntensity: 0.15
-      });
-      const bar = new THREE.Mesh(barGeo, barMat);
-      bar.position.set((i - (data.length - 1) / 2) * 2, 0.005, 0);
-      bar.castShadow = true;
-      bar.userData = { targetH, currentH: 0.01, index: i };
-      scene.add(bar);
-      bars.push(bar);
-
-      // Glow base
-      const glowGeo = new THREE.PlaneGeometry(1.4, 1.4);
-      const glowMat = new THREE.MeshBasicMaterial({
-        color, transparent: true, opacity: 0.3, side: THREE.DoubleSide
-      });
-      const glow = new THREE.Mesh(glowGeo, glowMat);
-      glow.rotation.x = -Math.PI / 2;
-      glow.position.set(bar.position.x, 0.01, 0);
-      scene.add(glow);
-    });
-
-    // Particles
-    const particlesGeo = new THREE.BufferGeometry();
-    const particleCount = 200;
-    const positions = new Float32Array(particleCount * 3);
-    for (let i = 0; i < particleCount * 3; i += 3) {
-      positions[i] = (Math.random() - 0.5) * 30;
-      positions[i + 1] = Math.random() * 15;
-      positions[i + 2] = (Math.random() - 0.5) * 30;
-    }
-    particlesGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    const particlesMat = new THREE.PointsMaterial({
-      color: 0x3b82f6, size: 0.05, transparent: true, opacity: 0.6
-    });
-    const particles = new THREE.Points(particlesGeo, particlesMat);
-    scene.add(particles);
-
-    let time = 0;
-    const animate = () => {
-      animRef.current = requestAnimationFrame(animate);
-      time += 0.016;
-
-      // Animate bars growing
-      bars.forEach(bar => {
-        const ud = bar.userData;
-        if (ud.currentH < ud.targetH) {
-          ud.currentH = Math.min(ud.currentH + ud.targetH * 0.03, ud.targetH);
-          bar.geometry.dispose();
-          bar.geometry = new THREE.BoxGeometry(1.2, ud.currentH, 1.2);
-          bar.position.y = ud.currentH / 2;
-        }
-        // Subtle pulse
-        const pulse = 1 + Math.sin(time * 2 + ud.index) * 0.02;
-        bar.scale.x = pulse;
-        bar.scale.z = pulse;
-      });
-
-      // Rotate scene
-      if (isRotating) scene.rotation.y += 0.002;
-      particles.rotation.y += 0.001;
-
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
-        mountRef.current.removeChild(renderer.domElement);
-      }
-      renderer.dispose();
-    };
-  }, [data, width, height, isRotating]);
-
+function Variacao({ pct }) {
+  if (pct == null) return <span className="text-xs text-slate-500">sem base anterior</span>;
+  const Icone = pct > 0 ? TrendingUp : pct < 0 ? TrendingDown : Minus;
   return (
-    <div className="relative">
-      <div ref={mountRef} className="rounded-xl overflow-hidden border border-slate-700/30" />
-      <div className="absolute top-3 right-3 flex gap-2">
-        <button onClick={() => setIsRotating(!isRotating)}
-          className="p-2 bg-slate-800/80 rounded-lg border border-slate-600/50 text-slate-300 hover:text-white hover:bg-slate-700/80 transition-all">
-          {isRotating ? <Eye size={14} /> : <RotateCcw size={14} />}
-        </button>
+    <span className={cn('inline-flex items-center gap-1 text-xs font-medium', pct > 0 ? 'text-emerald-400' : pct < 0 ? 'text-red-400' : 'text-slate-400')}>
+      <Icone className="h-3.5 w-3.5" />{pct > 0 ? '+' : ''}{pct.toLocaleString('pt-BR')}% vs anterior
+    </span>
+  );
+}
+
+function Painel({ titulo, sub, children, acao, className }) {
+  return (
+    <div className={cn('bg-slate-800/50 border border-slate-700 rounded-xl', className)}>
+      <div className="px-4 pt-4 pb-2 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-white font-semibold">{titulo}</h3>
+          {sub && <p className="text-xs text-slate-500 mt-0.5">{sub}</p>}
+        </div>
+        {acao}
       </div>
+      <div className="px-4 pb-4">{children}</div>
     </div>
   );
 }
 
-// ==================== 3D SPHERES COMPONENT ====================
-function Production3DSpheres({ data, width = 600, height = 350 }) {
-  const mountRef = useRef(null);
-  const animRef = useRef(null);
-
-  useEffect(() => {
-    if (!mountRef.current || !data?.length) return;
-    while (mountRef.current.firstChild) mountRef.current.removeChild(mountRef.current.firstChild);
-
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x0a0f1e);
-    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000);
-    camera.position.set(0, 8, 18);
-    camera.lookAt(0, 0, 0);
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(width, height);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    mountRef.current.appendChild(renderer.domElement);
-
-    const ambient = new THREE.AmbientLight(0x404060, 0.6);
-    scene.add(ambient);
-    const dir = new THREE.DirectionalLight(0xffffff, 0.8);
-    dir.position.set(5, 10, 5);
-    scene.add(dir);
-    const point1 = new THREE.PointLight(0x10b981, 1.2, 40);
-    point1.position.set(-6, 6, 6);
-    scene.add(point1);
-    const point2 = new THREE.PointLight(0x3b82f6, 1.0, 40);
-    point2.position.set(6, 4, -6);
-    scene.add(point2);
-
-    // Grid floor
-    const grid = new THREE.GridHelper(20, 20, 0x1e3a5f, 0x0d1b2a);
-    grid.position.y = -3;
-    scene.add(grid);
-
-    const maxVal = Math.max(...data.map(d => d.pesoTotal || 0), 1);
-    const colors = [0x10b981, 0x3b82f6, 0xf59e0b, 0xef4444, 0x8b5cf6, 0xec4899, 0x06b6d4, 0xf97316];
-    const spheres = [];
-
-    data.slice(0, 8).forEach((item, i) => {
-      const radius = Math.max((item.pesoTotal / maxVal) * 2.5, 0.3);
-      const geo = new THREE.SphereGeometry(radius, 32, 32);
-      const color = colors[i % colors.length];
-      const mat = new THREE.MeshPhysicalMaterial({
-        color, metalness: 0.3, roughness: 0.2, clearcoat: 0.8,
-        emissive: color, emissiveIntensity: 0.1, transparent: true, opacity: 0.85
-      });
-      const sphere = new THREE.Mesh(geo, mat);
-      const angle = (i / Math.min(data.length, 8)) * Math.PI * 2;
-      const dist = 5;
-      sphere.position.set(Math.cos(angle) * dist, radius - 1, Math.sin(angle) * dist);
-      sphere.userData = { baseY: radius - 1, index: i };
-      scene.add(sphere);
-      spheres.push(sphere);
-
-      // Ring around sphere
-      const ringGeo = new THREE.TorusGeometry(radius + 0.3, 0.05, 8, 32);
-      const ringMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 });
-      const ring = new THREE.Mesh(ringGeo, ringMat);
-      ring.position.copy(sphere.position);
-      ring.rotation.x = Math.PI / 2;
-      scene.add(ring);
-    });
-
-    // Particles
-    const pGeo = new THREE.BufferGeometry();
-    const pCount = 150;
-    const pos = new Float32Array(pCount * 3);
-    for (let i = 0; i < pCount * 3; i += 3) {
-      pos[i] = (Math.random() - 0.5) * 25;
-      pos[i+1] = Math.random() * 12;
-      pos[i+2] = (Math.random() - 0.5) * 25;
-    }
-    pGeo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    const pMat = new THREE.PointsMaterial({ color: 0x8b5cf6, size: 0.04, transparent: true, opacity: 0.5 });
-    const particles = new THREE.Points(pGeo, pMat);
-    scene.add(particles);
-
-    let time = 0;
-    const animate = () => {
-      animRef.current = requestAnimationFrame(animate);
-      time += 0.016;
-      spheres.forEach((s, i) => {
-        s.position.y = s.userData.baseY + Math.sin(time * 1.5 + i * 0.8) * 0.3;
-        s.rotation.y += 0.005;
-      });
-      scene.rotation.y += 0.002;
-      particles.rotation.y -= 0.001;
-      renderer.render(scene, camera);
-    };
-    animate();
-
-    return () => {
-      cancelAnimationFrame(animRef.current);
-      if (mountRef.current && renderer.domElement.parentNode === mountRef.current) {
-        mountRef.current.removeChild(renderer.domElement);
-      }
-      renderer.dispose();
-    };
-  }, [data, width, height]);
-
-  return <div ref={mountRef} className="rounded-xl overflow-hidden border border-slate-700/30" />;
-}
-
-// ==================== GAUGE COMPONENT ====================
-function GaugeChart({ value, max, label, color, icon: Icon }) {
-  const percentage = Math.min((value / max) * 100, 100);
-  const gaugeData = [
-    { name: label, value: percentage, fill: color },
-    { name: 'remaining', value: 100 - percentage, fill: '#1e293b' }
-  ];
-
+function Tabela({ colunas, linhas, vazio = 'Sem dados no período.', rodape }) {
   return (
-    <div className="flex flex-col items-center">
-      <div className="relative w-32 h-20">
-        <ResponsiveContainer width="100%" height={80}>
-          <RadialBarChart cx="50%" cy="100%" innerRadius="60%" outerRadius="100%"
-            startAngle={180} endAngle={0} data={[gaugeData[0]]}>
-            <RadialBar background={{ fill: '#1e293b' }} dataKey="value" cornerRadius={5}
-              fill={color} />
-          </RadialBarChart>
-        </ResponsiveContainer>
-        <div className="absolute inset-0 flex flex-col items-center justify-end pb-1">
-          {Icon && <Icon size={14} className="mb-0.5" style={{ color }} />}
-          <span className="text-lg font-bold text-white">{percentage.toFixed(1)}%</span>
-        </div>
-      </div>
-      <span className="text-xs text-slate-400 mt-1 text-center">{label}</span>
-    </div>
-  );
-}
-
-// ==================== KPI CARD ====================
-function KPICard({ title, value, unit, icon: Icon, color, trend, subtitle, delay = 0 }) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay }}
-      className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-4 hover:border-slate-600/50 transition-all hover:shadow-lg hover:shadow-slate-900/50"
-    >
-      <div className="flex items-start justify-between mb-3">
-        <div className="p-2 rounded-lg" style={{ backgroundColor: color + '20' }}>
-          <Icon size={20} style={{ color }} />
-        </div>
-        {trend !== undefined && (
-          <span className={`flex items-center text-xs font-medium ${trend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-            {trend >= 0 ? <TrendingUp size={12} className="mr-1" /> : <TrendingDown size={12} className="mr-1" />}
-            {Math.abs(trend).toFixed(1)}%
-          </span>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-slate-400 text-xs border-b border-slate-700">
+            {colunas.map((c) => <th key={c.k} className={cn('py-2 px-2 font-medium whitespace-nowrap', c.r ? 'text-right' : 'text-left')}>{c.l}</th>)}
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.length ? linhas.map((l, i) => (
+            <tr key={l._k ?? i} className="border-b border-slate-800 hover:bg-slate-800/40">
+              {colunas.map((c) => <td key={c.k} className={cn('py-2 px-2', c.wrap ? 'whitespace-normal min-w-[200px]' : 'whitespace-nowrap', c.r ? 'text-right tabular-nums' : 'text-left', c.cls)}>{c.f ? c.f(l) : l[c.k]}</td>)}
+            </tr>
+          )) : <tr><td colSpan={colunas.length} className="py-8 text-center text-slate-500">{vazio}</td></tr>}
+        </tbody>
+        {rodape && linhas.length > 0 && (
+          <tfoot><tr className="font-semibold text-white border-t border-slate-600">
+            {colunas.map((c) => <td key={c.k} className={cn('py-2 px-2 whitespace-nowrap', c.r ? 'text-right tabular-nums' : '')}>{rodape[c.k] ?? ''}</td>)}
+          </tr></tfoot>
         )}
-      </div>
-      <h3 className="text-slate-400 text-xs font-medium uppercase tracking-wider">{title}</h3>
-      <div className="flex items-baseline gap-1 mt-1">
-        <span className="text-2xl font-bold text-white">
-          {typeof value === 'number' ? value.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) : value}
-        </span>
-        {unit && <span className="text-sm text-slate-400">{unit}</span>}
-      </div>
-      {subtitle && <p className="text-xs text-slate-500 mt-1">{subtitle}</p>}
-    </motion.div>
+      </table>
+    </div>
   );
 }
 
-// ==================== COLORS ====================
-const CHART_COLORS = ['#10b981', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316', '#84cc16', '#e11d48', '#14b8a6', '#a855f7', '#f43f5e', '#0ea5e9', '#eab308', '#d946ef'];
-
-// ==================== FORMAT CURRENCY ====================
-const formatCurrency = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
-
-// ==================== GRUPOS DE OBRAS (CONSOLIDADOS) ====================
-// Definição movida para src/lib/escopoObra.js (filtro único do topo).
-// Re-export mantido para compatibilidade com imports antigos.
-export { GRUPOS_OBRAS } from '../lib/escopoObra';
-
-// ==================== PAGINAÇÃO SUPABASE ====================
-// PostgREST limita a 1000 linhas por request — pagina com .range().
-// `obraIds` null = todas as obras (escopo Geral).
-async function fetchPaginado(tabela, colunas, obraIds, pageSize = 1000) {
-  const out = [];
-  for (let from = 0; ; from += pageSize) {
-    let q = supabase.from(tabela).select(colunas).order('id', { ascending: true }).range(from, from + pageSize - 1);
-    if (obraIds) q = q.in('obra_id', obraIds);
-    const { data, error } = await q;
-    if (error) throw error;
-    out.push(...(data || []));
-    if (!data || data.length < pageSize) break;
-  }
-  return out;
+function baixarCSV(nome, colunas, linhas) {
+  const esc = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const csv = [colunas.map((c) => esc(c.l)).join(';'), ...linhas.map((l) => colunas.map((c) => esc(c.csv ? c.csv(l) : l[c.k])).join(';'))].join('\n');
+  const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a'); a.href = url; a.download = nome; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
 
-// ==================== MAIN PAGE ====================
 export default function AnaliseProducaoPage() {
-  const { obras, escopoObra, obraIdsEscopo } = useObras();
-  const obrasAtivas = useMemo(() => (obras || []).filter(o => o.status !== 'cancelada'), [obras]);
+  const { obras = [], escopoObra, obraIdsEscopo } = useObras();
+  const { pecas = [] } = useProducao();
+  const { expedicoes = [] } = useExpedicao();
 
-  // Escopo vem do seletor ÚNICO do topo: Geral (todas) | grupo (ex.: temec) | obra.
-  // obraIdsEfetivos: array de ids, ou null = todas as obras (Geral).
-  const obraIdsEfetivos = obraIdsEscopo || null;
-  const grupoAtivo = grupoDoEscopo(escopoObra);
+  const [historico, setHistorico] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState(null);
+  const [atualizadoEm, setAtualizadoEm] = useState(null);
+  const [periodo, setPeriodo] = useState('30d');
+  const [custom, setCustom] = useState({ ini: '', fim: '' });
+  const [gran, setGran] = useState('dia');
 
-  // ID único para keys de cache (string das obras) — '*' = todas
-  const obraIdEfetivo = obraIdsEfetivos ? obraIdsEfetivos.join(',') : '*';
-  const isGrupoConsolidado = !!grupoAtivo;
+  const carregar = useCallback(async (forcar) => {
+    setCarregando(true);
+    try { setHistorico(await buscarHistorico({ forcar })); setErro(null); setAtualizadoEm(new Date()); }
+    catch (e) { setErro(e?.message || 'Falha ao carregar o histórico de produção'); }
+    finally { setCarregando(false); }
+  }, []);
+  useEffect(() => { carregar(false); }, [carregar]);
 
-  // Filtro de período temporal
-  const [filtroPeriodo, setFiltroPeriodo] = useState('mensal'); // 'diario' | 'semanal' | 'mensal' | 'geral'
+  const hoje = useMemo(() => new Date(), [atualizadoEm]);
+  const obraIds = obraIdsEscopo || null;
+  const nomeObra = useCallback((id) => obras.find((o) => o.id === id)?.nome || id || '—', [obras]);
 
-  // Detectar se obra é "modo unidade" (TEMEC seriado) — config no localStorage ou grupo
-  const configObra = useMemo(() => {
-    if (grupoAtivo) {
-      return { modo: grupoAtivo.modo, valor: grupoAtivo.valor, qtdContrato: grupoAtivo.qtdContrato };
-    }
-    if (!obraIdsEfetivos || obraIdsEfetivos.length !== 1) return null;
-    const obraId = obraIdsEfetivos[0];
-    try {
-      const cfg = JSON.parse(localStorage.getItem('medicao_config_obras_v1') || '{}');
-      const seeds = {
-        'obra-004': { modo: 'unidade', valor: 20, qtdContrato: 500 },
-        'obra-005': { modo: 'unidade', valor: 20, qtdContrato: 1500 },
-      };
-      return { ...seeds, ...cfg }[obraId] || null;
-    } catch { return null; }
-  }, [grupoAtivo, obraIdEfetivo]);
-  const isModoUnidade = configObra?.modo === 'unidade';
+  // ===== Base (escopo do topo) =====
+  const base = useMemo(() => {
+    const { transicoes: todas, diag } = normalizarHistorico(historico, pecas);
+    const transicoes = obraIds ? todas.filter((t) => obraIds.includes(t.obraId)) : todas;
+    const exps = noEscopo(expedicoes, obraIds);
+    const eventos = eventosProducao(transicoes, exps);
+    const pecasEsc = noEscopo(pecas, obraIds);
+    return { transicoes, diag, eventos, pecasEsc };
+  }, [historico, pecas, expedicoes, obraIds]);
 
-  const [pecas, setPecas] = useState([]);
-  const [idsEntregues, setIdsEntregues] = useState(new Set());
-  const [pesoEntregue, setPesoEntregue] = useState(0);
-  const [historicoProducao, setHistoricoProducao] = useState([]);
-  const [materiaisCorte, setMateriaisCorte] = useState([]); // dados do Kanban Corte (preparação do material)
-  const [loading, setLoading] = useState(true);
-  const [filtroCategoria, setFiltroCategoria] = useState('todas');
-  const [activeTab, setActiveTab] = useState('visao-geral');
-  const [showFilter, setShowFilter] = useState(false);
+  // ===== Período =====
+  const per = useMemo(() => intervaloPeriodo(periodo, { hoje, ...custom }), [periodo, custom, hoje]);
+  const granEfetiva = per.dias > 400 && gran === 'dia' ? 'semana' : gran;
 
-  // Fetch data from Supabase (filtrado por obra ou grupo de obras)
-  useEffect(() => {
-    if (obraIdsEfetivos && obraIdsEfetivos.length === 0) {
-      setPecas([]); setIdsEntregues(new Set()); setPesoEntregue(0); setHistoricoProducao([]); setMateriaisCorte([]); setLoading(false); return;
-    }
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // Buscar peças de produção — .in() para grupo/obra; sem filtro em Geral (todas)
-        // Paginado: pecas_producao tem >1000 linhas (limite PostgREST)
-        const data = await fetchPaginado('pecas_producao', '*', obraIdsEfetivos);
-        setPecas(data || []);
+  const resumo = useMemo(() => resumoSetores(base.eventos, { ini: per.ini, fim: per.fim, hoje }), [base.eventos, per, hoje]);
+  const resumoAnt = useMemo(() => resumoSetores(base.eventos, { ini: per.iniAnt, fim: per.fimAnt, hoje }), [base.eventos, per, hoje]);
+  const serie = useMemo(() => {
+    const s = serieTemporal(base.eventos, { ini: per.ini, fim: per.fim, granularidade: granEfetiva });
+    const mm = mediaMovel(s.map((x) => x.pintura), granEfetiva === 'dia' ? 7 : 4);
+    return s.map((x, i) => ({ ...x, mmPintura: mm[i] }));
+  }, [base.eventos, per, granEfetiva]);
+  const evPeriodo = useMemo(() => base.eventos.filter((e) => e.data >= per.ini && e.data <= per.fim), [base.eventos, per]);
 
-        // Buscar materiais_corte (preparação independente dos conjuntos)
-        try {
-          const corteData = await fetchPaginado(
-            'materiais_corte',
-            'id, obra_id, marca, peca, perfil, comprimento_mm, quantidade, peso_teorico, status_corte, funcionario_corte, data_inicio, data_fim',
-            obraIdsEfetivos,
-          );
-          setMateriaisCorte(corteData || []);
-        } catch (corteErr) {
-          console.warn('Erro materiais_corte:', corteErr);
-          setMateriaisCorte([]);
-        }
+  const porObraPeriodo = useMemo(() => agrupar(evPeriodo, (e) => e.obraId), [evPeriodo]);
+  const progresso = useMemo(() => progressoObras({ obras: obraIds ? obras.filter((o) => obraIds.includes(o.id)) : obras, pecas: base.pecasEsc, eventos: base.eventos, hoje }), [obras, obraIds, base, hoje]);
+  const pessoas = useMemo(() => produtividadePessoas(evPeriodo), [evPeriodo]);
+  const porTipo = useMemo(() => agrupar(evPeriodo, (e) => e.tipo, { setores: ['fabricacao', 'solda', 'pintura'] }), [evPeriodo]);
+  const dow = useMemo(() => perfilDiaSemana(base.eventos, { ini: per.ini, fim: per.fim }), [base.eventos, per]);
 
-        // Histórico de movimentação (para análise temporal — quem fez o quê e quando)
-        try {
-          const ids = (data || []).map(p => p.id);
-          if (ids.length > 0) {
-            // Em lotes de 300 ids para não estourar o tamanho da URL (Geral = muitas peças)
-            const hist = [];
-            for (let i = 0; i < ids.length; i += 300) {
-              const { data: h } = await supabase
-                .from('producao_historico')
-                .select('peca_id, etapa_de, etapa_para, data_inicio, funcionario_id, funcionario_nome')
-                .in('peca_id', ids.slice(i, i + 300))
-                .order('data_inicio', { ascending: true })
-                .limit(10000);
-              hist.push(...(h || []));
-            }
-            hist.sort((a, b) => String(a.data_inicio || '').localeCompare(String(b.data_inicio || '')));
-            setHistoricoProducao(hist);
-          } else {
-            setHistoricoProducao([]);
-          }
-        } catch (histErr) {
-          console.warn('Erro ao buscar histórico:', histErr);
-          setHistoricoProducao([]);
-        }
+  // ===== Fluxo (fotografia atual) =====
+  const fluxo = useMemo(() => {
+    const ritmo = ritmoSemanal(base.transicoes, { hoje, semanas: 12 });
+    const wip = wipAtual(base.pecasEsc, base.transicoes, { hoje });
+    return { leadTimes: leadTimeEtapas(base.transicoes), wip, gargalo: gargalo(wip.resumo, ritmo), funil: funilProducao(base.pecasEsc) };
+  }, [base, hoje]);
 
-        // Buscar expedições ENTREGUE para identificar peças já entregues em obra
-        try {
-          let qExp = supabase
-            .from('expedicoes')
-            .select('*')
-            .in('status', ['entregue', 'ENTREGUE']);
-          if (obraIdsEfetivos) qExp = qExp.in('obra_id', obraIdsEfetivos);
-          const { data: exps } = await qExp; // status normalizado p/ minúsculo (migração 2026100530)
-          const entregues = (exps || []).filter(e => !e.deleted_at); // ignora romaneios excluídos (soft-delete)
-          const ids = new Set();
-          let pesoEnt = 0;
-          entregues.forEach(exp => {
-            pesoEnt += parseFloat(exp.peso_total) || 0;
-            const pecasExp = typeof exp.pecas === 'string' ? JSON.parse(exp.pecas) : (exp.pecas || []);
-            if (Array.isArray(pecasExp)) {
-              pecasExp.forEach(pe => {
-                const pecaId = typeof pe === 'object' ? (pe.id || pe.pecaId) : pe;
-                if (pecaId) ids.add(pecaId);
-              });
-            }
-          });
-          setIdsEntregues(ids);
-          setPesoEntregue(pesoEnt);
-        } catch (expErr) {
-          console.warn('Erro ao buscar expedições:', expErr);
-        }
-      } catch (err) {
-        console.error('Erro ao carregar pecas:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
-  }, [obraIdEfetivo]); // obraIdEfetivo é string serializada dos ids — muda quando a seleção muda
-
-  // Filtered data
-  const pecasFiltradas = useMemo(() => {
-    if (filtroCategoria === 'todas') return pecas;
-    return pecas.filter(p => p.tipo === filtroCategoria);
-  }, [pecas, filtroCategoria]);
-
-  // Categories
-  const categorias = useMemo(() => {
-    const tipos = [...new Set(pecas.map(p => p.tipo).filter(Boolean))];
-    return tipos.sort();
-  }, [pecas]);
-
-  // KPI Calculations
-  const kpis = useMemo(() => {
-    const pf = pecasFiltradas;
-    const pesoTotal = pf.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-
-    const fabricadas = pf.filter(p =>
-      p.etapa === 'solda' || p.etapa === 'pintura' || p.etapa === 'expedido' ||
-      p.status === 'concluido' || p.data_fim_fabricacao
-    );
-    const pesoFabricado = fabricadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-
-    const soldadas = pf.filter(p =>
-      p.etapa === 'pintura' || p.etapa === 'expedido' || p.data_fim_solda
-    );
-    const pesoSoldado = soldadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-
-    const pintadas = pf.filter(p =>
-      p.etapa === 'expedido' || p.data_fim_pintura
-    );
-    const pesoPintado = pintadas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-
-    const expedidas = pf.filter(p => p.etapa === 'expedido');
-    const pesoExpedidoTotal = expedidas.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-
-    // Separar: peças expedidas que já foram entregues vs aguardando embarque
-    const expedAguardando = expedidas.filter(p => !idsEntregues.has(p.id));
-    const pesoAguardandoEnvio = expedAguardando.reduce((s, p) => s + (parseFloat(p.peso_total) || 0), 0);
-    const pesoJaEntregue = pesoEntregue > 0 ? pesoEntregue : (pesoExpedidoTotal - pesoAguardandoEnvio);
-
-    const pesoNaoFabricado = pesoTotal - pesoFabricado;
-    const pesoProduzido = pesoFabricado;
-
+  // ===== Consistência com o Kanban =====
+  const consistencia = useMemo(() => {
+    const prontas = base.pecasEsc.filter((p) => fabricaConcluida(p.etapa));
+    const comPintura = new Set(base.eventos.filter((e) => e.setor === 'pintura').map((e) => e.pecaId));
+    const kgProntas = prontas.reduce((a, p) => a + pesoPeca(p), 0);
+    const kgProntasComHist = prontas.filter((p) => comPintura.has(p.id)).reduce((a, p) => a + pesoPeca(p), 0);
+    const kgPinturaHist = base.eventos.filter((e) => e.setor === 'pintura').reduce((a, e) => a + e.kg, 0);
+    const kgTotal = base.pecasEsc.reduce((a, p) => a + pesoPeca(p), 0);
     return {
-      pesoTotal, pesoFabricado, pesoNaoFabricado, pesoSoldado,
-      pesoPintado, pesoEnviado: pesoAguardandoEnvio, pesoExpedidoTotal, pesoJaEntregue, pesoProduzido,
-      percFabricado: pesoTotal > 0 ? (pesoFabricado / pesoTotal) * 100 : 0,
-      percSoldado: pesoTotal > 0 ? (pesoSoldado / pesoTotal) * 100 : 0,
-      percPintado: pesoTotal > 0 ? (pesoPintado / pesoTotal) * 100 : 0,
-      percEnviado: pesoTotal > 0 ? (pesoAguardandoEnvio / pesoTotal) * 100 : 0,
-      percEntregue: pesoTotal > 0 ? (pesoJaEntregue / pesoTotal) * 100 : 0,
-      totalPecas: pf.length,
-      pecasConcluidas: pf.filter(p => p.status === 'concluido').length,
-      pecasAguardandoEnvio: expedAguardando.length,
+      kgTotal, kgProntas, kgProntasComHist, kgPinturaHist,
+      cobertura: kgProntas > 0 ? (kgProntasComHist / kgProntas) * 100 : 0,
+      primeiraData: base.eventos.find((e) => e.setor !== 'expedicao')?.data || null,
     };
-  }, [pecasFiltradas, idsEntregues, pesoEntregue]);
+  }, [base]);
 
-  // Data for 3D chart
-  const data3D = useMemo(() => [
-    { label: 'Total Obra', value: kpis.pesoTotal },
-    { label: 'Fabricado', value: kpis.pesoFabricado },
-    { label: 'Soldado', value: kpis.pesoSoldado },
-    { label: 'Pintado', value: kpis.pesoPintado },
-    { label: 'Nao Fabricado', value: kpis.pesoNaoFabricado },
-    { label: 'Aguardando Envio', value: kpis.pesoEnviado },
-  ], [kpis]);
+  const totalPeriodo = resumo.find((r) => r.setor === 'pintura')?.kg || 0;
+  const rotPeriodo = periodo === 'custom'
+    ? `${dataBR(per.ini)} a ${dataBR(per.fim)}`
+    : `${PERIODOS.find((p) => p.key === periodo)?.label} · ${dataBR(per.ini)} a ${dataBR(per.fim)}`;
 
-  // Data by category for comparison chart
-  const dadosPorCategoria = useMemo(() => {
-    const map = {};
-    pecas.forEach(p => {
-      const tipo = p.tipo || 'Sem tipo';
-      if (!map[tipo]) map[tipo] = { tipo, pesoTotal: 0, fabricado: 0, soldado: 0, pintado: 0, enviado: 0, qtd: 0 };
-      const peso = parseFloat(p.peso_total) || 0;
-      map[tipo].pesoTotal += peso;
-      map[tipo].qtd += 1;
-      if (p.etapa === 'solda' || p.etapa === 'pintura' || p.etapa === 'expedido' || p.data_fim_fabricacao) map[tipo].fabricado += peso;
-      if (p.etapa === 'pintura' || p.etapa === 'expedido' || p.data_fim_solda) map[tipo].soldado += peso;
-      if (p.etapa === 'expedido' || p.data_fim_pintura) map[tipo].pintado += peso;
-      if (p.etapa === 'expedido') map[tipo].enviado += peso;
-    });
-    return Object.values(map).sort((a, b) => b.pesoTotal - a.pesoTotal);
-  }, [pecas]);
-
-  // Pie chart data for distribution
-  const pieData = useMemo(() => {
-    return dadosPorCategoria.slice(0, 10).map((d, i) => ({
-      name: d.tipo, value: Math.round(d.pesoTotal * 100) / 100, fill: CHART_COLORS[i % CHART_COLORS.length]
-    }));
-  }, [dadosPorCategoria]);
-
-  // Status distribution pie
-  const statusPie = useMemo(() => [
-    { name: 'Fabricado', value: kpis.pesoFabricado, fill: '#10b981' },
-    { name: 'Nao Fabricado', value: kpis.pesoNaoFabricado, fill: '#ef4444' },
-    { name: 'Aguardando Envio', value: kpis.pesoEnviado, fill: '#3b82f6' },
-  ].filter(d => d.value > 0), [kpis]);
-
-  // Financial Valuation Data
-  const VALORES_ETAPA = { corte: 1.20, fabricacao: 2.50, solda: 3.00, pintura: 1.80, expedicao: 0.50 };
-
-  const dadosFinanceiros = useMemo(() => {
-    const valorFab = kpis.pesoFabricado * VALORES_ETAPA.fabricacao;
-    const valorSolda = kpis.pesoSoldado * VALORES_ETAPA.solda;
-    const valorPintura = kpis.pesoPintado * VALORES_ETAPA.pintura;
-    const valorExpedicao = kpis.pesoEnviado * VALORES_ETAPA.expedicao;
-    const valorTotal = valorFab + valorSolda + valorPintura + valorExpedicao;
-    return {
-      valorFab, valorSolda, valorPintura, valorExpedicao, valorTotal,
-      barData: [
-        { etapa: 'Fabricação', valor: valorFab, kg: kpis.pesoFabricado, cor: '#10b981' },
-        { etapa: 'Solda', valor: valorSolda, kg: kpis.pesoSoldado, cor: '#3b82f6' },
-        { etapa: 'Pintura', valor: valorPintura, kg: kpis.pesoPintado, cor: '#f59e0b' },
-        { etapa: 'Expedição', valor: valorExpedicao, kg: kpis.pesoEnviado, cor: '#06b6d4' },
-      ],
-      radialData: [
-        { name: 'Fabricação', value: kpis.percFabricado, fill: '#10b981' },
-        { name: 'Solda', value: kpis.percSoldado, fill: '#3b82f6' },
-        { name: 'Pintura', value: kpis.percPintado, fill: '#f59e0b' },
-        { name: 'Expedição', value: kpis.percEnviado, fill: '#06b6d4' },
-      ]
-    };
-  }, [kpis]);
-
-  // ==================== ANÁLISE TEMPORAL ====================
-  // Fonte 1: producao_historico (movimentações etapa_de → etapa_para)
-  // Fonte 2: campos data_fim_fabricacao / data_fim_solda / data_fim_pintura em pecas_producao
-  //   (fallback quando histórico ainda não foi populado)
-  const pecasIdMap = useMemo(() => {
-    const m = {};
-    pecas.forEach(p => { m[p.id] = p; });
-    return m;
-  }, [pecas]);
-
-  // Janela de tempo conforme filtro
-  const janelaTempo = useMemo(() => {
-    const agora = new Date();
-    const hoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate(), 0, 0, 0);
-    if (filtroPeriodo === 'diario') return { inicio: hoje, fim: new Date(hoje.getTime() + 86400000 - 1), label: 'Hoje' };
-    if (filtroPeriodo === 'semanal') {
-      const inicioSem = new Date(hoje); inicioSem.setDate(hoje.getDate() - 6);
-      return { inicio: inicioSem, fim: new Date(hoje.getTime() + 86400000 - 1), label: 'Últimos 7 dias' };
-    }
-    if (filtroPeriodo === 'mensal') {
-      const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1);
-      const fimMes = new Date(agora.getFullYear(), agora.getMonth() + 1, 0, 23, 59, 59);
-      return { inicio: inicioMes, fim: fimMes, label: 'Este Mês' };
-    }
-    return { inicio: new Date('2020-01-01'), fim: new Date(agora.getFullYear() + 1, 0, 1), label: 'Geral' };
-  }, [filtroPeriodo]);
-
-  // ----- KPIs DE CORTE (materiais_corte) com DEDUÇÃO automática -----
-  // Regra: cada linha de materiais_corte tem `quantidade` = total daquele material na obra
-  //   (ex: tubo Ø1" × 1500 = 1500 unidades para 1500 conjuntos).
-  // Se um conjunto AVANÇOU para fabricação ou além, é porque seus materiais JÁ FORAM CORTADOS.
-  // Portanto, qtd_cortada_efetiva = qtd_total × (conjuntos_em_fab / conjuntos_totais) na obra.
-  // O status_corte do banco pode estar desatualizado (operadores não marcam um a um), então
-  // usamos a dedução dos conjuntos como fonte primária + status finalizado como override (100%).
-  const ETAPAS_POS_CORTE = new Set(['fabricacao', 'solda', 'pintura', 'expedido', 'enviado', 'entregue', 'montagem']);
-
-  // Ratio de avanço por obra: % de conjuntos que já saíram do corte
-  const ratioCortePorObra = useMemo(() => {
-    const map = {};
-    (obraIdsEfetivos || []).forEach(oid => { map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 }; });
-    pecas.forEach(p => {
-      const oid = p.obra_id;
-      if (!map[oid]) map[oid] = { totalConj: 0, conjEmFab: 0, ratio: 0 };
-      const qtd = parseInt(p.quantidade) || 1;
-      map[oid].totalConj += qtd;
-      if (ETAPAS_POS_CORTE.has(p.etapa)) map[oid].conjEmFab += qtd;
-    });
-    Object.keys(map).forEach(oid => {
-      const r = map[oid];
-      r.ratio = r.totalConj > 0 ? r.conjEmFab / r.totalConj : 0;
-    });
-    return map;
-  }, [pecas, obraIdEfetivo]);
-
-  const kpisCorte = useMemo(() => {
-    const STATUS_CORTADO = ['finalizado', 'cortado'];
-    const totalMateriais = materiaisCorte.length;
-    const qtdTotal = materiaisCorte.reduce((s, m) => s + (parseInt(m.quantidade) || 1), 0);
-    const pesoTotalMateriais = materiaisCorte.reduce((s, m) =>
-      s + (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1), 0);
-
-    // Dedução automática
-    let qtdCortadaEfetiva = 0;
-    let pesoCortadoEfetivo = 0;
-    let linhasComCorteParcial = 0;
-    let linhasTotalmenteCortadas = 0;
-    let linhasComStatusFinalizado = 0;
-
-    materiaisCorte.forEach(m => {
-      const qtdMat = parseInt(m.quantidade) || 1;
-      const pesoUnit = parseFloat(m.peso_teorico) || 0;
-      const ratio = ratioCortePorObra[m.obra_id]?.ratio || 0;
-      const statusFinalizado = STATUS_CORTADO.includes(m.status_corte);
-
-      // Se status do banco diz finalizado → 100%. Senão usa ratio dos conjuntos.
-      const ratioEfetivo = statusFinalizado ? 1 : ratio;
-      const qtdCortada = Math.round(qtdMat * ratioEfetivo);
-      const pesoCortado = pesoUnit * qtdCortada;
-
-      qtdCortadaEfetiva += qtdCortada;
-      pesoCortadoEfetivo += pesoCortado;
-
-      if (statusFinalizado) linhasComStatusFinalizado += 1;
-      if (ratioEfetivo >= 1) linhasTotalmenteCortadas += 1;
-      else if (ratioEfetivo > 0) linhasComCorteParcial += 1;
-    });
-
-    const pct = pesoTotalMateriais > 0 ? Math.round((pesoCortadoEfetivo / pesoTotalMateriais) * 100) : 0;
-    const pendentes = qtdTotal - qtdCortadaEfetiva;
-
-    return {
-      totalMateriais,
-      qtdTotal,
-      cortados: linhasTotalmenteCortadas,
-      cortadosParciais: linhasComCorteParcial,
-      qtdCortada: qtdCortadaEfetiva,
-      pesoCortado: Math.round(pesoCortadoEfetivo * 100) / 100,
-      pesoTotalMateriais: Math.round(pesoTotalMateriais * 100) / 100,
-      pendentes: Math.max(0, pendentes),
-      pctConcluido: pct,
-      linhasComStatusFinalizado,
-    };
-  }, [materiaisCorte, ratioCortePorObra]);
-
-  // Eventos de produção: cada vez que uma peça avança para uma etapa
-  // — somam-se as quantidades das peças (sum c.quantidade) por etapa, por dia.
-  const eventosProducao = useMemo(() => {
-    const eventos = []; // { data, etapa, qtd, peso, pecaId, tipo, obraId, obraCodigo }
-    const obrasMap = {};
-    (obras || []).forEach(o => { obrasMap[o.id] = o; });
-
-    // 1) producao_historico
-    historicoProducao.forEach(h => {
-      const peca = pecasIdMap[h.peca_id];
-      if (!peca) return;
-      const etapa = h.etapa_para;
-      if (!['fabricacao', 'solda', 'pintura', 'expedido'].includes(etapa)) return;
-      const obraInfo = obrasMap[peca.obra_id] || {};
-      eventos.push({
-        data: new Date(h.data_inicio),
-        etapa,
-        qtd: parseInt(peca.quantidade) || 1,
-        peso: parseFloat(peca.peso_total) || 0,
-        pecaId: peca.id,
-        tipo: peca.tipo || 'Sem tipo',
-        obraId: peca.obra_id,
-        obraCodigo: obraInfo.codigo || peca.obra_id,
-      });
-    });
-    // 2) Fallback: data_fim_* das peças (quando não há histórico)
-    pecas.forEach(p => {
-      const qtd = parseInt(p.quantidade) || 1;
-      const peso = parseFloat(p.peso_total) || 0;
-      const tipo = p.tipo || 'Sem tipo';
-      const obraInfo = obrasMap[p.obra_id] || {};
-      const obraCodigo = obraInfo.codigo || p.obra_id;
-      const jaTemHist = (etapa) => historicoProducao.some(h => h.peca_id === p.id && h.etapa_para === etapa);
-      if (p.data_fim_fabricacao && !jaTemHist('fabricacao')) eventos.push({ data: new Date(p.data_fim_fabricacao), etapa: 'fabricacao', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
-      if (p.data_fim_solda && !jaTemHist('solda')) eventos.push({ data: new Date(p.data_fim_solda), etapa: 'solda', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
-      if (p.data_fim_pintura && !jaTemHist('pintura')) eventos.push({ data: new Date(p.data_fim_pintura), etapa: 'pintura', qtd, peso, pecaId: p.id, tipo, obraId: p.obra_id, obraCodigo });
-    });
-    // 3) Eventos de CORTE — vêm de materiais_corte (independente dos conjuntos)
-    //    Conta cada MATERIAL cortado (não conjunto). data_fim do corte.
-    materiaisCorte.forEach(m => {
-      if (m.status_corte !== 'finalizado' && m.status_corte !== 'cortado') return;
-      if (!m.data_fim) return; // sem data, não entra na timeline
-      const obraInfo = obrasMap[m.obra_id] || {};
-      eventos.push({
-        data: new Date(m.data_fim),
-        etapa: 'corte',
-        qtd: parseInt(m.quantidade) || 1,
-        peso: (parseFloat(m.peso_teorico) || 0) * (parseInt(m.quantidade) || 1),
-        pecaId: m.id,
-        tipo: m.perfil || 'Material',
-        obraId: m.obra_id,
-        obraCodigo: obraInfo.codigo || m.obra_id,
-      });
-    });
-    return eventos;
-  }, [historicoProducao, pecas, pecasIdMap, obras, materiaisCorte]);
-
-  // Breakdown por obra (quando grupo consolidado) — soma pcs por obra
-  const breakdownPorObra = useMemo(() => {
-    if (!isGrupoConsolidado) return null;
-    const map = {};
-    pecas.forEach(p => {
-      const obraId = p.obra_id;
-      if (!map[obraId]) {
-        const obraInfo = (obras || []).find(o => o.id === obraId);
-        map[obraId] = {
-          obraId,
-          codigo: obraInfo?.codigo || obraId,
-          nome: obraInfo?.nome || obraId,
-          pcsTotal: 0,
-          pcsFab: 0, pcsSolda: 0, pcsPintura: 0, pcsExpedido: 0, pcsEnviado: 0,
-          pesoTotal: 0,
-        };
-      }
-      const qtd = parseInt(p.quantidade) || 1;
-      const peso = parseFloat(p.peso_total) || 0;
-      map[obraId].pcsTotal += qtd;
-      map[obraId].pesoTotal += peso;
-      if (['fabricacao', 'solda', 'pintura', 'expedido', 'enviado', 'entregue'].includes(p.etapa)) map[obraId].pcsFab += qtd;
-      if (['solda', 'pintura', 'expedido', 'enviado', 'entregue'].includes(p.etapa)) map[obraId].pcsSolda += qtd;
-      if (['pintura', 'expedido', 'enviado', 'entregue'].includes(p.etapa)) map[obraId].pcsPintura += qtd;
-      if (p.etapa === 'expedido') map[obraId].pcsExpedido += qtd;
-      if (['enviado', 'entregue', 'montagem'].includes(p.etapa)) map[obraId].pcsEnviado += qtd;
-    });
-    return Object.values(map);
-  }, [isGrupoConsolidado, pecas, obras]);
-
-  // Eventos filtrados pela janela de tempo
-  const eventosNaJanela = useMemo(() => {
-    return eventosProducao.filter(e => e.data >= janelaTempo.inicio && e.data <= janelaTempo.fim);
-  }, [eventosProducao, janelaTempo]);
-
-  // Série temporal agregada por dia (para gráfico)
-  // Deduplica por peca_id em cada (dia, etapa) — uma peça progredida 2x na mesma etapa no mesmo dia conta 1×
-  const serieTemporalDiaria = useMemo(() => {
-    const byDay = {};
-    // Sets para dedupe: byDaySets[dia][etapa] = Set<pecaId>
-    const byDaySets = {};
-
-    eventosNaJanela.forEach(e => {
-      const key = e.data.toISOString().slice(0, 10);
-      if (!byDay[key]) byDay[key] = { dia: key, corte: 0, fabricacao: 0, solda: 0, pintura: 0, expedido: 0, corteKg: 0, fabricacaoKg: 0, soldaKg: 0, pinturaKg: 0, expedidoKg: 0, total: 0 };
-      if (!byDaySets[key]) byDaySets[key] = { corte: new Set(), fabricacao: new Set(), solda: new Set(), pintura: new Set(), expedido: new Set(), total: new Set() };
-
-      if (e.etapa === 'corte') {
-        // Corte: soma direta (cada material é distinto)
-        byDay[key].corte += e.qtd;
-        byDay[key].corteKg += e.peso;
-      } else {
-        // Conjuntos: deduplicar por peca_id naquela etapa no dia
-        if (!byDaySets[key][e.etapa].has(e.pecaId)) {
-          byDaySets[key][e.etapa].add(e.pecaId);
-          byDay[key][e.etapa] = (byDay[key][e.etapa] || 0) + e.qtd;
-          byDay[key][`${e.etapa}Kg`] = (byDay[key][`${e.etapa}Kg`] || 0) + e.peso;
-        }
-        // Total = peças únicas que tiveram QUALQUER movimentação no dia
-        if (!byDaySets[key].total.has(e.pecaId)) {
-          byDaySets[key].total.add(e.pecaId);
-          byDay[key].total += e.qtd;
-        }
-      }
-    });
-    return Object.values(byDay)
-      .sort((a, b) => a.dia.localeCompare(b.dia))
-      .map(d => {
-        const dt = new Date(d.dia + 'T12:00:00');
-        return { ...d, label: dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) };
-      });
-  }, [eventosNaJanela]);
-
-  // KPIs temporais (totais SEM duplicação)
-  // Cada peça é contada NO MÁXIMO UMA VEZ por etapa (mesmo se houve várias movimentações).
-  // Cada peça é contada NO MÁXIMO UMA VEZ no TOTAL CONJ (mesmo se passou por várias etapas).
-  // Materiais de Corte são contados separadamente (independente dos conjuntos).
-  const kpisTemporais = useMemo(() => {
-    const agg = {
-      corte:      { un: 0, kg: 0 },  // mat individuais cortados (não conjuntos)
-      fabricacao: { un: 0, kg: 0 },
-      solda:      { un: 0, kg: 0 },
-      pintura:    { un: 0, kg: 0 },
-      expedido:   { un: 0, kg: 0 },
-    };
-
-    // Para corte: soma de eventos é OK (cada material é um item distinto)
-    eventosNaJanela.filter(e => e.etapa === 'corte').forEach(e => {
-      agg.corte.un += e.qtd;
-      agg.corte.kg += e.peso;
-    });
-
-    // Para CONJUNTOS: deduplicar por peca_id em cada etapa
-    // (uma peça que avança 2x para fabricação no mesmo período é UMA peça progredida)
-    const pecasPorEtapa = { fabricacao: new Set(), solda: new Set(), pintura: new Set(), expedido: new Set() };
-    eventosNaJanela.filter(e => e.etapa !== 'corte').forEach(e => {
-      if (pecasPorEtapa[e.etapa]) pecasPorEtapa[e.etapa].add(e.pecaId);
-    });
-    ['fabricacao', 'solda', 'pintura', 'expedido'].forEach(etapa => {
-      pecasPorEtapa[etapa].forEach(pid => {
-        const p = pecasIdMap[pid];
-        if (!p) return;
-        const qtd = parseInt(p.quantidade) || 1;
-        const peso = parseFloat(p.peso_total) || 0;
-        agg[etapa].un += qtd;
-        agg[etapa].kg += peso;
-      });
-    });
-
-    // TOTAL CONJUNTOS = peças únicas que tiveram QUALQUER avanço de etapa no período
-    const pecasUnicasMovimentadas = new Set();
-    eventosNaJanela.filter(e => e.etapa !== 'corte').forEach(e => pecasUnicasMovimentadas.add(e.pecaId));
-    let totalUnConj = 0;
-    let totalKgConj = 0;
-    pecasUnicasMovimentadas.forEach(pid => {
-      const p = pecasIdMap[pid];
-      if (!p) return;
-      totalUnConj += parseInt(p.quantidade) || 1;
-      totalKgConj += parseFloat(p.peso_total) || 0;
-    });
-
-    const diasComProducao = serieTemporalDiaria.filter(d => d.total > 0 || d.corte > 0).length || 1;
-
-    const mediaDiaria = {
-      corte:      Math.round(agg.corte.un / diasComProducao),
-      fabricacao: Math.round(agg.fabricacao.un / diasComProducao),
-      solda:      Math.round(agg.solda.un / diasComProducao),
-      pintura:    Math.round(agg.pintura.un / diasComProducao),
-      expedido:   Math.round(agg.expedido.un / diasComProducao),
-      total:      Math.round(totalUnConj / diasComProducao),
-    };
-
-    let melhorDia = null;
-    serieTemporalDiaria.forEach(d => {
-      const tot = d.total + (d.corte || 0);
-      if (!melhorDia || tot > melhorDia.total) melhorDia = { ...d, total: tot };
-    });
-
-    return {
-      ...agg,
-      totalUn: totalUnConj,
-      totalKg: totalKgConj,
-      pecasUnicasMovimentadas: pecasUnicasMovimentadas.size,
-      diasComProducao,
-      mediaDiaria,
-      melhorDia: melhorDia ? { dia: melhorDia.label, total: melhorDia.total } : null,
-    };
-  }, [eventosNaJanela, serieTemporalDiaria, pecasIdMap]);
-
-  // Production waterfall data
-  const waterfallData = useMemo(() => [
-    { name: 'Total Obra', value: kpis.pesoTotal, fill: '#6366f1', total: kpis.pesoTotal },
-    { name: 'Não Fabricado', value: -kpis.pesoNaoFabricado, fill: '#ef4444', total: kpis.pesoFabricado },
-    { name: 'Fabricado', value: kpis.pesoFabricado, fill: '#10b981', total: kpis.pesoFabricado },
-    { name: 'Soldado', value: kpis.pesoSoldado, fill: '#3b82f6', total: kpis.pesoSoldado },
-    { name: 'Pintado', value: kpis.pesoPintado, fill: '#f59e0b', total: kpis.pesoPintado },
-    { name: 'Pronto Envio', value: kpis.pesoEnviado, fill: '#06b6d4', total: kpis.pesoEnviado },
-  ], [kpis]);
-
-  // Tabs
-  const tabs = [
-    { id: 'visao-geral', label: 'Visao Geral', icon: BarChart3 },
-    { id: 'financeiro', label: 'Financeiro', icon: DollarSign },
-    { id: 'categorias', label: 'Categorias', icon: Layers },
-    { id: '3d', label: 'Grafico 3D', icon: Maximize2 },
+  const colunasSerie = [
+    { k: 'rotulo', l: granEfetiva === 'mes' ? 'Mês' : granEfetiva === 'semana' ? 'Semana de' : 'Dia', cls: 'text-slate-300' },
+    ...SETORES.map((s) => ({ k: s.key, l: s.label, r: true, f: (l) => (l[s.key] ? n0(l[s.key]) : <span className="text-slate-600">—</span>), csv: (l) => l[s.key] })),
   ];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="flex flex-col items-center gap-4">
-          <RefreshCw className="w-8 h-8 text-emerald-500 animate-spin" />
-          <span className="text-slate-400">Carregando dados de producao...</span>
+  return (
+    <div className="space-y-5">
+      {/* Cabeçalho */}
+      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-3"><Activity className="h-7 w-7 text-emerald-500" />Análise de Produção</h1>
+          <p className="text-slate-400 text-sm mt-1">Produção por período, obra, setor e pessoa — kg que concluíram cada etapa, sem duplicatas.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/60 border border-slate-700 text-sm text-slate-200" title="Altere a obra no seletor do topo">
+            <Building2 className="h-4 w-4 text-slate-400" />{rotuloEscopo(escopoObra, obras)}
+          </span>
+          <Button variant="outline" size="sm" className="border-slate-700 text-slate-200" onClick={() => carregar(true)} disabled={carregando}>
+            <RefreshCw className={cn('h-4 w-4 mr-2', carregando && 'animate-spin')} />{carregando ? 'Carregando…' : 'Atualizar'}
+          </Button>
         </div>
       </div>
-    );
-  }
 
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-gradient-to-br from-emerald-500/20 to-blue-500/20 rounded-xl border border-emerald-500/30">
-            <Activity size={28} className="text-emerald-400" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-white">Analise de Producao</h1>
-            <p className="text-slate-400 text-sm">Dashboard interativo com graficos 3D</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Escopo de obra — definido pelo seletor do topo (somente leitura) */}
-          <span
-            className="px-3 py-1.5 bg-slate-800/60 rounded-lg border border-slate-700/50 text-slate-400 text-xs"
-            title="Altere a obra no seletor do topo"
-          >
-            Escopo: <span className="text-slate-200">{rotuloEscopo(escopoObra, obras)}</span>
-          </span>
+      {erro && (
+        <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300 flex items-center gap-2"><AlertTriangle className="h-4 w-4" />{erro}</div>
+      )}
 
-          {/* Período Filter */}
-          <div className="flex items-center gap-1 bg-slate-800/80 rounded-lg border border-slate-700/50 p-0.5">
-            {[
-              { v: 'diario', l: 'Diário' },
-              { v: 'semanal', l: 'Semanal' },
-              { v: 'mensal', l: 'Mensal' },
-              { v: 'geral', l: 'Geral' },
-            ].map(opt => (
-              <button
-                key={opt.v}
-                onClick={() => setFiltroPeriodo(opt.v)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${filtroPeriodo === opt.v ? 'bg-emerald-500 text-white' : 'text-slate-400 hover:text-white'}`}
-              >
-                {opt.l}
-              </button>
-            ))}
-          </div>
-
-          {/* Category Filter */}
-          <div className="relative">
-            <button onClick={() => setShowFilter(!showFilter)}
-              className="flex items-center gap-2 px-4 py-2 bg-slate-800/80 rounded-lg border border-slate-700/50 text-slate-300 hover:text-white hover:border-slate-600 transition-all">
-              <Filter size={16} />
-              <span className="text-sm">{filtroCategoria === 'todas' ? 'Todas Categorias' : filtroCategoria}</span>
-              <ChevronDown size={14} />
+      {/* Período */}
+      <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3 flex flex-col xl:flex-row xl:items-center gap-3 xl:justify-between">
+        <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-0">
+          <CalendarDays className="h-4 w-4 text-slate-400 mr-1" />
+          {PERIODOS.map((p) => (
+            <button key={p.key} type="button" onClick={() => setPeriodo(p.key)}
+              className={cn('px-3 py-1.5 rounded-lg text-xs border transition', periodo === p.key ? 'bg-emerald-600 border-emerald-500 text-white' : 'border-slate-700 text-slate-300 hover:bg-slate-700/50')}>
+              {p.label}
             </button>
-            <AnimatePresence>
-              {showFilter && (
-                <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}
-                  className="absolute right-0 top-full mt-2 w-56 bg-slate-800 border border-slate-700 rounded-xl shadow-xl z-50 max-h-80 overflow-y-auto">
-                  <button onClick={() => { setFiltroCategoria('todas'); setShowFilter(false); }}
-                    className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 transition-colors ${filtroCategoria === 'todas' ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
-                    Todas Categorias
-                  </button>
-                  {categorias.map(cat => (
-                    <button key={cat} onClick={() => { setFiltroCategoria(cat); setShowFilter(false); }}
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-slate-700 transition-colors ${filtroCategoria === cat ? 'text-emerald-400 bg-slate-700/50' : 'text-slate-300'}`}>
-                      {cat}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <span className="px-3 py-1 bg-emerald-500/20 text-emerald-400 text-xs font-medium rounded-full border border-emerald-500/30">
-            {pecas.length} conj · {pecas.reduce((s, p) => s + (parseInt(p.quantidade) || 1), 0).toLocaleString('pt-BR')} pcs
-          </span>
-        </div>
-      </motion.div>
-
-      {/* Banner: Modo Unidade (obras seriadas TEMEC) */}
-      {isModoUnidade && (
-        <div className={`${isGrupoConsolidado ? 'bg-purple-500/10 border-purple-500/30' : 'bg-emerald-500/10 border-emerald-500/30'} border rounded-xl px-4 py-3 flex items-center gap-3`}>
-          <Activity size={20} className={isGrupoConsolidado ? 'text-purple-400' : 'text-emerald-400'} />
-          <div className="flex-1">
-            <p className={`${isGrupoConsolidado ? 'text-purple-300' : 'text-emerald-300'} text-sm font-medium`}>
-              {isGrupoConsolidado ? 'Análise Consolidada — ' : 'Obra seriada — análise por '}<span className="font-bold">quantidade de peças</span>
-            </p>
-            <p className={`${isGrupoConsolidado ? 'text-purple-200/70' : 'text-emerald-200/70'} text-xs mt-0.5`}>
-              {isGrupoConsolidado
-                ? `${grupoAtivo?.label} · Contrato consolidado: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un = R$ ${(configObra?.qtdContrato * configObra?.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
-                : `${obrasAtivas.find(o => o.id === obraIdsEfetivos?.[0])?.nome || 'Obra'} · Contrato: ${configObra?.qtdContrato?.toLocaleString('pt-BR')} un × R$ ${configObra?.valor?.toFixed(2)}/un`}
-            </p>
-          </div>
-          {isGrupoConsolidado && (
-            <div className="flex gap-2 text-xs">
-              <span className="px-2 py-1 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30">
-                {grupoAtivo?.obraIds.length} obras
-              </span>
+          ))}
+          {periodo === 'custom' && (
+            <div className="flex items-center gap-2 ml-1">
+              <Input type="date" value={custom.ini} onChange={(e) => setCustom((c) => ({ ...c, ini: e.target.value }))} className="h-8 w-36 bg-slate-900 border-slate-600 text-white text-xs" />
+              <span className="text-slate-500 text-xs">até</span>
+              <Input type="date" value={custom.fim} onChange={(e) => setCustom((c) => ({ ...c, fim: e.target.value }))} className="h-8 w-36 bg-slate-900 border-slate-600 text-white text-xs" />
             </div>
           )}
         </div>
-      )}
-
-      {/* ===== CORTE — PREPARAÇÃO DO MATERIAL (independente dos conjuntos) ===== */}
-      {kpisCorte.totalMateriais > 0 && (
-        <div className="bg-gradient-to-br from-orange-900/20 to-amber-900/10 border border-orange-500/30 rounded-xl p-5">
-          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
-            <div>
-              <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span className="text-xl">✂</span>
-                Corte — Preparação do Material
-              </h2>
-              <p className="text-orange-200/70 text-xs mt-0.5">
-                Materiais individuais (chapas/perfis) cortados como insumo dos conjuntos · contagem independente
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-3xl font-bold text-orange-300">{kpisCorte.pctConcluido}%</p>
-              <p className="text-[10px] text-slate-400">concluído</p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-            <div className="rounded-lg p-3 border border-orange-500/30 bg-orange-500/10">
-              <p className="text-[10px] text-slate-500 uppercase">Materiais Cortados</p>
-              <p className="text-2xl font-bold text-white">{kpisCorte.qtdCortada.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-orange-300 mt-0.5">de {kpisCorte.qtdTotal.toLocaleString('pt-BR')} planejados</p>
-            </div>
-            <div className="rounded-lg p-3 border border-orange-500/30 bg-orange-500/10">
-              <p className="text-[10px] text-slate-500 uppercase">Peso Cortado</p>
-              <p className="text-2xl font-bold text-white">{kpisCorte.pesoCortado.toLocaleString('pt-BR', { maximumFractionDigits: 0 })}</p>
-              <p className="text-[10px] text-orange-300 mt-0.5">de {kpisCorte.pesoTotalMateriais.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
-            </div>
-            <div className="rounded-lg p-3 border border-emerald-500/30 bg-emerald-500/10">
-              <p className="text-[10px] text-slate-500 uppercase">Linhas Totalmente Cortadas</p>
-              <p className="text-2xl font-bold text-emerald-300">{kpisCorte.cortados.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">+ {kpisCorte.cortadosParciais} parciais (em prod)</p>
-            </div>
-            <div className="rounded-lg p-3 border border-red-500/30 bg-red-500/10">
-              <p className="text-[10px] text-slate-500 uppercase">Pendentes</p>
-              <p className="text-2xl font-bold text-red-300">{kpisCorte.pendentes.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">aguardando corte</p>
-            </div>
-            <div className="rounded-lg p-3 border border-slate-700 bg-slate-800/50">
-              <p className="text-[10px] text-slate-500 uppercase">Total Linhas BOM</p>
-              <p className="text-2xl font-bold text-white">{kpisCorte.totalMateriais.toLocaleString('pt-BR')}</p>
-              <p className="text-[10px] text-slate-500 mt-0.5">{kpisCorte.qtdTotal.toLocaleString('pt-BR')} un de materiais</p>
-            </div>
-          </div>
-          <p className="text-[10px] text-orange-200/60 mt-2 italic">
-            💡 Dedução automática: se um conjunto avançou para fabricação, seus materiais foram cortados — mesmo que o status no Kanban Corte ainda esteja como "aguardando".
-          </p>
-          <div className="mt-3 h-2 bg-slate-800/60 rounded-full overflow-hidden">
-            <div className="h-full bg-gradient-to-r from-orange-500 to-amber-500 rounded-full" style={{ width: `${kpisCorte.pctConcluido}%` }} />
+        <div className="flex flex-wrap items-center gap-3 shrink-0">
+          <span className="text-xs text-slate-500">{rotPeriodo}</span>
+          <div className="flex rounded-lg border border-slate-700 overflow-hidden shrink-0">
+            {[['dia', 'Diário'], ['semana', 'Semanal'], ['mes', 'Mensal']].map(([k, l]) => (
+              <button key={k} type="button" onClick={() => setGran(k)} className={cn('px-3 py-1.5 text-xs', granEfetiva === k ? 'bg-slate-600 text-white' : 'text-slate-300 hover:bg-slate-700/50')}>{l}</button>
+            ))}
           </div>
         </div>
-      )}
-
-      {/* ===== ANÁLISE TEMPORAL — QUANTIDADE DE PEÇAS POR PERÍODO ===== */}
-      <div className="bg-gradient-to-br from-slate-900/60 to-slate-800/30 border border-slate-700/50 rounded-xl p-5">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <div>
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <Activity size={18} className="text-emerald-400" />
-              Produção Temporal — {janelaTempo.label}
-            </h2>
-            <p className="text-slate-500 text-xs mt-0.5">
-              Conjuntos completos (1 peça = 1 conjunto, máx. {configObra?.qtdContrato?.toLocaleString('pt-BR') || '∞'} no contrato) · Materiais de corte contados à parte
-            </p>
-          </div>
-          <div className="flex gap-2 text-xs">
-            <span className="px-2 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400">
-              {kpisTemporais.diasComProducao} {kpisTemporais.diasComProducao === 1 ? 'dia ativo' : 'dias ativos'}
-            </span>
-            {kpisTemporais.melhorDia && (
-              <span className="px-2 py-1 rounded-full bg-amber-500/20 border border-amber-500/30 text-amber-400">
-                🏆 Melhor dia: {kpisTemporais.melhorDia.dia} · {kpisTemporais.melhorDia.total} pcs
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* KPIs por etapa — Corte (materiais) + Conjuntos (Fab/Solda/Pintura/Expedido) */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-5">
-          {[
-            { label: 'Corte (materiais)', un: kpisTemporais.corte.un, kg: kpisTemporais.corte.kg, media: kpisTemporais.mediaDiaria.corte, color: '#fb923c', icon: () => <span className="text-sm">✂</span>, suffix: 'mat' },
-            { label: 'Fabricação', un: kpisTemporais.fabricacao.un, kg: kpisTemporais.fabricacao.kg, media: kpisTemporais.mediaDiaria.fabricacao, color: '#10b981', icon: Factory, suffix: 'pcs' },
-            { label: 'Solda', un: kpisTemporais.solda.un, kg: kpisTemporais.solda.kg, media: kpisTemporais.mediaDiaria.solda, color: '#3b82f6', icon: Hammer, suffix: 'pcs' },
-            { label: 'Pintura', un: kpisTemporais.pintura.un, kg: kpisTemporais.pintura.kg, media: kpisTemporais.mediaDiaria.pintura, color: '#f59e0b', icon: Paintbrush, suffix: 'pcs' },
-            { label: 'Expedido', un: kpisTemporais.expedido.un, kg: kpisTemporais.expedido.kg, media: kpisTemporais.mediaDiaria.expedido, color: '#06b6d4', icon: Truck, suffix: 'pcs' },
-            { label: 'TOTAL Conj.', un: kpisTemporais.totalUn, kg: kpisTemporais.totalKg, media: kpisTemporais.mediaDiaria.total, color: '#8b5cf6', icon: Activity, suffix: 'pcs' },
-          ].map((k, i) => {
-            const Icon = k.icon;
-            return (
-              <div key={i} className="rounded-xl p-3 border" style={{ backgroundColor: `${k.color}12`, borderColor: `${k.color}40` }}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <Icon size={14} style={{ color: k.color }} />
-                  <span className="text-[10px] text-slate-500 uppercase tracking-wide">{k.label}</span>
-                </div>
-                <p className="text-2xl font-bold text-white">{k.un.toLocaleString('pt-BR')} <span className="text-xs text-slate-400 font-normal">{k.suffix || 'pcs'}</span></p>
-                <p className="text-[10px] text-slate-500 mt-1">{k.kg.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</p>
-                {filtroPeriodo !== 'diario' && (
-                  <p className="text-[10px] mt-0.5" style={{ color: k.color }}>~{k.media} {k.suffix || 'pcs'}/dia</p>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Breakdown por Obra (modo consolidado) */}
-        {breakdownPorObra && breakdownPorObra.length > 0 && (
-          <div className="mb-4 bg-purple-500/5 border border-purple-500/20 rounded-lg p-3">
-            <p className="text-xs text-purple-300 font-semibold uppercase tracking-wide mb-2">Distribuição por Obra (acumulado)</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {breakdownPorObra.map(b => (
-                <div key={b.obraId} className="bg-slate-900/50 rounded-lg p-3 border border-slate-700/40">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-white text-sm font-semibold">{b.codigo}</span>
-                    <span className="text-xs text-purple-300">{b.pcsTotal.toLocaleString('pt-BR')} pcs · {b.pesoTotal.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg</span>
-                  </div>
-                  <div className="grid grid-cols-5 gap-1 text-[10px]">
-                    <div className="text-center bg-emerald-500/10 rounded p-1">
-                      <p className="text-emerald-400 font-bold">{b.pcsFab.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500">Fab</p>
-                    </div>
-                    <div className="text-center bg-blue-500/10 rounded p-1">
-                      <p className="text-blue-400 font-bold">{b.pcsSolda.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500">Solda</p>
-                    </div>
-                    <div className="text-center bg-amber-500/10 rounded p-1">
-                      <p className="text-amber-400 font-bold">{b.pcsPintura.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500">Pint</p>
-                    </div>
-                    <div className="text-center bg-cyan-500/10 rounded p-1">
-                      <p className="text-cyan-400 font-bold">{b.pcsExpedido.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500">Exped</p>
-                    </div>
-                    <div className="text-center bg-teal-500/10 rounded p-1">
-                      <p className="text-teal-400 font-bold">{b.pcsEnviado.toLocaleString('pt-BR')}</p>
-                      <p className="text-slate-500">Env</p>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Gráfico Temporal — Barras por dia */}
-        {serieTemporalDiaria.length > 0 ? (
-          <div className="bg-slate-900/40 rounded-lg p-3 border border-slate-700/40">
-            <ResponsiveContainer width="100%" height={260}>
-              <BarChart data={serieTemporalDiaria} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                <XAxis dataKey="label" stroke="#64748b" style={{ fontSize: 11 }} />
-                <YAxis stroke="#64748b" style={{ fontSize: 11 }} />
-                <Tooltip
-                  contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 8 }}
-                  labelStyle={{ color: '#cbd5e1' }}
-                />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar dataKey="corte" stackId="b" fill="#fb923c" name="Corte (materiais)" />
-                <Bar dataKey="fabricacao" stackId="a" fill="#10b981" name="Fabricação (conj)" />
-                <Bar dataKey="solda" stackId="a" fill="#3b82f6" name="Solda (conj)" />
-                <Bar dataKey="pintura" stackId="a" fill="#f59e0b" name="Pintura (conj)" />
-                <Bar dataKey="expedido" stackId="a" fill="#06b6d4" name="Expedido (conj)" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <div className="text-center py-10 text-slate-500 text-sm border border-dashed border-slate-700 rounded-lg">
-            Sem movimentações de produção no período selecionado.
-          </div>
-        )}
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
-        <KPICard title="Peso Total" value={kpis.pesoTotal} unit="kg" icon={Weight} color="#6366f1" delay={0} subtitle="Peso total da obra" />
-        <KPICard title="Fabricado" value={kpis.pesoFabricado} unit="kg" icon={Factory} color="#10b981" trend={kpis.percFabricado} subtitle={`${kpis.percFabricado.toFixed(1)}% concluido`} delay={0.05} />
-        <KPICard title="Soldado" value={kpis.pesoSoldado} unit="kg" icon={Hammer} color="#3b82f6" trend={kpis.percSoldado} subtitle={`${kpis.percSoldado.toFixed(1)}% soldado`} delay={0.1} />
-        <KPICard title="Pintado" value={kpis.pesoPintado} unit="kg" icon={Paintbrush} color="#f59e0b" trend={kpis.percPintado} subtitle={`${kpis.percPintado.toFixed(1)}% pintado`} delay={0.15} />
-        <KPICard title="Produzido" value={kpis.pesoProduzido} unit="kg" icon={Activity} color="#8b5cf6" delay={0.2} subtitle="Peso produzido total" />
-        <KPICard title="Nao Fabricado" value={kpis.pesoNaoFabricado} unit="kg" icon={TrendingDown} color="#ef4444" delay={0.25} subtitle={`${(100 - kpis.percFabricado).toFixed(1)}% pendente`} />
-        <KPICard title="Aguardando Envio" value={kpis.pesoEnviado} unit="kg" icon={Truck} color="#06b6d4" trend={kpis.percEnviado} subtitle={`${kpis.pecasAguardandoEnvio} peças na fila · ${kpis.pesoJaEntregue.toLocaleString('pt-BR', {maximumFractionDigits:0})} kg entregue`} delay={0.3} />
+      {/* KPIs por setor */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+        {resumo.map((r) => {
+          const ant = resumoAnt.find((x) => x.setor === r.setor);
+          const Icone = ICONE_SETOR[r.setor];
+          return (
+            <div key={r.setor} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-slate-400">{r.label}</p>
+                <span className="p-1.5 rounded-lg" style={{ background: `${r.cor}22` }}><Icone className="h-4 w-4" style={{ color: r.cor }} /></span>
+              </div>
+              <p className="text-2xl font-bold text-white mt-1">{kg(r.kg)}</p>
+              <Variacao pct={variacaoPct(r.kg, ant?.kg || 0)} />
+              <div className="grid grid-cols-2 gap-2 mt-3 text-xs">
+                <div><p className="text-slate-500">Média/dia útil</p><p className="text-slate-200 font-medium">{kg(r.mediaDiaUtil)}</p></div>
+                <div><p className="text-slate-500">{r.setor === 'expedicao' ? 'Romaneios' : 'Peças'}</p><p className="text-slate-200 font-medium">{n0(r.setor === 'expedicao' ? r.eventos : r.pecas)}</p></div>
+                <div className="col-span-2"><p className="text-slate-500">Melhor dia</p><p className="text-slate-200 font-medium">{r.melhorDia ? `${dataBR(r.melhorDia.data)} · ${kg(r.melhorDia.kg)}` : '—'}</p></div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Gauge Charts */}
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-        className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-        <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-          <Gauge size={18} className="text-emerald-400" /> Progresso da Producao
-        </h3>
-        <div className="flex flex-wrap justify-around gap-4">
-          <GaugeChart value={kpis.pesoFabricado} max={kpis.pesoTotal} label="Fabricacao" color="#10b981" icon={Factory} />
-          <GaugeChart value={kpis.pesoSoldado} max={kpis.pesoTotal} label="Solda" color="#3b82f6" icon={Hammer} />
-          <GaugeChart value={kpis.pesoPintado} max={kpis.pesoTotal} label="Pintura" color="#f59e0b" icon={Paintbrush} />
-          <GaugeChart value={kpis.pesoEnviado} max={kpis.pesoTotal} label="Expedicao" color="#06b6d4" icon={Truck} />
-          <GaugeChart value={kpis.pesoProduzido} max={kpis.pesoTotal} label="Producao Total" color="#8b5cf6" icon={Activity} />
-        </div>
-      </motion.div>
+      <Tabs defaultValue="tempo" className="space-y-4">
+        <TabsList className="bg-slate-800/60 border border-slate-700 flex flex-wrap h-auto">
+          <TabsTrigger value="tempo"><Activity className="h-4 w-4 mr-1.5" />Linha do tempo</TabsTrigger>
+          <TabsTrigger value="obras"><Building2 className="h-4 w-4 mr-1.5" />Por obra</TabsTrigger>
+          <TabsTrigger value="pessoas"><Users className="h-4 w-4 mr-1.5" />Setores e pessoas</TabsTrigger>
+          <TabsTrigger value="fluxo"><GitBranch className="h-4 w-4 mr-1.5" />Fluxo e gargalos</TabsTrigger>
+          <TabsTrigger value="dados"><ShieldCheck className="h-4 w-4 mr-1.5" />Qualidade dos dados</TabsTrigger>
+        </TabsList>
 
-      {/* Tabs */}
-      <div className="flex gap-2 border-b border-slate-700/50 pb-2 overflow-x-auto">
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-all whitespace-nowrap ${
-              activeTab === tab.id
-                ? 'bg-slate-800 text-emerald-400 border border-slate-700/50 border-b-transparent'
-                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
-            }`}>
-            <tab.icon size={16} /> {tab.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab Content */}
-      <AnimatePresence mode="wait">
-        {activeTab === 'visao-geral' && (
-          <motion.div key="visao" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 space-y-6">
-            {/* Status Distribution Pie */}
-            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <PieIcon size={18} className="text-blue-400" /> Distribuicao por Status
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie data={statusPie} cx="50%" cy="50%" innerRadius={60} outerRadius={110}
-                    paddingAngle={3} dataKey="value" label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}>
-                    {statusPie.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                  </Pie>
-                  <Tooltip formatter={(val) => `${parseFloat(val).toLocaleString('pt-BR')} kg`}
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Category Distribution Pie */}
-            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <Layers size={18} className="text-purple-400" /> Distribuicao por Categoria
-              </h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={110}
-                    paddingAngle={2} dataKey="value" label={({ name, percent }) => percent > 0.05 ? `${name}` : ''}>
-                    {pieData.map((entry, i) => <Cell key={i} fill={entry.fill} />)}
-                  </Pie>
-                  <Tooltip formatter={(val) => `${parseFloat(val).toLocaleString('pt-BR')} kg`}
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                  <Legend wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Summary Bar Chart */}
-            <div className="lg:col-span-2 bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <BarChart3 size={18} className="text-emerald-400" /> Resumo de Producao (kg)
-              </h3>
-              <ResponsiveContainer width="100%" height={350}>
-                <BarChart data={[{
-                  name: 'Producao',
-                  'Peso Total': kpis.pesoTotal,
-                  'Fabricado': kpis.pesoFabricado,
-                  'Soldado': kpis.pesoSoldado,
-                  'Pintado': kpis.pesoPintado,
-                  'Nao Fabricado': kpis.pesoNaoFabricado,
-                  'Aguardando Envio': kpis.pesoEnviado,
-                }]} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis type="number" stroke="#64748b" tickFormatter={v => `${(v / 1000).toLocaleString('pt-BR')}k`} />
-                  <YAxis type="category" dataKey="name" stroke="#64748b" width={0} />
-                  <Tooltip formatter={(val) => `${parseFloat(val).toLocaleString('pt-BR')} kg`}
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                  <Bar dataKey="Peso Total" fill="#6366f1" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="Fabricado" fill="#10b981" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="Soldado" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="Pintado" fill="#f59e0b" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="Nao Fabricado" fill="#ef4444" radius={[0, 4, 4, 0]} />
-                  <Bar dataKey="Aguardando Envio" fill="#06b6d4" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* 3D + Progress Row */}
-            <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-              {/* Mini 3D Chart */}
-              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-                  <Maximize2 size={18} className="text-emerald-400" /> Producao 3D
-                </h3>
-                <Production3DChart data={data3D} width={450} height={300} />
-              </div>
-              {/* Radial Progress */}
-              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-                <h3 className="text-white font-semibold mb-3 flex items-center gap-2">
-                  <Gauge size={18} className="text-purple-400" /> Progresso por Etapa
-                </h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <RadialBarChart cx="50%" cy="50%" innerRadius="20%" outerRadius="90%"
-                    data={dadosFinanceiros.radialData} startAngle={180} endAngle={-180}>
-                    <RadialBar background={{ fill: '#1e293b' }} dataKey="value" cornerRadius={5} label={{ fill: '#fff', fontSize: 11, position: 'insideStart' }} />
-                    <Legend iconSize={10} wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }} />
-                    <Tooltip formatter={(val) => `${parseFloat(val).toFixed(1)}%`}
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                  </RadialBarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'financeiro' && (
-          <motion.div key="fin" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-            {/* Financial KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              <KPICard title="Valor Fabricacao" value={dadosFinanceiros.valorFab} unit="BRL" icon={Factory} color="#10b981" subtitle={`${kpis.pesoFabricado.toFixed(0)} kg`} delay={0} />
-              <KPICard title="Valor Solda" value={dadosFinanceiros.valorSolda} unit="BRL" icon={Hammer} color="#3b82f6" subtitle={`${kpis.pesoSoldado.toFixed(0)} kg`} delay={0.05} />
-              <KPICard title="Valor Pintura" value={dadosFinanceiros.valorPintura} unit="BRL" icon={Paintbrush} color="#f59e0b" subtitle={`${kpis.pesoPintado.toFixed(0)} kg`} delay={0.1} />
-              <KPICard title="Valor Expedicao" value={dadosFinanceiros.valorExpedicao} unit="BRL" icon={Truck} color="#06b6d4" subtitle={`${kpis.pesoEnviado.toFixed(0)} kg`} delay={0.15} />
-            </div>
-
-            {/* Financial Value Bar Chart */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6">
-              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                  <BarChart3 size={18} className="text-green-400" /> Valor por Etapa (R$)
-                </h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <BarChart data={dadosFinanceiros.barData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                    <XAxis dataKey="etapa" stroke="#64748b" />
-                    <YAxis stroke="#64748b" />
-                    <Tooltip formatter={(val) => formatCurrency(val)}
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                    <Bar dataKey="valor" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* Financial Distribution Pie */}
-              <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-                <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                  <PieIcon size={18} className="text-yellow-400" /> Distribuicao de Valor
-                </h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie data={dadosFinanceiros.barData} cx="50%" cy="50%" innerRadius={60} outerRadius={110}
-                      paddingAngle={2} dataKey="valor" label={({ etapa, percent }) => `${etapa} ${(percent * 100).toFixed(1)}%`}>
-                      {dadosFinanceiros.barData.map((entry, i) => <Cell key={i} fill={entry.cor} />)}
-                    </Pie>
-                    <Tooltip formatter={(val) => formatCurrency(val)}
-                      contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            {/* Total Financial Value Summary */}
-            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-6">
-              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <DollarSign size={20} className="text-emerald-400" /> Resumo Financeiro Total
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div>
-                    <p className="text-slate-400 text-sm">Valor Total Produzido</p>
-                    <p className="text-2xl font-bold text-emerald-400 mt-1">{formatCurrency(dadosFinanceiros.valorTotal)}</p>
-                  </div>
-                  <div className="text-emerald-400/20 text-4xl">
-                    <DollarSign />
-                  </div>
-                </div>
-                <div className="flex items-center justify-between p-4 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div>
-                    <p className="text-slate-400 text-sm">Peso Total Processado</p>
-                    <p className="text-2xl font-bold text-blue-400 mt-1">{kpis.pesoTotal.toLocaleString('pt-BR')} kg</p>
-                  </div>
-                  <div className="text-blue-400/20 text-4xl">
-                    <Weight />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-
-        {activeTab === 'categorias' && (
-          <motion.div key="cat" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
-            {/* Comparison by Category */}
-            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <Layers size={18} className="text-purple-400" /> Comparacao por Categoria (kg)
-              </h3>
-              <ResponsiveContainer width="100%" height={450}>
-                <ComposedChart data={dadosPorCategoria.slice(0, 12)}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
-                  <XAxis dataKey="tipo" stroke="#64748b" angle={-30} textAnchor="end" height={80} tick={{ fontSize: 11 }} />
-                  <YAxis stroke="#64748b" tickFormatter={v => `${(v / 1000).toLocaleString('pt-BR')}k`} />
-                  <Tooltip formatter={(val) => `${parseFloat(val).toLocaleString('pt-BR')} kg`}
-                    contentStyle={{ backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px' }} />
-                  <Legend wrapperStyle={{ color: '#94a3b8' }} />
-                  <Bar dataKey="pesoTotal" name="Peso Total" fill="#6366f1" radius={[4, 4, 0, 0]} opacity={0.8} />
-                  <Bar dataKey="fabricado" name="Fabricado" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="soldado" name="Soldado" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="pintado" name="Pintado" fill="#f59e0b" radius={[4, 4, 0, 0]} />
-                  <Bar dataKey="enviado" name="Aguardando Envio" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+        {/* ===== LINHA DO TEMPO ===== */}
+        <TabsContent value="tempo" className="space-y-4">
+          <Painel titulo={`Produção ${granEfetiva === 'mes' ? 'mensal' : granEfetiva === 'semana' ? 'semanal' : 'diária'} por setor (kg)`}
+            sub={`Linha = média móvel de peças prontas (${granEfetiva === 'dia' ? '7 dias' : '4 períodos'}).${gran === 'dia' && granEfetiva !== 'dia' ? ' Período longo: agrupado por semana.' : ''}`}>
+            <div className="h-80">
+              <ResponsiveContainer>
+                <ComposedChart data={serie} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="rotulo" tick={{ fill: '#94a3b8', fontSize: 11 }} interval="preserveStartEnd" minTickGap={16} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}t` : v)} width={48} />
+                  <Tooltip {...TOOLTIP} formatter={(v, nome) => [kg(v), nome]} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  {SETORES.map((s) => <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.cor} radius={[3, 3, 0, 0]} maxBarSize={28} />)}
+                  <Line type="monotone" dataKey="mmPintura" name="Média móvel (pronto)" stroke="#e2e8f0" strokeDasharray="4 3" dot={false} strokeWidth={1.5} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
+          </Painel>
+          <Painel titulo="Detalhe do período" sub="Fins de semana em cinza no modo diário."
+            acao={<Button size="sm" variant="ghost" className="text-slate-300" onClick={() => baixarCSV(`producao_${granEfetiva}_${isoLocal(per.ini)}_${isoLocal(per.fim)}.csv`, colunasSerie, serie)}><Download className="h-4 w-4 mr-1" />CSV</Button>}>
+            <div className="max-h-96 overflow-y-auto">
+              <Tabela colunas={colunasSerie.map((c, i) => (i === 0 ? { ...c, f: (l) => <span className={l.fimDeSemana ? 'text-slate-500' : 'text-slate-200'}>{l.rotulo}</span> } : c))}
+                linhas={[...serie].reverse().map((l) => ({ ...l, _k: l.chave }))}
+                rodape={{ rotulo: 'Total', ...Object.fromEntries(resumo.map((r) => [r.setor, n0(r.kg)])) }} />
+            </div>
+          </Painel>
+        </TabsContent>
 
-            {/* 3D Category Spheres */}
-            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-              <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-                <Maximize2 size={18} className="text-purple-400" /> Visualizacao 3D por Categoria
-              </h3>
-              <Production3DSpheres data={dadosPorCategoria.slice(0, 8)} width={Math.min(window.innerWidth - 100, 1000)} height={400} />
-              <div className="mt-3 flex flex-wrap gap-2 justify-center">
-                {dadosPorCategoria.slice(0, 8).map((d, i) => (
-                  <span key={i} className="px-2 py-1 bg-slate-800/50 rounded text-xs text-slate-300 border border-slate-700/30">
-                    <span className="inline-block w-2 h-2 rounded-full mr-1" style={{ backgroundColor: CHART_COLORS[i] }} />
-                    {d.tipo}: {d.pesoTotal.toLocaleString('pt-BR', {maximumFractionDigits:0})} kg
-                  </span>
-                ))}
+        {/* ===== POR OBRA ===== */}
+        <TabsContent value="obras" className="space-y-4">
+          <Painel titulo="Progresso e previsão por obra" sub="Fotografia atual do Kanban. Ritmo = peças prontas nas últimas 4 semanas; previsão = restante ÷ ritmo.">
+            <Tabela linhas={progresso.map((o) => ({ ...o, _k: o.id }))} vazio="Nenhuma obra com peças no escopo." colunas={[
+              { k: 'nome', l: 'Obra', wrap: true, f: (o) => <div><p className="text-white">{o.nome}</p><p className="text-xs text-slate-500">{o.codigo} · {n0(o.pecas)} peças</p></div> },
+              { k: 'pesoTotal', l: 'Peso total', r: true, f: (o) => kg(o.pesoTotal) },
+              { k: 'pctPronto', l: 'Pronto', f: (o) => (
+                <div className="min-w-[140px]">
+                  <div className="flex justify-between text-xs"><span className="text-slate-300">{kg(o.pronto)}</span><span className="text-white font-medium">{o.pctPronto.toLocaleString('pt-BR')}%</span></div>
+                  <div className="h-1.5 bg-slate-700 rounded-full mt-1 overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, o.pctPronto)}%` }} /></div>
+                </div>) },
+              { k: 'emProcesso', l: 'Em processo', r: true, f: (o) => kg(o.emProcesso) },
+              { k: 'naoIniciado', l: 'Não iniciado', r: true, f: (o) => kg(o.naoIniciado) },
+              { k: 'ritmoKgSemana', l: 'Ritmo/semana', r: true, f: (o) => kg(o.ritmoKgSemana) },
+              { k: 'prev', l: 'Previsão', r: true, f: (o) => (o.restante <= 0 ? <span className="text-emerald-400">Concluída</span> : o.pronto === 0 && o.emProcesso === 0 ? <span className="text-slate-500">não iniciada</span> : o.previsaoTermino ? `${dataBR(o.previsaoTermino)} (${o.semanasRestantes.toLocaleString('pt-BR')} sem)` : <span className="text-amber-400">sem ritmo</span>) },
+              { k: 'parado', l: 'Últ. movimento', r: true, f: (o) => (o.diasSemMovimento == null ? '—' : <span className={o.diasSemMovimento > 7 && o.restante > 0 ? 'text-amber-400' : 'text-slate-300'}>{o.diasSemMovimento === 0 ? 'hoje' : `há ${o.diasSemMovimento} d`}</span>) },
+            ]} />
+          </Painel>
+          <Painel titulo="Produção no período por obra" sub={rotPeriodo}>
+            <Tabela linhas={porObraPeriodo.map((o) => ({ ...o, _k: o.chave }))} colunas={[
+              { k: 'chave', l: 'Obra', wrap: true, f: (o) => <span className="text-white">{nomeObra(o.chave)}</span> },
+              ...SETORES.map((s) => ({ k: s.key, l: s.label, r: true, f: (o) => (o[s.key] ? n0(o[s.key]) : <span className="text-slate-600">—</span>) })),
+              { k: 'dias', l: 'Dias c/ produção', r: true },
+            ]} rodape={{ chave: 'Total', ...Object.fromEntries(resumo.map((r) => [r.setor, n0(r.kg)])) }} />
+          </Painel>
+        </TabsContent>
+
+        {/* ===== SETORES E PESSOAS ===== */}
+        <TabsContent value="pessoas" className="space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <Painel titulo="Perfil por dia da semana" sub="Média de kg por ocorrência do dia no período.">
+              <div className="h-64">
+                <ResponsiveContainer>
+                  <BarChart data={dow} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid stroke="#1e293b" vertical={false} />
+                    <XAxis dataKey="dia" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                    <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} width={48} />
+                    <Tooltip {...TOOLTIP} formatter={(v, nome) => [kg(v), nome]} />
+                    {SETORES.map((s) => <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.cor} stackId="a" />)}
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
-            </div>
+            </Painel>
+            <Painel titulo="Produção por tipo de peça" sub={`${rotPeriodo} · setores da fábrica`}>
+              <div className="max-h-64 overflow-y-auto">
+                <Tabela linhas={porTipo.map((t) => ({ ...t, _k: t.chave }))} colunas={[
+                  { k: 'chave', l: 'Tipo', cls: 'text-white' },
+                  ...['fabricacao', 'solda', 'pintura'].map((s) => ({ k: s, l: ROT[s].replace(' (peça pronta)', ''), r: true, f: (t) => (t[s] ? n0(t[s]) : '—') })),
+                  { k: 'pecas', l: 'Peças', r: true },
+                ]} />
+              </div>
+            </Painel>
+          </div>
+          <Painel titulo="Produtividade por pessoa" sub={`${rotPeriodo} · kg concluídos por quem apontou a etapa no Kanban`}
+            acao={<Button size="sm" variant="ghost" className="text-slate-300" onClick={() => baixarCSV(`produtividade_${isoLocal(per.ini)}_${isoLocal(per.fim)}.csv`, [
+              { k: 'chave', l: 'Funcionário' }, { k: 'setorPrincipal', l: 'Setor principal', csv: (p) => ROT[p.setorPrincipal] },
+              { k: 'fabricacao', l: 'Fabricação kg' }, { k: 'solda', l: 'Solda kg' }, { k: 'pintura', l: 'Pintura kg' },
+              { k: 'total', l: 'Total kg' }, { k: 'pecas', l: 'Peças' }, { k: 'dias', l: 'Dias' }, { k: 'kgDia', l: 'kg/dia' }], pessoas)}><Download className="h-4 w-4 mr-1" />CSV</Button>}>
+            <Tabela linhas={pessoas.map((p, i) => ({ ...p, _k: p.chave, pos: i + 1 }))} colunas={[
+              { k: 'pos', l: '#', cls: 'text-slate-500' },
+              { k: 'chave', l: 'Funcionário', cls: 'text-white' },
+              { k: 'setorPrincipal', l: 'Setor principal', f: (p) => <span className="inline-flex items-center gap-1.5"><span className="h-2 w-2 rounded-full" style={{ background: COR[p.setorPrincipal] }} />{ROT[p.setorPrincipal].replace(' (peça pronta)', '')}</span> },
+              { k: 'fabricacao', l: 'Fabricação', r: true, f: (p) => (p.fabricacao ? n0(p.fabricacao) : '—') },
+              { k: 'solda', l: 'Solda', r: true, f: (p) => (p.solda ? n0(p.solda) : '—') },
+              { k: 'pintura', l: 'Pintura', r: true, f: (p) => (p.pintura ? n0(p.pintura) : '—') },
+              { k: 'total', l: 'Total kg', r: true, cls: 'text-white font-semibold', f: (p) => n0(p.total) },
+              { k: 'pecas', l: 'Peças', r: true },
+              { k: 'dias', l: 'Dias', r: true },
+              { k: 'kgDia', l: 'kg/dia trab.', r: true, f: (p) => n0(p.kgDia) },
+            ]} />
+          </Painel>
+        </TabsContent>
 
-            {/* Category Table */}
-            <div className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5 overflow-x-auto">
-              <h3 className="text-white font-semibold mb-4">Detalhamento por Categoria</h3>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="text-left py-2 px-3 text-slate-400 font-medium">Categoria</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Peso Total</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Fabricado</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">%</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Soldado</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Pintado</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Aguardando Envio</th>
-                    <th className="text-right py-2 px-3 text-slate-400 font-medium">Qtd</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dadosPorCategoria.map((row, i) => (
-                    <tr key={i} className="border-b border-slate-800 hover:bg-slate-800/30 transition-colors">
-                      <td className="py-2 px-3 text-white font-medium">{row.tipo}</td>
-                      <td className="py-2 px-3 text-right text-slate-300">{row.pesoTotal.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                      <td className="py-2 px-3 text-right text-emerald-400">{row.fabricado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                      <td className="py-2 px-3 text-right">
-                        <span className={`px-2 py-0.5 rounded-full text-xs ${
-                          row.pesoTotal > 0 && (row.fabricado / row.pesoTotal) > 0.5 ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
-                        }`}>
-                          {row.pesoTotal > 0 ? ((row.fabricado / row.pesoTotal) * 100).toFixed(1) : 0}%
-                        </span>
-                      </td>
-                      <td className="py-2 px-3 text-right text-blue-400">{row.soldado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                      <td className="py-2 px-3 text-right text-amber-400">{row.pintado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                      <td className="py-2 px-3 text-right text-cyan-400">{row.enviado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                      <td className="py-2 px-3 text-right text-slate-400">{row.qtd}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t-2 border-slate-600 font-bold">
-                    <td className="py-2 px-3 text-white">TOTAL</td>
-                    <td className="py-2 px-3 text-right text-white">{kpis.pesoTotal.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                    <td className="py-2 px-3 text-right text-emerald-400">{kpis.pesoFabricado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                    <td className="py-2 px-3 text-right text-emerald-400">{kpis.percFabricado.toFixed(1)}%</td>
-                    <td className="py-2 px-3 text-right text-blue-400">{kpis.pesoSoldado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                    <td className="py-2 px-3 text-right text-amber-400">{kpis.pesoPintado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                    <td className="py-2 px-3 text-right text-cyan-400">{kpis.pesoEnviado.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</td>
-                    <td className="py-2 px-3 text-right text-slate-300">{pecas.length}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          </motion.div>
-        )}
+        {/* ===== FLUXO ===== */}
+        <TabsContent value="fluxo" className="space-y-4">
+          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-4">
+            <Painel titulo="Onde está o peso agora" sub="Peso por etapa atual (Kanban).">
+              <div className="space-y-2">
+                {(() => {
+                  const max = Math.max(1, ...fluxo.funil.map((f) => f.kg));
+                  return fluxo.funil.map((f) => (
+                    <div key={f.etapa}>
+                      <div className="flex justify-between text-xs mb-1"><span className="text-slate-300">{ROTULO_ETAPA[f.etapa]}</span><span className="text-white font-medium">{kg(f.kg)}</span></div>
+                      <div className="h-2 bg-slate-700 rounded-full overflow-hidden"><div className="h-full rounded-full bg-sky-500" style={{ width: `${(f.kg / max) * 100}%` }} /></div>
+                    </div>
+                  ));
+                })()}
+              </div>
+            </Painel>
+            <Painel titulo="Gargalo e tempo de etapa" sub="Fila = peso parado na etapa ÷ saída média das últimas 4 semanas.">
+              <Tabela linhas={fluxo.gargalo.linhas.map((g) => ({ ...g, _k: g.etapa, lt: fluxo.leadTimes.find((l) => l.etapa === g.etapa), wipE: fluxo.wip.resumo.find((w) => w.etapa === g.etapa) }))} colunas={[
+                { k: 'etapa', l: 'Etapa', f: (g) => <span className={cn('font-medium', fluxo.gargalo.etapa === g.etapa ? 'text-red-400' : 'text-white')}>{ROTULO_ETAPA[g.etapa]}{fluxo.gargalo.etapa === g.etapa ? ' · gargalo' : ''}</span> },
+                { k: 'wipKg', l: 'Em fila', r: true, f: (g) => kg(g.wipKg) },
+                { k: 'saidaKgSemana', l: 'Saída/sem', r: true, f: (g) => kg(g.saidaKgSemana) },
+                { k: 'semanasFila', l: 'Semanas de fila', r: true, f: (g) => (g.travada ? <span className="text-red-400">parada</span> : g.semanasFila != null ? g.semanasFila.toLocaleString('pt-BR') : '—') },
+                { k: 'idade', l: 'Idade mediana', r: true, f: (g) => (g.wipE?.idadeMedianaDias != null ? `${g.wipE.idadeMedianaDias} d` : '—') },
+                { k: 'lt', l: 'Tempo na etapa (mediana · p90)', r: true, f: (g) => (g.lt?.medianaDias != null ? `${g.lt.medianaDias} d · ${g.lt.p90Dias} d` : '—') },
+              ]} />
+            </Painel>
+          </div>
+          <Painel titulo="Peças paradas há mais tempo" sub="Em fabricação, solda ou pintura, ordenadas pela idade na etapa.">
+            <Tabela linhas={[...fluxo.wip.itens].filter((i) => i.idadeDias != null).sort((a, b) => b.idadeDias - a.idadeDias).slice(0, 25).map((i) => ({ ...i, _k: i.id }))}
+              vazio="Nenhuma peça em processo." colunas={[
+                { k: 'marca', l: 'Marca', cls: 'text-white', wrap: true },
+                { k: 'obraId', l: 'Obra', wrap: true, f: (i) => nomeObra(i.obraId) },
+                { k: 'etapa', l: 'Etapa', f: (i) => ROTULO_ETAPA[i.etapa] },
+                { k: 'kg', l: 'Peso', r: true, f: (i) => kg(i.kg) },
+                { k: 'desde', l: 'Desde', r: true, f: (i) => dataBR(i.desde) },
+                { k: 'idadeDias', l: 'Dias', r: true, f: (i) => <span className={i.idadeDias > 14 ? 'text-red-400 font-semibold' : i.idadeDias > 7 ? 'text-amber-400' : 'text-slate-200'}>{i.idadeDias}</span> },
+              ]} />
+          </Painel>
+        </TabsContent>
 
-        {activeTab === '3d' && (
-          <motion.div key="3d" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            className="bg-gradient-to-br from-slate-900/80 to-slate-800/50 rounded-xl border border-slate-700/50 p-5">
-            <h3 className="text-white font-semibold mb-4 flex items-center gap-2">
-              <Maximize2 size={18} className="text-emerald-400" /> Grafico 3D Interativo - Producao
-            </h3>
-            <Production3DChart data={data3D} width={Math.min(window.innerWidth - 100, 1100)} height={500} />
-            <div className="mt-4 flex flex-wrap gap-3 justify-center">
-              {data3D.map((d, i) => (
-                <div key={i} className="flex items-center gap-2 px-3 py-1.5 bg-slate-800/50 rounded-lg border border-slate-700/30">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS[i] }} />
-                  <span className="text-xs text-slate-300">{d.label}:</span>
-                  <span className="text-xs font-bold text-white">{d.value.toLocaleString('pt-BR', {maximumFractionDigits:1})} kg</span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        {/* ===== QUALIDADE DOS DADOS ===== */}
+        <TabsContent value="dados" className="space-y-4">
+          <div className="grid grid-cols-1 2xl:grid-cols-2 gap-4">
+            <Painel titulo="Limpeza do histórico de produção" sub="Regras aplicadas antes de qualquer número desta tela (e do BI 360). Base: todas as obras.">
+              <Tabela linhas={[
+                { _k: 'b', d: 'Registros no histórico', v: n0(base.diag.brutos) },
+                { _k: 'dup', d: 'Duplicatas exatas removidas', v: n0(base.diag.duplicados), alerta: base.diag.duplicados > 0 },
+                { _k: 'exc', d: 'Movimentos acima da quantidade da peça (valem 0 kg)', v: `${n0(base.diag.excedentes)} · ${kg(base.diag.kgExcedente)}`, alerta: base.diag.excedentes > 0 },
+                { _k: 'ret', d: 'Retrocessos de etapa (não contam como produção)', v: n0(base.diag.retrocessos) },
+                { _k: 'orf', d: 'Registros de peças inexistentes', v: n0(base.diag.orfaos) },
+                { _k: 'val', d: 'Movimentos válidos usados', v: n0(base.diag.validos) },
+              ]} colunas={[
+                { k: 'd', l: 'Item', wrap: true, f: (l) => <span className="inline-flex items-center gap-2">{l.alerta ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}{l.d}</span> },
+                { k: 'v', l: 'Quantidade', r: true, cls: 'text-white' },
+              ]} />
+            </Painel>
+            <Painel titulo="Conferência com o Kanban" sub="Peso pronto hoje no Kanban × peso pronto registrado no histórico (escopo do topo).">
+              <Tabela linhas={[
+                { _k: 't', d: 'Peso total das peças', v: kg(consistencia.kgTotal) },
+                { _k: 'p', d: 'Pronto agora no Kanban (fila de embarque em diante)', v: kg(consistencia.kgProntas) },
+                { _k: 'h', d: 'Pronto com registro de pintura no histórico', v: kg(consistencia.kgProntasComHist) },
+                { _k: 'c', d: 'Cobertura do histórico', v: `${consistencia.cobertura.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`, alerta: consistencia.cobertura < 90 },
+                { _k: 'i', d: 'Primeiro registro do histórico', v: dataBR(consistencia.primeiraData) },
+              ]} colunas={[
+                { k: 'd', l: 'Item', wrap: true, f: (l) => <span className="inline-flex items-center gap-2">{l.alerta ? <AlertTriangle className="h-3.5 w-3.5 text-amber-400" /> : <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}{l.d}</span> },
+                { k: 'v', l: 'Valor', r: true, cls: 'text-white' },
+              ]} />
+              <p className="text-xs text-slate-500 mt-3">
+                Peças concluídas antes do início do histórico ou movidas sem apontamento não aparecem nos números por período,
+                mas aparecem no progresso por obra (que usa a etapa atual). Cobertura abaixo de 90% indica apontamentos faltando.
+              </p>
+            </Painel>
+          </div>
+          <Painel titulo="Como cada número é calculado">
+            <ul className="text-sm text-slate-300 space-y-1.5 list-disc pl-5">
+              <li><b>Fabricação / Solda / Pintura</b>: kg das peças que <b>saíram</b> da etapa para uma etapa seguinte, na data do apontamento. Pintura concluída = peça pronta.</li>
+              <li><b>Embarque</b>: peso dos romaneios pela data de saída (romaneios em preparação ou excluídos ficam fora).</li>
+              <li><b>Movimento parcial</b> <code className="text-xs bg-slate-900 px-1 rounded">[QTD:x/y]</code>: conta x unidades × peso unitário da peça.</li>
+              <li><b>Média/dia útil</b>: kg do período ÷ dias de segunda a sexta (até hoje). <b>Variação</b>: contra o período anterior de mesmo tamanho.</li>
+              <li><b>Previsão por obra</b>: peso que falta ficar pronto ÷ ritmo de peças prontas das últimas 4 semanas.</li>
+              <li>Mesmo motor do <b>BI 360</b>: os números de ritmo e ranking batem entre as duas telas.</li>
+            </ul>
+          </Painel>
+        </TabsContent>
+      </Tabs>
+
+      {carregando && !historico.length && <p className="text-center text-sm text-slate-500">Carregando histórico de produção…</p>}
+      {!carregando && totalPeriodo === 0 && base.eventos.length > 0 && (
+        <p className="text-center text-xs text-slate-500">Sem peças prontas no período selecionado.</p>
+      )}
+      <p className="text-[11px] text-slate-600 text-right">
+        {ETAPAS_FLUXO.length} etapas · {n0(base.eventos.length)} eventos no escopo · {obraIds ? `${obraIds.length} obra(s)` : 'todas as obras'}
+        {atualizadoEm ? ` · atualizado ${atualizadoEm.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : ''}
+      </p>
     </div>
   );
 }
