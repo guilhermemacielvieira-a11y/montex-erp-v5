@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import {
   Users, RefreshCw, TrendingUp, TrendingDown, Minus, Trophy, Clock, AlertTriangle, CheckCircle2,
-  Download, Building2, CalendarDays, User, Grid3X3, ClipboardList, ShieldCheck, Search, Factory,
+  Download, Building2, CalendarDays, User, Grid3X3, ClipboardList, ShieldCheck, Search, Factory, Scissors, Scale,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -27,7 +27,10 @@ import { PERIODOS, eventosProducao, intervaloPeriodo, serieTemporal, agrupar } f
 import {
   resumoPessoas, resumoEquipes, mapaCalor, eventosDaPessoa, qualidadeCadastro,
 } from '@/services/bi/biFuncionarios';
-import { isoLocal, somaDias } from '@/services/bi/biCore';
+import { isoLocal, somaDias, noEscopo } from '@/services/bi/biCore';
+import { eventosCorte, coerenciaProducao } from '@/services/bi/biCorte';
+import { supabase } from '@/api/supabaseClient';
+import CoerenciaProducao from '@/components/producao/CoerenciaProducao';
 import LancamentosObraTab from '@/components/producao/LancamentosObraTab';
 
 const SETORES_FAB = [
@@ -35,8 +38,22 @@ const SETORES_FAB = [
   { key: 'solda', label: 'Solda', cor: '#f97316' },
   { key: 'pintura', label: 'Pintura', cor: '#a855f7' },
 ];
-const ROT = Object.fromEntries(SETORES_FAB.map((s) => [s.key, s.label]));
-const COR = Object.fromEntries(SETORES_FAB.map((s) => [s.key, s.cor]));
+const ROT = { ...Object.fromEntries(SETORES_FAB.map((s) => [s.key, s.label])), corte: 'Corte' };
+const COR = { ...Object.fromEntries(SETORES_FAB.map((s) => [s.key, s.cor])), corte: '#eab308' };
+
+// Corte = material (materiais_corte), paginado (PostgREST 1000 linhas)
+async function buscarCortes() {
+  const out = [];
+  for (let de = 0; de < 50000; de += 1000) {
+    const { data, error } = await supabase.from('materiais_corte')
+      .select('id, obra_id, peca_id, marca, peca, perfil, quantidade, peso_teorico, status_corte, data_fim, funcionario_corte')
+      .order('id', { ascending: true }).range(de, de + 999);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  return out;
+}
 const kg = (v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg`;
 const n0 = (v) => (Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 const pct = (v) => `${(Number(v) || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
@@ -90,6 +107,7 @@ export default function ProducaoFuncionarioPage() {
   const { funcionarios = [] } = useEquipes();
 
   const [historico, setHistorico] = useState([]);
+  const [cortes, setCortes] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState(null);
   const [atualizadoEm, setAtualizadoEm] = useState(null);
@@ -104,7 +122,10 @@ export default function ProducaoFuncionarioPage() {
 
   const carregar = useCallback(async (forcar) => {
     setCarregando(true);
-    try { setHistorico(await buscarHistorico({ forcar })); setErro(null); setAtualizadoEm(new Date()); }
+    try {
+      const [h, c] = await Promise.all([buscarHistorico({ forcar }), buscarCortes()]);
+      setHistorico(h); setCortes(c); setErro(null); setAtualizadoEm(new Date());
+    }
     catch (e) { setErro(e?.message || 'Falha ao carregar o histórico de produção'); }
     finally { setCarregando(false); }
   }, []);
@@ -115,18 +136,23 @@ export default function ProducaoFuncionarioPage() {
   const nomeObra = useCallback((id) => obras.find((o) => o.id === id)?.nome || id || '—', [obras]);
 
   // Base: histórico normalizado → eventos da fábrica no escopo
+  // Corte entra como etapa à parte (kg de material), com coluna própria
   const base = useMemo(() => {
     const { transicoes, diag } = normalizarHistorico(historico, pecas);
     const esc = obraIds ? transicoes.filter((t) => obraIds.includes(t.obraId)) : transicoes;
-    return { eventos: eventosProducao(esc, []), diag };
-  }, [historico, pecas, obraIds]);
+    const corte = eventosCorte(noEscopo(cortes, obraIds), historico);
+    const coerencia = coerenciaProducao({ pecas: noEscopo(pecas, obraIds), transicoes: esc, corte });
+    return { eventos: [...eventosProducao(esc, []), ...corte.eventos], diag, corte, coerencia };
+  }, [historico, pecas, cortes, obraIds]);
 
   const per = useMemo(() => intervaloPeriodo(periodo, { hoje, ...custom }), [periodo, custom, hoje]);
   const pessoas = useMemo(
     () => resumoPessoas(base.eventos, funcionarios, { ini: per.ini, fim: per.fim, iniAnt: per.iniAnt, fimAnt: per.fimAnt, hoje }),
     [base.eventos, funcionarios, per, hoje],
   );
-  const produtivas = pessoas.filter((p) => p.total > 0);
+  const produtivas = pessoas.filter((p) => p.total > 0 || p.corte > 0);
+  const corteKg = produtivas.reduce((s, p) => s + p.corte, 0);
+  const corteSemPessoaPer = base.corte.eventos.filter((e) => e.data && e.data >= per.ini && e.data <= per.fim && !e.funcionarioId && !e.funcionario).reduce((s, e) => s + e.kg, 0);
   const totalKg = produtivas.reduce((s, p) => s + p.total, 0);
   const pessoaDias = produtivas.reduce((s, p) => s + p.diasTrabalhados, 0);
   const presencaMedia = produtivas.length ? produtivas.reduce((s, p) => s + p.presencaPct, 0) / produtivas.length : 0;
@@ -134,6 +160,7 @@ export default function ProducaoFuncionarioPage() {
   const lista = useMemo(() => {
     let l = mostrarZerados ? pessoas : produtivas;
     if (filtroSetor !== 'todos') l = l.filter((p) => p[filtroSetor] > 0).sort((a, b) => b[filtroSetor] - a[filtroSetor]);
+    else l = l.filter((p) => mostrarZerados || p.total > 0 || p.corte > 0);
     if (busca) { const q = busca.toLowerCase(); l = l.filter((p) => p.nome.toLowerCase().includes(q) || p.cargo.toLowerCase().includes(q)); }
     return l;
   }, [pessoas, produtivas, mostrarZerados, filtroSetor, busca]);
@@ -152,7 +179,7 @@ export default function ProducaoFuncionarioPage() {
   const evPessoa = useMemo(() => (pessoaSel ? eventosDaPessoa(base.eventos, funcionarios, pessoaSel) : []), [base.eventos, funcionarios, pessoaSel]);
   const evPessoaPer = useMemo(() => evPessoa.filter((e) => e.data >= per.ini && e.data <= per.fim), [evPessoa, per]);
   const granEf = per.dias > 400 && gran === 'dia' ? 'semana' : gran;
-  const seriePessoa = useMemo(() => serieTemporal(evPessoa, { ini: per.ini, fim: per.fim, granularidade: granEf }), [evPessoa, per, granEf]);
+  const seriePessoa = useMemo(() => serieTemporal(evPessoa.filter((e) => e.setor !== 'corte'), { ini: per.ini, fim: per.fim, granularidade: granEf }), [evPessoa, per, granEf]);
   const obrasPessoa = useMemo(() => agrupar(evPessoaPer, (e) => e.obraId, { setores: ['fabricacao', 'solda', 'pintura'] }), [evPessoaPer]);
   const tiposPessoa = useMemo(() => agrupar(evPessoaPer, (e) => e.tipo, { setores: ['fabricacao', 'solda', 'pintura'] }), [evPessoaPer]);
 
@@ -211,12 +238,13 @@ export default function ProducaoFuncionarioPage() {
 
       {/* KPIs */}
       {aba !== 'lancamentos' && (
-        <div className="grid grid-cols-2 xl:grid-cols-5 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-3">
           <Kpi label="Pessoas produzindo" valor={`${produtivas.length} / ${pessoas.filter((p) => p.ativo && !p.foraDoCadastro).length}`} sub="com apontamento / ativas no cadastro" icone={Users} cor="#22c55e" />
           <Kpi label="Concluído pela equipe" valor={kg(totalKg)} sub="fabricação + solda + pintura" icone={Factory} cor="#3b82f6" />
           <Kpi label="kg por pessoa-dia" valor={kg(pessoaDias ? totalKg / pessoaDias : 0)} sub={`${n0(pessoaDias)} dias-pessoa apontados`} icone={TrendingUp} cor="#f97316" />
           <Kpi label="Maior produção" valor={produtivas[0] ? nomeCurto(produtivas[0].nome) : '—'} sub={produtivas[0] ? `${kg(produtivas[0].total)} · ${pct(produtivas[0].participacaoPct)} do total` : ''} icone={Trophy} cor="#eab308" />
           <Kpi label="Presença média" valor={pct(presencaMedia)} sub="dias com apontamento ÷ dias úteis" icone={Clock} cor="#a855f7" />
+          <Kpi label="Corte (material)" valor={kg(corteKg)} sub={corteSemPessoaPer > 0 ? `+ ${kg(corteSemPessoaPer)} sem responsável` : `último corte: ${base.corte.diag.ultimo ? dataBR(base.corte.diag.ultimo) : '—'}`} icone={Scissors} cor="#eab308" />
         </div>
       )}
 
@@ -226,6 +254,7 @@ export default function ProducaoFuncionarioPage() {
           <TabsTrigger value="pessoa"><User className="h-4 w-4 mr-1.5" />Por pessoa</TabsTrigger>
           <TabsTrigger value="equipes"><Grid3X3 className="h-4 w-4 mr-1.5" />Equipes e dia a dia</TabsTrigger>
           <TabsTrigger value="lancamentos"><ClipboardList className="h-4 w-4 mr-1.5" />Lançamentos por obra</TabsTrigger>
+          <TabsTrigger value="coerencia"><Scale className="h-4 w-4 mr-1.5" />Coerência</TabsTrigger>
           <TabsTrigger value="dados"><ShieldCheck className="h-4 w-4 mr-1.5" />Qualidade dos dados</TabsTrigger>
         </TabsList>
 
@@ -254,7 +283,7 @@ export default function ProducaoFuncionarioPage() {
                 <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pessoa ou cargo" className="h-8 w-56 pl-8 bg-slate-900 border-slate-700 text-white text-xs" />
               </div>
               <div className="flex rounded-lg border border-slate-700 overflow-hidden">
-                {[['todos', 'Todos'], ...SETORES_FAB.map((s) => [s.key, s.label])].map(([k, l]) => (
+                {[['todos', 'Todos'], ['corte', 'Corte'], ...SETORES_FAB.map((s) => [s.key, s.label])].map(([k, l]) => (
                   <button key={k} type="button" onClick={() => setFiltroSetor(k)} className={cn('px-3 py-1.5 text-xs', filtroSetor === k ? 'bg-slate-600 text-white' : 'text-slate-300 hover:bg-slate-700/50')}>{l}</button>
                 ))}
               </div>
@@ -267,7 +296,7 @@ export default function ProducaoFuncionarioPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-400 text-xs border-b border-slate-700">
-                    {['#', 'Funcionário', 'Fabricação', 'Solda', 'Pintura', 'Total', '% do total', 'vs anterior', 'Dias', 'kg/dia', 'Presença', 'Peças', 'Último'].map((h, i) => (
+                    {['#', 'Funcionário', 'Fabricação', 'Solda', 'Pintura', 'Total peças', 'Corte (material)', '% do total', 'vs anterior', 'Dias', 'kg/dia', 'Presença', 'Peças', 'Último'].map((h, i) => (
                       <th key={h} className={cn('py-2 px-2 font-medium whitespace-nowrap', i > 1 ? 'text-right' : 'text-left')}>{h}</th>
                     ))}
                   </tr>
@@ -287,6 +316,7 @@ export default function ProducaoFuncionarioPage() {
                       </td>
                       {SETORES_FAB.map((s) => <td key={s.key} className="py-2 px-2 text-right tabular-nums text-slate-300">{p[s.key] ? n0(p[s.key]) : <span className="text-slate-600">—</span>}</td>)}
                       <td className="py-2 px-2 text-right tabular-nums text-white font-semibold">{n0(p.total)}</td>
+                      <td className="py-2 px-2 text-right tabular-nums" title="kg de material cortado — não soma no total de peças">{p.corte ? <span className="text-amber-300">{n0(p.corte)}<span className="text-xs text-slate-500"> · {p.cortes}</span></span> : <span className="text-slate-600">—</span>}</td>
                       <td className="py-2 px-2 text-right">
                         <div className="inline-flex items-center gap-2"><div className="w-14 h-1.5 bg-slate-700 rounded-full overflow-hidden"><div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, p.participacaoPct * 3)}%` }} /></div><span className="text-xs text-slate-300 tabular-nums w-10">{pct(p.participacaoPct)}</span></div>
                       </td>
@@ -297,7 +327,7 @@ export default function ProducaoFuncionarioPage() {
                       <td className="py-2 px-2 text-right tabular-nums text-slate-300">{p.pecas}</td>
                       <td className="py-2 px-2 text-right text-xs text-slate-400 whitespace-nowrap">{p.ultimo ? p.ultimo.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '—'}</td>
                     </tr>
-                  )) : <tr><td colSpan={13} className="py-8 text-center text-slate-500">{carregando ? 'Carregando…' : 'Nenhum apontamento no período.'}</td></tr>}
+                  )) : <tr><td colSpan={14} className="py-8 text-center text-slate-500">{carregando ? 'Carregando…' : 'Nenhum apontamento no período.'}</td></tr>}
                 </tbody>
               </table>
             </div>
@@ -397,6 +427,11 @@ export default function ProducaoFuncionarioPage() {
               </table>
             </div>
           </Painel>
+        </TabsContent>
+
+        {/* ===== COERÊNCIA ===== */}
+        <TabsContent value="coerencia" className="space-y-4">
+          <CoerenciaProducao coerencia={base.coerencia} corteDiag={base.corte.diag} nomeObra={nomeObra} />
         </TabsContent>
 
         {/* ===== LANÇAMENTOS ===== */}
