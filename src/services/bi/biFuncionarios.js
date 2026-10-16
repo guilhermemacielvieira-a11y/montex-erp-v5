@@ -47,19 +47,26 @@ export function pessoaDoEvento(e, cad) {
 
 const doFabrica = (e) => ETAPAS_FABRICA.includes(e.setor);
 
+const novoAcumulador = (p) => ({
+  ...p, fabricacao: 0, solda: 0, pintura: 0, total: 0, unidades: 0, corte: 0, cortes: 0,
+  pecas: new Set(), dias: new Set(), diasCorte: new Set(), obras: new Set(), ultimo: null,
+});
+
 function acumular(eventos, cad, ini, fim) {
   const mapa = new Map();
   eventos.forEach((e) => {
-    if (!doFabrica(e) || e.data < ini || e.data > fim) return;
+    const corte = e.setor === 'corte';
+    if ((!doFabrica(e) && !corte) || !e.data || e.data < ini || e.data > fim) return;
     const p = pessoaDoEvento(e, cad);
     if (!p) return;
-    if (!mapa.has(p.id)) {
-      mapa.set(p.id, {
-        ...p, fabricacao: 0, solda: 0, pintura: 0, total: 0, unidades: 0,
-        pecas: new Set(), dias: new Set(), obras: new Set(), ultimo: null,
-      });
-    }
+    if (!mapa.has(p.id)) mapa.set(p.id, novoAcumulador(p));
     const m = mapa.get(p.id);
+    if (corte) {
+      // Corte = kg de MATERIAL cortado: coluna própria, fora do total de peças
+      m.corte += e.kg; m.cortes += 1; m.diasCorte.add(isoLocal(e.data));
+      if (!m.ultimo || e.data > m.ultimo) m.ultimo = e.data;
+      return;
+    }
     m[e.setor] += e.kg; m.total += e.kg; m.unidades += e.qtd || 0;
     if (e.pecaId) m.pecas.add(e.pecaId);
     if (e.obraId) m.obras.add(e.obraId);
@@ -81,7 +88,7 @@ export function resumoPessoas(eventos = [], funcionarios = [], { ini, fim, iniAn
   if (incluirSemProducao) {
     cad.porId.forEach((p) => {
       if (p.ativo && !atual.has(p.id)) {
-        atual.set(p.id, { ...p, fabricacao: 0, solda: 0, pintura: 0, total: 0, unidades: 0, pecas: new Set(), dias: new Set(), obras: new Set(), ultimo: null });
+        atual.set(p.id, novoAcumulador(p));
       }
     });
   }
@@ -93,18 +100,19 @@ export function resumoPessoas(eventos = [], funcionarios = [], { ini, fim, iniAn
       id: m.id, nome: m.nome, cargo: m.cargo, setor: m.setor, equipe: m.equipe, ativo: m.ativo,
       foraDoCadastro: !!m.foraDoCadastro,
       fabricacao: r1(m.fabricacao), solda: r1(m.solda), pintura: r1(m.pintura), total: r1(m.total),
+      corte: r1(m.corte), cortes: m.cortes, diasCorte: m.diasCorte.size,
       unidades: r1(m.unidades), pecas: m.pecas.size, obras: m.obras.size,
       diasTrabalhados: m.dias.size,
       kgDia: m.dias.size ? r1(m.total / m.dias.size) : 0,
       kgPeca: m.pecas.size ? r1(m.total / m.pecas.size) : 0,
-      presencaPct: uteis > 0 ? r1(Math.min(100, (m.dias.size / uteis) * 100)) : 0,
+      presencaPct: uteis > 0 ? r1(Math.min(100, (new Set([...m.dias, ...m.diasCorte]).size / uteis) * 100)) : 0,
       participacaoPct: totalGeral > 0 ? r1((m.total / totalGeral) * 100) : 0,
       anterior: r1(anterior),
       variacaoPct: variacaoPct(m.total, anterior),
-      setorPrincipal: m.total > 0 ? principal : null,
+      setorPrincipal: m.total > 0 ? principal : (m.corte > 0 ? 'corte' : null),
       ultimo: m.ultimo,
     };
-  }).sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome));
+  }).sort((a, b) => b.total - a.total || b.corte - a.corte || a.nome.localeCompare(b.nome));
 }
 
 /** Totais por equipe (do cadastro) a partir do resumo por pessoa. */
@@ -112,15 +120,15 @@ export function resumoEquipes(pessoas = []) {
   const mapa = new Map();
   pessoas.forEach((p) => {
     const k = p.equipe || 'Sem equipe';
-    if (!mapa.has(k)) mapa.set(k, { equipe: k, pessoas: 0, ativos: 0, fabricacao: 0, solda: 0, pintura: 0, total: 0, diasPessoa: 0 });
+    if (!mapa.has(k)) mapa.set(k, { equipe: k, pessoas: 0, ativos: 0, fabricacao: 0, solda: 0, pintura: 0, total: 0, corte: 0, diasPessoa: 0 });
     const m = mapa.get(k);
     m.pessoas += 1;
-    if (p.total > 0) m.ativos += 1;
-    m.fabricacao += p.fabricacao; m.solda += p.solda; m.pintura += p.pintura; m.total += p.total;
+    if (p.total > 0 || p.corte > 0) m.ativos += 1;
+    m.fabricacao += p.fabricacao; m.solda += p.solda; m.pintura += p.pintura; m.total += p.total; m.corte += p.corte || 0;
     m.diasPessoa += p.diasTrabalhados;
   });
   return [...mapa.values()].map((m) => ({
-    ...m, fabricacao: r1(m.fabricacao), solda: r1(m.solda), pintura: r1(m.pintura), total: r1(m.total),
+    ...m, fabricacao: r1(m.fabricacao), solda: r1(m.solda), pintura: r1(m.pintura), total: r1(m.total), corte: r1(m.corte),
     kgPessoaDia: m.diasPessoa ? r1(m.total / m.diasPessoa) : 0,
   })).sort((a, b) => b.total - a.total);
 }
@@ -149,7 +157,7 @@ export function mapaCalor(eventos = [], funcionarios = [], { ini, fim } = {}) {
 /** Eventos de UMA pessoa (para o painel de detalhe). */
 export function eventosDaPessoa(eventos = [], funcionarios = [], pessoaId) {
   const cad = indexarCadastro(funcionarios);
-  return eventos.filter((e) => doFabrica(e) && pessoaDoEvento(e, cad)?.id === pessoaId);
+  return eventos.filter((e) => (doFabrica(e) || (e.setor === 'corte' && e.data)) && pessoaDoEvento(e, cad)?.id === pessoaId);
 }
 
 /**
