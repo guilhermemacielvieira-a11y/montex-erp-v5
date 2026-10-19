@@ -74,7 +74,7 @@ const responsavelDaPeca = (p, etapa) => CAMPO[etapa].map((k) => p?.[k]).find((v)
  * @param transicoes  histórico normalizado (biProducao.normalizarHistorico)
  * @param cortes      eventos de corte (eventosCorte().eventos) + diag
  */
-export function coerenciaProducao({ pecas = [], transicoes = [], corte = null, naoAplica = null } = {}) {
+export function coerenciaProducao({ pecas = [], transicoes = [], corte = null, naoAplica = null, foraDaRota = null } = {}) {
   // kg creditado (apontado com pessoa) por peça e etapa concluída
   const credito = new Map(); // `${peca}|${etapa}` → kg
   const apontadoSemAvanco = []; // histórico diz que concluiu, mas a peça está antes da etapa
@@ -98,7 +98,7 @@ export function coerenciaProducao({ pecas = [], transicoes = [], corte = null, n
       const passou = ordem > ordemFluxo(e);
       const cred = credito.get(`${p.id}|${e}`) || 0;
       // Etapa marcada "não se aplica" (ex.: terça sem solda): fora do produzido
-      if (passou && etapaNaoSeAplica(naoAplica, p.id, e)) {
+      if (passou && (etapaNaoSeAplica(naoAplica, p.id, e) || foraDaRota?.(p, e))) {
         etapas[e].naoAplica += kgP;
         const o = obraDe(p) || '—';
         if (!porObra.has(o)) porObra.set(o, Object.fromEntries(ETAPAS_FABRICA.map((x) => [x, vazio()])));

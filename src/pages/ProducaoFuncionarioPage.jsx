@@ -32,6 +32,9 @@ import { eventosCorte, coerenciaProducao } from '@/services/bi/biCorte';
 import { supabase } from '@/api/supabaseClient';
 import CoerenciaProducao from '@/components/producao/CoerenciaProducao';
 import LancamentosObraTab from '@/components/producao/LancamentosObraTab';
+import DesempenhoIndividual from '@/components/producao/DesempenhoIndividual';
+import { useRotasProducao } from '@/hooks/useRotasProducao';
+import { aplicarRotas, calibrarRitmos, desempenhoPessoas, resumoFamilias, familiaDe } from '@/services/bi/biDesempenho';
 
 const SETORES_FAB = [
   { key: 'fabricacao', label: 'Fabricação', cor: '#3b82f6' },
@@ -105,6 +108,7 @@ export default function ProducaoFuncionarioPage() {
   const { obras = [], escopoObra, obraIdsEscopo } = useObras();
   const { pecas = [] } = useProducao();
   const { funcionarios = [] } = useEquipes();
+  const rotas = useRotasProducao();
 
   const [historico, setHistorico] = useState([]);
   const [cortes, setCortes] = useState([]);
@@ -113,7 +117,7 @@ export default function ProducaoFuncionarioPage() {
   const [atualizadoEm, setAtualizadoEm] = useState(null);
   const [periodo, setPeriodo] = useState('30d');
   const [custom, setCustom] = useState({ ini: '', fim: '' });
-  const [aba, setAba] = useState('ranking');
+  const [aba, setAba] = useState('desempenho');
   const [filtroSetor, setFiltroSetor] = useState('todos');
   const [busca, setBusca] = useState('');
   const [mostrarZerados, setMostrarZerados] = useState(false);
@@ -141,11 +145,21 @@ export default function ProducaoFuncionarioPage() {
     const { transicoes, diag, naoAplica } = normalizarHistorico(historico, pecas);
     const esc = obraIds ? transicoes.filter((t) => obraIds.includes(t.obraId)) : transicoes;
     const corte = eventosCorte(noEscopo(cortes, obraIds), historico);
-    const coerencia = coerenciaProducao({ pecas: noEscopo(pecas, obraIds), transicoes: esc, corte, naoAplica });
-    return { eventos: [...eventosProducao(esc, []), ...corte.eventos], diag, corte, coerencia };
-  }, [historico, pecas, cortes, obraIds]);
+    // Rotas por família: solda de família "sem solda" (terça) não é produção
+    const foraDaRota = (p, etapa) => etapa === 'solda' && rotas.cfg.semSolda.has(familiaDe(p.tipo));
+    const coerencia = coerenciaProducao({ pecas: noEscopo(pecas, obraIds), transicoes: esc, corte, naoAplica, foraDaRota });
+    const { eventos: evFab, removidos } = aplicarRotas(eventosProducao(esc, []), rotas.cfg);
+    // Ritmo-padrão calibrado com TODAS as obras (amostra maior e estável)
+    const calib = calibrarRitmos(aplicarRotas(eventosProducao(transicoes, []), rotas.cfg).eventos, funcionarios, { minDias: rotas.cfg.minDias });
+    return { eventos: [...evFab, ...corte.eventos], diag, corte, coerencia, removidos, calib };
+  }, [historico, pecas, cortes, obraIds, rotas.cfg, funcionarios]);
 
   const per = useMemo(() => intervaloPeriodo(periodo, { hoje, ...custom }), [periodo, custom, hoje]);
+  const desempenho = useMemo(
+    () => desempenhoPessoas(base.eventos, funcionarios, { ini: per.ini, fim: per.fim, iniAnt: per.iniAnt, fimAnt: per.fimAnt, hoje, calib: base.calib, cfg: rotas.cfg }),
+    [base, funcionarios, per, hoje, rotas.cfg],
+  );
+  const familias = useMemo(() => resumoFamilias(base.eventos, { ini: per.ini, fim: per.fim }), [base.eventos, per]);
   const pessoas = useMemo(
     () => resumoPessoas(base.eventos, funcionarios, { ini: per.ini, fim: per.fim, iniAnt: per.iniAnt, fimAnt: per.fimAnt, hoje }),
     [base.eventos, funcionarios, per, hoje],
@@ -250,6 +264,7 @@ export default function ProducaoFuncionarioPage() {
 
       <Tabs value={aba} onValueChange={setAba} className="space-y-4">
         <TabsList className="bg-slate-800/60 border border-slate-700 flex flex-wrap h-auto">
+          <TabsTrigger value="desempenho"><Scale className="h-4 w-4 mr-1.5" />Desempenho</TabsTrigger>
           <TabsTrigger value="ranking"><Trophy className="h-4 w-4 mr-1.5" />Ranking</TabsTrigger>
           <TabsTrigger value="pessoa"><User className="h-4 w-4 mr-1.5" />Por pessoa</TabsTrigger>
           <TabsTrigger value="equipes"><Grid3X3 className="h-4 w-4 mr-1.5" />Equipes e dia a dia</TabsTrigger>
@@ -259,6 +274,11 @@ export default function ProducaoFuncionarioPage() {
         </TabsList>
 
         {/* ===== RANKING ===== */}
+        <TabsContent value="desempenho" className="space-y-4">
+          <DesempenhoIndividual pessoas={desempenho} removidos={base.removidos} familias={familias} calib={base.calib}
+            cfg={rotas.cfg} cfgBruta={rotas.bruta} onSalvarCfg={rotas.salvar} salvando={rotas.salvando} rotPeriodo={rotPeriodo} />
+        </TabsContent>
+
         <TabsContent value="ranking" className="space-y-4">
           <Painel titulo="Maiores produções do período" sub="kg concluídos por etapa (12 primeiros)">
             <div style={{ height: Math.max(180, top12.length * 30 + 40) }}>
