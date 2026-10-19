@@ -9,13 +9,12 @@
 // corteStatusStore (que era 100% em memória).
 // ============================================
 
-import { supabase } from '@/api/supabaseClient';
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import {
-  loadFromSupabase
-} from '../data/corteStatusStore';
-import { CONJUNTO_BOM, getBOMByConjunto, getConjuntosByMarca } from '../data/conjuntoBOM';
-import { useObras } from '../contexts/ERPContext';
+import { useObras, useProducao } from '../contexts/ERPContext';
+import { useFluxoIntegrado } from '../hooks/useFluxoIntegrado';
+import { marcasPorPosicao } from '../services/fluxoIntegrado';
+import FluxoObraPainel from '../components/fluxo/FluxoObraPainel';
+import ImportarPosicoesDialog from '../components/fluxo/ImportarPosicoesDialog';
 import ExigeObra from '../components/erp/ExigeObra';
 import { FuncionarioSelectorModal } from '../components/kanban/FuncionarioSelectorModal';
 // LancamentoProducaoModal removido — o lançamento de funcionário no Corte é
@@ -76,7 +75,15 @@ const formatComp = (mm) => {
 // ==========================================
 // GRID COLUMNS
 // ==========================================
-const GRID_COLS = '36px 62px 125px minmax(140px,1fr) 80px minmax(100px,1fr) 48px 82px 98px 108px';
+const GRID_COLS = '36px 62px 125px minmax(140px,1fr) 80px minmax(100px,1fr) 48px 82px 98px 96px 108px';
+
+const ESTOQUE_CONF = {
+  abastecido:  { label: 'Abastecido', color: '#4ade80', bg: '#064e3b' },
+  parcial:     { label: 'Parcial',    color: '#fbbf24', bg: '#44370e' },
+  sem_estoque: { label: 'Sem estoque', color: '#f87171', bg: '#4a1a1a' },
+  cortado:     { label: 'Baixado',    color: '#a78bfa', bg: '#2d1b69' },
+  nao_consultado: { label: 'Não consultado', color: '#9ca3af', bg: '#1f2937' },
+};
 
 // ==========================================
 // COMPONENTE PRINCIPAL
@@ -100,10 +107,30 @@ function KanbanCorteBoard({ obraAtual }) {
 
   // --- Hook de dados reais do Supabase (filtrado por obra) ---
   const {
-    items, metrics, categorias,
+    items, rawItems, metrics, categorias, recarregar: recarregarCortes, definirResponsavel,
     iniciarCorte, finalizarCorte, resetarCorte, finalizarCorteEmLote,
-    contarCortadasParaConjunto, emAndamento, loading: corteLoading
+    emAndamento, loading: corteLoading
   } = useCorteSupabase(obraAtual);
+
+  // --- Fluxo integrado: estoque da obra × posições × marcas (pecas_producao) ---
+  const { pecasObraAtual = [] } = useProducao();
+  const pecasDaObra = useMemo(() => pecasObraAtual.filter(p => p.obraId === obraAtual), [pecasObraAtual, obraAtual]);
+  const fluxo = useFluxoIntegrado({ obraIds: [obraAtual], pecas: pecasDaObra, cortes: rawItems });
+  const [importarAberto, setImportarAberto] = useState(false);
+  const liberacaoObra = useMemo(
+    () => new Map([...fluxo.liberacao.values()].filter(g => g.obraId === obraAtual).map(g => [g.marca, g])),
+    [fluxo.liberacao, obraAtual]);
+  const usoPorPos = useMemo(() => marcasPorPosicao(liberacaoObra), [liberacaoObra]);
+  const abastecido = (id) => fluxo.abastecimento.porId.get(id);
+  // Corte sem material lançado deixaria o estoque negativo: confirma antes.
+  const confirmarEstoque = (lista) => {
+    const sem = lista.map(i => ({ i, a: abastecido(i.id) })).filter(x => x.a && (x.a.estado === 'sem_estoque' || x.a.estado === 'parcial'));
+    if (!sem.length || fluxo.abastecimento.estimado) return true;
+    const falta = sem.reduce((s, x) => s + (x.a.faltaKg || 0), 0);
+    const nomes = sem.slice(0, 5).map(x => `POS ${x.i.marca} (${x.i.perfil})`).join(', ');
+    return window.confirm(`Sem saldo no estoque da obra para ${sem.length} posição(ões): ${nomes}${sem.length > 5 ? '…' : ''}\nFaltam ~${Math.round(falta).toLocaleString('pt-BR')} kg — o estoque ficará negativo.\n\nLance a entrada do material no Estoque antes de cortar.\nContinuar mesmo assim?`);
+  };
+  const aposOperacao = () => fluxo.recarregar();
   const [loteEmAndamento, setLoteEmAndamento] = useState(false);
   const ocupado = (id) => loteEmAndamento || (emAndamento && emAndamento.has(id));
   const avisar = (message) => {
@@ -124,10 +151,8 @@ function KanbanCorteBoard({ obraAtual }) {
   const [sortDir, setSortDir] = useState('asc');
   const [toast, setToast] = useState(null);
   const [expandedMarca, setExpandedMarca] = useState(null);
-  const [supabaseLoading, setSupabaseLoading] = useState(true);
-  const prevReadyRef = useRef([]);
+  const prevReadyRef = useRef(null);
   const toastTimer = useRef(null);
-  const mountedRef = useRef(false);
 
   // --- Modal de seleção de funcionário ---
   const [modalFuncionario, setModalFuncionario] = useState(false);
@@ -145,56 +170,31 @@ function KanbanCorteBoard({ obraAtual }) {
   // em materiais_corte.baixa_estoque_kg o kg efetivamente deduzido. Os botões
   // ficam desabilitados enquanto a operação do corte está em andamento.
 
-  // --- Conjuntos (BOM) prontidão - computado reativamente ---
-  const conjuntosInfo = useMemo(() => {
-    const info = [];
-    const allConj = Object.keys(CONJUNTO_BOM);
-    allConj.forEach(nome => {
-      const bom = getBOMByConjunto(nome);
-      if (!bom || bom.length === 0) return;
-      const { totalPecas, cortadas } = contarCortadasParaConjunto(bom);
-      info.push({
-        nome,
-        totalPecas,
-        cortadas,
-        progresso: totalPecas > 0 ? Math.round((cortadas / totalPecas) * 100) : 0,
-        pronto: cortadas === totalPecas && totalPecas > 0
-      });
-    });
-    info.sort((a, b) => {
-      if (a.pronto !== b.pronto) return b.pronto ? 1 : -1;
-      return b.progresso - a.progresso;
-    });
-    return info;
-  }, [contarCortadasParaConjunto]);
+  // --- Marcas (pecas_producao) liberadas pelo corte das posições ---
+  // Real: composicao_marcas (ou POS = MARCA em peça única) × materiais_corte.
+  const marcasInfo = useMemo(() => {
+    const lista = [...fluxo.liberacao.values()].filter(g => g.obraId === obraAtual && g.qtdAguardando > 0);
+    const ordem = { liberada: 0, parcial: 1, aguardando_corte: 2, sem_composicao: 3 };
+    return lista.sort((a, b) => (ordem[a.status] ?? 9) - (ordem[b.status] ?? 9) || (b.pctCorte ?? -1) - (a.pctCorte ?? -1));
+  }, [fluxo.liberacao, obraAtual]);
 
-  // Toast para conjuntos que acabaram de ficar prontos
+  // Toast para marcas que acabaram de ser liberadas (não na 1ª carga)
   useEffect(() => {
-    const newReady = conjuntosInfo.filter(c => c.pronto).map(c => c.nome);
-    if (mountedRef.current) {
-      const justReady = newReady.filter(n => !prevReadyRef.current.includes(n));
-      if (justReady.length > 0) {
+    if (fluxo.carregando) return;
+    const prontas = marcasInfo.filter(m => m.status === 'liberada').map(m => m.rotulo || m.marca);
+    if (prevReadyRef.current) {
+      const novas = prontas.filter(n => !prevReadyRef.current.includes(n));
+      if (novas.length > 0) {
         if (toastTimer.current) clearTimeout(toastTimer.current);
-        const msg = justReady.length <= 3
-          ? justReady.join(', ')
-          : justReady.slice(0, 3).join(', ') + ` +${justReady.length - 3}`;
-        setToast({ message: `🎉 Material pronto para montagem: ${msg}` });
+        const msg = novas.length <= 3 ? novas.join(', ') : novas.slice(0, 3).join(', ') + ` +${novas.length - 3}`;
+        setToast({ message: `🎉 Corte completo — liberada(s) para fabricação: ${msg}` });
         toastTimer.current = setTimeout(() => setToast(null), 7000);
       }
     }
-    mountedRef.current = true;
-    prevReadyRef.current = newReady;
-  }, [conjuntosInfo]);
+    prevReadyRef.current = prontas;
+  }, [marcasInfo, fluxo.carregando]);
 
-  // Carregar status persistido do Supabase e cleanup
-  useEffect(() => {
-    loadFromSupabase()
-      .catch(() => {})
-      .finally(() => setSupabaseLoading(false));
-    return () => {
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-    };
-  }, []);
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
 
   // --- Filtragem e Ordenação ---
   const filteredItems = useMemo(() => {
@@ -248,15 +248,41 @@ function KanbanCorteBoard({ obraAtual }) {
     if (selectedIds.size === 0) return;
     if (loteEmAndamento) return;
     const idsArray = Array.from(selectedIds);
+    const selecionados = items.filter(i => selectedIds.has(i.id) && i.status !== 'finalizado');
+    if (!confirmarEstoque(selecionados)) return;
     setLoteEmAndamento(true);
     try {
       // Baixa de estoque (idempotente, no banco) feita por finalizarCorteEmLote.
       const n = await finalizarCorteEmLote(idsArray);
       if (n < idsArray.length) avisar(`${n} de ${idsArray.length} corte(s) finalizado(s) — os demais já estavam finalizados ou falharam (ver console)`);
+      else avisar(`✅ ${n} corte(s) finalizado(s) — estoque baixado`);
+      for (const it of selecionados) {
+        registrarTransicao(it.id, it.status, 'finalizado', it.funcionarioCorte || null, null,
+          `Corte ${it.perfil || ''} Marca ${it.marca || ''} - ${it.peso?.toFixed(1) || 0} kg | ${it.status} → finalizado (lote)`);
+      }
       setSelectedIds(new Set());
+      aposOperacao();
     } finally {
       setLoteEmAndamento(false);
     }
+  };
+
+  // Abre o modal de funcionário para uma ação (com checagem de estoque)
+  const abrirAcao = (item, acao, origem = item.status) => {
+    if ((acao === 'iniciar' || acao === 'finalizar_direto' || acao === 'finalizar') && !confirmarEstoque([item])) return;
+    setItemPendenteCorte(item);
+    setAcaoPendenteCorte(acao);
+    setStatusOrigemCorte(origem);
+    setModalFuncionario(true);
+  };
+
+  const handleResetar = async (item) => {
+    if (!window.confirm(`Voltar a POS ${item.marca} para Aguardando? O material baixado (${Math.round(item.baixaEstoqueKg || 0)} kg) volta ao estoque.`)) return;
+    const r = await resetarCorte(item.id);
+    if (!r) { avisar(`⚠️ Não foi possível estornar o corte ${item.marca}.`); return; }
+    registrarTransicao(item.id, item.status, 'aguardando', item.funcionarioCorte || null, null,
+      `Estorno de corte ${item.perfil || ''} Marca ${item.marca || ''} | ${item.status} → aguardando`);
+    aposOperacao();
   };
 
   const handleSort = (field) => {
@@ -275,23 +301,16 @@ function KanbanCorteBoard({ obraAtual }) {
 
     const sourceStatus = source.droppableId;
     const destStatus = destination.droppableId;
+    if (sourceStatus === destStatus || ocupado(id)) return; // reordenar na coluna não é transição
 
-    // TODAS as transições exigem identificação de funcionário
-    let acao = 'generico';
-    if (destStatus === 'cortando' && sourceStatus === 'aguardando') {
-      acao = 'iniciar';
-    } else if (sourceStatus === 'aguardando' && destStatus === 'finalizado') {
-      acao = 'finalizar_direto';
-    } else if (sourceStatus === 'cortando' && destStatus === 'finalizado') {
-      acao = 'finalizar';
-    } else if (destStatus === 'aguardando') {
-      acao = 'resetar';
+    if (destStatus === 'aguardando') { handleResetar(item); return; }
+    if (destStatus === 'cortando' && sourceStatus === 'finalizado') {
+      avisar('⚠️ Corte finalizado não volta para "Em corte". Arraste para Aguardando para estornar.');
+      return;
     }
-
-    setItemPendenteCorte(item);
-    setAcaoPendenteCorte(acao);
-    setStatusOrigemCorte(sourceStatus);
-    setModalFuncionario(true);
+    // Iniciar / finalizar exigem identificação do funcionário
+    const acao = destStatus === 'cortando' ? 'iniciar' : sourceStatus === 'aguardando' ? 'finalizar_direto' : 'finalizar';
+    abrirAcao(item, acao, sourceStatus);
   };
 
   // Callback quando funcionário é selecionado no modal (KanbanCortePage)
@@ -318,30 +337,21 @@ function KanbanCorteBoard({ obraAtual }) {
       okOp = await finalizarCorte(item.id, funcionarioId);
       etapaPara = 'finalizado';
     } else if (acaoPendenteCorte === 'finalizar') {
-      okOp = await finalizarCorte(item.id);
+      okOp = await finalizarCorte(item.id, funcionarioId);
       etapaPara = 'finalizado';
-    } else if (acaoPendenteCorte === 'resetar') {
-      okOp = await resetarCorte(item.id);
-      etapaPara = 'aguardando';
     } else if (acaoPendenteCorte === 'definir_responsavel') {
-      // Apenas atualiza o funcionário responsável pelo corte, sem mudar status
-      (async () => {
-        try {
-          await supabase
-            .from('materiais_corte')
-            .update({ funcionario_corte: funcionarioId, updated_at: new Date().toISOString() })
-            .eq('id', item.id);
-        } catch (err) {
-          console.error('Erro ao definir responsável do corte:', err);
-        }
-      })();
-      etapaPara = etapaDe; // sem transição
+      // Só o responsável: sem mudança de status e SEM linha de histórico
+      // (o histórico é apontamento de produção do corte no BI).
+      const ok = await definirResponsavel(item.id, funcionarioId);
+      avisar(ok ? `👤 Responsável da POS ${item.marca}: ${funcionarioNome || funcionarioId}` : `⚠️ Não foi possível salvar o responsável da POS ${item.marca}.`);
+      return;
     }
 
     if (!okOp) {
-      avisar(`⚠️ Não foi possível concluir a operação no corte ${item.marca || item.id}. Tente novamente.`);
+      avisar(`⚠️ Não foi possível concluir a operação no corte ${item.marca || item.id} (já estava em outro status ou houve erro). Tente novamente.`);
       return;
     }
+    aposOperacao();
 
     // Registrar no histórico — só quando a operação foi aplicada
     registrarTransicao(
@@ -354,9 +364,10 @@ function KanbanCorteBoard({ obraAtual }) {
     );
   };
 
-  // Conjuntos derivados
-  const conjuntosReady = conjuntosInfo.filter(c => c.pronto);
-  const conjuntosProgress = conjuntosInfo.filter(c => !c.pronto && c.cortadas > 0);
+  // Marcas derivadas
+  const marcasProntas = marcasInfo.filter(m => m.status === 'liberada' || m.status === 'parcial');
+  const marcasEmCorte = marcasInfo.filter(m => m.status === 'aguardando_corte');
+  const marcasSemComp = marcasInfo.filter(m => m.status === 'sem_composicao');
 
   // --- Kanban Board Data ---
   const kanbanItemsForDisplay = useMemo(() => {
@@ -425,20 +436,6 @@ function KanbanCorteBoard({ obraAtual }) {
         </div>
       )}
 
-      {/* ====== LOADING SUPABASE ====== */}
-      {supabaseLoading && (
-        <div style={{
-          position: 'fixed', top: 20, right: 20, zIndex: 9998,
-          padding: '8px 16px', borderRadius: 8,
-          background: 'rgba(59, 130, 246, 0.15)', border: '1px solid rgba(59, 130, 246, 0.3)',
-          color: '#93c5fd', fontSize: 12, fontWeight: 500,
-          display: 'flex', alignItems: 'center', gap: 8
-        }}>
-          <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⟳</span>
-          Sincronizando com Supabase...
-        </div>
-      )}
-
       {/* ====== HEADER ====== */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
         <div>
@@ -487,32 +484,46 @@ function KanbanCorteBoard({ obraAtual }) {
               é feito por peça via FuncionarioSelectorModal (botão 👤 em cada card). */}
 
           <button
+            onClick={() => setImportarAberto(true)}
+            title="Importar lista de posições (Tekla/engenharia) e composição marca × posição"
+            style={{
+              background: '#0c2d48', border: '1px solid #3b82f6', borderRadius: 12,
+              padding: '10px 16px', cursor: 'pointer', color: '#93c5fd', fontSize: 13, fontWeight: 600
+            }}
+          >
+            📥 Importar posições
+          </button>
+
+          <button
             onClick={() => setShowPanel(!showPanel)}
             style={{
               position: 'relative',
-              background: conjuntosReady.length > 0 ? 'linear-gradient(135deg, #064e3b, #065f46)' : '#1f2937',
-              border: `1px solid ${conjuntosReady.length > 0 ? '#22c55e' : '#374151'}`,
+              background: marcasProntas.length > 0 ? 'linear-gradient(135deg, #064e3b, #065f46)' : '#1f2937',
+              border: `1px solid ${marcasProntas.length > 0 ? '#22c55e' : '#374151'}`,
               borderRadius: 12, padding: '10px 18px', cursor: 'pointer',
               color: '#fff', fontSize: 13, fontWeight: 600,
               display: 'flex', alignItems: 'center', gap: 8,
               transition: 'all 0.2s',
-              boxShadow: conjuntosReady.length > 0 ? '0 0 20px rgba(34,197,94,0.2)' : 'none'
+              boxShadow: marcasProntas.length > 0 ? '0 0 20px rgba(34,197,94,0.2)' : 'none'
             }}
           >
             <span style={{ fontSize: 18 }}>🔔</span>
-            <span>Conjuntos Prontos</span>
-            {conjuntosReady.length > 0 && (
+            <span>Marcas liberadas p/ fabricação</span>
+            {marcasProntas.length > 0 && (
               <span style={{
                 background: '#22c55e', color: '#000', borderRadius: 20,
                 padding: '2px 8px', fontSize: 11, fontWeight: 800, minWidth: 20, textAlign: 'center',
                 animation: 'pulse 2s infinite'
               }}>
-                {conjuntosReady.length}
+                {marcasProntas.length}
               </span>
             )}
           </button>
         </div>
       </div>
+
+      {/* ====== FLUXO INTEGRADO: necessário → estoque → corte → marcas → produção ====== */}
+      <FluxoObraPainel abastecimento={fluxo.abastecimento} liberacao={liberacaoObra} pecas={pecasDaObra} semComposicaoTabela={fluxo.semTabela} />
 
       {/* ====== KPI CARDS ====== */}
       <div style={{
@@ -695,6 +706,7 @@ function KanbanCorteBoard({ obraAtual }) {
                   { field: 'quantidade', label: 'Qtd' },
                   { field: 'peso', label: 'Peso' },
                   { field: 'status', label: 'Status' },
+                  { field: 'estoque', label: 'Estoque' },
                 ].map(col => (
                   <div key={col.field}
                     onClick={() => handleSort(col.field)}
@@ -788,16 +800,14 @@ function KanbanCorteBoard({ obraAtual }) {
                         </span>
                       </div>
 
+                      {/* Estoque (abastecimento da posição) */}
+                      <div><EstoqueBadge a={abastecido(item.id)} baixa={item.baixaEstoqueKg} /></div>
+
                       {/* Acoes - com abatimento automático de estoque + persistência Supabase */}
                       <div style={{ display: 'flex', gap: 3 }} onClick={e => e.stopPropagation()}>
                         {/* Botão funcionário - sempre visível */}
                         <button
-                          onClick={() => {
-                            setItemPendenteCorte(item);
-                            setAcaoPendenteCorte('definir_responsavel');
-                            setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
-                            setModalFuncionario(true);
-                          }}
+                          onClick={() => abrirAcao(item, 'definir_responsavel')}
                           title="Ver/editar funcionário responsável"
                           style={actionBtnStyle('#2d1b69', '#7c3aed', '#a78bfa')}
                         >
@@ -805,24 +815,24 @@ function KanbanCorteBoard({ obraAtual }) {
                         </button>
                         {item.status === 'aguardando' && (
                           <>
-                            <button disabled={ocupado(item.id)} onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('iniciar'); setModalFuncionario(true); }} title="Iniciar Corte (selecionar funcionário)"
+                            <button disabled={ocupado(item.id)} onClick={() => abrirAcao(item, 'iniciar')} title="Iniciar Corte (selecionar funcionário)"
                               style={{ ...actionBtnStyle('#1e3a5f', '#3b82f6', '#60a5fa'), ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                               ▶
                             </button>
-                            <button disabled={ocupado(item.id)} onClick={() => { setItemPendenteCorte(item); setAcaoPendenteCorte('finalizar_direto'); setModalFuncionario(true); }} title="Finalizar Corte (selecionar funcionário)"
+                            <button disabled={ocupado(item.id)} onClick={() => abrirAcao(item, 'finalizar_direto')} title="Finalizar Corte (selecionar funcionário)"
                               style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                               ✅
                             </button>
                           </>
                         )}
                         {item.status === 'cortando' && (
-                          <button disabled={ocupado(item.id)} onClick={() => finalizarCorte(item.id)} title="Finalizar"
+                          <button disabled={ocupado(item.id)} onClick={() => abrirAcao(item, 'finalizar')} title="Finalizar (selecionar funcionário)"
                             style={{ ...actionBtnStyle('#064e3b', '#22c55e', '#4ade80'), padding: '3px 10px', ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                             {ocupado(item.id) ? '⏳ Salvando…' : '✅ Finalizar'}
                           </button>
                         )}
                         {item.status === 'finalizado' && (
-                          <button disabled={ocupado(item.id)} onClick={() => resetarCorte(item.id)} title="Voltar para Aguardando"
+                          <button disabled={ocupado(item.id)} onClick={() => handleResetar(item)} title="Voltar para Aguardando (estorna o estoque)"
                             style={{ ...actionBtnStyle('#374151', '#6b7280', '#9ca3af'), ...(ocupado(item.id) ? BTN_OCUPADO : {}) }}>
                             ↩
                           </button>
@@ -830,31 +840,28 @@ function KanbanCorteBoard({ obraAtual }) {
                       </div>
                     </div>
 
-                    {/* Linha expandida - conjuntos que usam esta marca */}
+                    {/* Linha expandida - marcas que usam esta posição */}
                     {isExp && (
                       <div style={{
                         padding: '8px 14px 8px 112px', background: '#0a0e18',
                         borderBottom: '1px solid #1f2937', fontSize: 11
                       }}>
-                        <span style={{ color: '#6b7280', marginRight: 6 }}>Usado nos conjuntos:</span>
+                        <span style={{ color: '#6b7280', marginRight: 6 }}>Usada nas marcas:</span>
                         {(() => {
-                          const conjs = getConjuntosByMarca(item.marca);
-                          if (conjs.length === 0) return <span style={{ color: '#4b5563', fontStyle: 'italic' }}>Nenhum conjunto mapeado</span>;
-                          return (
-                            <>
-                              {conjs.slice(0, 25).map(c => (
-                                <span key={c} style={{
-                                  display: 'inline-block', padding: '1px 7px', margin: '1px 3px',
-                                  borderRadius: 4, background: '#1f2937', border: '1px solid #374151',
-                                  color: '#93c5fd', fontSize: 10
-                                }}>
-                                  {c}
-                                </span>
-                              ))}
-                              {conjs.length > 25 && <span style={{ color: '#6b7280' }}> +{conjs.length - 25} mais</span>}
-                            </>
-                          );
+                          const usos = usoPorPos.get(String(item.marca).trim().toUpperCase()) || [];
+                          if (usos.length === 0) return <span style={{ color: '#4b5563', fontStyle: 'italic' }}>Sem composição cadastrada — importe a lista de posições com a coluna Conjunto</span>;
+                          return usos.slice(0, 30).map(u => (
+                            <span key={u.marca} style={{
+                              display: 'inline-block', padding: '1px 7px', margin: '1px 3px',
+                              borderRadius: 4, background: '#1f2937', border: '1px solid #374151',
+                              color: u.status === 'liberada' ? '#4ade80' : u.status === 'em_producao' ? '#93c5fd' : '#fbbf24', fontSize: 10
+                            }}>
+                              {u.marca} ×{u.qtdPorUn}
+                            </span>
+                          ));
                         })()}
+                        {item.funcionarioCorte && <span style={{ marginLeft: 12, color: '#6b7280' }}>Responsável: <b style={{ color: '#c4b5fd' }}>{item.funcionarioCorte}</b></span>}
+                        {item.dataFim && <span style={{ marginLeft: 12, color: '#6b7280' }}>Cortado em {new Date(item.dataFim).toLocaleDateString('pt-BR')}</span>}
                       </div>
                     )}
                   </React.Fragment>
@@ -910,7 +917,7 @@ function KanbanCorteBoard({ obraAtual }) {
                     Aguardando ({kanbanColumns.aguardando.length})
                   </div>
                   {kanbanColumns.aguardando.map((item, idx) => (
-                    <Draggable key={item.id} draggableId={item.id} index={idx}>
+                    <Draggable key={item.id} draggableId={item.id} index={idx} isDragDisabled={ocupado(item.id)}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -961,18 +968,16 @@ function KanbanCorteBoard({ obraAtual }) {
                           <div style={{ fontSize: 10, color: '#d1d5db', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.perfil || '—'}
                           </div>
-                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                             {formatPeso(item.peso)}
+                            <EstoqueBadge a={abastecido(item.id)} baixa={item.baixaEstoqueKg} />
                           </div>
                           {/* Botão lançamento de funcionário */}
                           <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setItemPendenteCorte(item);
-                                setAcaoPendenteCorte('definir_responsavel');
-                                setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
-                                setModalFuncionario(true);
+                                abrirAcao(item, 'definir_responsavel');
                               }}
                               style={{
                                 width: '100%',
@@ -1034,7 +1039,7 @@ function KanbanCorteBoard({ obraAtual }) {
                     Em Corte ({kanbanColumns.cortando.length})
                   </div>
                   {kanbanColumns.cortando.map((item, idx) => (
-                    <Draggable key={item.id} draggableId={item.id} index={idx}>
+                    <Draggable key={item.id} draggableId={item.id} index={idx} isDragDisabled={ocupado(item.id)}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -1085,18 +1090,16 @@ function KanbanCorteBoard({ obraAtual }) {
                           <div style={{ fontSize: 10, color: '#d1d5db', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.perfil || '—'}
                           </div>
-                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                             {formatPeso(item.peso)}
+                            <EstoqueBadge a={abastecido(item.id)} baixa={item.baixaEstoqueKg} />
                           </div>
                           {/* Botão lançamento de funcionário */}
                           <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setItemPendenteCorte(item);
-                                setAcaoPendenteCorte('definir_responsavel');
-                                setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
-                                setModalFuncionario(true);
+                                abrirAcao(item, 'definir_responsavel');
                               }}
                               style={{
                                 width: '100%',
@@ -1158,7 +1161,7 @@ function KanbanCorteBoard({ obraAtual }) {
                     Finalizado ({kanbanColumns.finalizado.length})
                   </div>
                   {kanbanColumns.finalizado.map((item, idx) => (
-                    <Draggable key={item.id} draggableId={item.id} index={idx}>
+                    <Draggable key={item.id} draggableId={item.id} index={idx} isDragDisabled={ocupado(item.id)}>
                       {(provided, snapshot) => (
                         <div
                           ref={provided.innerRef}
@@ -1209,18 +1212,16 @@ function KanbanCorteBoard({ obraAtual }) {
                           <div style={{ fontSize: 10, color: '#d1d5db', marginBottom: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                             {item.perfil || '—'}
                           </div>
-                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600 }}>
+                          <div style={{ fontSize: 10, color: '#c4b5fd', fontWeight: 600, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 4 }}>
                             {formatPeso(item.peso)}
+                            <EstoqueBadge a={abastecido(item.id)} baixa={item.baixaEstoqueKg} />
                           </div>
                           {/* Botão lançamento de funcionário */}
                           <div style={{ marginTop: 6 }} onClick={e => e.stopPropagation()}>
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
-                                setItemPendenteCorte(item);
-                                setAcaoPendenteCorte('definir_responsavel');
-                                setStatusOrigemCorte(item.status || item.statusCorte || 'aguardando');
-                                setModalFuncionario(true);
+                                abrirAcao(item, 'definir_responsavel');
                               }}
                               style={{
                                 width: '100%',
@@ -1306,7 +1307,7 @@ function KanbanCorteBoard({ obraAtual }) {
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
               <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: '#e5e7eb' }}>
-                🔔 Material para Montagem
+                🔔 Marcas × Corte
               </h2>
               <button onClick={() => setShowPanel(false)} style={{
                 background: '#1f2937', border: '1px solid #374151', borderRadius: 8,
@@ -1319,73 +1320,75 @@ function KanbanCorteBoard({ obraAtual }) {
               background: '#1f2937', border: '1px solid #374151'
             }}>
               <div style={{ fontSize: 12, color: '#9ca3af' }}>
-                {conjuntosReady.length} prontos | {conjuntosProgress.length} em progresso | {Object.keys(CONJUNTO_BOM).length} conjuntos total
+                {marcasProntas.length} liberadas | {marcasEmCorte.length} aguardando corte | {marcasSemComp.length} sem composição
+              </div>
+              <div style={{ fontSize: 10, color: '#6b7280', marginTop: 4 }}>
+                Marca liberada = todas as posições dela cortadas (composição importada ou peça única POS = marca). Avance-a para Fabricação no Kanban de Produção.
               </div>
             </div>
 
-            {conjuntosReady.length > 0 && (
+            {marcasProntas.length > 0 && (
               <div style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: '#22c55e', marginBottom: 8 }}>
-                  PRONTOS PARA MONTAGEM ({conjuntosReady.length})
+                  LIBERADAS PARA FABRICAÇÃO ({marcasProntas.length})
                 </h3>
-                {conjuntosReady.map(c => (
-                  <div key={c.nome} style={{
+                {marcasProntas.slice(0, 80).map(m => (
+                  <div key={m.marca} style={{
                     padding: '10px 12px', marginBottom: 5, borderRadius: 8,
                     background: '#064e3b', border: '1px solid #22c55e33'
                   }}>
-                    <div style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{c.nome}</div>
+                    <div style={{ fontWeight: 700, color: '#4ade80', fontSize: 14 }}>{m.rotulo || m.marca} <span style={{ fontSize: 10, color: '#86efac', fontWeight: 400 }}>{m.tipo}</span></div>
                     <div style={{ fontSize: 11, color: '#86efac' }}>
-                      {c.cortadas}/{c.totalPecas} pecas cortadas — Material completo!
+                      {m.liberadasAguardando}/{m.qtdAguardando} un liberada(s) · {m.posicoes.length} posição(ões) · {formatPeso(m.pesoUnit * m.liberadasAguardando)}
                     </div>
                   </div>
                 ))}
               </div>
             )}
 
-            {conjuntosProgress.length > 0 && (
-              <div>
+            {marcasEmCorte.length > 0 && (
+              <div style={{ marginBottom: 24 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: '#f59e0b', marginBottom: 8 }}>
-                  EM PROGRESSO ({conjuntosProgress.length})
+                  AGUARDANDO CORTE ({marcasEmCorte.length})
                 </h3>
-                {conjuntosProgress.slice(0, 60).map(c => (
-                  <div key={c.nome} style={{
+                {marcasEmCorte.slice(0, 80).map(m => (
+                  <div key={m.marca} style={{
                     padding: '8px 12px', marginBottom: 4, borderRadius: 8,
                     background: '#1f2937', border: '1px solid #37415144'
                   }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                      <span style={{ fontWeight: 600, color: '#e5e7eb', fontSize: 12 }}>{c.nome}</span>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700,
-                        color: c.progresso >= 80 ? '#22c55e' : c.progresso >= 50 ? '#f59e0b' : '#6366f1'
-                      }}>{c.progresso}%</span>
+                      <span style={{ fontWeight: 600, color: '#e5e7eb', fontSize: 12 }}>{m.rotulo || m.marca}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: (m.pctCorte || 0) >= 50 ? '#f59e0b' : '#6366f1' }}>{m.pctCorte ?? 0}%</span>
                     </div>
                     <div style={{ background: '#374151', borderRadius: 4, height: 5, overflow: 'hidden' }}>
-                      <div style={{
-                        height: '100%', borderRadius: 4,
-                        background: c.progresso >= 80 ? '#22c55e' : c.progresso >= 50 ? '#f59e0b' : '#6366f1',
-                        width: `${c.progresso}%`, transition: 'width 0.3s'
-                      }} />
+                      <div style={{ height: '100%', borderRadius: 4, background: '#f59e0b', width: `${m.pctCorte || 0}%` }} />
                     </div>
                     <div style={{ fontSize: 10, color: '#6b7280', marginTop: 2 }}>
-                      {c.cortadas}/{c.totalPecas} pecas cortadas
+                      Pendentes: {m.posicoes.filter(p => !p.pronta).map(p => p.pos).slice(0, 10).join(', ') || '—'}
                     </div>
                   </div>
                 ))}
-                {conjuntosProgress.length > 60 && (
-                  <div style={{ padding: 8, textAlign: 'center', color: '#6b7280', fontSize: 11 }}>
-                    +{conjuntosProgress.length - 60} conjuntos adicionais
-                  </div>
-                )}
               </div>
             )}
 
-            {conjuntosReady.length === 0 && conjuntosProgress.length === 0 && (
+            {marcasSemComp.length > 0 && (
+              <div>
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: '#9ca3af', marginBottom: 8 }}>
+                  SEM COMPOSIÇÃO ({marcasSemComp.length})
+                </h3>
+                <div style={{ fontSize: 11, color: '#6b7280', marginBottom: 6 }}>
+                  Marcas compostas sem a lista de posições: importe a planilha com a coluna Conjunto para o corte liberá-las.
+                </div>
+                <div style={{ fontSize: 11, color: '#9ca3af' }}>
+                  {marcasSemComp.slice(0, 60).map(m => m.rotulo || m.marca).join(', ')}{marcasSemComp.length > 60 ? '…' : ''}
+                </div>
+              </div>
+            )}
+
+            {marcasInfo.length === 0 && (
               <div style={{ textAlign: 'center', padding: 40, color: '#6b7280' }}>
                 <div style={{ fontSize: 36, marginBottom: 8 }}>📦</div>
-                <div style={{ fontSize: 13 }}>Nenhum progresso de corte ainda</div>
-                <div style={{ fontSize: 11, marginTop: 4, color: '#4b5563' }}>
-                  Finalize o corte das pecas para ver conjuntos prontos
-                </div>
+                <div style={{ fontSize: 13 }}>Nenhuma marca aguardando início de fabricação</div>
               </div>
             )}
           </div>
@@ -1412,6 +1415,19 @@ function KanbanCorteBoard({ obraAtual }) {
 
       {/* LancamentoProducaoModal removido — corte usa só o FuncionarioSelectorModal abaixo */}
 
+      <ImportarPosicoesDialog
+        open={importarAberto}
+        onOpenChange={setImportarAberto}
+        obraId={obraAtual}
+        cortesExistentes={rawItems}
+        pecasObra={pecasDaObra}
+        onImportado={(r) => {
+          avisar(`📥 ${r.novas} posição(ões) nova(s), ${r.alteradas} atualizada(s)${r.composicao ? `, ${r.composicao} ligação(ões) marca × posição` : ''}${r.compOk ? '' : ' — composição não gravada (tabela indisponível)'}`);
+          recarregarCortes();
+          aposOperacao();
+        }}
+      />
+
       {/* Modal de seleção de funcionário para corte */}
       <FuncionarioSelectorModal
         isOpen={modalFuncionario}
@@ -1428,6 +1444,20 @@ function KanbanCorteBoard({ obraAtual }) {
 // ==========================================
 // HELPERS
 // ==========================================
+function EstoqueBadge({ a, baixa }) {
+  if (!a) return <span style={{ color: '#4b5563', fontSize: 10 }}>—</span>;
+  const historico = a.estado === 'cortado' && baixa == null;
+  const c = ESTOQUE_CONF[a.estado] || ESTOQUE_CONF.abastecido;
+  const titulo = historico ? 'Cortado antes do controle de estoque (sem baixa)'
+    : a.estado === 'cortado' ? `Baixado do estoque: ${Math.round(baixa || 0)} kg`
+    : a.faltaKg > 0 ? `Falta ~${Math.round(a.faltaKg)} kg no estoque (${a.chave})` : `Material em estoque (${a.chave})`;
+  return (
+    <span title={titulo} style={{ padding: '2px 6px', borderRadius: 5, background: c.bg, color: c.color, fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+      {historico ? 'Histórico' : c.label}
+    </span>
+  );
+}
+
 const BTN_OCUPADO = { opacity: 0.45, cursor: 'wait', pointerEvents: 'none' };
 
 function actionBtnStyle(bg, border, color) {

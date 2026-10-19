@@ -43,12 +43,24 @@ import { useProducaoHistorico } from '@/hooks/useProducaoHistorico';
 import { listasMaterial, obras as obrasDB } from '@/data/database';
 import { getDetalhamentoByNumero } from '@/data/detalhamentoDatabase';
 import { getEMInfoByConjunto } from '@/data/producaoMapping';
-import { getBOMByConjunto } from '@/data/conjuntoBOM';
 import { getCroquiByMarca } from '@/data/croquiDatabase';
-import { contarCortadasParaConjunto, isMarcaCortada, subscribeCorteChanges } from '@/data/corteStatusStore';
+import { useFluxoIntegrado } from '@/hooks/useFluxoIntegrado';
+import { podeIniciarFabricacao } from '@/services/fluxoIntegrado';
+import FluxoObraPainel from '@/components/fluxo/FluxoObraPainel';
 
 // Colunas do Kanban de Produção
+// 1ª coluna = marcas ainda não iniciadas (etapa 'aguardando'): o corte das
+// POSIÇÕES (Kanban de Corte) libera a marca para a Fabricação.
 const COLUNAS_PRODUCAO = [
+  {
+    id: 'aguardando',
+    title: '✂️ Corte',
+    subtitle: 'Liberação',
+    cor: '#f59e0b',
+    icon: Scissors,
+    valorKg: 0,
+    descricao: 'Aguardando corte das posições'
+  },
   {
     id: 'fabricacao',
     title: '🔧 Fabricação',
@@ -111,6 +123,12 @@ export default function KanbanProducaoIntegrado() {
     return m;
   }, [obras]);
 
+  const nomeObraPorId = useMemo(() => {
+    const m = {};
+    (obras || []).forEach(o => { if (o?.id) m[o.id] = o.nome; });
+    return m;
+  }, [obras]);
+
   // Helper: testa se peça/conjunto pertence ao escopo do topo (obra, grupo ou Geral)
   const matchObraFiltroFn = useCallback((c) => {
     if (!obraIdsEscopo) return true; // Geral
@@ -155,12 +173,10 @@ export default function KanbanProducaoIntegrado() {
   const [conjuntoQtdPendente, setConjuntoQtdPendente] = useState(null);
   const [statusQtdDestino, setStatusQtdDestino] = useState(null);
 
-  // Estado para forçar re-render quando corte muda
-  const [corteVersion, setCorteVersion] = useState(0);
-  useEffect(() => {
-    const unsub = subscribeCorteChanges(() => setCorteVersion(v => v + 1));
-    return unsub;
-  }, []);
+  // Fluxo integrado: posições cortadas (materiais_corte) × composição da
+  // marca → liberação para Fabricação; estoque da obra (escopo de UMA obra).
+  const fluxoObra = useFluxoIntegrado({ obraIds: obraIdsEscopo, pecas: pecasSupabase || [] });
+  const infoMarca = fluxoObra.infoMarca;
 
   // Paginação para modo lista
   const [paginaAtual, setPaginaAtual] = useState(1);
@@ -190,8 +206,8 @@ export default function KanbanProducaoIntegrado() {
     // Peças com etapa 'enviado' ou 'entregue' NÃO devem aparecer no Kanban
     const mapEtapaToStatus = (etapa) => {
       switch (etapa) {
-        case 'aguardando': return 'fabricacao';
-        case 'corte': return 'fabricacao';
+        case 'aguardando': return 'aguardando';
+        case 'corte': return 'aguardando';
         case 'fabricacao': return 'fabricacao';
         case 'solda': return 'solda';
         case 'pintura': return 'pintura';
@@ -199,7 +215,7 @@ export default function KanbanProducaoIntegrado() {
         case 'enviado': return null;   // excluir do Kanban
         case 'entregue': return null;  // excluir do Kanban
         case 'montagem': return null;  // excluir do Kanban
-        default: return 'fabricacao';
+        default: return 'aguardando';
       }
     };
 
@@ -220,8 +236,9 @@ export default function KanbanProducaoIntegrado() {
         prioridade: peca.prioridade || 'normal',
         status,
         progresso: peca.percentualConclusao || 0,
-        obraId: peca.obraId || 'obra-001',
-        obraNome: peca.obraNome || 'SUPER LUNA - BELO VALE',
+        obraId: peca.obraId || null,
+        obraNome: peca.obraNome || nomeObraPorId[peca.obraId] || '',
+        marca: peca.marca || '',
         dataImportacao: peca.createdAt || new Date().toISOString(),
         statusProducao: {
           fabricado: ['solda', 'pintura', 'expedido'].includes(status),
@@ -241,14 +258,8 @@ export default function KanbanProducaoIntegrado() {
     const conjuntosValidos = conjuntosConvertidos.filter(Boolean);
     const somaQtd = conjuntosValidos.reduce((s, c) => s + (parseInt(c.quantidade) || 1), 0);
     console.log(`[Kanban] ✅ ${conjuntosValidos.length} peças carregadas, soma qtd=${somaQtd} (${pecasSupabase.length - conjuntosValidos.length} excluídas: enviadas/entregues)`);
-    // DEBUG: detalhar peças TMC-CC027
-    const cc027 = conjuntosValidos.filter(c => c.obraId === 'obra-004');
-    if (cc027.length > 0) {
-      console.log(`[Kanban DEBUG] TMC-CC027: ${cc027.length} peças, soma=${cc027.reduce((s,c) => s + (parseInt(c.quantidade)||1), 0)}`);
-      cc027.forEach(c => console.log(`  ${c.id.slice(0, 70)} | qtd=${c.quantidade} | status=${c.status} | etapa=${c.statusProducao?.etapa || '?'}`));
-    }
     setProducaoFabrica(conjuntosValidos);
-  }, [pecasSupabase]);
+  }, [pecasSupabase, nomeObraPorId]);
 
   // Obter obras disponíveis (priorizar Supabase/Context)
   const obrasDisponiveis = useMemo(() => {
@@ -304,8 +315,8 @@ export default function KanbanProducaoIntegrado() {
         material: item.material || 'A36',
         prioridade: item.prioridade || 'normal',
 
-        // Dados de produção
-        status: 'fabricacao',
+        // Dados de produção — entra aguardando o corte das posições
+        status: 'aguardando',
         progresso: 0,
 
         // Rastreamento
@@ -368,8 +379,8 @@ export default function KanbanProducaoIntegrado() {
         pesoTotal: item.pesoTotal,
         pesoUnitario: item.pesoUnitario,
         quantidade: item.quantidade,
-        etapa: 'fabricacao',
-        status: 'em_producao',
+        etapa: 'aguardando',
+        status: 'aguardando',
         obraId: item.obraId,
         obraNome: item.obraNome,
       }));
@@ -395,12 +406,33 @@ export default function KanbanProducaoIntegrado() {
   // Avançar peça → abre o modal de Lançamento de Produção por Funcionário
   // (modal completo com todas as etapas editáveis, ao invés do
   // FuncionarioSelectorModal antigo que mostrava só uma etapa)
+  // Sair de 'aguardando' (iniciar fabricação) exige o corte das posições da
+  // marca concluído. Sem composição cadastrada: só avisa.
+  const conferirLiberacao = (conjunto) => {
+    if (conjunto.status !== 'aguardando') return true;
+    const info = infoMarca({ obraId: conjunto.obraId, marca: conjunto.marca || conjunto.conjunto });
+    const qtd = parseInt(conjunto.quantidade) || 1;
+    const chk = podeIniciarFabricacao(info, qtd);
+    if (chk.ok) {
+      if (chk.aviso) toast(chk.aviso, { icon: '⚠️' });
+      return true;
+    }
+    return window.confirm(`${conjunto.conjunto}: ${chk.aviso}\n\nIniciar a fabricação mesmo assim?`);
+  };
+
+  const abrirLancamento = (conjunto, etapa) => {
+    // Na coluna Corte o lançamento é o início da fabricação
+    const destino = etapa === 'aguardando' ? 'fabricacao' : etapa;
+    if (!conferirLiberacao(conjunto)) return;
+    setPecasLancamento([conjunto]);
+    setEtapaLancamento(destino || 'fabricacao');
+    setModalLancamento(true);
+  };
+
   const moverConjunto = (conjuntoId, novoStatus) => {
     const conjunto = producaoFabrica.find(c => c.id === conjuntoId);
     if (!conjunto) return;
-    setPecasLancamento([conjunto]);
-    setEtapaLancamento(novoStatus || conjunto.status || 'fabricacao');
-    setModalLancamento(true);
+    abrirLancamento(conjunto, novoStatus || conjunto.status || 'fabricacao');
   };
 
   // Etapa REAL no banco (o card mostra 'aguardando' na coluna Fabricação)
@@ -655,7 +687,7 @@ export default function KanbanProducaoIntegrado() {
 
     // Calcular distribuição atual por etapa
     const unidadesExistentes = conjunto.unidadesStatus || [];
-    const ordemEtapas = ['fabricacao', 'solda', 'pintura', 'expedido'];
+    const ordemEtapas = ['aguardando', 'fabricacao', 'solda', 'pintura', 'expedido'];
     const distribuicao = {};
     ordemEtapas.forEach(e => { distribuicao[e] = 0; });
     if (unidadesExistentes.length > 0) {
@@ -675,8 +707,14 @@ export default function KanbanProducaoIntegrado() {
     if (!conjuntoQtdPendente) return;
     const conjunto = conjuntoQtdPendente;
     const qtdTotal = parseInt(conjunto.quantidade) || 1;
-    const ordemEtapas = ['fabricacao', 'solda', 'pintura', 'expedido'];
+    const ordemEtapas = ['aguardando', 'fabricacao', 'solda', 'pintura', 'expedido'];
     const distribuicao = unidadesEdicao;
+    // Unidades saindo de 'aguardando' = início de fabricação: exige corte liberado
+    if (conjunto.status === 'aguardando' && (distribuicao.aguardando || 0) < qtdTotal) {
+      const info = infoMarca({ obraId: conjunto.obraId, marca: conjunto.marca || conjunto.conjunto });
+      const chk = podeIniciarFabricacao(info, qtdTotal - (distribuicao.aguardando || 0));
+      if (!chk.ok && !window.confirm(`${conjunto.conjunto}: ${chk.aviso}\n\nSalvar mesmo assim?`)) return;
+    }
 
     // Verificar que soma bate
     const somaQtd = ordemEtapas.reduce((s, e) => s + (distribuicao[e] || 0), 0);
@@ -802,7 +840,8 @@ export default function KanbanProducaoIntegrado() {
     const pcsSolda      = sumQty(conjuntosFiltrados.filter(c => c.status === 'solda'));
     const pcsPintura    = sumQty(conjuntosFiltrados.filter(c => c.status === 'pintura'));
     const pcsExpedido   = sumQty(conjuntosFiltrados.filter(c => c.status === 'expedido'));
-    const pcsTotalKanban = pcsFabricacao + pcsSolda + pcsPintura + pcsExpedido;
+    const pcsAguardando = sumQty(conjuntosFiltrados.filter(c => c.status === 'aguardando'));
+    const pcsTotalKanban = pcsAguardando + pcsFabricacao + pcsSolda + pcsPintura + pcsExpedido;
 
     // Peso alta prioridade
     const pesoAltaPrioridade = conjuntosFiltrados
@@ -1320,9 +1359,15 @@ export default function KanbanProducaoIntegrado() {
         </motion.div>
       )}
 
+      {/* Fluxo integrado: necessário → estoque → corte → marcas → produção */}
+      {(pecasSupabase || []).length > 0 && (
+        <FluxoObraPainel abastecimento={fluxoObra.abastecimento} liberacao={fluxoObra.liberacao}
+          pecas={pecasSupabase} compacto={!obraAtual} semComposicaoTabela={fluxoObra.semTabela} />
+      )}
+
       {/* Kanban Board — renderiza se houver produção ativa OU peças enviadas */}
       {(producaoFabrica.length > 0 || pecasEnviadasColuna.length > 0) && modoVisualizacao === 'kanban' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
           {COLUNAS_PRODUCAO.map((coluna, colIdx) => {
             const ColunaIcon = coluna.icon;
             const conjuntosColuna = conjuntosPorColuna[coluna.id] || [];
@@ -1478,31 +1523,8 @@ export default function KanbanProducaoIntegrado() {
                           return null;
                         })()}
 
-                        {/* Progresso Corte - Dados Reais do corteStatusStore */}
-                        {(() => {
-                          const bom = getBOMByConjunto(conjunto.conjunto);
-                          if (!bom || bom.length === 0) return null;
-                          const { totalPecas, cortadas } = contarCortadasParaConjunto(bom);
-                          const pct = totalPecas > 0 ? Math.round((cortadas / totalPecas) * 100) : 0;
-                          const corBarra = pct === 100 ? 'bg-emerald-500' : pct > 50 ? 'bg-amber-500' : pct > 0 ? 'bg-blue-500' : 'bg-slate-600';
-                          const corTexto = pct === 100 ? 'text-emerald-400' : pct > 0 ? 'text-slate-300' : 'text-slate-500';
-                          return (
-                            <div className="mt-2 pt-2 border-t border-slate-700/50">
-                              <div className="flex items-center justify-between mb-1">
-                                <span className="text-[10px] text-slate-400">Corte</span>
-                                <span className={`text-[10px] font-mono ${corTexto}`}>{cortadas}/{totalPecas} pçs</span>
-                              </div>
-                              <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                                <div className={`h-full ${corBarra} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                              </div>
-                              {pct === 100 && (
-                                <div className="text-[9px] text-emerald-400 text-center mt-1 font-medium">
-                                  ✅ Material pronto
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
+                        {/* Corte das posições → liberação da marca (materiais_corte real) */}
+                        {coluna.id === 'aguardando' && <LiberacaoCorte info={infoMarca(conjunto)} />}
 
                         {/* Botões de Ação Rápida de Status */}
                         <div className="flex gap-1 mt-2">
@@ -1515,8 +1537,9 @@ export default function KanbanProducaoIntegrado() {
                                 size="sm"
                                 variant="ghost"
                                 className="flex-1 text-[10px] text-orange-400 hover:text-orange-300 hover:bg-orange-900/20 h-7"
-                                onClick={(e) => { e.stopPropagation(); moverConjunto(conjunto.id, colunaAnterior.id); }}
-                                title={`Voltar para ${colunaAnterior.title}`}
+                                disabled={voltandoId === conjunto.id}
+                                onClick={(e) => { e.stopPropagation(); voltarEtapaDireto(conjunto.id); }}
+                                title={`Voltar para ${colunaAnterior.title} (desfaz a etapa)`}
                               >
                                 <ArrowLeft className="h-3 w-3 mr-0.5" />
                                 {colunaAnterior.title.replace(/[^\w\s]/g, '').trim().split(' ')[0]}
@@ -1541,7 +1564,7 @@ export default function KanbanProducaoIntegrado() {
                         {/* Botão Lançamento de Produção */}
                         <button
                           className="w-full flex items-center justify-center gap-1 mt-1 py-1 rounded-lg text-[10px] text-purple-400 hover:text-purple-300 hover:bg-purple-900/20 transition-colors border border-dashed border-purple-700/30 hover:border-purple-600/50"
-                          onClick={(e) => { e.stopPropagation(); setPecasLancamento([conjunto]); setEtapaLancamento(coluna.id); setModalLancamento(true); }}
+                          onClick={(e) => { e.stopPropagation(); abrirLancamento(conjunto, coluna.id); }}
                           title="Lançar produção por funcionário"
                         >
                           <UserCheck className="h-3 w-3" />
@@ -1865,7 +1888,7 @@ export default function KanbanProducaoIntegrado() {
                               <Eye className="h-4 w-4" />
                             </Button>
                             <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-purple-400 hover:text-purple-300 hover:bg-purple-900/20"
-                              onClick={(e) => { e.stopPropagation(); setPecasLancamento([conjunto]); setEtapaLancamento(conjunto.status || 'fabricacao'); setModalLancamento(true); }}
+                              onClick={(e) => { e.stopPropagation(); abrirLancamento(conjunto, conjunto.status || 'fabricacao'); }}
                               title="Lançar produção por funcionário">
                               <UserCheck className="h-4 w-4" />
                             </Button>
@@ -2062,69 +2085,8 @@ export default function KanbanProducaoIntegrado() {
                     );
                   })()}
 
-                  {/* Lista de Croquis / BOM - Dados Reais do corteStatusStore */}
-                  {(() => {
-                    const bom = getBOMByConjunto(conjuntoSelecionado.conjunto);
-                    if (!bom || bom.length === 0) return null;
-                    const { totalPecas, cortadas: cortadasTotal } = contarCortadasParaConjunto(bom);
-                    // Mapear status real de cada peça via isMarcaCortada
-                    const bomComStatus = bom.map(p => ({
-                      ...p,
-                      cortadas: isMarcaCortada(p.marca) ? p.quantidade : 0
-                    }));
-                    const pct = totalPecas > 0 ? Math.round((cortadasTotal / totalPecas) * 100) : 0;
-                    const corBarra = pct === 100 ? 'bg-emerald-500' : pct > 50 ? 'bg-amber-500' : pct > 0 ? 'bg-blue-500' : 'bg-slate-600';
-                    const corTexto = pct === 100 ? 'text-emerald-400' : pct > 50 ? 'text-amber-400' : pct > 0 ? 'text-blue-400' : 'text-slate-500';
-                    return (
-                      <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-cyan-400 text-sm font-medium flex items-center gap-1">
-                            <Layers className="h-4 w-4" /> Peças Componentes (Croquis)
-                          </p>
-                          <span className={`text-xs font-mono ${corTexto}`}>{cortadasTotal}/{totalPecas} cortadas</span>
-                        </div>
-                        <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden mb-3">
-                          <div className={`h-full ${corBarra} rounded-full transition-all`} style={{ width: `${pct}%` }} />
-                        </div>
-                        <div className="max-h-48 overflow-y-auto space-y-1">
-                          {bomComStatus.map((p, i) => {
-                            const croqui = getCroquiByMarca(p.marca);
-                            const todoCortado = p.cortadas === p.quantidade;
-                            return (
-                              <div key={i} className={cn(
-                                "flex items-center justify-between py-1.5 px-2 rounded text-xs",
-                                todoCortado ? "bg-emerald-500/10" : "bg-slate-800/50"
-                              )}>
-                                <div className="flex items-center gap-2">
-                                  <span className={cn("w-2 h-2 rounded-full", todoCortado ? "bg-emerald-500" : "bg-slate-500")} />
-                                  <span className="font-mono text-white">POS {p.marca}</span>
-                                  <span className="text-slate-400">{p.tipo}</span>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                  <span className="text-slate-400">{p.perfil}</span>
-                                  <span className={cn("font-mono", todoCortado ? "text-emerald-400" : "text-slate-300")}>
-                                    {p.cortadas}/{p.quantidade}
-                                  </span>
-                                  {croqui?.pdf && (
-                                    <a href={croqui.pdf} target="_blank" rel="noopener noreferrer"
-                                      className="text-cyan-400 hover:text-cyan-300"
-                                      onClick={(e) => e.stopPropagation()}>
-                                      <FileText className="h-3 w-3" />
-                                    </a>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {pct === 100 && (
-                          <div className="mt-2 text-center text-emerald-400 text-xs font-medium bg-emerald-500/10 rounded py-1">
-                            ✅ Todas as peças cortadas — Pronto para fabricação
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
+                  {/* Posições (corte) que formam a marca — materiais_corte + composição */}
+                  <PosicoesMarca info={infoMarca(conjuntoSelecionado)} />
 
                   <div className="bg-slate-800/50 rounded-lg p-4">
                     <p className="text-slate-400 text-sm mb-3">Status de Produção</p>
@@ -2194,6 +2156,7 @@ export default function KanbanProducaoIntegrado() {
                 {/* Inputs de quantidade por etapa */}
                 <div className="space-y-3">
                   {[
+                    { id: 'aguardando', label: 'Corte / aguardando', icon: '✂️', cor: 'amber' },
                     { id: 'fabricacao', label: 'Fabricação', icon: '🔧', cor: 'blue' },
                     { id: 'solda', label: 'Solda', icon: '⚡', cor: 'yellow' },
                     { id: 'pintura', label: 'Pintura', icon: '🎨', cor: 'pink' },
@@ -2201,8 +2164,8 @@ export default function KanbanProducaoIntegrado() {
                   ].map(etapa => {
                     const qtdEtapa = (typeof unidadesEdicao === 'object' && !Array.isArray(unidadesEdicao)) ? (unidadesEdicao[etapa.id] || 0) : 0;
                     const isAtual = conjuntoQtdPendente.status === etapa.id;
-                    const corMap = { blue: 'border-blue-500 bg-blue-500/10', yellow: 'border-yellow-500 bg-yellow-500/10', pink: 'border-pink-500 bg-pink-500/10', green: 'border-emerald-500 bg-emerald-500/10' };
-                    const corTexto = { blue: 'text-blue-400', yellow: 'text-yellow-400', pink: 'text-pink-400', green: 'text-emerald-400' };
+                    const corMap = { amber: 'border-amber-500 bg-amber-500/10', blue: 'border-blue-500 bg-blue-500/10', yellow: 'border-yellow-500 bg-yellow-500/10', pink: 'border-pink-500 bg-pink-500/10', green: 'border-emerald-500 bg-emerald-500/10' };
+                    const corTexto = { amber: 'text-amber-400', blue: 'text-blue-400', yellow: 'text-yellow-400', pink: 'text-pink-400', green: 'text-emerald-400' };
                     return (
                       <div key={etapa.id} className={cn(
                         "flex items-center justify-between p-4 rounded-xl border transition-all",
@@ -2595,6 +2558,94 @@ export default function KanbanProducaoIntegrado() {
           setModalLancamento(false);
         }}
       />
+    </div>
+  );
+}
+
+// ==========================================
+// Corte das posições × marca (dados reais)
+// ==========================================
+const STATUS_LIB = {
+  liberada: { txt: 'Corte completo — liberada', cls: 'text-emerald-400', bar: 'bg-emerald-500' },
+  parcial: { txt: 'Liberada parcialmente', cls: 'text-amber-400', bar: 'bg-amber-500' },
+  aguardando_corte: { txt: 'Aguardando corte', cls: 'text-slate-300', bar: 'bg-blue-500' },
+  sem_composicao: { txt: 'Sem composição de posições', cls: 'text-slate-500', bar: 'bg-slate-600' },
+  em_producao: { txt: 'Em produção', cls: 'text-sky-400', bar: 'bg-sky-500' },
+};
+
+function LiberacaoCorte({ info }) {
+  if (!info) return null;
+  const st = STATUS_LIB[info.status] || STATUS_LIB.aguardando_corte;
+  const pct = info.pctCorte ?? 0;
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-700/50" title={info.posicoes.map(p => `POS ${p.pos}: ${Math.min(p.cortadaPos, p.necessaria)}/${p.necessaria}`).join('\n')}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-slate-400 flex items-center gap-1"><Scissors className="h-3 w-3" />Corte</span>
+        <span className={`text-[10px] font-mono ${st.cls}`}>
+          {info.composicao === 'sem' ? '—' : `${info.liberadasAguardando}/${info.qtdAguardando} un · ${pct}%`}
+        </span>
+      </div>
+      {info.composicao !== 'sem' && (
+        <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+          <div className={`h-full ${st.bar} rounded-full transition-all`} style={{ width: `${pct}%` }} />
+        </div>
+      )}
+      <div className={`text-[9px] text-center mt-1 font-medium ${st.cls}`}>{st.txt}</div>
+    </div>
+  );
+}
+
+function PosicoesMarca({ info }) {
+  if (!info) return null;
+  if (info.composicao === 'sem') {
+    return (
+      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400">
+        <p className="text-slate-300 text-sm font-medium flex items-center gap-1 mb-1"><Layers className="h-4 w-4" /> Posições de corte</p>
+        Composição desta marca ainda não cadastrada. Importe a lista de posições (com a coluna Conjunto) no Kanban de Corte.
+      </div>
+    );
+  }
+  const st = STATUS_LIB[info.status] || STATUS_LIB.aguardando_corte;
+  return (
+    <div className="bg-cyan-500/10 border border-cyan-500/30 rounded-lg p-4">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-cyan-400 text-sm font-medium flex items-center gap-1">
+          <Layers className="h-4 w-4" /> Posições de corte {info.composicao === 'automatica' && <span className="text-[10px] text-slate-400">(peça única)</span>}
+        </p>
+        <span className={`text-xs font-mono ${st.cls}`}>{info.pctCorte ?? 0}% · {st.txt}</span>
+      </div>
+      <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden mb-3">
+        <div className={`h-full ${st.bar} rounded-full transition-all`} style={{ width: `${info.pctCorte ?? 0}%` }} />
+      </div>
+      <div className="max-h-48 overflow-y-auto space-y-1">
+        {info.posicoes.map((p) => {
+          const croqui = getCroquiByMarca(p.pos);
+          const ok = p.cortadaPos >= p.necessaria;
+          return (
+            <div key={p.pos} className={cn('flex items-center justify-between py-1.5 px-2 rounded text-xs', ok ? 'bg-emerald-500/10' : 'bg-slate-800/50')}>
+              <div className="flex items-center gap-2">
+                <span className={cn('w-2 h-2 rounded-full', ok ? 'bg-emerald-500' : p.existe ? 'bg-amber-500' : 'bg-red-500')} />
+                <span className="font-mono text-white">POS {p.pos}</span>
+                <span className="text-slate-400">{p.qtdPorUn}/un</span>
+                {!p.existe && <span className="text-red-400">não está na lista de corte</span>}
+              </div>
+              <div className="flex items-center gap-3">
+                <span className={cn('font-mono', ok ? 'text-emerald-400' : 'text-slate-300')}>
+                  {Math.min(p.cortadaPos, p.necessaria)}/{p.necessaria} cortadas
+                </span>
+                {croqui?.pdf && (
+                  <a href={croqui.pdf} target="_blank" rel="noopener noreferrer" className="text-cyan-400 hover:text-cyan-300" onClick={(e) => e.stopPropagation()}>
+                    <FileText className="h-3 w-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 text-[11px] text-slate-400">
+        {info.liberadasAguardando}/{info.qtdAguardando} un aguardando liberada(s) para fabricação · {info.qtdEmProducao} un já em produção
+      </div>
     </div>
   );
 }
