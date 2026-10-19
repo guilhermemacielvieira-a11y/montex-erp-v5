@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  statusCorte, chaveEstoqueAprox, abastecimentoCorte, liberacaoMarcas, podeIniciarFabricacao,
+  statusCorte, chaveEstoqueAprox, corteEfetivo, familiaCorte, abastecimentoCorte, liberacaoMarcas, podeIniciarFabricacao,
   pipelineObra, parseListaPosicoes, planoImportacaoPosicoes, marcasPorPosicao, mapearColunas,
 } from './fluxoIntegrado';
 
@@ -120,5 +120,45 @@ describe('fluxoIntegrado', () => {
     expect(plano.bloqueadas.map((p) => p.pos)).toEqual(['2']);
     expect(plano.alteradas.map((p) => p.pos)).toEqual(['3']);
     expect(plano.novas.map((p) => p.pos)).toEqual(['4']);
+  });
+
+  it('família de corte agrupa posições e marcas', () => {
+    expect(familiaCorte('DIAGONAL-TS')).toBe('TESOURA');
+    expect(familiaCorte('MONTANTE-VM')).toBe('VIGA-MESTRA');
+    expect(familiaCorte('DIAGONAL_TRELIÇA')).toBe('TRELICA');
+    expect(familiaCorte('TERÇA-TAP')).toBe('TERCA');
+    expect(familiaCorte('CHAPA')).toBe('GERAL');
+  });
+
+  it('corte efetivo: produção prova o corte (exato) e estima posições sem composição', () => {
+    const pecas = [
+      { id: 'T1', marca: 'TC1', tipo: 'TERÇA', quantidade: 3, etapa: 'pintura', peso_total: 300 },
+      { id: 'T2', marca: 'TC2', tipo: 'TERÇA', quantidade: 2, etapa: 'aguardando', peso_total: 200 },
+      { id: 'S1', marca: 'TS1', tipo: 'TESOURA', quantidade: 3, etapa: 'enviado', peso_total: 900 },
+      { id: 'S2', marca: 'TS2', tipo: 'TESOURA', quantidade: 1, etapa: 'aguardando', peso_total: 300 },
+    ];
+    const cortes = [
+      corte('a', 'TC1', 3, 'aguardando', { peca: 'TERÇA', peso_teorico: 300 }), // exato: 3 un em produção
+      corte('b', 'TC2', 2, 'aguardando', { peca: 'TERÇA', peso_teorico: 200 }), // pendente
+      corte('c', '10', 4, 'finalizado', { peca: 'TESOURA', peso_teorico: 400 }),
+      corte('d', '11', 4, 'aguardando', { peca: 'DIAGONAL-TS', peso_teorico: 400 }),
+      corte('e', '12', 2, 'aguardando', { peca: 'MONTANTE-TS', peso_teorico: 400 }),
+    ];
+    const lib = liberacaoMarcas({ pecas, cortes });
+    const ef = corteEfetivo({ cortes, liberacao: lib });
+    expect(ef.porId.get('a')).toMatchObject({ origem: 'producao', total: true, kgImplicito: 300 });
+    expect(ef.porId.get('b')).toBeUndefined();
+    // tesoura: 75% do peso em produção → 75% de 1200 = 900 kg; 400 já apontado → +500 estimado
+    expect(ef.porId.get('d')).toMatchObject({ origem: 'estimado', kgImplicito: 400, total: true });
+    expect(ef.porId.get('e')).toMatchObject({ origem: 'estimado', total: false });
+    expect(ef.porId.get('e').kgImplicito).toBeCloseTo(100);
+    expect(ef.resumo).toMatchObject({ totalKg: 1700, registradoKg: 400, producaoKg: 300, estimadoKg: 500, pendenteKg: 500 });
+    expect(ef.conciliaveis).toEqual(['a']);
+    // abastecimento só cobra o pendente real
+    const fluxo = { chaves: [{ chave: 'K', necessario_kg: 1700, a_cortar_kg: 1300, disponivel_kg: 200 }], itens: cortes.map((c) => ({ id: c.id, chave: 'K' })) };
+    const ab = abastecimentoCorte(cortes, fluxo, ef);
+    expect(ab.porId.get('a')).toMatchObject({ estado: 'cortado', implicito: 'producao' });
+    expect(ab.chaves[0]).toMatchObject({ a_cortar_kg: 500, cortado_kg: 1200, falta_kg: 300 });
+    expect(pipelineObra({ abastecimento: ab, liberacao: lib, pecas })).toMatchObject({ cortadoKg: 1200, corteRegistradoKg: 400, corteProducaoKg: 300, corteEstimadoKg: 500 });
   });
 });

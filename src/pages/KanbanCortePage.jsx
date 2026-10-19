@@ -10,6 +10,7 @@
 // ============================================
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { supabase } from '@/api/supabaseClient';
 import { useObras, useProducao } from '../contexts/ERPContext';
 import { useFluxoIntegrado } from '../hooks/useFluxoIntegrado';
 import { marcasPorPosicao } from '../services/fluxoIntegrado';
@@ -55,7 +56,9 @@ const getCor = (tipo) => CATEGORIA_CORES[tipo] || { bg: '#2d2d2d', border: '#7f8
 const STATUS_CONF = {
   'aguardando': { label: 'Aguardando', bg: '#44370e', border: '#f59e0b', text: '#fbbf24', icon: '⏳' },
   'cortando':   { label: 'Cortando',   bg: '#0c2d48', border: '#3b82f6', text: '#60a5fa', icon: '⚙️' },
-  'finalizado': { label: 'Finalizado', bg: '#0d3320', border: '#22c55e', text: '#4ade80', icon: '✅' }
+  'finalizado': { label: 'Finalizado', bg: '#0d3320', border: '#22c55e', text: '#4ade80', icon: '✅' },
+  // Não apontado no corte, mas a marca já está em produção → foi cortado
+  'implicito':  { label: 'Já produzido', bg: '#2d1b69', border: '#8b5cf6', text: '#c4b5fd', icon: '🏭' }
 };
 
 // ==========================================
@@ -131,6 +134,62 @@ function KanbanCorteBoard({ obraAtual }) {
     return window.confirm(`Sem saldo no estoque da obra para ${sem.length} posição(ões): ${nomes}${sem.length > 5 ? '…' : ''}\nFaltam ~${Math.round(falta).toLocaleString('pt-BR')} kg — o estoque ficará negativo.\n\nLance a entrada do material no Estoque antes de cortar.\nContinuar mesmo assim?`);
   };
   const aposOperacao = () => fluxo.recarregar();
+
+  // Corte efetivo = apontado aqui + implícito pela produção (peça já em
+  // fabricação/solda/pintura/expedida/enviada usou essas posições).
+  const efetivoDe = (id) => fluxo.efetivo?.porId?.get(id);
+  const jaCortadoPelaProducao = (item) => item.status !== 'finalizado' && !!efetivoDe(item.id)?.total && efetivoDe(item.id)?.origem !== 'registrado';
+  const resumoCorte = fluxo.efetivo?.resumo || null;
+  const pendentesReais = useMemo(
+    () => items.filter(i => i.status !== 'finalizado' && !(efetivoDe(i.id)?.total && efetivoDe(i.id)?.origem !== 'registrado')).length,
+    [items, fluxo.efetivo]);
+  const progressoEfetivo = resumoCorte && resumoCorte.totalKg > 0
+    ? Math.round(((resumoCorte.totalKg - resumoCorte.pendenteKg) / resumoCorte.totalKg) * 100)
+    : (metrics.progressoPeso || 0);
+  // Chips por categoria: cortado = apontado + já produzido
+  const cortadosPorCategoria = useMemo(() => {
+    const m = {};
+    items.forEach(i => {
+      if (i.status === 'finalizado' || jaCortadoPelaProducao(i)) m[i.peca || 'SEM TIPO'] = (m[i.peca || 'SEM TIPO'] || 0) + 1;
+    });
+    return m;
+  }, [items, fluxo.efetivo]);
+  const [conciliando, setConciliando] = useState(false);
+  const conciliaveis = useMemo(() => {
+    const ids = new Set(fluxo.efetivo?.conciliaveis || []);
+    return rawItems.filter(r => ids.has(r.id));
+  }, [fluxo.efetivo, rawItems]);
+
+  // Grava como CORTE HISTÓRICO as posições que a produção prova cortadas:
+  // status finalizado + baixa_estoque_kg NULL (trigger não mexe no estoque) e
+  // SEM data_fim (não vira produção de corte de hoje no BI).
+  const conciliarComProducao = async () => {
+    if (!conciliaveis.length || conciliando) return;
+    const kg = conciliaveis.reduce((s, r) => s + (Number(r.peso_teorico) || 0), 0);
+    if (!window.confirm(`Marcar ${conciliaveis.length} posição(ões) (${Math.round(kg).toLocaleString('pt-BR')} kg) como CORTADAS?\n\nSão posições de marcas que já estão em fabricação ou etapas seguintes — o corte aconteceu antes do apontamento no sistema.\n\n• Registro histórico: NÃO baixa estoque e NÃO conta como produção de corte de hoje.\n• Posições compostas sem composição continuam só estimadas (importe a lista com a coluna Conjunto).`)) return;
+    setConciliando(true);
+    let ok = 0;
+    try {
+      const agora = new Date().toISOString();
+      for (let i = 0; i < conciliaveis.length; i += 10) {
+        const lote = conciliaveis.slice(i, i + 10);
+        const res = await Promise.all(lote.map(r => supabase.from('materiais_corte')
+          .update({
+            status_corte: 'finalizado', baixa_estoque_kg: null, updated_at: agora,
+            observacoes: [r.observacoes, 'Conciliado: cortado antes do apontamento (marca já em produção)'].filter(Boolean).join(' | ')
+          })
+          .eq('id', r.id)
+          .not('status_corte', 'in', '("finalizado","cortado","concluido")')
+          .select('id')));
+        res.forEach(({ data, error }) => { if (error) console.error('[conciliar corte]', error); else ok += (data || []).length; });
+      }
+      avisar(`✅ ${ok} posição(ões) conciliada(s) com a produção (histórico, sem baixa de estoque).`);
+      await recarregarCortes();
+      aposOperacao();
+    } finally {
+      setConciliando(false);
+    }
+  };
   const [loteEmAndamento, setLoteEmAndamento] = useState(false);
   const ocupado = (id) => loteEmAndamento || (emAndamento && emAndamento.has(id));
   const avisar = (message) => {
@@ -200,7 +259,9 @@ function KanbanCorteBoard({ obraAtual }) {
   const filteredItems = useMemo(() => {
     let result = [...items];
     if (filtroCategoria !== 'TODOS') result = result.filter(i => i.peca === filtroCategoria);
-    if (filtroStatus !== 'TODOS') result = result.filter(i => i.status === filtroStatus);
+    if (filtroStatus === 'implicito') result = result.filter(i => jaCortadoPelaProducao(i));
+    else if (filtroStatus === 'aguardando') result = result.filter(i => i.status === 'aguardando' && !jaCortadoPelaProducao(i));
+    else if (filtroStatus !== 'TODOS') result = result.filter(i => i.status === filtroStatus);
     if (busca) {
       const t = busca.toLowerCase();
       result = result.filter(i =>
@@ -216,7 +277,7 @@ function KanbanCorteBoard({ obraAtual }) {
       return (va < vb ? -1 : va > vb ? 1 : 0) * (sortDir === 'asc' ? 1 : -1);
     });
     return result;
-  }, [items, filtroCategoria, filtroStatus, busca, sortField, sortDir]);
+  }, [items, filtroCategoria, filtroStatus, busca, sortField, sortDir, fluxo.efetivo]);
 
   // Paginação
   const totalPages = Math.ceil(filteredItems.length / ITEMS_PER_PAGE);
@@ -494,6 +555,21 @@ function KanbanCorteBoard({ obraAtual }) {
             📥 Importar posições
           </button>
 
+          {conciliaveis.length > 0 && (
+            <button
+              onClick={conciliarComProducao}
+              disabled={conciliando}
+              title="Marca como cortadas (histórico, sem baixa de estoque) as posições de marcas que já estão em produção"
+              style={{
+                background: '#2d1b69', border: '1px solid #8b5cf6', borderRadius: 12,
+                padding: '10px 16px', cursor: conciliando ? 'wait' : 'pointer', color: '#c4b5fd', fontSize: 13, fontWeight: 600,
+                opacity: conciliando ? 0.6 : 1
+              }}
+            >
+              🔗 Conciliar com a produção ({conciliaveis.length})
+            </button>
+          )}
+
           <button
             onClick={() => setShowPanel(!showPanel)}
             style={{
@@ -533,10 +609,10 @@ function KanbanCorteBoard({ obraAtual }) {
       }}>
         {[
           { label: 'Total Peças', value: metrics.totalMarcas || 0, sub: formatPeso(metrics.pesoTotal), color: '#6366f1', icon: '📋' },
-          { label: 'Aguardando', value: metrics.aguardando || 0, sub: formatPeso(metrics.pesoAguardando), color: '#f59e0b', icon: '⏳' },
+          { label: 'A cortar (real)', value: pendentesReais, sub: resumoCorte ? `${formatPeso(resumoCorte.pendenteKg)} · descontado o já produzido` : formatPeso(metrics.pesoAguardando), color: '#f59e0b', icon: '⏳' },
           { label: 'Em Corte', value: metrics.cortando || 0, sub: formatPeso(metrics.pesoCortando), color: '#3b82f6', icon: '⚙️' },
-          { label: 'Finalizadas', value: metrics.finalizado || 0, sub: formatPeso(metrics.pesoFinalizado), color: '#22c55e', icon: '✅' },
-          { label: 'Progresso', value: `${metrics.progressoMarcas || 0}%`, sub: `${formatPeso(metrics.pesoFinalizado)} cortado`, color: '#8b5cf6', icon: '📊' },
+          { label: 'Cortado (apontado)', value: metrics.finalizado || 0, sub: formatPeso(metrics.pesoFinalizado), color: '#22c55e', icon: '✅' },
+          { label: 'Cortado pela produção', value: resumoCorte ? formatPeso(resumoCorte.producaoKg + resumoCorte.estimadoKg) : '—', sub: resumoCorte ? `${formatPeso(resumoCorte.producaoKg)} exato · ${formatPeso(resumoCorte.estimadoKg)} estimado` : '', color: '#a78bfa', icon: '🏭' },
         ].map((kpi, idx) => (
           <div key={idx} style={{
             background: '#111827', border: '1px solid #1f2937', borderRadius: 12,
@@ -555,16 +631,16 @@ function KanbanCorteBoard({ obraAtual }) {
         padding: '10px 14px', marginBottom: 14
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>Progresso Geral de Corte</span>
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>Progresso de Corte (apontado + já usado na produção)</span>
           <span style={{ fontSize: 12, fontWeight: 700, color: '#8b5cf6' }}>
-            {metrics.progressoPeso || 0}% do peso | {metrics.progressoMarcas || 0}% das peças
+            {progressoEfetivo}% do peso | {metrics.progressoPeso || 0}% só apontado
           </span>
         </div>
         <div style={{ background: '#1f2937', borderRadius: 6, height: 8, overflow: 'hidden' }}>
           <div style={{
             height: '100%', borderRadius: 6,
             background: 'linear-gradient(90deg, #8b5cf6, #6366f1, #3b82f6)',
-            width: `${metrics.progressoPeso || 0}%`,
+            width: `${progressoEfetivo}%`,
             transition: 'width 0.5s ease'
           }} />
         </div>
@@ -608,7 +684,7 @@ function KanbanCorteBoard({ obraAtual }) {
                 background: active ? cor.border + '33' : '#374151',
                 padding: '1px 5px', borderRadius: 10, fontSize: 9
               }}>
-                {cm.finalizado || 0}/{cm.total || 0}
+                {cortadosPorCategoria[cat] ?? cm.finalizado ?? 0}/{cm.total || 0}
               </span>
             </button>
           );
@@ -638,7 +714,8 @@ function KanbanCorteBoard({ obraAtual }) {
           }}
         >
           <option value="TODOS">Todos Status</option>
-          <option value="aguardando">Aguardando</option>
+          <option value="aguardando">A cortar (real)</option>
+          <option value="implicito">Já cortado pela produção</option>
           <option value="cortando">Em Corte</option>
           <option value="finalizado">Finalizado</option>
         </select>
@@ -724,7 +801,7 @@ function KanbanCorteBoard({ obraAtual }) {
               {/* Corpo */}
               {pageItems.map((item, idx) => {
                 const cor = getCor(item.peca);
-                const sc = STATUS_CONF[item.status] || STATUS_CONF['aguardando'];
+                const sc = jaCortadoPelaProducao(item) ? STATUS_CONF.implicito : (STATUS_CONF[item.status] || STATUS_CONF['aguardando']);
                 const isSel = selectedIds.has(item.id);
                 const isExp = expandedMarca === item.id;
 
@@ -1446,6 +1523,14 @@ function KanbanCorteBoard({ obraAtual }) {
 // ==========================================
 function EstoqueBadge({ a, baixa }) {
   if (!a) return <span style={{ color: '#4b5563', fontSize: 10 }}>—</span>;
+  if (a.implicito && a.estado === 'cortado') {
+    return (
+      <span title={a.implicito === 'producao' ? 'A marca que usa esta posição já está em produção: o corte já aconteceu (não apontado). Não pede material.' : 'Estimado pela produção da família (posição sem composição): já consumido. Não pede material.'}
+        style={{ padding: '2px 6px', borderRadius: 5, background: '#2d1b69', color: '#c4b5fd', fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' }}>
+        {a.implicito === 'producao' ? 'Já produzido' : 'Estimado'}
+      </span>
+    );
+  }
   const historico = a.estado === 'cortado' && baixa == null;
   const c = ESTOQUE_CONF[a.estado] || ESTOQUE_CONF.abastecido;
   const titulo = historico ? 'Cortado antes do controle de estoque (sem baixa)'

@@ -9,7 +9,7 @@
 // ============================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { supabase } from '@/api/supabaseClient';
-import { abastecimentoCorte, liberacaoMarcas } from '@/services/fluxoIntegrado';
+import { abastecimentoCorte, liberacaoMarcas, corteEfetivo } from '@/services/fluxoIntegrado';
 
 const PAGE = 1000;
 const COLS_CORTE = 'id,obra_id,marca,peca,quantidade,perfil,material,comprimento_mm,peso_teorico,status_corte,peca_id,baixa_estoque_kg,funcionario_corte,data_inicio,data_fim';
@@ -80,20 +80,27 @@ export function useFluxoIntegrado({ obraIds = null, pecas = [], cortes: cortesEx
 
   const cortes = cortesExternos || cortesDb;
 
-  // Liberação calculada POR OBRA (códigos de marca/POS se repetem entre obras)
-  const liberacao = useMemo(() => {
+  // Liberação e corte efetivo calculados POR OBRA (códigos de marca/POS se
+  // repetem entre obras). Corte efetivo = apontado + implícito pela produção.
+  const { liberacao, efetivo } = useMemo(() => {
     const out = new Map();
+    const ef = { porId: new Map(), resumo: { totalKg: 0, registradoKg: 0, producaoKg: 0, estimadoKg: 0, pendenteKg: 0 }, conciliaveis: [] };
     const pe = porObra(pecas.map((p) => ({ ...p, obra_id: p.obra_id ?? p.obraId })));
     const co = porObra(cortes);
     const cp = porObra(composicao);
     for (const [obra, lista] of pe) {
-      const lib = liberacaoMarcas({ pecas: lista.map((p) => ({ ...p, peso_total: p.peso_total ?? p.pesoTotal })), cortes: co.get(obra) || [], composicao: cp.get(obra) || [] });
+      const cortesObra = co.get(obra) || [];
+      const lib = liberacaoMarcas({ pecas: lista.map((p) => ({ ...p, peso_total: p.peso_total ?? p.pesoTotal })), cortes: cortesObra, composicao: cp.get(obra) || [] });
       for (const [marca, info] of lib) out.set(`${obra}|${marca}`, { ...info, obraId: obra });
+      const e = corteEfetivo({ cortes: cortesObra, liberacao: lib });
+      for (const [id, v] of e.porId) ef.porId.set(id, v);
+      for (const k of Object.keys(ef.resumo)) ef.resumo[k] += e.resumo[k];
+      ef.conciliaveis.push(...e.conciliaveis);
     }
-    return out;
+    return { liberacao: out, efetivo: ef };
   }, [pecas, cortes, composicao]);
 
-  const abastecimento = useMemo(() => abastecimentoCorte(cortes, fluxo), [cortes, fluxo]);
+  const abastecimento = useMemo(() => abastecimentoCorte(cortes, fluxo, efetivo), [cortes, fluxo, efetivo]);
 
   /** Info de liberação da marca de uma peça (aceita camel/snake). */
   const infoMarca = useCallback((peca) => {
@@ -103,5 +110,5 @@ export function useFluxoIntegrado({ obraIds = null, pecas = [], cortes: cortesEx
     return liberacao.get(`${obra}|${marca}`) || null;
   }, [liberacao]);
 
-  return { cortes, composicao, fluxo, abastecimento, liberacao, infoMarca, carregando, semTabela, recarregar };
+  return { cortes, composicao, fluxo, abastecimento, liberacao, efetivo, infoMarca, carregando, semTabela, recarregar };
 }
