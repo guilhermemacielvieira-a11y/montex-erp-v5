@@ -149,14 +149,14 @@ export default function ProducaoFuncionarioPage() {
     const foraDaRota = (p, etapa) => etapa === 'solda' && rotas.cfg.semSolda.has(familiaDe(p.tipo));
     const coerencia = coerenciaProducao({ pecas: noEscopo(pecas, obraIds), transicoes: esc, corte, naoAplica, foraDaRota });
     const { eventos: evFab, removidos } = aplicarRotas(eventosProducao(esc, []), rotas.cfg);
-    // Ritmo-padrão calibrado com TODAS as obras (amostra maior e estável)
+    // Ritmo observado (todas as obras) — só comparação com o modelo de horas-padrão
     const calib = calibrarRitmos(aplicarRotas(eventosProducao(transicoes, []), rotas.cfg).eventos, funcionarios, { minDias: rotas.cfg.minDias });
     return { eventos: [...evFab, ...corte.eventos], diag, corte, coerencia, removidos, calib };
   }, [historico, pecas, cortes, obraIds, rotas.cfg, funcionarios]);
 
   const per = useMemo(() => intervaloPeriodo(periodo, { hoje, ...custom }), [periodo, custom, hoje]);
   const desempenho = useMemo(
-    () => desempenhoPessoas(base.eventos, funcionarios, { ini: per.ini, fim: per.fim, iniAnt: per.iniAnt, fimAnt: per.fimAnt, hoje, calib: base.calib, cfg: rotas.cfg }),
+    () => desempenhoPessoas(base.eventos, funcionarios, { ini: per.ini, fim: per.fim, iniAnt: per.iniAnt, fimAnt: per.fimAnt, hoje, cfg: rotas.cfg }),
     [base, funcionarios, per, hoje, rotas.cfg],
   );
   const familias = useMemo(() => resumoFamilias(base.eventos, { ini: per.ini, fim: per.fim }), [base.eventos, per]);
