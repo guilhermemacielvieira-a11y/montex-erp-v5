@@ -1,8 +1,8 @@
 // ============================================================
-// Configuração de rotas e ritmo-padrão por família de peça
+// Configuração de rotas e horas-padrão (Hh/t) por família de peça
 // ============================================================
 // Guardada em entity_store (id 'config_rotas_producao') para valer em todos
-// os dispositivos. Formato: { semSolda: ['TERCA', ...], ritmos: { etapa: { FAMILIA: kgDia } } }.
+// os dispositivos. Formato: { semSolda: ['TERCA', ...], hht: { etapa: { FAMILIA: HhPorTonelada } }, horasDia }.
 // Sem registro → padrões de services/bi/biDesempenho.js.
 // ============================================================
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -24,7 +24,7 @@ export function useRotasProducao() {
       const { data, error } = await supabase.from('entity_store').select('data').eq('id', ID).maybeSingle();
       if (!vivo) return;
       if (error) { setErro(error.message); return; }
-      cache = data?.data || { semSolda: FAMILIAS_SEM_SOLDA_PADRAO, ritmos: {} };
+      cache = data?.data || { semSolda: FAMILIAS_SEM_SOLDA_PADRAO, hht: {} };
       setBruta(cache);
     })();
     return () => { vivo = false; };
@@ -48,5 +48,5 @@ export function useRotasProducao() {
   }, []);
 
   const cfg = useMemo(() => configRotas(bruta || {}), [bruta]);
-  return { cfg, bruta: bruta || { semSolda: FAMILIAS_SEM_SOLDA_PADRAO, ritmos: {} }, carregado: !!bruta, salvar, salvando, erro };
+  return { cfg, bruta: bruta || { semSolda: FAMILIAS_SEM_SOLDA_PADRAO, hht: {} }, carregado: !!bruta, salvar, salvando, erro };
 }

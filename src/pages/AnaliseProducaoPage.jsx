@@ -393,7 +393,7 @@ export default function AnaliseProducaoPage() {
                 { k: 'saidaKgSemana', l: 'Saída/sem', r: true, f: (g) => kg(g.saidaKgSemana) },
                 { k: 'semanasFila', l: 'Semanas de fila', r: true, f: (g) => (g.travada ? <span className="text-red-400">parada</span> : g.semanasFila != null ? g.semanasFila.toLocaleString('pt-BR') : '—') },
                 { k: 'idade', l: 'Idade mediana', r: true, f: (g) => (g.wipE?.idadeMedianaDias != null ? `${g.wipE.idadeMedianaDias} d` : '—') },
-                { k: 'lt', l: 'Tempo na etapa (mediana · p90)', r: true, f: (g) => (g.lt?.medianaDias != null ? `${g.lt.medianaDias} d · ${g.lt.p90Dias} d` : '—') },
+                { k: 'lt', l: 'Passagem c/ fila (mediana · p90)', r: true, f: (g) => (g.lt?.medianaDias != null ? `${g.lt.medianaDias} d · ${g.lt.p90Dias} d` : '—') },
               ]} />
             </Painel>
           </div>
