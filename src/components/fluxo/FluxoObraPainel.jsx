@@ -47,7 +47,12 @@ export default function FluxoObraPainel({ abastecimento, liberacao, pecas = [], 
       ? { titulo: 'Estoque disp.', valor: '—', sub: 'não consultado', cor: '#38bdf8' }
       : { titulo: 'Estoque disp.', valor: t(p.estoqueDisponivelKg), sub: p.faltaComprarKg > 0.5 ? `falta ${t(p.faltaComprarKg)}` : 'cobre o corte', cor: '#38bdf8', alerta: p.faltaComprarKg > 0.5 },
     { titulo: 'A cortar', valor: t(p.aCortarKg), sub: p.estimado ? `${chaves.length} perfil(is)` : `${t(p.abastecidoKg)} abastecido`, cor: '#f59e0b' },
-    { titulo: 'Cortado', valor: t(p.cortadoKg), sub: 'baixado do estoque', cor: '#a78bfa' },
+    {
+      titulo: 'Cortado', valor: t(p.cortadoKg), cor: '#a78bfa',
+      sub: p.corteRegistradoKg != null && (p.corteProducaoKg + p.corteEstimadoKg) > 0.5
+        ? `${t(p.corteRegistradoKg)} apontado · ${t(p.corteProducaoKg + p.corteEstimadoKg)} pela produção`
+        : 'apontado no corte',
+    },
     { titulo: 'Liberado p/ fab.', valor: t(p.liberadasKg), sub: `${p.marcasLiberadas} marca(s)${p.semComposicaoKg > 0.5 ? ` · ${t(p.semComposicaoKg)} sem composição` : ''}`, cor: '#22c55e', alerta: p.semComposicaoKg > 0.5 },
     { titulo: 'Fabricação', valor: t(e.fabricacao), cor: '#3b82f6' },
     { titulo: 'Solda', valor: t(e.solda), cor: '#f97316' },

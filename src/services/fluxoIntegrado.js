@@ -79,8 +79,10 @@ export function fluxoMaterialLocal(cortes = []) {
  * @returns {{ porId: Map<id,{chave,estado,faltaKg}>, chaves: Array }}
  *   estado: 'cortado' | 'abastecido' | 'parcial' | 'sem_estoque'
  */
-export function abastecimentoCorte(cortes = [], fluxo = null) {
+export function abastecimentoCorte(cortes = [], fluxo = null, efetivo = null) {
   const f = fluxo || fluxoMaterialLocal(cortes);
+  // Pendente real = peso − corte implícito pela produção (já consumido)
+  const implicito = (id) => efetivo?.porId?.get(id)?.kgImplicito || 0;
   const chaveDe = new Map((f.itens || []).map((i) => [i.id, i.chave]));
   const saldo = new Map((f.chaves || []).map((c) => [c.chave, Math.max(0, num(c.disponivel_kg))]));
   const porId = new Map();
@@ -89,7 +91,9 @@ export function abastecimentoCorte(cortes = [], fluxo = null) {
     const st = statusCorte(c.status_corte ?? c.status);
     const chave = chaveDe.get(c.id) || chaveEstoqueAprox(c.perfil, c.material);
     if (st === 'finalizado') { porId.set(c.id, { chave, estado: 'cortado', faltaKg: 0 }); continue; }
-    pendentes.push({ c, st, chave, kg: num(c.peso_teorico ?? c.peso) });
+    const kg = Math.max(0, num(c.peso_teorico ?? c.peso) - implicito(c.id));
+    if (kg <= 0.05) { porId.set(c.id, { chave, estado: 'cortado', implicito: efetivo.porId.get(c.id).origem, faltaKg: 0 }); continue; }
+    pendentes.push({ c, st, chave, kg, implicito: implicito(c.id) > 0 ? efetivo.porId.get(c.id).origem : null });
   }
   pendentes.sort((a, b) => (a.st === b.st ? natural(a.c.marca, b.c.marca) || natural(a.c.id, b.c.id) : a.st === 'cortando' ? -1 : 1));
   for (const p of pendentes) {
@@ -100,14 +104,20 @@ export function abastecimentoCorte(cortes = [], fluxo = null) {
     saldo.set(p.chave, disp - usa);
     const falta = r1(p.kg - usa);
     const estado = p.kg <= 0 || falta <= 0.05 ? 'abastecido' : usa > 0 ? 'parcial' : 'sem_estoque';
-    porId.set(p.c.id, { chave: p.chave, estado, faltaKg: estado === 'abastecido' ? 0 : falta });
+    porId.set(p.c.id, { chave: p.chave, estado, implicito: p.implicito, faltaKg: estado === 'abastecido' ? 0 : falta });
   }
-  const chaves = (f.chaves || []).map((c) => ({
+  // Com corte efetivo: "a cortar" por chave = só o que ainda falta de verdade
+  const pendChave = new Map();
+  if (efetivo) for (const p of pendentes) pendChave.set(p.chave, (pendChave.get(p.chave) || 0) + p.kg);
+  const chaves = (f.chaves || []).map((c0) => {
+    const c = efetivo ? { ...c0, a_cortar_kg: r1(pendChave.get(c0.chave) || 0), cortado_kg: r1(num(c0.necessario_kg) - (pendChave.get(c0.chave) || 0)) } : c0;
+    return {
     ...c,
     falta_kg: f.estimado ? 0 : r1(Math.max(0, num(c.a_cortar_kg) - num(c.disponivel_kg))),
     cobertura: f.estimado ? null : num(c.a_cortar_kg) > 0 ? Math.min(1, num(c.disponivel_kg) / num(c.a_cortar_kg)) : 1,
-  }));
-  return { porId, chaves, estimado: !!f.estimado };
+    };
+  });
+  return { porId, chaves, estimado: !!f.estimado, resumoCorte: efetivo?.resumo || null };
 }
 
 /**
@@ -236,6 +246,127 @@ export function liberacaoMarcas({ pecas = [], cortes = [], composicao = [] } = {
   return out;
 }
 
+// ------------------------------------------------------------
+// Corte EFETIVO = registrado no Kanban de Corte + implícito pela produção
+// ------------------------------------------------------------
+// O sistema entrou em uso com obras já em andamento: peças fabricadas,
+// pintadas e enviadas cujas posições nunca foram apontadas no corte. Toda
+// posição usada por uma marca que já está em fabricação (ou depois) FOI
+// cortada. Duas regras:
+//   • 'producao' (exata): POS ligada à marca (composição ou peça única) →
+//     qtd implícita = un. da marca em produção × qtd/un.
+//   • 'estimado': POS sem composição → por família (tesoura, viga-mestra,
+//     treliça, terça…): % do peso das marcas da família já em produção.
+// ------------------------------------------------------------
+const semAcento = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+const GERAL = new Set(['CHAPA', 'SUPORTE', 'INSERTO', 'CHUMBADOR', 'PORCA', 'ARRUELA', 'MISULA', 'BOCAL', 'PARAFUSO', 'CANTONEIRA', 'NERVURA', 'ENRIJECEDOR']);
+
+/** Família do tipo de peça/posição para inferência de corte. */
+export function familiaCorte(tipo) {
+  const t = semAcento(tipo);
+  if (!t) return 'GERAL';
+  if (/TESOURA|[-_ ]TS$/.test(t)) return 'TESOURA';
+  if (/VIGA[-_ ]?MESTRA|[-_ ]VM$/.test(t)) return 'VIGA-MESTRA';
+  if (/TRELICA/.test(t)) return 'TRELICA';
+  if (/^TERCA/.test(t)) return 'TERCA';
+  if (/COLUN/.test(t)) return 'COLUNA';
+  if (/^VIGA/.test(t)) return 'VIGA';
+  if (/CALHA/.test(t)) return 'CALHA';
+  if (/TIRANTE/.test(t)) return 'TIRANTE';
+  if (/CONTRAVENT|DIAGONAL$/.test(t)) return 'CONTRAVENTAMENTO';
+  if (/MAO[-_ ]?FRANCESA/.test(t)) return 'MAO-FRANCESA';
+  if (GERAL.has(t)) return 'GERAL';
+  return t;
+}
+
+/**
+ * @param {object} p
+ * @param {Array} p.cortes     materiais_corte da obra
+ * @param {Map}   p.liberacao  liberacaoMarcas() da MESMA obra
+ * @returns {{ porId: Map<id,{origem,kgImplicito,qtdImplicita,total}>, resumo, conciliaveis: string[] }}
+ *   origem: 'registrado' | 'producao' | 'estimado' | null (pendente)
+ */
+export function corteEfetivo({ cortes = [], liberacao = new Map() } = {}) {
+  const porId = new Map();
+  const linhas = cortes.map((c) => ({
+    c, pos: normCodigo(c.marca), qtd: Math.max(0, num(c.quantidade, 1)), kg: num(c.peso_teorico ?? c.peso),
+    cortado: statusCorte(c.status_corte ?? c.status) === 'finalizado',
+  }));
+  const ordenar = (l) => l.sort((a, b) => natural(a.pos, b.pos) || natural(a.c.id, b.c.id));
+
+  // 1) Implícito exato: POS ligadas a marcas
+  const implicitoPos = new Map();
+  const ligadas = new Set();
+  for (const g of liberacao.values()) for (const x of g.posicoes || []) {
+    ligadas.add(x.pos);
+    if (g.qtdEmProducao > 0) implicitoPos.set(x.pos, (implicitoPos.get(x.pos) || 0) + g.qtdEmProducao * x.qtdPorUn);
+  }
+  const porPos = new Map();
+  for (const l of linhas) { if (!porPos.has(l.pos)) porPos.set(l.pos, []); porPos.get(l.pos).push(l); }
+  for (const [pos, ls] of porPos) {
+    if (!ligadas.has(pos)) continue;
+    const qtdPos = ls.reduce((s, l) => s + l.qtd, 0);
+    const reg = ls.filter((l) => l.cortado).reduce((s, l) => s + l.qtd, 0);
+    let extra = Math.max(0, Math.min(qtdPos, implicitoPos.get(pos) || 0) - reg);
+    for (const l of ordenar(ls.filter((x) => !x.cortado))) {
+      if (extra <= 0) break;
+      const q = Math.min(l.qtd, extra);
+      extra -= q;
+      porId.set(l.c.id, { origem: 'producao', qtdImplicita: q, kgImplicito: l.qtd > 0 ? l.kg * (q / l.qtd) : l.kg, total: q >= l.qtd });
+    }
+  }
+
+  // 2) Estimado por família: POS sem ligação
+  const fam = new Map(); // família → { kgTot, kgProd } das marcas
+  const add = (k, tot, prod) => { const f = fam.get(k) || { kgTot: 0, kgProd: 0, kgTotSem: 0, kgProdSem: 0 }; f.kgTot += tot; f.kgProd += prod; fam.set(k, f); return f; };
+  for (const g of liberacao.values()) {
+    const tot = g.pesoTotal || 0;
+    const prod = (g.qtdEmProducao || 0) * (g.pesoUnit || 0);
+    const f = add(familiaCorte(g.tipo), tot, prod);
+    if (g.composicao === 'sem') { f.kgTotSem += tot; f.kgProdSem += prod; }
+  }
+  const geral = [...fam.values()].reduce((a, f) => ({ t: a.t + f.kgTotSem, p: a.p + f.kgProdSem, tt: a.tt + f.kgTot, pp: a.pp + f.kgProd }), { t: 0, p: 0, tt: 0, pp: 0 });
+  const fracGeral = geral.t > 0 ? geral.p / geral.t : geral.tt > 0 ? geral.pp / geral.tt : 0;
+  const fracDe = (k) => {
+    const f = fam.get(k);
+    if (k === 'GERAL' || !f) return fracGeral;
+    if (f.kgTotSem > 0) return f.kgProdSem / f.kgTotSem;
+    return f.kgTot > 0 ? f.kgProd / f.kgTot : fracGeral;
+  };
+  const semLig = new Map();
+  for (const l of linhas) {
+    if (ligadas.has(l.pos)) continue;
+    const k = familiaCorte(l.c.peca);
+    if (!semLig.has(k)) semLig.set(k, []);
+    semLig.get(k).push(l);
+  }
+  for (const [k, ls] of semLig) {
+    const tot = ls.reduce((s, l) => s + l.kg, 0);
+    const reg = ls.filter((l) => l.cortado).reduce((s, l) => s + l.kg, 0);
+    let extra = Math.max(0, Math.min(1, fracDe(k)) * tot - reg);
+    for (const l of ordenar(ls.filter((x) => !x.cortado))) {
+      if (extra <= 0.05) break;
+      const kg = Math.min(l.kg, extra);
+      extra -= kg;
+      porId.set(l.c.id, { origem: 'estimado', kgImplicito: kg, qtdImplicita: l.kg > 0 ? l.qtd * (kg / l.kg) : l.qtd, total: kg >= l.kg - 0.05 });
+    }
+  }
+
+  const resumo = { totalKg: 0, registradoKg: 0, producaoKg: 0, estimadoKg: 0, pendenteKg: 0 };
+  const conciliaveis = [];
+  for (const l of linhas) {
+    resumo.totalKg += l.kg;
+    if (l.cortado) { resumo.registradoKg += l.kg; porId.set(l.c.id, { origem: 'registrado', kgImplicito: 0, qtdImplicita: 0, total: true }); continue; }
+    const e = porId.get(l.c.id);
+    if (e?.origem === 'producao') resumo.producaoKg += e.kgImplicito;
+    if (e?.origem === 'estimado') resumo.estimadoKg += e.kgImplicito;
+    resumo.pendenteKg += l.kg - (e?.kgImplicito || 0);
+    if (e?.origem === 'producao' && e.total) conciliaveis.push(l.c.id);
+  }
+  for (const k of Object.keys(resumo)) resumo[k] = r1(resumo[k]);
+  return { porId, resumo, conciliaveis };
+}
+
 /** Posições ligadas a cada marca (inverso): POS → [marcas]. */
 export function marcasPorPosicao(liberacao) {
   const m = new Map();
@@ -296,6 +427,10 @@ export function pipelineObra({ abastecimento, liberacao, pecas = [] } = {}) {
     marcasLiberadas, marcasAguardando,
     etapasKg: Object.fromEntries(Object.entries(kgEtapa).map(([k, v]) => [k, r1(v)])),
     estimado: !!abastecimento?.estimado,
+    // Composição do "Cortado": apontado no corte × implícito pela produção
+    corteRegistradoKg: abastecimento?.resumoCorte?.registradoKg ?? null,
+    corteProducaoKg: abastecimento?.resumoCorte?.producaoKg ?? 0,
+    corteEstimadoKg: abastecimento?.resumoCorte?.estimadoKg ?? 0,
   };
 }
 
