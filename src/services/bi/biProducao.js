@@ -11,6 +11,9 @@ import {
 } from './biCore';
 
 // Movimento parcial gravado pelo Kanban em observacoes: "[QTD:movida/total]".
+// Marca de etapa "não se aplica" gravada pelo lançamento: "[NA]".
+export const MARCA_NA = '[NA]';
+const RE_NA = /\[NA\]/i;
 const RE_QTD = /\[QTD:\s*(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)\s*\]/i;
 export function qtdMovida(obs) {
   const m = String(obs || '').match(RE_QTD);
@@ -34,7 +37,10 @@ export function qtdMovida(obs) {
  */
 export function normalizarHistorico(historico = [], pecas = []) {
   const porId = new Map((pecas || []).map((p) => [p.id, p]));
-  const diag = { brutos: 0, orfaos: 0, semData: 0, duplicados: 0, excedentes: 0, kgExcedente: 0, retrocessos: 0, validos: 0 };
+  const diag = { brutos: 0, orfaos: 0, semData: 0, duplicados: 0, excedentes: 0, kgExcedente: 0, retrocessos: 0, validos: 0, naoAplica: 0 };
+  // Etapas marcadas "não se aplica" no lançamento (ex.: terça que vai da
+  // fabricação direto para a pintura, sem solda): chave `${peçaBase}|${etapa}`.
+  const naoAplica = new Set();
   const base = [];
   (historico || []).forEach((h, i) => {
     diag.brutos += 1;
@@ -55,6 +61,7 @@ export function normalizarHistorico(historico = [], pecas = []) {
     const funcionario = (h.funcionario_nome ?? h.funcionarioNome ?? '').replace(/\s+/g, ' ').trim() || null;
     const funcionarioId = h.funcionario_id ?? h.funcionarioId ?? null;
     const obs = h.observacoes ?? h.observacao ?? '';
+    if (RE_NA.test(String(obs))) { naoAplica.add(`${pecaBase(p.id)}|${de}`); diag.naoAplica += 1; return; }
     const tok = String(obs).match(RE_QTD)?.[0] || '';
     // Conjunto lançado pela aba Lançamentos (id HIST-<peça>__cN-<etapa>) é um
     // registro próprio, não duplicata de outro conjunto da mesma peça.
@@ -93,9 +100,23 @@ export function normalizarHistorico(historico = [], pecas = []) {
       funcionarioId,
     });
   });
+  // Etapa "não se aplica": a passagem pela etapa não é produção de ninguém
+  if (naoAplica.size) {
+    out.forEach((t) => {
+      if (ordemFluxo(t.para) > ordemFluxo(t.de) && naoAplica.has(`${pecaBase(t.pecaId)}|${t.de}`)) {
+        t.kg = 0; t.qtd = 0; t.naoAplica = true;
+      }
+    });
+  }
   diag.kgExcedente = r1(diag.kgExcedente);
-  return { transicoes: out, diag };
+  return { transicoes: out, diag, naoAplica };
 }
+
+/** Peça original de uma peça dividida (PEC-1__split_... → PEC-1). */
+export const pecaBase = (id) => String(id || '').replace(/__split_.*$/, '');
+
+/** A etapa foi marcada "não se aplica" para a peça (ou para a peça-mãe)? */
+export const etapaNaoSeAplica = (naoAplica, pecaId, etapa) => !!naoAplica?.has(`${pecaBase(pecaId)}|${etapa}`);
 
 /** Transições normalizadas, já ligadas à peça (peso/obra). Ignora órfãs. */
 export function transicoesComPeca(historico = [], pecas = []) {

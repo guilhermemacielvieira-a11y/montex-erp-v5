@@ -43,6 +43,13 @@ const ETAPAS = [
   { key: 'enviado',    label: 'Enviado',     icon: CheckCircle2, color: 'green',   bg: 'from-green-500/20 to-lime-500/20',     border: 'border-green-500/30',  text: 'text-green-400',   rowBg: 'hover:bg-green-500/5'   },
 ];
 
+// "Não se aplica": a peça pula a etapa (ex.: terça vai da fabricação direto
+// para a pintura, sem solda). Avança sem funcionário e grava no histórico a
+// marca [NA] — a etapa NÃO conta como produção (setor nem pessoa). Ver
+// services/bi/biProducao.normalizarHistorico.
+const NA = '__na__';
+const ETAPAS_COM_NA = ['fabricacao', 'solda', 'pintura'];
+
 // Mapeamento etapa → campo funcionario em pecas_producao
 const ETAPA_CAMPO_FUNC = {
   fabricacao: 'funcionario_fabricacao',
@@ -304,11 +311,12 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
           mapa[k] = {
             ...existente,
             _storeId:         row.id,
-            funcionario_id:   d.funcionario_id   || existente.funcionario_id   || '',
+            funcionario_id:   d.nao_aplica ? '' : (d.funcionario_id || existente.funcionario_id || ''),
             funcionario_nome: d.funcionario_nome || existente.funcionario_nome || '',
             data_producao:    d.data_producao    || existente.data_producao    || hoje(),
             observacoes:      d.observacoes      || existente.observacoes      || '',
             quantidade:       d.quantidade       ?? existente.quantidade       ?? (peca._conjuntoTotal || 1),
+            nao_aplica:       !!d.nao_aplica,
             _origem:          'entity_store',
           };
         }
@@ -362,10 +370,14 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
   // Atualizar campo de um lançamento
   const handleChange = (pecaId, etapa, campo, valor) => {
     const k = chave(pecaId, etapa);
+    // "Não se aplica" vem como opção da lista de funcionários
+    const ehNA = campo === 'funcionario_id' && valor === NA;
+    if (ehNA) valor = '';
     setLancamentos(prev => ({
       ...prev,
       [k]: {
         ...prev[k],
+        nao_aplica:       campo === 'funcionario_id' ? ehNA : !!prev[k]?.nao_aplica,
         funcionario_id:   campo === 'funcionario_id' ? valor : (prev[k]?.funcionario_id   || ''),
         funcionario_nome: campo === 'funcionario_id' ? (funcionariosAtivos.find(f => f.id === valor)?.nome || '') : (prev[k]?.funcionario_nome || ''),
         data_producao:    campo === 'data_producao'  ? valor : (prev[k]?.data_producao    || hoje()),
@@ -381,7 +393,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
   const salvarUm = useCallback(async (peca, etapa) => {
     const k = chave(peca.id, etapa);
     const lan = lancamentos[k];
-    if (!lan?.funcionario_id) {
+    const na = !!lan?.nao_aplica && ETAPAS_COM_NA.includes(etapa);
+    if (!lan?.funcionario_id && !na) {
       toast.error('Selecione um funcionário');
       return;
     }
@@ -400,8 +413,9 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         peca_id:          peca.id,
         peca_nome:        peca.nome || peca.marca || '',
         etapa,
-        funcionario_id:   lan.funcionario_id,
-        funcionario_nome: lan.funcionario_nome,
+        funcionario_id:   na ? null : lan.funcionario_id,
+        funcionario_nome: na ? null : lan.funcionario_nome,
+        nao_aplica:       na,
         data_producao:    lan.data_producao || hoje(),
         observacoes:      lan.observacoes || '',
         obra_id:          peca.obraId || peca.obra_id || '',
@@ -431,9 +445,16 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       }
 
       // 2. Upsert em producao_historico — ID inclui conjunto para não sobrescrever
-      const histId = `HIST-${originalId}-${etapa}-${Date.now()}`;
+      // "Não se aplica" usa id FIXO por peça×etapa (marcar de novo não duplica;
+      // desmarcar apaga a marca). Lançamento normal mantém id por momento.
+      const histIdNA = `HIST-${originalId}-${etapa}-NA`;
+      const histId = na ? histIdNA : `HIST-${originalId}-${etapa}-${Date.now()}`;
       const etapaParaMap = { fabricacao: 'solda', solda: 'pintura', pintura: 'expedido', expedido: 'enviado', enviado: 'concluido' };
-      const obsHist = `[QTD:${qtdLan}/${peca._conjuntoTotal || 1}] ${lan.observacoes || ''}`.trim();
+      const obsHist = `${na ? '[NA] ' : ''}[QTD:${qtdLan}/${peca._conjuntoTotal || 1}] ${lan.observacoes || ''}`.trim();
+      if (!na && ETAPAS_COM_NA.includes(etapa)) {
+        const { error: delErr } = await client.from('producao_historico').delete().eq('id', histIdNA);
+        if (delErr) console.warn('[LancamentoModal] remover marca NA:', delErr.message);
+      }
       const { error: histErr } = await client
         .from('producao_historico')
         .upsert({
@@ -441,11 +462,13 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
           peca_id:          originalId,
           etapa_de:         etapa,
           etapa_para:       etapaParaMap[etapa] || etapa,
-          funcionario_id:   lan.funcionario_id,
-          funcionario_nome: lan.funcionario_nome,
+          funcionario_id:   na ? null : lan.funcionario_id,
+          funcionario_nome: na ? null : lan.funcionario_nome,
           data_inicio:      lan.data_producao ? dataLocalISO(lan.data_producao) : new Date().toISOString(),
           observacoes:      obsHist,
         }, { onConflict: 'id' });
+      // A marca NA é o que tira a etapa da produção — precisa gravar
+      if (histErr && na) throw histErr;
       if (histErr) console.warn('[LancamentoModal] producao_historico:', histErr.message); // analytics — não bloqueia
 
       // 3. Atualizar pecas_producao usando o ID ORIGINAL (não virtual)
@@ -453,8 +476,9 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       const campoFunc = ETAPA_CAMPO_FUNC[etapa];
       const campoData = ETAPA_CAMPO_DATA[etapa];
       if (campoFunc) {
-        const update = { [campoFunc]: lan.funcionario_id };
-        if (campoData && lan.data_producao) {
+        // Não se aplica: a etapa não tem responsável
+        const update = { [campoFunc]: na ? null : lan.funcionario_id };
+        if (campoData && lan.data_producao && !na) {
           update[campoData] = dataLocalISO(lan.data_producao);
         }
         const { error: pecaErr } = await client
@@ -473,7 +497,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
       }
 
       const etapaInfo = ETAPAS.find(e => e.key === etapa);
-      toast.success(`${etapaInfo?.label || etapa}${conjLabel}: ${lan.funcionario_nome} ✓`);
+      toast.success(na ? `${etapaInfo?.label || etapa}${conjLabel}: não se aplica (não conta produção) ✓` : `${etapaInfo?.label || etapa}${conjLabel}: ${lan.funcionario_nome} ✓`);
       return true;
     } catch (err) {
       console.error('[LancamentoModal] Erro ao salvar:', err);
@@ -494,8 +518,9 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
   const salvarEAvancar = useCallback(async (peca, etapa) => {
     const k = chave(peca.id, etapa);
     const lan = lancamentos[k];
-    if (!lan?.funcionario_id) {
-      toast.error('Selecione um funcionário antes de avançar');
+    const na = !!lan?.nao_aplica && ETAPAS_COM_NA.includes(etapa);
+    if (!lan?.funcionario_id && !na) {
+      toast.error('Selecione um funcionário (ou "Não se aplica") antes de avançar');
       return;
     }
 
@@ -560,9 +585,9 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         // SPLIT atômico (RPC split_peca): nova linha com qtdMover na próxima
         // etapa + original reduzida, numa única transação.
         await splitPeca(originalId, qtdMover, proxima, {
-          funcionario: lan.funcionario_id,
+          funcionario: na ? undefined : lan.funcionario_id,
           data: lan.data_producao,
-          etapaFuncionario: etapa,
+          etapaFuncionario: na ? undefined : etapa,
         });
         toast.success(`Split: ${qtdMover} → ${proxLabel} · ${totalDb - qtdMover} ficam em ${label}`);
       }
@@ -596,7 +621,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
     for (const peca of pecasFiltradas) {
       for (const etapa of ETAPAS) {
         const k = chave(peca.id, etapa.key);
-        if (lancamentos[k]?.funcionario_id) {
+        if (lancamentos[k]?.funcionario_id || (lancamentos[k]?.nao_aplica && ETAPAS_COM_NA.includes(etapa.key))) {
           const ok = await salvarUm(peca, etapa.key);
           if (ok) lancOk++;
           else erros.push(`${peca.id}/${etapa.key}: falha ao gravar lançamento`);
@@ -633,7 +658,8 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
         for (let guard = 0; guard < ORDEM_KANBAN.length; guard++) {
           // Lê a atribuição da etapa atual (indexada pelo id que o usuário vê)
           const lan = lancamentos[chave(peca.id, currentEtapa)];
-          if (!lan?.funcionario_id) break; // sem responsável aqui → para de cascatear
+          const naCasc = !!lan?.nao_aplica && ETAPAS_COM_NA.includes(currentEtapa);
+          if (!lan?.funcionario_id && !naCasc) break; // sem responsável aqui → para de cascatear
 
           const proxEtapa = proximaEtapaProducao(currentEtapa);
           if (!proxEtapa) {
@@ -647,16 +673,16 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
 
           if (qtdAvancar >= currentQty) {
             await moverAte(currentId, currentEtapaDb, proxEtapa, {
-              funcionario: lan.funcionario_id,
-              etapaFuncionario: currentEtapa,
+              funcionario: naCasc ? undefined : lan.funcionario_id,
+              etapaFuncionario: naCasc ? undefined : currentEtapa,
               data: lan.data_producao,
             });
             movsOk++;
           } else {
             const res = await splitPeca(currentId, qtdAvancar, proxEtapa, {
-              funcionario: lan.funcionario_id,
+              funcionario: naCasc ? undefined : lan.funcionario_id,
               data: lan.data_producao,
-              etapaFuncionario: currentEtapa,
+              etapaFuncionario: naCasc ? undefined : currentEtapa,
             });
             splitsOk++;
             currentId  = res?.nova?.id || currentId;
@@ -692,7 +718,10 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
   const contagemPorEtapa = useMemo(() => {
     const map = {};
     ETAPAS.forEach(e => {
-      map[e.key] = pecasExpandidas.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length;
+      map[e.key] = pecasExpandidas.filter(p => {
+        const l = lancamentos[chave(p.id, e.key)];
+        return l?.funcionario_id || (l?.nao_aplica && ETAPAS_COM_NA.includes(e.key));
+      }).length;
     });
     return map;
   }, [pecasExpandidas, lancamentos]);
@@ -834,12 +863,13 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                   {pecasFiltradas.map((peca, pecaIdx) => {
                     const peso = peca.pesoTotal || peca.peso_total || peca.peso || 0;
                     // Quantas etapas desta peça têm funcionário
-                    const atribuidos = ETAPAS.filter(e => lancamentos[chave(peca.id, e.key)]?.funcionario_id).length;
+                    const atribuidos = ETAPAS.filter(e => lancamentos[chave(peca.id, e.key)]?.funcionario_id || lancamentos[chave(peca.id, e.key)]?.nao_aplica).length;
 
                     return ETAPAS.map((etapa, etapaIdx) => {
                       const k = chave(peca.id, etapa.key);
                       const lan = lancamentos[k] || {};
-                      const temFunc = !!lan.funcionario_id;
+                      const naRow = !!lan.nao_aplica && ETAPAS_COM_NA.includes(etapa.key);
+                      const temFunc = !!lan.funcionario_id || naRow;
                       const isSavingRow = saving[k];
                       const EtapaIcon = etapa.icon;
                       const isFirstEtapa = etapaIdx === 0;
@@ -919,6 +949,11 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                                       ✓ concluída
                                     </span>
                                   )}
+                                  {naRow && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-slate-600/30 border border-slate-500/40 text-slate-300 font-semibold" title="Etapa pulada — não conta produção nem produção por funcionário">
+                                      ⊘ não se aplica
+                                    </span>
+                                  )}
                                   {temFunc && lan._origem && (
                                     <span
                                       className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] bg-amber-500/15 border border-amber-500/30 text-amber-300"
@@ -938,15 +973,21 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                             <div className="relative">
                               <User className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
                               <select
-                                value={lan.funcionario_id || ''}
+                                value={naRow ? NA : (lan.funcionario_id || '')}
                                 onChange={e => handleChange(peca.id, etapa.key, 'funcionario_id', e.target.value)}
-                                className={`w-full pl-6 pr-2 py-1.5 text-xs bg-slate-800 border rounded-lg text-white focus:outline-none appearance-none transition-colors ${
-                                  temFunc
-                                    ? 'border-emerald-600/50 focus:border-emerald-500'
-                                    : 'border-slate-700 focus:border-slate-500'
+                                title={naRow ? 'Não se aplica: a peça pula esta etapa e ela não conta como produção' : undefined}
+                                className={`w-full pl-6 pr-2 py-1.5 text-xs bg-slate-800 border rounded-lg focus:outline-none appearance-none transition-colors ${
+                                  naRow
+                                    ? 'border-slate-500/60 text-slate-300 italic'
+                                    : temFunc
+                                      ? 'border-emerald-600/50 focus:border-emerald-500 text-white'
+                                      : 'border-slate-700 focus:border-slate-500 text-white'
                                 }`}
                               >
                                 <option value="">— Selecionar —</option>
+                                {ETAPAS_COM_NA.includes(etapa.key) && (
+                                  <option value={NA}>⊘ Não se aplica (pular etapa)</option>
+                                )}
                                 {funcionariosAtivos.map(f => (
                                   <option key={f.id} value={f.id}>{f.nome}</option>
                                 ))}
@@ -1042,11 +1083,11 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
                             const podeAvancar = temFunc && isEtapaAtual && !isSavingRow && !!proxKey;
 
                             let titulo;
-                            if (!temFunc) titulo = 'Selecione um funcionário primeiro';
+                            if (!temFunc) titulo = 'Selecione um funcionário (ou "Não se aplica") primeiro';
                             else if (isPassada) titulo = 'Esta etapa já foi concluída (lançamento histórico)';
                             else if (isFutura) titulo = `Peça ainda está em ${ETAPAS.find(e => e.key === etapaAtualPeca)?.label} — finalize primeiro`;
                             else if (!proxKey) titulo = 'Última etapa — peça concluída';
-                            else titulo = `Salvar e avançar para ${proxLabel}`;
+                            else titulo = naRow ? `Pular ${etapa.label} (não se aplica) e avançar para ${proxLabel}` : `Salvar e avançar para ${proxLabel}`;
 
                             return (
                               <td className="px-3 py-2 text-center">
@@ -1082,7 +1123,7 @@ export function LancamentoProducaoModal({ pecas = [], defaultEtapa = 'fabricacao
             <div className="flex items-center gap-2 text-xs text-slate-500">
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
               <span>
-                {totalAtribuidos} lançamento(s) com funcionário atribuído
+                {totalAtribuidos} lançamento(s) com funcionário ou "não se aplica"
                 {totalAtribuidos > 0 && (
                   <span className="ml-1 text-slate-600">
                     ({ETAPAS.filter(e => contagemPorEtapa[e.key] > 0).map(e => e.label).join(', ')})

@@ -45,7 +45,7 @@ export default function CoerenciaProducao({ coerencia, corteDiag, nomeObra }) {
           Compara o que a fábrica <b className="text-slate-200">já produziu</b> (peso que passou de cada etapa, pelo Kanban) com o que está
           <b className="text-slate-200"> identificado por funcionário</b>. <span className="text-emerald-400">Apontado</span> = apontamento com pessoa e data;
           <span className="text-amber-400"> só responsável</span> = pessoa gravada na peça, sem data (não entra nos números por período);
-          <span className="text-red-400"> sem dono</span> = ninguém identificado. O <b className="text-slate-200">corte</b> é medido à parte, em kg de
+          <span className="text-red-400"> sem dono</span> = ninguém identificado. Etapas marcadas <b className="text-slate-200">não se aplica</b> no lançamento (ex.: terça sem solda) ficam fora do produzido. O <b className="text-slate-200">corte</b> é medido à parte, em kg de
           material (perfis e chapas), e não soma com a produção de peças.
         </span>
       </div>
@@ -76,6 +76,7 @@ export default function CoerenciaProducao({ coerencia, corteDiag, nomeObra }) {
                 <div><p className="text-red-400">Sem dono</p><p className="text-slate-200">{kg(l.semDono)}</p></div>
               </div>
               <p className={cn('text-sm font-semibold mt-2', corPct(l.pctIdentificado))}>{pct(l.pctIdentificado)} identificado</p>
+              {l.naoAplica > 0 && <p className="text-[11px] text-slate-500 mt-1" title="Etapa marcada como 'não se aplica' no lançamento (ex.: terça sem solda) — fora do produzido">Não se aplica: {kg(l.naoAplica)}</p>}
             </div>
           );
         })}
