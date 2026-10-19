@@ -13,6 +13,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { supabase } from '../api/supabaseClient';
 import { baixarCorte, estornarCorte } from '../api/producaoRpc';
+import { statusCorte as statusCorte_ } from '../services/fluxoIntegrado';
 
 const PAGE_SIZE = 1000;
 
@@ -80,7 +81,10 @@ export function useCorteSupabase(obraId) {
       dataInicio: p.data_inicio || null,
       dataFim: p.data_fim || null,
       maquina: p.maquina || null,
-      funcionarioCorte: p.funcionario_corte || null
+      funcionarioCorte: p.funcionario_corte || null,
+      peca_id: p.peca_id || null,
+      // null = linha histórica (cortada antes do controle): não baixa estoque
+      baixaEstoqueKg: p.baixa_estoque_kg == null ? null : Number(p.baixa_estoque_kg)
     }));
   }, [rawItems]);
 
@@ -116,18 +120,20 @@ export function useCorteSupabase(obraId) {
         const agora = new Date().toISOString();
         const updateData = { status_corte: 'cortando', data_inicio: agora, updated_at: agora };
         if (funcionarioId) updateData.funcionario_corte = funcionarioId;
-        // Só inicia se ainda não foi finalizado (não "desfinaliza" por engano)
-        const { error } = await supabase
+        // Só inicia se ainda não foi finalizado (não "desfinaliza" por engano).
+        // 0 linhas afetadas = já estava cortado → falha visível, não sucesso.
+        const { data, error } = await supabase
           .from('materiais_corte')
           .update(updateData)
           .eq('id', id)
-          .not('status_corte', 'in', '("finalizado","cortado","concluido")');
+          .not('status_corte', 'in', '("finalizado","cortado","concluido")')
+          .select('id');
         if (error) throw error;
-        return { ok: true };
+        return { ok: (data || []).length > 0 };
       });
       if (r?.emAndamento) return false;
       await fetchData();
-      return true;
+      return !!r?.ok;
     } catch (err) {
       console.error('Erro ao iniciar corte:', err);
       return false;
@@ -252,8 +258,22 @@ export function useCorteSupabase(obraId) {
     return { totalPecas, cortadas };
   }, [allItems]);
 
+  // Atualiza só o responsável (sem mudar status / sem histórico)
+  const definirResponsavel = useCallback(async (id, funcionarioId) => {
+    const { error } = await supabase
+      .from('materiais_corte')
+      .update({ funcionario_corte: funcionarioId, updated_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) { console.error('Erro ao definir responsável do corte:', error); return false; }
+    await fetchData();
+    return true;
+  }, [fetchData]);
+
   return {
     items: allItems,
+    rawItems,
+    recarregar: fetchData,
+    definirResponsavel,
     metrics,
     categorias,
     iniciarCorte,
@@ -266,19 +286,9 @@ export function useCorteSupabase(obraId) {
   };
 }
 
-// Normalizar status_corte do Supabase para modelo de 3 estados do Kanban
+// Normalizar status_corte para o modelo de 3 estados — MESMO critério do
+// banco (baixar_corte / trigger de baixa) e do BI: cortado/concluido/
+// finalizado = finalizado.
 function normalizeStatus(statusCorte) {
-  switch (statusCorte) {
-    case 'cortando':
-    case 'em_corte':
-      return 'cortando';
-    case 'finalizado':
-    case 'liberado':
-    case 'conferencia':
-      return 'finalizado';
-    case 'aguardando':
-    case 'programacao':
-    default:
-      return 'aguardando';
-  }
+  return statusCorte_(statusCorte);
 }
