@@ -64,3 +64,30 @@ describe('coerenciaProducao', () => {
 });
 
 function r1(v) { return Math.round(v * 10) / 10; }
+
+describe('etapa "não se aplica" ([NA])', () => {
+  it('não conta produção nem dono na etapa pulada', async () => {
+    const { normalizarHistorico } = await import('./biProducao');
+    const { eventosProducao } = await import('./biAnaliseProducao');
+    const pecas = [
+      { id: 'T1', obra_id: 'o1', etapa: 'expedido', peso_total: 60, quantidade: 2, tipo: 'TERÇA' },
+      { id: 'T1__split_x', obra_id: 'o1', etapa: 'pintura', peso_total: 30, quantidade: 1, tipo: 'TERÇA' },
+    ];
+    const h = (de, para, obs, func = 'Ana', id = 'T1') => ({ peca_id: id, etapa_de: de, etapa_para: para, data_inicio: '2026-10-10', funcionario_nome: func, funcionario_id: func ? 'F1' : null, observacoes: obs });
+    const historico = [
+      h('fabricacao', 'solda', '[QTD:2/2]'),
+      h('solda', 'pintura', '[NA] [QTD:2/2]', null),        // solda não se aplica
+      h('solda', 'pintura', '', 'Ana', 'T1__split_x'),      // passagem gravada sem querer na peça dividida
+      h('pintura', 'expedido', '[QTD:2/2]', 'Caio'),
+    ];
+    const { transicoes, diag, naoAplica } = normalizarHistorico(historico, pecas);
+    expect(diag.naoAplica).toBe(1);
+    const kgPor = (s) => eventosProducao(transicoes, []).filter((e) => e.setor === s).reduce((a, e) => a + e.kg, 0);
+    expect(kgPor('fabricacao')).toBe(60);
+    expect(kgPor('solda')).toBe(0);
+    expect(kgPor('pintura')).toBe(60);
+    const c = coerenciaProducao({ pecas, transicoes, naoAplica });
+    const solda = c.linhas.find((l) => l.etapa === 'solda');
+    expect(solda).toMatchObject({ produzido: 0, naoAplica: 90, semDono: 0 }); // peça e a parte dividida: solda não se aplica
+  });
+});

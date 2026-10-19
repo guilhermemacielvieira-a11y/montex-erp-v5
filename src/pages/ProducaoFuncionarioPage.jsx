@@ -138,10 +138,10 @@ export default function ProducaoFuncionarioPage() {
   // Base: histórico normalizado → eventos da fábrica no escopo
   // Corte entra como etapa à parte (kg de material), com coluna própria
   const base = useMemo(() => {
-    const { transicoes, diag } = normalizarHistorico(historico, pecas);
+    const { transicoes, diag, naoAplica } = normalizarHistorico(historico, pecas);
     const esc = obraIds ? transicoes.filter((t) => obraIds.includes(t.obraId)) : transicoes;
     const corte = eventosCorte(noEscopo(cortes, obraIds), historico);
-    const coerencia = coerenciaProducao({ pecas: noEscopo(pecas, obraIds), transicoes: esc, corte });
+    const coerencia = coerenciaProducao({ pecas: noEscopo(pecas, obraIds), transicoes: esc, corte, naoAplica });
     return { eventos: [...eventosProducao(esc, []), ...corte.eventos], diag, corte, coerencia };
   }, [historico, pecas, cortes, obraIds]);
 

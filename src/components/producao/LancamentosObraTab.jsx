@@ -66,6 +66,10 @@ function expandirPorQtd(lista) {
 
 // ─── Tab de Lançamentos por Obra ────────────────────────────────────────────────
 const PAGE_SIZE = 25;
+// "Não se aplica": etapa pulada (ex.: terça sem solda) — sem funcionário e
+// marcada [NA] no histórico; não conta como produção (biProducao).
+const NA = '__na__';
+const ETAPAS_COM_NA = ['fabricacao', 'solda', 'pintura'];
 
 // PostgREST devolve no máximo 1000 linhas por chamada (CLAUDE.md regra 4)
 async function buscarTodas(montar) {
@@ -179,7 +183,7 @@ export default function LancamentosObraTab({ refetch }) {
         lanData.forEach(row => {
           const d = row.data || {};
           const k = chave(d.peca_id, d.etapa);
-          mapa[k] = { _storeId: row.id, funcionario_id: d.funcionario_id || '', funcionario_nome: d.funcionario_nome || '', data_producao: d.data_producao || hojeStr(), observacoes: d.observacoes || '' };
+          mapa[k] = { _storeId: row.id, nao_aplica: !!d.nao_aplica, funcionario_id: d.nao_aplica ? '' : (d.funcionario_id || ''), funcionario_nome: d.funcionario_nome || '', data_producao: d.data_producao || hojeStr(), observacoes: d.observacoes || '' };
         });
         setLancamentos(mapa);
       }
@@ -250,17 +254,20 @@ export default function LancamentosObraTab({ refetch }) {
 
   const contagemEtapas = useMemo(() => {
     const map = {};
-    ETAPAS_LANCAMENTO.forEach(e => { map[e.key] = conjuntosDaObra.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id).length; });
+    ETAPAS_LANCAMENTO.forEach(e => { map[e.key] = conjuntosDaObra.filter(p => lancamentos[chave(p.id, e.key)]?.funcionario_id || lancamentos[chave(p.id, e.key)]?.nao_aplica).length; });
     return map;
   }, [conjuntosDaObra, lancamentos]);
 
   // Editar campo
   const handleChange = (pecaId, etapa, campo, valor) => {
     const k = chave(pecaId, etapa);
+    const ehNA = campo === 'funcionario_id' && valor === NA;
+    if (ehNA) valor = '';
     setLancamentos(prev => ({
       ...prev,
       [k]: {
         ...prev[k],
+        nao_aplica:       campo === 'funcionario_id' ? ehNA : !!prev[k]?.nao_aplica,
         funcionario_id:   campo === 'funcionario_id' ? valor : (prev[k]?.funcionario_id   || ''),
         funcionario_nome: campo === 'funcionario_id' ? (funcionariosAtivos.find(f => f.id === valor)?.nome || '') : (prev[k]?.funcionario_nome || ''),
         data_producao:    campo === 'data_producao'  ? valor : (prev[k]?.data_producao    || hojeStr()),
@@ -273,7 +280,8 @@ export default function LancamentosObraTab({ refetch }) {
   const salvarUm = useCallback(async (peca, etapa) => {
     const k = chave(peca.id, etapa);
     const lan = lancamentos[k];
-    if (!lan?.funcionario_id) { toast.error('Selecione um funcionário'); return; }
+    const na = !!lan?.nao_aplica && ETAPAS_COM_NA.includes(etapa);
+    if (!lan?.funcionario_id && !na) { toast.error('Selecione um funcionário'); return; }
     // ID real no banco (sem sufixo __c1, __c2 de conjunto virtual)
     const originalId = peca._originalId || peca.id;
     const conjLabel = peca._conjuntoTotal > 1 ? ` (Conj. ${peca._conjuntoIdx}/${peca._conjuntoTotal})` : '';
@@ -283,7 +291,7 @@ export default function LancamentosObraTab({ refetch }) {
       const dataLan = {
         peca_id: peca.id,   // ID virtual — independente por conjunto
         peca_nome: peca.nome || peca.marca || '',
-        etapa, funcionario_id: lan.funcionario_id, funcionario_nome: lan.funcionario_nome,
+        etapa, funcionario_id: na ? null : lan.funcionario_id, funcionario_nome: na ? null : lan.funcionario_nome, nao_aplica: na,
         data_producao: lan.data_producao || hojeStr(), observacoes: lan.observacoes || '',
         obra_id: peca.obra_id || peca.obraId || '', obra_nome: peca.obra_nome || peca.obraNome || '',
         conjunto_idx: peca._conjuntoIdx || 1, conjunto_total: peca._conjuntoTotal || 1,
@@ -304,8 +312,8 @@ export default function LancamentosObraTab({ refetch }) {
       // peca_id = peça REAL (antes gravava o id virtual __cN → registro órfão);
       // conjunto vira movimento parcial [QTD:1/N] (lido por normalizarHistorico).
       const conj = (peca._conjuntoTotal || 1) > 1;
-      const obsHist = [conj ? `[QTD:1/${peca._conjuntoTotal}]` : '', lan.observacoes || ''].filter(Boolean).join(' ');
-      const { error: histErr } = await client.from('producao_historico').upsert({ id: histId, peca_id: originalId, etapa_de: etapa === 'corte' ? 'aguardando' : etapa, etapa_para: etapaParaMap[etapa] || etapa, funcionario_id: lan.funcionario_id, funcionario_nome: lan.funcionario_nome, data_inicio: `${lan.data_producao || hojeStr()}T00:00:00Z`, observacoes: obsHist }, { onConflict: 'id' });
+      const obsHist = [na ? '[NA]' : '', conj ? `[QTD:1/${peca._conjuntoTotal}]` : '', lan.observacoes || ''].filter(Boolean).join(' ');
+      const { error: histErr } = await client.from('producao_historico').upsert({ id: histId, peca_id: originalId, etapa_de: etapa === 'corte' ? 'aguardando' : etapa, etapa_para: etapaParaMap[etapa] || etapa, funcionario_id: na ? null : lan.funcionario_id, funcionario_nome: na ? null : lan.funcionario_nome, data_inicio: `${lan.data_producao || hojeStr()}T00:00:00Z`, observacoes: obsHist }, { onConflict: 'id' });
       if (histErr) throw histErr;
       // 3. pecas_producao — usa ID ORIGINAL (campo único por peça no banco)
       const campoFunc = ETAPA_CAMPO_FUNC_MAP[etapa];
@@ -315,8 +323,8 @@ export default function LancamentosObraTab({ refetch }) {
       const pecaReal = pecasDaObra.find(p => p.id === originalId);
       const jaTem = pecaReal?.[campoFunc] && pecaReal[campoFunc] !== lan.funcionario_id;
       if (campoFunc && !(conj && jaTem)) {
-        const upd = { [campoFunc]: lan.funcionario_id };
-        if (campoData && lan.data_producao) upd[campoData] = `${lan.data_producao}T00:00:00Z`;
+        const upd = { [campoFunc]: na ? null : lan.funcionario_id };
+        if (campoData && lan.data_producao && !na) upd[campoData] = `${lan.data_producao}T00:00:00Z`;
         const { error: pecaErr } = await client.from('pecas_producao').update(upd).eq('id', originalId);
         if (pecaErr) throw pecaErr;
       }
@@ -324,7 +332,7 @@ export default function LancamentosObraTab({ refetch }) {
       if (etapa === 'corte') await client.from('materiais_corte').update({ funcionario_corte: lan.funcionario_id }).eq('peca_id', originalId);
 
       const etapaInfo = ETAPAS_LANCAMENTO.find(e => e.key === etapa);
-      toast.success(`${etapaInfo?.label}${conjLabel}: ${lan.funcionario_nome} ✓`);
+      toast.success(na ? `${etapaInfo?.label}${conjLabel}: não se aplica (não conta produção) ✓` : `${etapaInfo?.label}${conjLabel}: ${lan.funcionario_nome} ✓`);
       refetch?.();
     } catch (err) {
       console.error('[LancamentosObraTab] Erro ao salvar:', err);
@@ -564,7 +572,8 @@ export default function LancamentosObraTab({ refetch }) {
                           {ETAPAS_LANCAMENTO.map(etapa => {
                             const k = chave(peca.id, etapa.key);
                             const lan = lancamentos[k] || {};
-                            const temFunc = !!lan.funcionario_id;
+                            const naRow = !!lan.nao_aplica && ETAPAS_COM_NA.includes(etapa.key);
+                            const temFunc = !!lan.funcionario_id || naRow;
                             const isSavingRow = saving[k];
                             const EtapaIcon = etapa.icon;
 
@@ -581,11 +590,13 @@ export default function LancamentosObraTab({ refetch }) {
                                   <div className="relative">
                                     <User className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-500 pointer-events-none" />
                                     <select
-                                      value={lan.funcionario_id || ''}
+                                      value={naRow ? NA : (lan.funcionario_id || '')}
                                       onChange={e => handleChange(peca.id, etapa.key, 'funcionario_id', e.target.value)}
-                                      className={`w-full pl-6 pr-2 py-1.5 text-xs bg-slate-800 border rounded-lg text-white focus:outline-none appearance-none transition-colors ${temFunc ? 'border-emerald-600/50 focus:border-emerald-500' : 'border-slate-700 focus:border-slate-500'}`}
+                                      title={naRow ? 'Não se aplica: a peça pula esta etapa e ela não conta como produção' : undefined}
+                                      className={`w-full pl-6 pr-2 py-1.5 text-xs bg-slate-800 border rounded-lg focus:outline-none appearance-none transition-colors ${naRow ? 'border-slate-500/60 text-slate-300 italic' : temFunc ? 'border-emerald-600/50 focus:border-emerald-500 text-white' : 'border-slate-700 focus:border-slate-500 text-white'}`}
                                     >
                                       <option value="">— Selecionar —</option>
+                                      {ETAPAS_COM_NA.includes(etapa.key) && <option value={NA}>⊘ Não se aplica (pular etapa)</option>}
                                       {funcionariosAtivos.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
                                     </select>
                                   </div>

@@ -17,6 +17,7 @@
 // ============================================================
 
 import { num, r1, dataLocal, ordemFluxo, pesoPeca, obraDe, ETAPAS_FABRICA } from './biCore';
+import { etapaNaoSeAplica } from './biProducao';
 
 const FINAL = new Set(['finalizado', 'cortado', 'concluido']);
 const st = (m) => String(m?.status_corte ?? m?.statusCorte ?? '').toLowerCase();
@@ -73,7 +74,7 @@ const responsavelDaPeca = (p, etapa) => CAMPO[etapa].map((k) => p?.[k]).find((v)
  * @param transicoes  histórico normalizado (biProducao.normalizarHistorico)
  * @param cortes      eventos de corte (eventosCorte().eventos) + diag
  */
-export function coerenciaProducao({ pecas = [], transicoes = [], corte = null } = {}) {
+export function coerenciaProducao({ pecas = [], transicoes = [], corte = null, naoAplica = null } = {}) {
   // kg creditado (apontado com pessoa) por peça e etapa concluída
   const credito = new Map(); // `${peca}|${etapa}` → kg
   const apontadoSemAvanco = []; // histórico diz que concluiu, mas a peça está antes da etapa
@@ -85,7 +86,7 @@ export function coerenciaProducao({ pecas = [], transicoes = [], corte = null } 
     credito.set(k, (credito.get(k) || 0) + t.kg);
   });
 
-  const vazio = () => ({ produzido: 0, apontado: 0, soResponsavel: 0, semDono: 0, pecasSemDono: 0 });
+  const vazio = () => ({ produzido: 0, apontado: 0, soResponsavel: 0, semDono: 0, pecasSemDono: 0, naoAplica: 0 });
   const etapas = Object.fromEntries(ETAPAS_FABRICA.map((e) => [e, vazio()]));
   const porObra = new Map();
   const semDonoItens = [];
@@ -96,6 +97,14 @@ export function coerenciaProducao({ pecas = [], transicoes = [], corte = null } 
     ETAPAS_FABRICA.forEach((e) => {
       const passou = ordem > ordemFluxo(e);
       const cred = credito.get(`${p.id}|${e}`) || 0;
+      // Etapa marcada "não se aplica" (ex.: terça sem solda): fora do produzido
+      if (passou && etapaNaoSeAplica(naoAplica, p.id, e)) {
+        etapas[e].naoAplica += kgP;
+        const o = obraDe(p) || '—';
+        if (!porObra.has(o)) porObra.set(o, Object.fromEntries(ETAPAS_FABRICA.map((x) => [x, vazio()])));
+        porObra.get(o)[e].naoAplica += kgP;
+        return;
+      }
       if (!passou) {
         if (cred > 0) apontadoSemAvanco.push({ id: p.id, marca: p.marca || p.id, obraId: obraDe(p), etapa: e, etapaAtual: p.etapa, kg: r1(cred), dividida: /__split_/.test(p.id) });
         return;
@@ -116,7 +125,7 @@ export function coerenciaProducao({ pecas = [], transicoes = [], corte = null } 
   });
 
   const fechar = (x) => ({
-    produzido: r1(x.produzido), apontado: r1(x.apontado), soResponsavel: r1(x.soResponsavel), semDono: r1(x.semDono),
+    produzido: r1(x.produzido), apontado: r1(x.apontado), soResponsavel: r1(x.soResponsavel), semDono: r1(x.semDono), naoAplica: r1(x.naoAplica || 0),
     pecasSemDono: x.pecasSemDono,
     pctApontado: x.produzido > 0 ? r1((x.apontado / x.produzido) * 100) : null,
     pctIdentificado: x.produzido > 0 ? r1(((x.apontado + x.soResponsavel) / x.produzido) * 100) : null,
