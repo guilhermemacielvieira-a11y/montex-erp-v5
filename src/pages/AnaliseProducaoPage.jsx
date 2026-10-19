@@ -29,6 +29,8 @@ import {
   produtividadePessoas, perfilDiaSemana, progressoObras, variacaoPct, mediaMovel,
 } from '../services/bi/biAnaliseProducao';
 import { noEscopo, isoLocal, fabricaConcluida, pesoPeca, ROTULO_ETAPA, ETAPAS_FLUXO } from '../services/bi/biCore';
+import { aplicarRotas } from '../services/bi/biDesempenho';
+import { useRotasProducao } from '../hooks/useRotasProducao';
 
 const ICONE_SETOR = { fabricacao: Factory, solda: Flame, pintura: Paintbrush, expedicao: Truck };
 const COR = Object.fromEntries(SETORES.map((s) => [s.key, s.cor]));
@@ -101,6 +103,7 @@ export default function AnaliseProducaoPage() {
   const { obras = [], escopoObra, obraIdsEscopo } = useObras();
   const { pecas = [] } = useProducao();
   const { expedicoes = [] } = useExpedicao();
+  const rotas = useRotasProducao();
 
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -127,10 +130,11 @@ export default function AnaliseProducaoPage() {
     const { transicoes: todas, diag } = normalizarHistorico(historico, pecas);
     const transicoes = obraIds ? todas.filter((t) => obraIds.includes(t.obraId)) : todas;
     const exps = noEscopo(expedicoes, obraIds);
-    const eventos = eventosProducao(transicoes, exps);
+    // Rotas por família: solda de família "sem solda" (terça) não é produção
+    const { eventos, removidos } = aplicarRotas(eventosProducao(transicoes, exps), rotas.cfg);
     const pecasEsc = noEscopo(pecas, obraIds);
-    return { transicoes, diag, eventos, pecasEsc };
-  }, [historico, pecas, expedicoes, obraIds]);
+    return { transicoes, diag, eventos, pecasEsc, removidos };
+  }, [historico, pecas, expedicoes, obraIds, rotas.cfg]);
 
   // ===== Período =====
   const per = useMemo(() => intervaloPeriodo(periodo, { hoje, ...custom }), [periodo, custom, hoje]);
@@ -415,6 +419,8 @@ export default function AnaliseProducaoPage() {
                 { _k: 'dup', d: 'Duplicatas exatas removidas', v: n0(base.diag.duplicados), alerta: base.diag.duplicados > 0 },
                 { _k: 'exc', d: 'Movimentos acima da quantidade da peça (valem 0 kg)', v: `${n0(base.diag.excedentes)} · ${kg(base.diag.kgExcedente)}`, alerta: base.diag.excedentes > 0 },
                 { _k: 'ret', d: 'Retrocessos de etapa (não contam como produção)', v: n0(base.diag.retrocessos) },
+                { _k: 'rota', d: 'Solda de família sem solda (ex.: terça) — não conta na Solda', v: `${n0(base.removidos.eventos)} · ${kg(base.removidos.kg)}`, alerta: base.removidos.kg > 0 },
+                { _k: 'na', d: 'Etapas marcadas "não se aplica" no lançamento', v: n0(base.diag.naoAplica || 0) },
                 { _k: 'orf', d: 'Registros de peças inexistentes', v: n0(base.diag.orfaos) },
                 { _k: 'val', d: 'Movimentos válidos usados', v: n0(base.diag.validos) },
               ]} colunas={[
