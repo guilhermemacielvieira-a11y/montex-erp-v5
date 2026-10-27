@@ -65,9 +65,47 @@ function CelulaEtapa({ e }) {
   );
 }
 
+// Fluxo de UMA unidade: etapa a etapa, com data, responsável e detalhe
+function FluxoUnidade({ u }) {
+  return (
+    <div className="rounded-lg border border-sky-700/40 bg-sky-500/5 p-3">
+      <div className="mb-2 text-xs font-semibold text-sky-300">
+        Fluxo da unidade {u.numero} · <span className="font-mono">{curtoId(u.pecaId)}</span>
+        <span className="ml-2 font-normal text-slate-400">{u.qtd} un · {fmtKg(u.kg)} · {u.etapaRotulo}</span>
+      </div>
+      <ol className="grid gap-2 sm:grid-cols-4 lg:grid-cols-7">
+        {u.fluxo.map((f, i) => {
+          const etapa = ETAPAS_RASTREIO.find((e) => e.key === f.key);
+          const { icon: Icon, cor } = ESTILO[f.key];
+          return (
+            <li key={f.key} className={cn('relative rounded-lg border px-2.5 py-2',
+              f.feito ? 'border-emerald-500/40 bg-emerald-500/10' : 'border-slate-700 bg-slate-900/60')}>
+              <div className="flex items-center gap-1.5 text-[11px] text-slate-300">
+                <span className={cn('flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-bold', f.feito ? 'bg-emerald-500 text-slate-950' : 'bg-slate-700 text-slate-300')}>{i + 1}</span>
+                <Icon className="h-3.5 w-3.5" style={{ color: cor }} />{etapa?.rotulo}
+              </div>
+              <div className={cn('mt-1 text-sm font-semibold', f.feito ? 'text-emerald-300' : 'text-slate-500')}>
+                {f.naoAplica ? 'não se aplica' : f.data ? fmtData(f.data) : f.feito ? 'feito (sem data)' : 'pendente'}
+              </div>
+              {f.funcionario && <div className="truncate text-[10px] text-slate-300">{f.funcionario}</div>}
+              {f.detalhe && <div className="truncate text-[10px] text-slate-400" title={f.detalhe}>{f.detalhe}</div>}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 function BlocoObra({ b }) {
   const [verTudo, setVerTudo] = useState(false);
-  const eventos = verTudo ? b.eventos : b.eventos.slice(-12);
+  // null = todas as unidades; senão pecaId da unidade selecionada
+  const [sel, setSel] = useState(null);
+  const unidadeSel = b.unidades.find((u) => u.pecaId === sel) || null;
+  const numeroDe = (id) => b.unidades.find((u) => u.pecaId === id)?.numero;
+  const lista = unidadeSel ? unidadeSel.eventos : b.eventos;
+  const eventos = verTudo || unidadeSel ? lista : lista.slice(-12);
+  const selecionar = (id) => { setSel((atual) => (atual === id ? null : id)); setVerTudo(false); };
   return (
     <div className="space-y-4 rounded-xl border border-slate-700 bg-slate-900/40 p-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -86,13 +124,35 @@ function BlocoObra({ b }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        {ETAPAS_RASTREIO.map((e) => <Marco key={e.key} etapa={e} m={b.marcos[e.key]} />)}
-      </div>
+      {/* Seletor de unidade */}
+      {b.unidades.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="mr-1 text-[11px] uppercase tracking-wide text-slate-500">Ver:</span>
+          <button type="button" onClick={() => setSel(null)}
+            className={cn('rounded-full border px-3 py-1 text-xs', !unidadeSel ? 'border-sky-500 bg-sky-500/15 text-sky-200' : 'border-slate-700 text-slate-300 hover:border-slate-500')}>
+            Todas ({b.qtdTotal} un)
+          </button>
+          {b.unidades.map((u) => (
+            <button key={u.pecaId} type="button" onClick={() => selecionar(u.pecaId)}
+              className={cn('rounded-full border px-3 py-1 text-xs', sel === u.pecaId ? 'border-sky-500 bg-sky-500/15 text-sky-200' : 'border-slate-700 text-slate-300 hover:border-slate-500')}
+              title={u.pecaId}>
+              Unidade {u.numero}{u.qtd > 1 ? ` (${u.qtd} un)` : ''} · {u.etapaRotulo.replace(/ \(.*\)$/, '')}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {unidadeSel ? <FluxoUnidade u={unidadeSel} /> : (
+        <div className="flex flex-wrap gap-2">
+          {ETAPAS_RASTREIO.map((e) => <Marco key={e.key} etapa={e} m={b.marcos[e.key]} />)}
+        </div>
+      )}
 
       {/* Unidades */}
       <div>
-        <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">Unidades</div>
+        <div className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Unidades <span className="font-normal normal-case text-slate-500">— clique numa linha para ver o fluxo e a linha do tempo dela</span>
+        </div>
         <div className="overflow-x-auto rounded-lg border border-slate-800">
           <table className="w-full min-w-[860px] text-xs">
             <thead className="bg-slate-900 text-[10px] uppercase text-slate-500">
@@ -109,8 +169,10 @@ function BlocoObra({ b }) {
             </thead>
             <tbody>
               {b.unidades.map((u) => (
-                <tr key={u.pecaId} className="border-t border-slate-800 align-top">
+                <tr key={u.pecaId} onClick={() => selecionar(u.pecaId)}
+                  className={cn('cursor-pointer border-t border-slate-800 align-top hover:bg-slate-800/40', sel === u.pecaId && 'bg-sky-500/10 ring-1 ring-inset ring-sky-600/50')}>
                   <td className="px-2 py-2">
+                    <div className="text-[10px] font-semibold text-sky-300">Unidade {u.numero}</div>
                     <div className="font-mono text-slate-200">{curtoId(u.pecaId)}</div>
                     <div className="text-[10px] text-slate-500">{u.qtd} un · {fmtKg(u.kg)}</div>
                   </td>
@@ -145,18 +207,18 @@ function BlocoObra({ b }) {
         {/* Linha do tempo */}
         <div>
           <div className="mb-1.5 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Linha do tempo ({b.eventos.length})
-            {b.apontamentosBrutos > b.apontamentos && (
+            {unidadeSel ? `Linha do tempo — unidade ${unidadeSel.numero} (${lista.length})` : `Linha do tempo — todas as unidades (${lista.length})`}
+            {!unidadeSel && b.apontamentosBrutos > b.apontamentos && (
               <span className="font-normal normal-case text-slate-500">{b.apontamentosBrutos - b.apontamentos} apontamento(s) repetido(s) agrupado(s)</span>
             )}
           </div>
-          {b.eventos.length === 0 ? (
-            <div className="text-sm text-slate-500">Nenhum apontamento registrado para esta marca.</div>
+          {lista.length === 0 ? (
+            <div className="text-sm text-slate-500">Nenhum apontamento registrado {unidadeSel ? 'para esta unidade' : 'para esta marca'}.</div>
           ) : (
             <ol className="relative space-y-2 border-l border-slate-700 pl-4">
-              {b.eventos.length > eventos.length && (
+              {lista.length > eventos.length && (
                 <button type="button" onClick={() => setVerTudo(true)} className="text-[11px] text-sky-400 hover:underline">
-                  ver os {b.eventos.length - eventos.length} eventos anteriores
+                  ver os {lista.length - eventos.length} eventos anteriores
                 </button>
               )}
               {eventos.map((ev, i) => {
@@ -170,6 +232,15 @@ function BlocoObra({ b }) {
                       <span className="font-mono text-slate-400">{fmtData(ev.data)}</span>
                       <span className="font-medium text-slate-100">{ev.titulo}</span>
                       {ev.qtd ? <span className="text-slate-400">{ev.qtd} un</span> : null}
+                      {!unidadeSel && b.unidades.length > 1 && (ev.pecaIds ? (
+                        ev.pecaIds.map((id) => (
+                          <button key={id} type="button" onClick={() => selecionar(id)}
+                            className="rounded bg-sky-500/10 px-1.5 text-[10px] text-sky-300 hover:bg-sky-500/20">
+                            unid. {numeroDe(id) ?? '?'}
+                          </button>
+                        ))
+                      ) : <span className="rounded bg-slate-700/60 px-1.5 text-[10px] text-slate-300">marca</span>)}
+                      {unidadeSel && !ev.pecaIds && <span className="rounded bg-slate-700/60 px-1.5 text-[10px] text-slate-300">posição da marca</span>}
                     </div>
                     {(ev.funcionario || ev.detalhe) && (
                       <div className="text-[11px] text-slate-400">{[ev.funcionario, ev.detalhe].filter(Boolean).join(' · ')}</div>
