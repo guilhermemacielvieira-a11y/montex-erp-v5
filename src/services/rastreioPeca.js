@@ -36,6 +36,11 @@ export const ETAPAS_RASTREIO = [
 const ROTULO_ETAPA = { aguardando: 'Aguardando', fabricacao: 'Fabricação', solda: 'Solda', pintura: 'Pintura', expedido: 'Expedido (fila de embarque)', enviado: 'Enviado (em obra)', entregue: 'Entregue' };
 export const rotuloEtapa = (e) => ROTULO_ETAPA[etapaCanonica(e)] || e || '—';
 
+const faixaCorte = (corte) => {
+  const ds = corte.map((c) => c.dataFim).filter(Boolean).sort((a, b) => a - b);
+  return ds.length ? { inicio: ds[0], fim: ds[ds.length - 1] } : null;
+};
+
 /** Sugestões de marca para o campo de busca (prefixo primeiro). */
 export function sugerirMarcas(pecas = [], termo = '', limite = 8) {
   const t = norm(termo);
@@ -146,6 +151,14 @@ export function rastrearMarca({
 
     // ---- Produção (histórico)
     const movs = eventosProducao(historico, ids, nomeFunc);
+    // Dono de cada movimento (unidade): se o mesmo registro aparece numa peça
+    // DIVIDIDA, é dela (a mãe gravou [QTD:1/N] antes de dividir); senão, da
+    // peça onde foi gravado.
+    for (const m of movs) {
+      const todos = [...m.pecaIds];
+      const divididas = todos.filter((x) => x !== pecaBase(x));
+      m.donos = divididas.length ? divididas : todos;
+    }
 
     // ---- Expedição (romaneios ativos que contêm a peça)
     const cargas = [];
@@ -176,7 +189,7 @@ export function rastrearMarca({
         const etapas = {};
         for (const e of ['fabricacao', 'solda', 'pintura']) {
           const ev = movs
-            .filter((m) => m.pecaIds.has(p.id) && m.de === e && !m.naoAplica && ordemFluxo(m.para) > ordemFluxo(m.de))
+            .filter((m) => m.donos.includes(p.id) && m.de === e && !m.naoAplica && ordemFluxo(m.para) > ordemFluxo(m.de))
             // peça-mãe acumula registros de unidades que foram divididas depois:
             // vale o último REGISTRADO nesta peça (desempate: data do apontamento)
             .sort((a, b) => (b.registradoPor.get(p.id) || 0) - (a.registradoPor.get(p.id) || 0) || b.data - a.data)[0];
@@ -198,21 +211,39 @@ export function rastrearMarca({
 
     // ---- Linha do tempo
     const eventos = [];
+    // pecaIds = unidades a que o evento pertence (null = da marca: corte das posições)
     for (const c of corte) {
-      if (c.status === 'cortado' && c.dataFim) eventos.push({ data: c.dataFim, tipo: 'corte', titulo: `Corte da posição ${c.pos}`, detalhe: `${c.perfil}${c.qtd ? ` · ${c.qtd} un` : ''}`, funcionario: c.funcionario });
-      else if (c.status === 'cortando' && c.dataInicio) eventos.push({ data: c.dataInicio, tipo: 'corte', titulo: `Corte iniciado — posição ${c.pos}`, detalhe: c.perfil, funcionario: c.funcionario });
+      if (c.status === 'cortado' && c.dataFim) eventos.push({ data: c.dataFim, tipo: 'corte', titulo: `Corte da posição ${c.pos}`, detalhe: `${c.perfil}${c.qtd ? ` · ${c.qtd} un` : ''}`, funcionario: c.funcionario, pecaIds: null });
+      else if (c.status === 'cortando' && c.dataInicio) eventos.push({ data: c.dataInicio, tipo: 'corte', titulo: `Corte iniciado — posição ${c.pos}`, detalhe: c.perfil, funcionario: c.funcionario, pecaIds: null });
     }
     for (const m of movs) {
       const d = descreverMovimento(m);
-      eventos.push({ data: m.data, tipo: d.tipo, titulo: d.titulo, funcionario: m.funcionario, qtd: m.qtd, registros: m.registros });
+      eventos.push({ data: m.data, tipo: d.tipo, titulo: d.titulo, funcionario: m.funcionario, qtd: m.qtd, registros: m.registros, pecaIds: m.donos });
     }
     for (const c of cargas) {
-      if (c.dataSaida || c.dataExpedicao) eventos.push({ data: c.dataSaida || c.dataExpedicao, tipo: 'carregamento', titulo: `Carregada — romaneio ${c.numero}`, detalhe: [c.transportadora, c.motorista, c.placa].filter(Boolean).join(' · '), qtd: c.qtd });
-      if (c.dataEntrega && c.status === 'entregue') eventos.push({ data: c.dataEntrega, tipo: 'entrega', titulo: `Entregue na obra — ${c.numero}`, qtd: c.qtd });
+      if (c.dataSaida || c.dataExpedicao) eventos.push({ data: c.dataSaida || c.dataExpedicao, tipo: 'carregamento', titulo: `Carregada — romaneio ${c.numero}`, detalhe: [c.transportadora, c.motorista, c.placa].filter(Boolean).join(' · '), qtd: c.qtd, pecaIds: [c.pecaId] });
+      if (c.dataEntrega && c.status === 'entregue') eventos.push({ data: c.dataEntrega, tipo: 'entrega', titulo: `Entregue na obra — ${c.numero}`, qtd: c.qtd, pecaIds: [c.pecaId] });
     }
-    for (const u of unidades) if (u.montado?.data) eventos.push({ data: u.montado.data, tipo: 'montagem', titulo: 'Montada na obra', detalhe: u.montado.texto ? `planilha: ${u.montado.texto}` : '', qtd: u.qtd });
+    for (const u of unidades) if (u.montado?.data) eventos.push({ data: u.montado.data, tipo: 'montagem', titulo: 'Montada na obra', detalhe: u.montado.texto ? `planilha: ${u.montado.texto}` : '', qtd: u.qtd, pecaIds: [u.pecaId] });
     const ORD = { corte: 0, fabricacao: 1, solda: 2, pintura: 3, retorno: 4, carregamento: 5, entrega: 6, montagem: 7 };
     eventos.sort((a, b) => a.data - b.data || (ORD[a.tipo] ?? 9) - (ORD[b.tipo] ?? 9));
+
+    // ---- Fluxo e linha do tempo de CADA unidade
+    unidades.forEach((u, i) => {
+      u.numero = i + 1;
+      u.eventos = eventos.filter((e) => !e.pecaIds || e.pecaIds.includes(u.pecaId));
+      // etapa a etapa, na ordem do fluxo (corte = posições da marca)
+      u.fluxo = [
+        { key: 'corte', ...(corte.length ? { data: faixaCorte(corte)?.fim || null, feito: corte.every((c) => c.status === 'cortado'), detalhe: `${corte.filter((c) => c.status === 'cortado').length}/${corte.length} posição(ões)` } : { feito: false, detalhe: 'sem posição ligada' }) },
+        ...['fabricacao', 'solda', 'pintura'].map((e) => ({
+          key: e, data: u.etapas[e]?.data || null, funcionario: u.etapas[e]?.funcionario || null,
+          naoAplica: !!u.etapas[e]?.naoAplica, feito: !!u.etapas[e]?.naoAplica || ordemFluxo(u.etapa) > ordemFluxo(e),
+        })),
+        { key: 'carregamento', data: u.carga ? u.carga.dataSaida || u.carga.dataExpedicao : null, feito: !!u.carga, detalhe: u.carga ? [u.carga.numero, u.carga.motorista, u.carga.placa].filter(Boolean).join(' · ') : null },
+        { key: 'entrega', data: u.carga?.status === 'entregue' ? u.carga.dataEntrega : null, feito: u.carga?.status === 'entregue', detalhe: u.carga && u.carga.status !== 'entregue' ? u.carga.status.replace(/_/g, ' ') : null },
+        { key: 'montagem', data: u.montado?.data || null, feito: !!u.montado, detalhe: u.montado?.texto ? `planilha: ${u.montado.texto}` : null },
+      ];
+    });
 
     // ---- Marcos (primeira/última data por estágio)
     const faixa = (datas) => {

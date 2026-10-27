@@ -81,6 +81,25 @@ describe('rastreioPeca', () => {
     for (let i = 1; i < b.eventos.length; i++) expect(b.eventos[i].data >= b.eventos[i - 1].data).toBe(true);
   });
 
+  it('linha do tempo e fluxo separados por unidade', () => {
+    const [b] = rastrearMarca({ marca: 'TS55A', pecas, historico, cortes, expedicoes, montagem, funcionarios, obraIds: ['o3'] });
+    const [mae, u1, u2] = b.unidades;
+    expect([mae.numero, u1.numero, u2.numero]).toEqual([1, 2, 3]);
+    // registro na mãe [1/3] + na dividida no mesmo dia → é da dividida
+    const tit = (u) => u.eventos.map((e) => `${e.data.getDate()}/${e.data.getMonth() + 1} ${e.tipo}`);
+    expect(tit(u1)).toEqual(['20/8 corte', '24/8 fabricacao', '25/8 solda', '25/8 pintura', '26/8 carregamento', '26/8 entrega', '2/9 montagem']);
+    expect(tit(mae)).toEqual(['19/8 solda', '20/8 corte', '19/10 fabricacao', '26/10 pintura']);
+    expect(tit(u2)).toEqual(['20/8 corte', '16/10 carregamento', '16/10 entrega']);
+    // fluxo da unidade, etapa a etapa
+    const f = Object.fromEntries(u1.fluxo.map((x) => [x.key, x]));
+    expect(f.fabricacao).toMatchObject({ feito: true, funcionario: 'Flavio Pereira' });
+    expect(f.carregamento).toMatchObject({ feito: true, detalhe: 'CARGA 01 · DANIEL' });
+    expect(f.montagem).toMatchObject({ feito: true, detalhe: 'planilha: 02/09' });
+    expect(Object.fromEntries(mae.fluxo.map((x) => [x.key, x])).carregamento.feito).toBe(false);
+    // todas as unidades juntas = linha do tempo da marca
+    expect(b.eventos.every((e) => !e.pecaIds || e.pecaIds.length > 0)).toBe(true);
+  });
+
   it('etapa "não se aplica" aparece como tal', () => {
     const p = [{ id: 'T1', obra_id: 'o', marca: 'TC1', tipo: 'TERÇA', quantidade: 1, etapa: 'pintura' }];
     const hh = [h('x', 'T1', 'fabricacao', 'solda', '09-01', 'F1', 'A', '[QTD:1/1]'), h('y', 'T1', 'solda', 'pintura', '09-01', null, null, '[NA] [QTD:1/1]')];
