@@ -31,7 +31,8 @@ import {
 } from 'recharts';
 
 // Contexto ERP e Database
-import { useObras, useProducao, useEstoque } from '@/contexts/ERPContext';
+import { useObras, useProducao, useEstoque, useEquipes } from '@/contexts/ERPContext';
+import RastreioPecaDialog from '@/components/producao/RastreioPecaDialog';
 import { grupoDoEscopo, rotuloEscopo } from '@/lib/escopoObra';
 import { supabase } from '@/api/supabaseClient';
 import { splitPeca, distribuirPeca } from '@/api/producaoRpc';
@@ -107,6 +108,12 @@ export default function KanbanProducaoIntegrado() {
   const { obras, obraAtual, escopoObra, obraIdsEscopo } = useObras();
   const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, addPecas: addPecasContext, reloadPecas } = useProducao();
   const { estoque: estoqueGlobal } = useEstoque();
+  const { funcionarios: funcionariosCtx } = useEquipes();
+
+  // Rastreio de peça (busca por marca → fluxo completo)
+  const [rastreio, setRastreio] = useState({ open: false, marca: '' });
+  const [termoRastreio, setTermoRastreio] = useState('');
+  const abrirRastreio = (marca = termoRastreio) => setRastreio({ open: true, marca: String(marca || '').trim() });
 
   // ========================================
   // BASE DE DADOS DE PRODUÇÃO INDEPENDENTE
@@ -1023,7 +1030,21 @@ export default function KanbanProducaoIntegrado() {
           </h1>
           <p className="text-slate-400 mt-1">Base de dados de produção independente • Controle por conjuntos</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
+          {/* Rastrear peça: marca → corte, fabricação, solda, pintura, carga, entrega, montagem */}
+          <form
+            className="relative"
+            onSubmit={(e) => { e.preventDefault(); abrirRastreio(); }}
+          >
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              value={termoRastreio}
+              onChange={(e) => setTermoRastreio(e.target.value)}
+              placeholder="Rastrear peça (ex.: TS55A)"
+              aria-label="Rastrear peça pela marca"
+              className="h-10 w-56 rounded-md border border-sky-700/60 bg-slate-900 pl-9 pr-3 text-sm text-white outline-none placeholder:text-slate-500 focus:border-sky-500"
+            />
+          </form>
           <Button
             onClick={() => {
               const columns = [
@@ -2108,6 +2129,14 @@ export default function KanbanProducaoIntegrado() {
                 </div>
 
                 <div className="flex justify-end gap-3 mt-6 pt-4 border-t border-slate-700">
+                  <Button
+                    variant="outline"
+                    className="border-sky-700/60 text-sky-300"
+                    onClick={() => { setModalAberto(false); abrirRastreio(conjuntoSelecionado.marca || conjuntoSelecionado.conjunto); }}
+                  >
+                    <Search className="h-4 w-4 mr-2" />
+                    Rastrear fluxo
+                  </Button>
                   <Button 
                     variant="outline" 
                     className="border-slate-700 text-slate-300"
@@ -2557,6 +2586,15 @@ export default function KanbanProducaoIntegrado() {
           try { await reloadPecas?.(); } catch (e) { console.warn('[Kanban] reloadPecas falhou:', e); }
           setModalLancamento(false);
         }}
+      />
+      <RastreioPecaDialog
+        open={rastreio.open}
+        onOpenChange={(v) => setRastreio((r) => ({ ...r, open: v }))}
+        marcaInicial={rastreio.marca}
+        pecas={pecasSupabase || []}
+        obraIds={obraIdsEscopo}
+        funcionarios={funcionariosCtx || []}
+        obras={obras || []}
       />
     </div>
   );
