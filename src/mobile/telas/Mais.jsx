@@ -9,7 +9,7 @@ import { abrirNoComputador } from '../kit/fmt';
 import { modulosLiberados } from '@/lib/acessoPaginas';
 import {
   CheckCircle2, Bell, Briefcase, ClipboardList, Camera, Ruler, Package,
-  Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight, ScanLine, Hammer, Truck,
+  Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight, ScanLine, Hammer, Truck, BarChart3, LineChart,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
@@ -20,6 +20,8 @@ const GRUPOS = [
   {
     titulo: 'Gestão',
     itens: [
+      { to: '/m/painel/producao', icone: BarChart3, titulo: 'Painel de produção', sub: 'Setores, fluxo, obras e equipe', tom: 'teal', perm: 'producao.view' },
+      { to: '/m/painel/financeiro', icone: LineChart, titulo: 'Painel financeiro', sub: 'Caixa, resultado e contas da empresa', tom: 'teal', perm: 'financeiro.view' },
       { to: '/m/aprovacoes', icone: CheckCircle2, titulo: 'Aprovações', sub: 'Medições, orçamentos e compras', tom: 'ok', perm: ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'] },
       { to: '/m/alertas', icone: Bell, titulo: 'Alertas', sub: 'Radar de riscos e avisos', tom: 'warn' },
       { to: '/m/comercial', icone: Briefcase, titulo: 'Comercial', sub: 'Funil de orçamentos e clientes', tom: 'teal', perm: ['orcamentos.view', 'comercial.view', 'clientes.view'] },

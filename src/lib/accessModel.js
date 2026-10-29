@@ -42,6 +42,8 @@ export const ROTAS = {
   '/m/campo/montagem': PERM_MONTAGEM,
   '/m/campo/expedicao': 'expedicao.view',
   '/m/3d': 'viewer3d.view',
+  '/m/painel/producao': 'producao.view',
+  '/m/painel/financeiro': 'financeiro.view',
   '/m/parede-pronta': PERM_MONTAGEM,
   '/m/kanban': 'kanban.view',
   '/m/kanban-corte': 'kanban.view',
@@ -81,6 +83,8 @@ export const TABS = [
 ];
 
 export const MAIS = [
+  { to: '/m/painel/producao', label: 'Painel de produção', perm: 'producao.view' },
+  { to: '/m/painel/financeiro', label: 'Painel financeiro', perm: 'financeiro.view' },
   { to: '/m/aprovacoes', label: 'Aprovações', perm: PERM_APROVAR },
   { to: '/m/alertas', label: 'Alertas' },
   { to: '/m/comercial', label: 'Comercial', perm: ['orcamentos.view', 'comercial.view', 'clientes.view'] },
