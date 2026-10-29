@@ -59,7 +59,26 @@ module.exports = {
   				'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
+  			},
+  			// App mobile (diretoria) — identidade Montex. Tokens em src/mobile/kit/tema.css
+  			mx: {
+  				bg: 'rgb(var(--mx-bg) / <alpha-value>)',
+  				s1: 'rgb(var(--mx-s1) / <alpha-value>)',
+  				s2: 'rgb(var(--mx-s2) / <alpha-value>)',
+  				s3: 'rgb(var(--mx-s3) / <alpha-value>)',
+  				line: 'rgb(var(--mx-line) / <alpha-value>)',
+  				text: 'rgb(var(--mx-text) / <alpha-value>)',
+  				text2: 'rgb(var(--mx-text2) / <alpha-value>)',
+  				text3: 'rgb(var(--mx-text3) / <alpha-value>)',
+  				teal: 'rgb(var(--mx-teal) / <alpha-value>)',
+  				tealhi: 'rgb(var(--mx-tealhi) / <alpha-value>)',
+  				ok: 'rgb(var(--mx-ok) / <alpha-value>)',
+  				warn: 'rgb(var(--mx-warn) / <alpha-value>)',
+  				bad: 'rgb(var(--mx-bad) / <alpha-value>)'
   			}
+  		},
+  		fontFamily: {
+  			mx: ['"Archivo Variable"', 'Archivo', 'system-ui', '-apple-system', 'sans-serif']
   		},
   		keyframes: {
   			'accordion-down': {

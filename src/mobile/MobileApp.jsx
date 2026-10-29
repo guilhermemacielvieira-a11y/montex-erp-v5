@@ -1,13 +1,15 @@
 // ============================================================
-// MOBILE APP - Roteamento e wrapper geral
+// MONTEX — app da diretoria (mobile) · rotas e providers
 // ============================================================
-// Mantém o mesmo ERPContext / AuthContext / Supabase do desktop.
-// Rotas mobile montadas em /m/*
-// Páginas desktop são exibidas em modo mobile via wrapper "DesktopInMobile"
-// (com header voltar) quando não há versão mobile dedicada.
+// Mesmo ERPContext / AuthContext / Supabase do desktop. Rotas em /m/*.
+// Navegação: Shell (src/mobile/app/Shell.jsx) com 5 abas — Início,
+// Obras, Financeiro, Fábrica e Mais. Telas nativas em src/mobile/telas,
+// design system em src/mobile/kit (identidade Montex: grafite + #006666).
+// Telas de uso raro (3D, Kanban, Relatórios) abrem a versão completa do
+// desktop dentro do app (DesktopWrap). Rotas antigas redirecionam.
 // ============================================================
 import React, { lazy, Suspense, useEffect } from 'react';
-import { Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Routes, Route, Navigate, Link, useLocation } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import { initLastRefresh } from './ui/lastRefresh';
@@ -19,90 +21,69 @@ import { ERPProvider } from '@/contexts/ERPContext';
 import { ProducaoFabricaProvider } from '@/contexts/ProducaoFabricaContext';
 import { ObraMobileProvider } from './ObraContext';
 import MobileLayout from './MobileLayout';
-import HomeMobile from './pages/HomeMobile';
-// Páginas mobile sob demanda (code-splitting): antes eram estáticas e
-// arrastavam recharts/jsPDF para o bundle inicial (inclusive no desktop,
-// pois o App importa MobileApp estaticamente). HomeMobile segue estática.
-const ProducaoMobile = lazy(() => import('./pages/ProducaoMobile'));
-const MontagemMobile = lazy(() => import('./pages/MontagemMobile'));
-const FinanceiroMobile = lazy(() => import('./pages/FinanceiroMobile'));
-const ExpedicaoMobile = lazy(() => import('./pages/ExpedicaoMobile'));
+import Shell from './app/Shell';
+import { Esqueleto } from './kit';
+import Inicio from './telas/Inicio';
+import './kit/tema.css';
+
+// Telas nativas sob demanda (code-splitting). O Início segue estático.
+const Obras = lazy(() => import('./telas/obras/Obras'));
+const ObraDetalhe = lazy(() => import('./telas/obras/ObraDetalhe'));
+const Financeiro = lazy(() => import('./telas/financeiro/Financeiro'));
+const Fabrica = lazy(() => import('./telas/fabrica/Fabrica'));
+const Mais = lazy(() => import('./telas/Mais'));
+const Aprovacoes = lazy(() => import('./telas/Aprovacoes'));
+const Alertas = lazy(() => import('./telas/Alertas'));
+const Comercial = lazy(() => import('./telas/Comercial'));
+const Perfil = lazy(() => import('./telas/Perfil'));
+
+// Telas de campo que seguem no app (reaproveitadas com o cabeçalho novo)
 const EstoqueMobile = lazy(() => import('./pages/EstoqueMobile'));
 const MedicaoMobile = lazy(() => import('./pages/MedicaoMobile'));
-const PerfilMobile = lazy(() => import('./pages/PerfilMobile'));
 const ConfiguracoesMobile = lazy(() => import('./pages/ConfiguracoesMobile'));
-const NotificacoesMobile = lazy(() => import('./pages/NotificacoesMobile'));
 const GaleriaMobile = lazy(() => import('./pages/GaleriaMobile'));
-const DashboardMobile = lazy(() => import('./pages/DashboardMobile'));
-const AprovacoesMobile = lazy(() => import('./pages/AprovacoesMobile'));
 const DiarioObraMobile = lazy(() => import('./pages/DiarioObraMobile'));
-const PainelGlobalMobile = lazy(() => import('./pages/PainelGlobalMobile'));
 const UsuariosMobile = lazy(() => import('./pages/UsuariosMobile'));
-const MaisMobile = lazy(() => import('./pages/MaisMobile'));
-const CustoKgMobile = lazy(() => import('./pages/CustoKgMobile'));
 
-// Páginas desktop que abrem em wrapper "compacto" no mobile
+// Versão completa do desktop dentro do app (uso raro)
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
 const ParedeProntaPage = lazy(() => import('../pages/ParedeProntaPage'));
 const KanbanProducaoIntegrado = lazy(() => import('../pages/KanbanProducaoIntegrado'));
 const KanbanCortePage = lazy(() => import('../pages/KanbanCortePage'));
-const EnviosExpedicaoPage = lazy(() => import('../pages/EnviosExpedicaoPage'));
-const EstoquePageV2 = lazy(() => import('../pages/EstoquePageV2'));
-const DespesasPage = lazy(() => import('../pages/DespesasPage'));
-const ReceitasPage = lazy(() => import('../pages/ReceitasPage'));
-const GestaoFinanceiraObra = lazy(() => import('../pages/GestaoFinanceiraObra'));
-const PainelFinanceiroGlobal = lazy(() => import('../pages/PainelFinanceiroGlobal'));
-const DREPage = lazy(() => import('../pages/DREPage'));
-const Projetos = lazy(() => import('../pages/Projetos'));
-const Clientes = lazy(() => import('../pages/Clientes'));
-const EquipesPage = lazy(() => import('../pages/EquipesPage'));
-const OrcamentosPage = lazy(() => import('../pages/OrcamentosPage'));
 const Relatorios = lazy(() => import('../pages/CentralRelatoriosPage'));
-const DashboardPremium = lazy(() => import('../pages/DashboardPremium'));
-const AnaliseProducaoPage = lazy(() => import('../pages/AnaliseProducaoPage'));
-const DiarioProducaoPage = lazy(() => import('../pages/DiarioProducaoPage'));
 
-// 3D em TELA CHEIA no mobile: o viewer dimensiona o canvas com
-// h-[calc(100vh-120px)] e root -m-6; dentro do DesktopWrap (header +
-// tab bar) o canvas estourava e rolava. Aqui ele ganha a viewport
-// inteira — OrbitControls já é touch-nativo (1 dedo gira, pinça dá
-// zoom) — com botão Voltar flutuante. O p-6 neutraliza o -m-6 do root.
+function Carregando() {
+  return <div className="px-4 pt-[calc(env(safe-area-inset-top)+64px)]"><Esqueleto linhas={5} metricas={2} /></div>;
+}
+
+// 3D em tela cheia: o viewer ocupa a viewport inteira, com Voltar flutuante.
 function Fullscreen3D({ children }) {
   return (
-    <div className="relative min-h-screen bg-[#030712] text-slate-100">
-      <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando 3D…</div>}>
+    <div className="relative min-h-screen bg-mx-bg text-mx-text">
+      <Suspense fallback={<div className="p-8 text-center text-mx-text2">Carregando 3D…</div>}>
         <div className="p-6">{children}</div>
       </Suspense>
       <Link
-        to="/m"
-        aria-label="Voltar ao início"
-        className="fixed z-[70] flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-slate-900/90 border border-slate-700 text-slate-100 text-xs font-bold backdrop-blur-md active:scale-95 transition"
+        to="/m/mais"
+        aria-label="Voltar"
+        className="fixed z-[70] flex items-center gap-1.5 rounded-full border border-mx-line bg-mx-s1/90 px-3.5 py-2 text-[13px] font-semibold text-mx-text backdrop-blur-md active:scale-95"
         style={{ top: 'calc(env(safe-area-inset-top) + 10px)', left: '10px' }}
       >
-        <ArrowLeft className="w-4 h-4 text-amber-400" /> Voltar
+        <ArrowLeft className="h-4 w-4 text-mx-tealhi" aria-hidden /> Voltar
       </Link>
     </div>
   );
 }
 
-// Páginas desktop no celular: NÃO há escala real (transform sem scale). Grids
-// largos (Kanban com 6 colunas, tabelas) estouravam a viewport e o layout
-// inteiro ficava cortado à direita sem como rolar. Agora o conteúdo fica num
-// container com rolagem HORIZONTAL própria (o corpo da página não estoura) e
-// um aviso curto explica que é a versão desktop.
+// Página desktop no celular: rolagem horizontal própria e aviso curto.
 function DesktopWrap({ title, children }) {
   return (
-    <MobileLayout title={title} back>
-      <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando…</div>}>
+    <MobileLayout title={title} back="/m/mais">
+      <Suspense fallback={<div className="p-8 text-center text-mx-text2">Carregando…</div>}>
         <div className="px-2 py-2">
-          <div className="mx-1 mb-2 text-[10px] text-slate-500 flex items-center gap-1.5">
-            <span className="px-1.5 py-px rounded bg-slate-800 border border-slate-700 font-bold text-slate-300">DESKTOP</span>
-            Tela completa da versão desktop · deslize para o lado para ver tudo
-          </div>
-          <div className="overflow-x-auto overscroll-x-contain -mx-2 px-2">
-            <div className="min-w-full w-max max-w-none">
-              {children}
-            </div>
+          <p className="mx-2 mb-2 text-[12px] text-mx-text3">Versão completa do computador. Deslize para o lado para ver tudo.</p>
+          <div className="-mx-2 overflow-x-auto overscroll-x-contain px-2">
+            <div className="w-max min-w-full max-w-none">{children}</div>
           </div>
         </div>
       </Suspense>
@@ -110,20 +91,7 @@ function DesktopWrap({ title, children }) {
   );
 }
 
-// Estados de foco visíveis (teclado/switch/leitor de tela). Escopo .montex-mobile
-// (não afeta o desktop). Campos de formulário mostram o anel ao focar; botões/links
-// só em :focus-visible (não aparece no toque/clique).
-const FOCUS_STYLES = `
-.montex-mobile :is(input, select, textarea):focus,
-.montex-mobile :is(button, a):focus-visible {
-  outline: 2px solid rgb(251 191 36 / 0.95) !important;
-  outline-offset: 2px !important;
-  border-radius: 10px;
-}`;
-
-// Aviso quando o app mobile e aberto num computador sem touch (ex.: atalho
-// salvo em /m). O desktop nunca e redirecionado para ca automaticamente -
-// se chegou aqui sem touch e tela larga, quase certamente foi sem querer.
+// Aviso quando o app é aberto num computador sem toque.
 function DesktopHintBanner() {
   const [visivel, setVisivel] = React.useState(() => {
     if (typeof window === 'undefined') return false;
@@ -135,13 +103,14 @@ function DesktopHintBanner() {
   });
   if (!visivel) return null;
   return (
-    <div className="fixed top-0 inset-x-0 z-[100] bg-amber-500 text-slate-950 text-sm font-semibold px-4 py-2 flex items-center justify-center gap-3" role="status">
-      <span>Voce esta na versao mobile.</span>
-      <a href="/" className="underline font-black">Ir para o desktop</a>
+    <div className="fixed inset-x-0 top-0 z-[100] flex items-center justify-center gap-3 bg-mx-teal px-4 py-2 text-[14px] font-medium text-white" role="status">
+      <span>Você está no app do celular.</span>
+      <a href="/" className="font-semibold underline">Abrir a versão do computador</a>
       <button
+        type="button"
         onClick={() => { sessionStorage.setItem('m_desktop_hint_off', '1'); setVisivel(false); }}
         aria-label="Fechar aviso"
-        className="ml-2 px-1 font-black"
+        className="ml-2 px-1 font-bold"
       >
         ✕
       </button>
@@ -149,91 +118,113 @@ function DesktopHintBanner() {
   );
 }
 
-export default function MobileApp() {
-  // Marca a abertura do app como referência inicial de "atualizado há X".
-  useEffect(() => { initLastRefresh(); }, []);
-  return (
-    <ERPProvider>
-      <ProducaoFabricaProvider>
-        <ObraMobileProvider>
-          <style>{FOCUS_STYLES}</style>
-          <SyncManager />
-          <DeepLinkHandler />
-          <DesktopHintBanner />
-          <Suspense fallback={<div className="p-8 text-center text-slate-400">Carregando…</div>}>
-            <MobileRoutes />
-          </Suspense>
-          <InstallPrompt />
-          {/* Toaster do react-hot-toast (estava ausente no app → toasts não apareciam).
-              Escopo mobile, tema escuro, abaixo do header. */}
-          <Toaster
-            position="top-center"
-            containerStyle={{ top: 'calc(env(safe-area-inset-top) + 64px)' }}
-            toastOptions={{
-              duration: 3000,
-              style: { background: '#1e293b', color: '#f1f5f9', border: '1px solid #334155', fontSize: '13px', maxWidth: '92vw' },
-              success: { iconTheme: { primary: '#22c55e', secondary: '#0f172a' } },
-              error: { iconTheme: { primary: '#ef4444', secondary: '#0f172a' } },
-            }}
-          />
-        </ObraMobileProvider>
-      </ProducaoFabricaProvider>
-    </ERPProvider>
-  );
-}
+const PERM_OBRAS = ['obras.view', 'projetos.view', 'bi.view'];
+const PERM_APROVAR = ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'];
+
+// Rotas antigas → telas novas (links salvos, push e atalhos do PWA)
+const REDIRECTS = {
+  producao: '/m/fabrica',
+  montagem: '/m/fabrica?aba=montagem',
+  expedicao: '/m/fabrica?aba=expedicao',
+  'expedicao-desktop': '/m/fabrica?aba=expedicao',
+  'estoque-desktop': '/m/estoque',
+  dashboard: '/m',
+  'dashboard-bi': '/m',
+  'analise-producao': '/m/fabrica',
+  diario: '/m/fabrica',
+  'painel-global': '/m/financeiro',
+  'painel-global-desktop': '/m/financeiro',
+  dre: '/m/financeiro?aba=dre',
+  despesas: '/m/financeiro?aba=pagar',
+  receitas: '/m/financeiro?aba=receber',
+  custo: '/m/financeiro?aba=custo',
+  'obras-gfo': '/m/obras',
+  notificacoes: '/m/alertas',
+  orcamentos: '/m/comercial',
+  clientes: '/m/comercial',
+  equipes: '/m/fabrica',
+};
 
 function MobileRoutes() {
   return (
     <Routes>
-      <Route index element={<HomeMobile />} />
-      <Route path="producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
-      <Route path="montagem" element={<Protected perm={['montagem.view', 'producao.view']}><MontagemMobile /></Protected>} />
-      <Route path="parede-pronta" element={<Protected perm={['montagem.view', 'producao.view']}><ParedeProntaPage /></Protected>} />
-      <Route path="financeiro" element={<Protected perm="financeiro.view"><FinanceiroMobile /></Protected>} />
-      <Route path="expedicao" element={<Protected perm="expedicao.view"><ExpedicaoMobile /></Protected>} />
-      <Route path="mais" element={<MaisMobile />} />
+      <Route index element={<Inicio />} />
+      <Route path="obras" element={<Protected perm={PERM_OBRAS}><Obras /></Protected>} />
+      <Route path="obras/:id" element={<Protected perm={PERM_OBRAS}><ObraDetalhe /></Protected>} />
+      <Route path="financeiro" element={<Protected perm="financeiro.view"><Financeiro /></Protected>} />
+      <Route path="fabrica" element={<Protected perm="producao.view"><Fabrica /></Protected>} />
+      <Route path="mais" element={<Mais />} />
+      <Route path="aprovacoes" element={<Protected perm={PERM_APROVAR}><Aprovacoes /></Protected>} />
+      <Route path="alertas" element={<Alertas />} />
+      <Route path="comercial" element={<Protected perm={['orcamentos.view', 'comercial.view', 'clientes.view']}><Comercial /></Protected>} />
+      <Route path="perfil" element={<Perfil />} />
 
-      {/* Páginas desktop em wrapper */}
-      <Route path="3d" element={<Protected perm={['viewer3d.view', 'producao.view']}><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
-      <Route path="kanban" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
-      <Route path="kanban-corte" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban Corte"><KanbanCortePage /></DesktopWrap></Protected>} />
-      <Route path="expedicao-desktop" element={<Protected perm="expedicao.view"><DesktopWrap title="Expedição (desktop)"><EnviosExpedicaoPage /></DesktopWrap></Protected>} />
+      {/* Campo / operação (telas existentes com o cabeçalho novo) */}
       <Route path="estoque" element={<Protected perm="estoque.view"><EstoqueMobile /></Protected>} />
       <Route path="medicao" element={<Protected perm="medicao.view"><MedicaoMobile /></Protected>} />
-      {/* Caixa de aprovações unificada — libera p/ quem aprova medições, orçamentos OU compras */}
-      <Route path="aprovacoes" element={<Protected perm={['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar']}><AprovacoesMobile /></Protected>} />
       <Route path="evidencias" element={<Protected perm="producao.view"><GaleriaMobile /></Protected>} />
-      {/* Diário de obra (montagem em campo, com fotos) — operador pode lançar */}
       <Route path="diario-obra" element={<Protected perm="producao.lancar_avanco"><DiarioObraMobile /></Protected>} />
-      <Route path="estoque-desktop" element={<Protected perm="estoque.view"><DesktopWrap title="Estoque (desktop)"><EstoquePageV2 /></DesktopWrap></Protected>} />
-      <Route path="despesas" element={<Protected perm="financeiro.view"><DesktopWrap title="Despesas"><DespesasPage /></DesktopWrap></Protected>} />
-      <Route path="receitas" element={<Protected perm="financeiro.view"><DesktopWrap title="Receitas"><ReceitasPage /></DesktopWrap></Protected>} />
-      <Route path="obras-gfo" element={<Protected perm="financeiro.view"><DesktopWrap title="Gestão por Obra"><GestaoFinanceiraObra /></DesktopWrap></Protected>} />
-      {/* Financeiro GERAL da empresa (≠ financeiro de obra): analítico nativo + edição desktop */}
-      <Route path="painel-global" element={<Protected perm="financeiro.view"><PainelGlobalMobile /></Protected>} />
-      <Route path="painel-global-desktop" element={<Protected perm="financeiro.view"><DesktopWrap title="Painel Global (edição)"><PainelFinanceiroGlobal /></DesktopWrap></Protected>} />
-      <Route path="dre" element={<Protected perm="financeiro.view"><DesktopWrap title="DRE"><DREPage /></DesktopWrap></Protected>} />
-      <Route path="obras" element={<Protected perm={['obras.view', 'projetos.view']}><DesktopWrap title="Obras"><Projetos /></DesktopWrap></Protected>} />
-      <Route path="clientes" element={<Protected perm="clientes.view"><DesktopWrap title="Clientes"><Clientes /></DesktopWrap></Protected>} />
-      <Route path="equipes" element={<Protected perm="equipes.view"><DesktopWrap title="Equipes"><EquipesPage /></DesktopWrap></Protected>} />
-      <Route path="orcamentos" element={<Protected perm="orcamentos.view"><DesktopWrap title="Orçamentos"><OrcamentosPage /></DesktopWrap></Protected>} />
-      <Route path="relatorios" element={<Protected perm="relatorios.view"><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
-      {/* Dashboard estratégico NATIVO mobile (gráficos + KPIs). O BI desktop
-          completo fica em /m/dashboard-bi (wrapper escalado). */}
-      <Route path="dashboard" element={<Protected perm="bi.view"><DashboardMobile /></Protected>} />
-      {/* Custo/kg da fábrica, equilíbrio, 2027 e margem por obra (mesma aba do BI 360) */}
-      <Route path="custo" element={<Protected perm="financeiro.view"><CustoKgMobile /></Protected>} />
-      <Route path="dashboard-bi" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
-      <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
-      <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />
-      {/* Gestão de usuários — funções (roles) e atribuições (permissões) completas */}
       <Route path="usuarios" element={<Protected perm="usuarios.manage"><UsuariosMobile /></Protected>} />
-      <Route path="notificacoes" element={<NotificacoesMobile />} />
-      <Route path="perfil" element={<PerfilMobile />} />
       <Route path="config" element={<ConfiguracoesMobile />} />
 
+      {/* Versão completa do computador */}
+      <Route path="3d" element={<Protected perm={['viewer3d.view', 'producao.view']}><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
+      <Route path="parede-pronta" element={<Protected perm={['montagem.view', 'producao.view']}><DesktopWrap title="Parede-Pronta R5"><ParedeProntaPage /></DesktopWrap></Protected>} />
+      <Route path="kanban" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban de produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
+      <Route path="kanban-corte" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban de corte"><KanbanCortePage /></DesktopWrap></Protected>} />
+      <Route path="relatorios" element={<Protected perm="relatorios.view"><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
+
+      {Object.entries(REDIRECTS).map(([de, para]) => (
+        <Route key={de} path={de} element={<Navigate to={para} replace />} />
+      ))}
       <Route path="*" element={<Navigate to="/m" replace />} />
     </Routes>
   );
 }
 
+function Conteudo() {
+  const { pathname } = useLocation();
+  const telaCheia = pathname.startsWith('/m/3d');
+  const rotas = (
+    <Suspense fallback={<Carregando />}>
+      <MobileRoutes />
+    </Suspense>
+  );
+  return telaCheia ? <div className="mx-app">{rotas}</div> : <Shell>{rotas}</Shell>;
+}
+
+export default function MobileApp() {
+  useEffect(() => { initLastRefresh(); }, []);
+  // Barra de status / tema do PWA no grafite da marca
+  useEffect(() => {
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const antes = meta?.getAttribute('content');
+    meta?.setAttribute('content', '#101416');
+    return () => { if (meta && antes) meta.setAttribute('content', antes); };
+  }, []);
+  return (
+    <ERPProvider>
+      <ProducaoFabricaProvider>
+        <ObraMobileProvider>
+          <div className="mx-app">
+            <SyncManager />
+            <DeepLinkHandler />
+            <DesktopHintBanner />
+            <Conteudo />
+            <InstallPrompt />
+            <Toaster
+              position="top-center"
+              containerStyle={{ top: 'calc(env(safe-area-inset-top) + 64px)' }}
+              toastOptions={{
+                duration: 3000,
+                style: { background: '#1F2629', color: '#E9EEEF', border: '1px solid #2C3438', fontSize: '14px', maxWidth: '92vw', fontFamily: "'Archivo Variable', system-ui, sans-serif" },
+                success: { iconTheme: { primary: '#46B37F', secondary: '#101416' } },
+                error: { iconTheme: { primary: '#E2604E', secondary: '#101416' } },
+              }}
+            />
+          </div>
+        </ObraMobileProvider>
+      </ProducaoFabricaProvider>
+    </ERPProvider>
+  );
+}

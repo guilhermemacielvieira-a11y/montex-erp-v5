@@ -1,18 +1,30 @@
 {
-  "name": "MONTEX Mobile",
+  "name": "Montex",
   "short_name": "Montex",
-  "description": "App mobile do MONTEX ERP - Produção, montagem e financeiro na palma da mão",
+  "description": "Montex — obras, caixa e fábrica da diretoria na palma da mão",
   "start_url": "/m",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#101416",
+  "theme_color": "#101416",
   "orientation": "portrait",
   "prefer_related_applications": false,
   "shortcuts": [
-    { "name": "Produção", "url": "/m/producao", "description": "Kanban resumido por etapa" },
-    { "name": "Montagem", "url": "/m/montagem", "description": "Marcar peças como montadas" },
-    { "name": "Financeiro", "url": "/m/financeiro", "description": "Saldos e vencimentos" }
+    {
+      "name": "Aprovações",
+      "url": "/m/aprovacoes",
+      "description": "Medições, orçamentos e compras para aprovar"
+    },
+    {
+      "name": "Obras",
+      "url": "/m/obras",
+      "description": "Andamento e saldo das obras"
+    },
+    {
+      "name": "Financeiro",
+      "url": "/m/financeiro",
+      "description": "Caixa, a receber e a pagar"
+    }
   ],
   "icons": [
     {
@@ -58,7 +70,10 @@
       "purpose": "any maskable"
     }
   ],
-  "categories": ["business", "productivity"],
+  "categories": [
+    "business",
+    "productivity"
+  ],
   "lang": "pt-BR",
   "dir": "ltr"
 }
