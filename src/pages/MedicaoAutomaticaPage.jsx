@@ -23,6 +23,7 @@ import { grupoDoEscopo, rotuloEscopo, obraIdUnica } from '../lib/escopoObra';
 import { hojeLocalISO } from '../utils/financeiroCalc';
 import { apurarPleito, valorKgDaObra, INCLUIR_PADRAO, GRUPOS_ETAPA } from '../services/medicaoPleito';
 import { modeloPleito, fmtMoeda, fmtKg, fmtUn, fmtPct, fmtData } from '../services/relatorioMedicao';
+import { abrirJanelaRelatorio, mostrarHtmlRelatorio, fecharJanelaRelatorio } from '@/utils/abrirRelatorio';
 
 // Obras medidas por UNIDADE (produto seriado). Demais: por kg.
 // Persistido em localStorage (legado desta tela) + sementes do contrato.
@@ -148,6 +149,8 @@ export default function MedicaoAutomaticaPage() {
   const exportar = async (formato) => {
     if (!ap) return;
     if (!(ap.valorUnit > 0)) { toast.error(`Cadastre o valor por ${kg ? 'kg' : 'unidade'} antes de exportar`); return; }
+    // HTML abre direto no navegador: a aba nasce no clique (antes dos awaits).
+    const janela = formato === 'pdf' ? null : abrirJanelaRelatorio();
     setExportando(formato);
     try {
       const mod = modeloPleito(ap, infoRelatorio());
@@ -157,11 +160,12 @@ export default function MedicaoAutomaticaPage() {
         const { paginas } = gerarPleitoMedicaoPDF(mod, { logoDataUrl });
         toast.success(`PDF gerado (${paginas} página${paginas > 1 ? 's' : ''})`);
       } else {
-        const { baixarPleitoMedicaoHTML } = await import('../services/relatorioMedicaoHTML');
-        baixarPleitoMedicaoHTML(mod, { logoDataUrl });
-        toast.success('HTML gerado');
+        const { montarPleitoMedicaoHTML } = await import('../services/relatorioMedicaoHTML');
+        const r = await mostrarHtmlRelatorio(janela, montarPleitoMedicaoHTML(mod, { logoDataUrl }), `${mod.nomeArquivo}.html`);
+        toast.success(r === 'aberto' ? 'Relatório aberto no navegador' : 'HTML gerado');
       }
     } catch (e) {
+      fecharJanelaRelatorio(janela);
       console.error('[Medição] exportar', e);
       toast.error(`Erro ao exportar: ${e?.message || e}`);
     } finally {

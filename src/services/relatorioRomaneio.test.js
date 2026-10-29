@@ -25,7 +25,8 @@ describe('relatorioRomaneio', () => {
 
   it('HTML escapa texto e traz totais e assinaturas', () => {
     const html = htmlRelatorioRomaneio(dadosRelatorioRomaneio(romaneio, pecas, 'Obra Teste'));
-    expect(html).toContain('Romaneio de embarque ENV-77');
+    expect(html).toContain('ROMANEIO DE EMBARQUE');
+    expect(html).toContain('<h1>ENV-77</h1>');
     expect(html).toContain('C2A&lt;script&gt;');
     expect(html).not.toContain('C2A<script>');
     expect(html).toContain('280,0 kg');
@@ -37,10 +38,24 @@ describe('relatorioRomaneio', () => {
     expect(nomeArquivoRomaneio(d, 'pdf')).toBe('Romaneio_ENV-7-8_29-10-2026.pdf');
   });
 
+  it('HTML com logo usa a imagem; sem logo usa o nome', () => {
+    const d = dadosRelatorioRomaneio(romaneio, pecas, 'Obra Teste');
+    expect(htmlRelatorioRomaneio(d, { logo: 'data:image/png;base64,AAAA' })).toContain('<img src="data:image/png;base64,AAAA"');
+    expect(htmlRelatorioRomaneio(d)).toContain('GRUPO MONTEX');
+    expect(htmlRelatorioRomaneio(d)).toContain('Grupo Montex · soluções em aço');
+  });
+
   it('gera PDF', async () => {
     const blob = await pdfRelatorioRomaneio(dadosRelatorioRomaneio(romaneio, pecas, 'Obra Teste'));
     expect(blob.size).toBeGreaterThan(1000);
     const cabecalho = await blob.slice(0, 5).text();
     expect(cabecalho).toBe('%PDF-');
+  });
+
+  it('gera PDF com a logo oficial', async () => {
+    const { LOGO_FULL_B64 } = await import('@/utils/montexLogos');
+    const semLogo = await pdfRelatorioRomaneio(dadosRelatorioRomaneio(romaneio, pecas, 'Obra Teste'));
+    const comLogo = await pdfRelatorioRomaneio(dadosRelatorioRomaneio(romaneio, pecas, 'Obra Teste'), { logo: LOGO_FULL_B64 });
+    expect(comLogo.size).toBeGreaterThan(semLogo.size + 5000);
   });
 });

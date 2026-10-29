@@ -613,7 +613,7 @@ function _addRomaneioFooter(doc, pageWidth, pageHeight, margin, romaneioNum, pag
 // RELATÓRIO FILA DE EMBARQUE — PDF
 // Lista as peças prontas para embarque (etapa=expedido) com totais por obra
 // ========================================
-export function exportFilaEmbarquePDF(pecas, obrasMap = {}, obraFiltroNome = 'Todas as obras') {
+export function exportFilaEmbarquePDF(pecas, obrasMap = {}, obraFiltroNome = 'Todas as obras', { logo } = {}) {
   try {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -624,14 +624,19 @@ export function exportFilaEmbarquePDF(pecas, obrasMap = {}, obraFiltroNome = 'To
     // ===== CABEÇALHO =====
     doc.setFillColor(15, 23, 42);
     doc.rect(0, 0, pageWidth, 28, 'F');
+    // Logo oficial (monograma claro sobre a faixa escura), quando disponível
+    let xMarca = margin;
+    if (logo) {
+      try { doc.addImage(logo, 'PNG', margin, 4.5, 18.5, 19.2); xMarca = margin + 22; } catch (_) { /* segue sem logo */ }
+    }
     doc.setTextColor(255, 255, 255);
     doc.setFontSize(18);
     doc.setFont(undefined, 'bold');
-    doc.text('GRUPO MONTEX', margin, 11);
+    doc.text('GRUPO MONTEX', xMarca, 13);
     doc.setFontSize(8);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(148, 163, 184);
-    doc.text('SOLUÇÕES EM AÇO', margin, 16);
+    doc.text('SOLUÇÕES EM AÇO', xMarca, 18);
 
     doc.setFontSize(13);
     doc.setFont(undefined, 'bold');

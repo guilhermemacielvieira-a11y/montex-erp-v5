@@ -74,8 +74,12 @@ export function nomeArquivoRomaneio(d, ext) {
   return `${base}.${ext}`;
 }
 
-/** HTML autocontido (abre em qualquer navegador e imprime em A4). */
-export function htmlRelatorioRomaneio(d) {
+/**
+ * HTML autocontido (abre em qualquer navegador e imprime em A4), com a
+ * identidade Montex: logo oficial, teal #006666, Arial, faixa de rodapé.
+ * @param {{ logo?: string }} opts  logo = data URL (LOGO_FULL_B64)
+ */
+export function htmlRelatorioRomaneio(d, { logo } = {}) {
   const e = escapeHtml;
   const linhas = d.itens.map((i, k) => `<tr>
       <td class="c">${k + 1}</td>
@@ -91,11 +95,16 @@ export function htmlRelatorioRomaneio(d) {
 <title>Romaneio ${e(d.numero)}</title>
 <style>
   @page{size:A4;margin:14mm}
-  body{font-family:Arial,Helvetica,sans-serif;color:#1f2629;margin:0;padding:20px;max-width:900px}
-  header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid #006666;padding-bottom:10px}
-  h1{margin:0;font-size:22px;color:#006666}
-  .marca{font-weight:700;letter-spacing:.04em;color:#006666}
-  .sub{color:#5b6b70;font-size:12px;margin-top:2px}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{font-family:Arial,Helvetica,sans-serif;color:#1f2629;margin:0 auto;padding:24px;max-width:900px;background:#fff}
+  header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-bottom:14px;border-bottom:3px solid #006666}
+  header img{height:54px;width:auto;display:block}
+  .marca-txt{font-size:20px;font-weight:700;letter-spacing:.12em;color:#006666}
+  .doc{text-align:right}
+  .doc .rot{font-size:11px;font-weight:700;letter-spacing:.14em;color:#006666}
+  .doc h1{margin:2px 0 6px;font-size:24px;color:#1f2629}
+  .pill{display:inline-block;padding:3px 10px;border-radius:999px;background:#e3f0f0;color:#006666;font-size:12px;font-weight:600}
+  .obra{margin:12px 0 0;font-size:15px;font-weight:600;color:#1f2629}
   .info{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 24px;margin:16px 0;padding:12px 14px;background:#f2f6f6;border-radius:8px;font-size:13px}
   .info b{color:#3d4a4e;font-weight:600}
   table{width:100%;border-collapse:collapse;font-size:12px}
@@ -107,17 +116,18 @@ export function htmlRelatorioRomaneio(d) {
   .obs{margin-top:12px;font-size:13px}
   .ass{display:grid;grid-template-columns:repeat(3,1fr);gap:28px;margin-top:56px;font-size:12px;color:#5b6b70;text-align:center}
   .ass div{border-top:1px solid #8a969b;padding-top:6px}
-  footer{margin-top:24px;font-size:11px;color:#8a969b}
+  footer{margin-top:28px;padding:10px 14px;border-radius:6px;background:#006666;color:#fff;font-size:11px;display:flex;justify-content:space-between;gap:12px}
   .acoes{margin-top:20px}.acoes button{padding:10px 18px;background:#006666;color:#fff;border:0;border-radius:6px;font-size:14px;cursor:pointer}
   @media print{.acoes{display:none}body{padding:0}}
 </style></head><body>
 <header>
-  <div><div class="marca">GRUPO MONTEX</div><h1>Romaneio de embarque ${e(d.numero)}</h1><div class="sub">${e(d.obra)}</div></div>
-  <div class="sub">Situação: <strong>${e(d.status)}</strong></div>
+  ${logo ? `<img src="${e(logo)}" alt="Montex — estruturas metálicas">` : '<div class="marca-txt">GRUPO MONTEX</div>'}
+  <div class="doc"><div class="rot">ROMANEIO DE EMBARQUE</div><h1>${e(d.numero)}</h1><span class="pill">${e(d.status)}</span></div>
 </header>
+<p class="obra">${e(d.obra)}</p>
 <section class="info">
   <div><b>Data:</b> ${e(d.data)}</div>
-  <div><b>Obra:</b> ${e(d.obra)}</div>
+  <div><b>Peso total:</b> ${e(fmtKg(d.totalKg))}</div>
   <div><b>Transportadora:</b> ${e(d.transportadora)}</div>
   <div><b>Motorista:</b> ${e(d.motorista)}</div>
   <div><b>Placa:</b> ${e(d.placa)}</div>
@@ -130,13 +140,13 @@ export function htmlRelatorioRomaneio(d) {
 <div class="tot"><span><b>${d.totalPecas}</b> marca(s)</span><span><b>${d.totalUn}</b> unidade(s)</span><span>Peso total: <b>${e(fmtKg(d.totalKg))}</b></span></div>
 ${d.observacoes ? `<p class="obs"><b>Observações:</b> ${e(d.observacoes)}</p>` : ''}
 <div class="ass"><div>Expedição (conferente)</div><div>Motorista</div><div>Recebimento na obra</div></div>
-<footer>Gerado pelo Montex ERP em ${e(d.geradoEm)}.</footer>
+<footer><span>Grupo Montex · soluções em aço</span><span>Gerado pelo Montex ERP em ${e(d.geradoEm)}</span></footer>
 <div class="acoes"><button onclick="window.print()">Imprimir / salvar em PDF</button></div>
 </body></html>`;
 }
 
-/** PDF A4 (jsPDF carregado sob demanda). Devolve um Blob. */
-export async function pdfRelatorioRomaneio(d) {
+/** PDF A4 com a identidade Montex (jsPDF sob demanda). Devolve um Blob. */
+export async function pdfRelatorioRomaneio(d, { logo } = {}) {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'mm', format: 'a4' });
   const W = 210, M = 14, TEAL = [0, 102, 102];
@@ -157,19 +167,34 @@ export async function pdfRelatorioRomaneio(d) {
     doc.setTextColor(31, 38, 41); doc.setFont('helvetica', 'normal');
   };
 
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...TEAL);
-  doc.text('GRUPO MONTEX', M, y);
-  doc.setFontSize(16); doc.text(`Romaneio de embarque ${d.numero}`, M, y + 7);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(91, 107, 112);
-  doc.text(String(d.obra), M, y + 12.5);
-  doc.text(`Situação: ${d.status}`, W - M, y + 12.5, { align: 'right' });
-  doc.setDrawColor(...TEAL); doc.setLineWidth(0.8); doc.line(M, y + 15, W - M, y + 15);
-  y += 20;
+  // Cabeçalho: logo oficial à esquerda, documento à direita, filete teal
+  let logoOk = false;
+  if (logo) {
+    try { doc.addImage(logo, 'PNG', M, 10, 62, 13.5); logoOk = true; } catch { /* logo inválido: segue com o texto */ }
+  }
+  if (!logoOk) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(15); doc.setTextColor(...TEAL);
+    doc.text('GRUPO MONTEX', M, 19);
+  }
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(...TEAL);
+  doc.text('ROMANEIO DE EMBARQUE', W - M, 12.5, { align: 'right' });
+  doc.setFontSize(15); doc.setTextColor(31, 38, 41);
+  doc.text(String(d.numero), W - M, 19, { align: 'right' });
+  doc.setFontSize(8);
+  const pill = String(d.status);
+  const pw = doc.getTextWidth(pill) + 6;
+  doc.setFillColor(227, 240, 240); doc.roundedRect(W - M - pw, 21.2, pw, 5, 2.5, 2.5, 'F');
+  doc.setTextColor(...TEAL); doc.text(pill, W - M - pw / 2, 24.6, { align: 'center' });
+  doc.setDrawColor(...TEAL); doc.setLineWidth(0.9); doc.line(M, 29, W - M, 29);
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(10.5); doc.setTextColor(31, 38, 41);
+  doc.text(doc.splitTextToSize(String(d.obra), W - 2 * M)[0], M, 35);
+  doc.setFont('helvetica', 'normal');
+  y = 39;
 
   doc.setFillColor(242, 246, 246); doc.roundedRect(M, y, W - 2 * M, 20, 2, 2, 'F');
   doc.setFontSize(9); doc.setTextColor(31, 38, 41);
   const info = [
-    [`Data: ${d.data}`, `Obra: ${d.obra}`],
+    [`Data: ${d.data}`, `Peso total: ${fmtKg(d.totalKg)}`],
     [`Transportadora: ${d.transportadora}`, `Motorista: ${d.motorista}`],
     [`Placa: ${d.placa}`, `Peças: ${d.totalPecas} marca(s) · ${d.totalUn} un`],
   ];
@@ -209,14 +234,21 @@ export async function pdfRelatorioRomaneio(d) {
   }
 
   y = Math.max(y + 18, 255);
-  if (y > 280) { doc.addPage(); y = 40; }
+  if (y > 272) { doc.addPage(); y = 40; }
   doc.setDrawColor(138, 150, 155); doc.setLineWidth(0.3); doc.setFontSize(8.5); doc.setTextColor(91, 107, 112);
   ['Expedição (conferente)', 'Motorista', 'Recebimento na obra'].forEach((t, k) => {
     const x = M + k * 62;
     doc.line(x, y, x + 54, y);
     doc.text(t, x + 27, y + 4.5, { align: 'center' });
   });
-  doc.setFontSize(7.5);
-  doc.text(`Gerado pelo Montex ERP em ${d.geradoEm}`, M, 290);
+  // Rodapé com a identidade em todas as páginas
+  const paginas = doc.getNumberOfPages();
+  for (let pg = 1; pg <= paginas; pg += 1) {
+    doc.setPage(pg);
+    doc.setFillColor(...TEAL); doc.rect(0, 287, W, 10, 'F');
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(255);
+    doc.text('Grupo Montex · soluções em aço', M, 293);
+    doc.text(`Romaneio ${d.numero} · gerado em ${d.geradoEm} · página ${pg}/${paginas}`, W - M, 293, { align: 'right' });
+  }
   return doc.output('blob');
 }

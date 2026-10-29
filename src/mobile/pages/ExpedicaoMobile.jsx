@@ -33,6 +33,7 @@ import PrevisaoCargasMobile from '../components/PrevisaoCargasMobile';
 import NovoRomaneioMobile from '../components/NovoRomaneioMobile';
 import { montarFilaEmbarque } from '@/services/romaneio';
 import { dadosRelatorioRomaneio, htmlRelatorioRomaneio, pdfRelatorioRomaneio, nomeArquivoRomaneio } from '@/services/relatorioRomaneio';
+import { abrirJanelaRelatorio, mostrarHtmlRelatorio, fecharJanelaRelatorio, carregarLogoMontex } from '@/utils/abrirRelatorio';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
@@ -168,21 +169,33 @@ export default function ExpedicaoMobile() {
 
   const gerarRelatorio = async (formato) => {
     if (!romaneio || gerando) return;
+    // HTML abre direto no navegador: a aba é aberta AGORA (no toque), antes
+    // de qualquer await, senão o navegador bloqueia a janela.
+    const janela = formato === 'html' ? abrirJanelaRelatorio() : null;
     setGerando(formato);
     try {
       const obraId = romaneio.obraId ?? romaneio.obra_id;
       const obra = obras.find((o) => String(o.id) === String(obraId));
       const dados = dadosRelatorioRomaneio(romaneio, pecasById, obra?.nome || romaneio.destino);
-      const blob = formato === 'pdf'
-        ? await pdfRelatorioRomaneio(dados)
-        : new Blob([htmlRelatorioRomaneio(dados)], { type: 'text/html;charset=utf-8' });
-      const r = await entregarArquivo(blob, nomeArquivoRomaneio(dados, formato));
+      const logo = await carregarLogoMontex();
+      let r;
+      if (formato === 'pdf') {
+        const blob = await pdfRelatorioRomaneio(dados, { logo });
+        r = await entregarArquivo(blob, nomeArquivoRomaneio(dados, 'pdf'));
+      } else {
+        r = await mostrarHtmlRelatorio(janela, htmlRelatorioRomaneio(dados, { logo }), nomeArquivoRomaneio(dados, 'html'));
+      }
       if (r !== 'cancelado') {
         success();
-        toast.success(r === 'compartilhado' ? 'Relatório pronto para enviar' : `Relatório ${formato.toUpperCase()} baixado`);
+        toast.success(
+          r === 'aberto' ? 'Relatório aberto no navegador'
+            : r === 'compartilhado' ? 'Relatório pronto para enviar'
+              : `Relatório ${formato.toUpperCase()} baixado`,
+        );
         setRelatorio(false);
       }
     } catch (err) {
+      fecharJanelaRelatorio(janela);
       console.error('[ExpedicaoMobile] relatório falhou:', err);
       toast.error(`Não foi possível gerar o relatório: ${err?.message || err}`);
     } finally {
@@ -353,7 +366,7 @@ export default function ExpedicaoMobile() {
               {gerando === 'html' ? <Loader2 className="w-6 h-6 animate-spin text-mx-tealhi" /> : <FileCode2 className="w-6 h-6 text-mx-tealhi" />}
               <span className="flex-1">
                 <span className="block font-semibold text-[15px] text-mx-text">HTML</span>
-                <span className="block text-[12px] text-mx-text2">Abre em qualquer navegador, com botão de imprimir</span>
+                <span className="block text-[12px] text-mx-text2">Abre direto no navegador, pronto para imprimir</span>
               </span>
             </button>
           </div>
