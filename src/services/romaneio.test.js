@@ -3,6 +3,7 @@ import {
   normalizarStatusRomaneio, isStatusRomaneioValido, isRomaneioDespachado,
   hojeLocalISO, escapeHtml, planejarRomaneio, calcularReservasRomaneios,
   montarPayloadCriarRomaneio, itensDoRomaneio,
+  montarFilaEmbarque, planejarSelecaoFila,
 } from './romaneio';
 
 describe('normalizarStatusRomaneio', () => {
@@ -96,5 +97,49 @@ describe('itensDoRomaneio / montarPayloadCriarRomaneio', () => {
     const p = montarPayloadCriarRomaneio({ numero: 'ENV-1', status: 'PREPARANDO', itens: [{ id: 'P1', qtd: '3' }], data: '2026-10-05' });
     expect(p).toMatchObject({ numero_romaneio: 'ENV-1', status: 'preparando', data_expedicao: '2026-10-05', pecas: [{ id: 'P1', qtd: 3 }] });
     expect(p.id).toBeUndefined();
+  });
+});
+
+describe('montarFilaEmbarque / planejarSelecaoFila', () => {
+  const pecas = [
+    { id: 'P1', marca: 'TS10A', etapa: 'expedido', quantidade: 5, peso_total: 500, obra_id: 'obra-1' },
+    { id: 'P2', marca: 'C2A', etapa: 'expedido', quantidade: 1, peso_total: 80, obra_id: 'obra-1' },
+    { id: 'P3', marca: 'VM3', etapa: 'pintura', quantidade: 2, peso_total: 40, obra_id: 'obra-1' },
+    { id: 'P4', marca: 'TC9', etapa: 'expedido', quantidade: 2, peso_total: 20, obra_id: 'obra-2' },
+    { id: 'P5', marca: 'TR1', etapa: 'expedido', quantidade: 3, peso_total: 30, obra_id: 'obra-1' },
+  ];
+  const expedicoes = [
+    { id: 'E1', status: 'preparando', pecas: [{ id: 'P1', qtd_enviada: 2, qtd_total: 5 }] },
+    { id: 'E2', status: 'preparando', pecas: [{ id: 'P5' }] }, // legado: linha inteira
+    { id: 'E3', status: 'preparando', deleted_at: '2026-10-01', pecas: [{ id: 'P2' }] }, // excluído não reserva
+  ];
+
+  it('só etapa expedido, desconta reservas e ignora romaneio excluído', () => {
+    const fila = montarFilaEmbarque(pecas, expedicoes);
+    const ids = fila.map((f) => f.id);
+    expect(ids).toEqual(expect.arrayContaining(['P1', 'P2', 'P4']));
+    expect(ids).not.toContain('P3'); // pintura: fora do fluxo
+    expect(ids).not.toContain('P5'); // inteira reservada
+    const p1 = fila.find((f) => f.id === 'P1');
+    expect(p1.disponivel).toBe(3);
+    expect(p1.pesoDisponivel).toBeCloseTo(300);
+  });
+
+  it('remessa parcial respeita o saldo e soma o peso', () => {
+    const fila = montarFilaEmbarque(pecas, expedicoes);
+    const ok = planejarSelecaoFila(fila, { P1: 2, P2: 1 });
+    expect(ok.ok).toBe(true);
+    expect(ok.parciais).toBe(1);
+    expect(ok.pesoKg).toBeCloseTo(280);
+    const maior = planejarSelecaoFila(fila, { P1: 4 });
+    expect(maior.ok).toBe(false);
+    expect(maior.erro).toMatch(/maior que a disponível/);
+  });
+
+  it('bloqueia mistura de obras', () => {
+    const fila = montarFilaEmbarque(pecas, expedicoes);
+    const r = planejarSelecaoFila(fila, { P2: 1, P4: 1 });
+    expect(r.ok).toBe(false);
+    expect(r.erro).toMatch(/misturar obras/);
   });
 });
