@@ -37,6 +37,8 @@ const Aprovacoes = lazy(() => import('./telas/Aprovacoes'));
 const Alertas = lazy(() => import('./telas/Alertas'));
 const Comercial = lazy(() => import('./telas/Comercial'));
 const Perfil = lazy(() => import('./telas/Perfil'));
+const PainelProducao = lazy(() => import('./telas/paineis/PainelProducao'));
+const PainelFinanceiro = lazy(() => import('./telas/paineis/PainelFinanceiro'));
 
 // Telas de campo que seguem no app (reaproveitadas com o cabeçalho novo)
 const EstoqueMobile = lazy(() => import('./pages/EstoqueMobile'));
@@ -140,6 +142,8 @@ function MobileRoutes() {
       <Route path="alertas" element={<Alertas />} />
       <Route path="comercial" element={<Protected perm={P['/m/comercial']}><Comercial /></Protected>} />
       <Route path="perfil" element={<Perfil />} />
+      <Route path="painel/producao" element={<Protected perm={P['/m/painel/producao']}><PainelProducao /></Protected>} />
+      <Route path="painel/financeiro" element={<Protected perm={P['/m/painel/financeiro']}><PainelFinanceiro /></Protected>} />
 
       {/* Campo / operação (telas existentes com o cabeçalho novo) */}
       <Route path="estoque" element={<Protected perm={P['/m/estoque']}><EstoqueMobile /></Protected>} />

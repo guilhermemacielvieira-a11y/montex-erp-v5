@@ -11,7 +11,8 @@
 // Somente leitura.
 // ============================================================
 import React, { useCallback, useMemo } from 'react';
-import { Inbox, Bell, ShieldAlert, Gauge, Hourglass, Layers, ScanLine, Hammer, Truck, ClipboardList, Ruler, Package } from 'lucide-react';
+import { Inbox, Bell, ShieldAlert, Gauge, Hourglass, Layers, ScanLine, Hammer, Truck, ClipboardList, Ruler, Package, BarChart3, LineChart, ChevronRight } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useBIData } from '@/hooks/useBIData';
@@ -184,6 +185,26 @@ function InicioDiretoria() {
       <div className={precisa.length ? 'mt-6' : 'mt-4'}>
         <Regua analise={carregandoBI ? null : analise} />
       </div>
+
+      {/* b2) Painéis completos */}
+      {(pode('producao.view') || verFinanceiro) && (
+        <div className={pode('producao.view') && verFinanceiro ? 'mt-3 grid grid-cols-2 gap-2.5' : 'mt-3'}>
+          {pode('producao.view') && (
+            <Link to="/m/painel/producao" className="flex items-center gap-2.5 rounded-[14px] border border-mx-line/60 bg-mx-s1 p-3 active:bg-mx-s2">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-mx-teal/20 text-mx-tealhi"><BarChart3 className="h-[18px] w-[18px]" aria-hidden /></span>
+              <span className="min-w-0 flex-1"><span className="block text-[14px] font-semibold text-mx-text">Painel de produção</span><span className="block truncate text-[12px] text-mx-text3">setores, fluxo, obras</span></span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-mx-text3" aria-hidden />
+            </Link>
+          )}
+          {verFinanceiro && (
+            <Link to="/m/painel/financeiro" className="flex items-center gap-2.5 rounded-[14px] border border-mx-line/60 bg-mx-s1 p-3 active:bg-mx-s2">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-mx-teal/20 text-mx-tealhi"><LineChart className="h-[18px] w-[18px]" aria-hidden /></span>
+              <span className="min-w-0 flex-1"><span className="block text-[14px] font-semibold text-mx-text">Painel financeiro</span><span className="block truncate text-[12px] text-mx-text3">caixa, resultado, contas</span></span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-mx-text3" aria-hidden />
+            </Link>
+          )}
+        </div>
+      )}
 
       {/* c) Métricas */}
       <div className="mt-3">
