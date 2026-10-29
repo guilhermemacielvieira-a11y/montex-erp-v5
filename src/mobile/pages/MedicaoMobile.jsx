@@ -29,8 +29,8 @@ const fmtKg = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionD
 // Status reais do banco: recebida = 'paga' (feminino — ver ../dados). Sem a
 // chave, a medição recebida caía no estilo de 'pendente' (âmbar).
 const STATUS = {
-  pendente: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  aguardando: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  pendente: 'bg-mx-teal/15 text-mx-tealhi border-mx-teal/30',
+  aguardando: 'bg-mx-teal/15 text-mx-tealhi border-mx-teal/30',
   aprovada: 'bg-blue-500/15 text-blue-300 border-blue-500/30',
   pago: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
   paga: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
@@ -167,13 +167,13 @@ export default function MedicaoMobile() {
   return (
     <MobileLayout title="Medição" obraFilter>
       <div className="px-4 pt-3 pb-2">
-        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">{lista.length} medição(ões)</div>
+        <div className="text-[11px] text-mx-text2 uppercase tracking-wider font-semibold">{lista.length} medição(ões)</div>
       </div>
 
       {/* Lista */}
       <div className="px-4 space-y-2">
         {lista.length === 0 && (
-          <div className="text-center py-12 text-slate-400">
+          <div className="text-center py-12 text-mx-text2">
             <Ruler className="w-10 h-10 mx-auto mb-2 opacity-40" />
             <div className="text-sm">Nenhuma medição{!isTodas ? ' para esta obra' : ''}</div>
           </div>
@@ -182,14 +182,14 @@ export default function MedicaoMobile() {
           const st = String(m.status || 'pendente').toLowerCase();
           const pendente = st === 'pendente' || st === 'aguardando';
           return (
-            <div key={m.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3.5 flex items-center gap-3">
-              <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center"><Ruler className="w-5 h-5 text-amber-400" /></div>
+            <div key={m.id} className="rounded-2xl border border-mx-line bg-mx-s1 p-3.5 flex items-center gap-3">
+              <div className="w-11 h-11 rounded-xl bg-mx-s2 flex items-center justify-center"><Ruler className="w-5 h-5 text-mx-tealhi" /></div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm truncate">{m.numero || m.descricao || m.id}</span>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${STATUS[st] || STATUS.pendente}`}>{st}</span>
                 </div>
-                <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                <div className="text-[11px] text-mx-text2 truncate mt-0.5">
                   {m.pesoMedido ? fmtKg(m.pesoMedido) + ' · ' : ''}{m.dataMedicao || m.data || ''}
                 </div>
               </div>
@@ -215,7 +215,7 @@ export default function MedicaoMobile() {
       {podeLancar && (
         <button
           onClick={abrirForm}
-          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
         >
           <Plus className="w-5 h-5" /> Nova medição
@@ -231,7 +231,7 @@ export default function MedicaoMobile() {
           <button
             onClick={registrar}
             disabled={saving}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm active:scale-[.99] transition disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500 text-mx-bg font-black text-sm active:scale-[.99] transition disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
             {saving ? 'Lançando…' : `Lançar medição · ${fmtMoney(valorTotal)}`}
@@ -243,10 +243,10 @@ export default function MedicaoMobile() {
           <div>
             <Label>Obra</Label>
             <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-mx-text2 pointer-events-none" />
               <select
                 value={obraId} onChange={e => aplicarObra(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50"
               >
                 <option value="">Selecione a obra…</option>
                 {obrasOrdenadas.map(o => <option key={o.id} value={o.id}>{o.nome || o.codigo || o.id}</option>)}
@@ -259,12 +259,12 @@ export default function MedicaoMobile() {
             <div>
               <Label>Peso medido (kg)</Label>
               <input type="number" inputMode="decimal" value={peso} onChange={e => setPeso(e.target.value)} placeholder="0"
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-amber-500/50" />
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-mx-teal/50" />
             </div>
             <div>
               <Label>Valor / kg (R$)</Label>
               <input type="number" inputMode="decimal" value={valorKg} onChange={e => setValorKg(e.target.value)} placeholder="0,00"
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-amber-500/50" />
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-mx-teal/50" />
             </div>
           </div>
 
@@ -278,29 +278,29 @@ export default function MedicaoMobile() {
           <div>
             <Label>Responsável (opcional)</Label>
             <input value={responsavel} onChange={e => setResponsavel(e.target.value)} placeholder="Nome"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50" />
+              className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50" />
           </div>
 
           {/* Observações */}
           <div>
             <Label>Observações (opcional)</Label>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} placeholder="Notas da medição"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50 resize-none" />
+              className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-mx-teal/50 resize-none" />
           </div>
 
           {/* Foto de evidência */}
           <div>
             <Label>Evidência fotográfica (opcional)</Label>
             {foto ? (
-              <div className="relative rounded-xl overflow-hidden border border-slate-700">
+              <div className="relative rounded-xl overflow-hidden border border-mx-line">
                 <img src={foto.url} alt="evidência" className="w-full h-40 object-cover" />
                 <button onClick={() => setFoto(null)} aria-label="Remover foto" className="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-lg bg-black/60 active:bg-black/80">
                   <X className="w-5 h-5 text-white" />
                 </button>
               </div>
             ) : (
-              <label className="flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-800 border border-dashed border-slate-600 text-sm text-slate-300 active:bg-slate-700 cursor-pointer">
-                <Camera className="w-5 h-5 text-amber-400" /> Tirar foto / anexar
+              <label className="flex items-center justify-center gap-2 py-3 rounded-xl bg-mx-s2 border border-dashed border-mx-line text-sm text-mx-text2 active:bg-mx-s3 cursor-pointer">
+                <Camera className="w-5 h-5 text-mx-tealhi" /> Tirar foto / anexar
                 <input type="file" accept="image/*" capture="environment" onChange={escolherFoto} className="hidden" />
               </label>
             )}
@@ -312,5 +312,5 @@ export default function MedicaoMobile() {
 }
 
 function Label({ children }) {
-  return <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">{children}</div>;
+  return <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">{children}</div>;
 }

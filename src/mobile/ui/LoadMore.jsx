@@ -14,7 +14,7 @@ export default function LoadMore({ total, shown, onMore }) {
   return (
     <button
       onClick={onMore}
-      className="w-full mt-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-slate-800 border border-slate-700 text-sm font-semibold text-slate-300 active:scale-[.99] transition"
+      className="w-full mt-1 flex items-center justify-center gap-2 py-3 rounded-2xl bg-mx-s2 border border-mx-line text-sm font-semibold text-mx-text2 active:scale-[.99] transition"
     >
       <ChevronDown className="w-4 h-4" /> Carregar mais ({restante.toLocaleString('pt-BR')} restante{restante !== 1 ? 's' : ''})
     </button>

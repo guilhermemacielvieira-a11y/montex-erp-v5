@@ -24,19 +24,19 @@ export default function PrevisaoCargasMobile({ pecas = [], expedicoes = [], obra
   if (!unica && !todas) return null;
 
   return (
-    <div className="mx-4 mt-3 bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden">
+    <div className="mx-4 mt-3 bg-mx-s1 border border-mx-line rounded-2xl overflow-hidden">
       <button onClick={() => setAberto((a) => !a)} className="w-full flex items-center justify-between p-3.5 text-left">
         <div className="flex items-center gap-2">
           <div className="w-9 h-9 rounded-xl bg-blue-500/15 border border-blue-500/30 flex items-center justify-center"><Truck className="w-4 h-4 text-blue-300" /></div>
           <div>
             <div className="text-sm font-bold">Cargas restantes (carreta)</div>
-            <div className="text-[10px] text-slate-400">peças × carreta {fmtNum(PARAMS_CARGA_PADRAO.pesoMax / 1000)} t · {PARAMS_CARGA_PADRAO.alturaMax.toLocaleString('pt-BR')} m · calibrado pelos romaneios</div>
+            <div className="text-[10px] text-mx-text2">peças × carreta {fmtNum(PARAMS_CARGA_PADRAO.pesoMax / 1000)} t · {PARAMS_CARGA_PADRAO.alturaMax.toLocaleString('pt-BR')} m · calibrado pelos romaneios</div>
           </div>
         </div>
         <div className="flex items-center gap-2">
           {unica && !unica.concluida && <span className="text-xl font-black text-blue-300">≈ {fmtNum(unica.volume.cargasCalibradas)}</span>}
           {todas && <span className="text-xl font-black text-blue-300">≈ {fmtNum(todas.totais.cargasVolume)}</span>}
-          <ChevronDown className={`w-4 h-4 text-slate-500 transition ${aberto ? '' : '-rotate-90'}`} />
+          <ChevronDown className={`w-4 h-4 text-mx-text3 transition ${aberto ? '' : '-rotate-90'}`} />
         </div>
       </button>
 
@@ -54,7 +54,7 @@ export default function PrevisaoCargasMobile({ pecas = [], expedicoes = [], obra
             {unica.volume.restante.classes.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {unica.volume.restante.classes.slice(0, 5).map((c) => (
-                  <span key={c.classe} className={`text-[10px] border rounded-lg px-2 py-1 ${VOLUMOSA.has(c.classe) ? 'bg-amber-500/10 border-amber-500/30 text-amber-200' : 'bg-slate-800 border-slate-700 text-slate-300'}`}>
+                  <span key={c.classe} className={`text-[10px] border rounded-lg px-2 py-1 ${VOLUMOSA.has(c.classe) ? 'bg-mx-teal/10 border-mx-teal/30 text-mx-tealhi' : 'bg-mx-s2 border-mx-line text-mx-text2'}`}>
                     {LABEL_CLASSE[c.classe] || c.classe} {fmtPeso(c.peso)} → {c.fracao.toLocaleString('pt-BR')} carreta(s)
                   </span>
                 ))}
@@ -64,50 +64,50 @@ export default function PrevisaoCargasMobile({ pecas = [], expedicoes = [], obra
               <div className="text-[11px] text-violet-300 mt-2">Previsão de término ≈ <b>{fmtData(unica.previsaoTermino)}</b> ({fmtNum(unica.diasRestantes)} dias, última carga {fmtData(unica.historico.ultimaData)})</div>
             )}
             {unica.restante.naoCadastrado > 0 && (
-              <div className="text-[10px] text-amber-300 mt-1">Contrato tem {fmtPeso(unica.restante.naoCadastrado)} sem peças cadastradas → pelo contrato ≈ {fmtNum(unica.cargasContrato)} cargas.</div>
+              <div className="text-[10px] text-mx-tealhi mt-1">Contrato tem {fmtPeso(unica.restante.naoCadastrado)} sem peças cadastradas → pelo contrato ≈ {fmtNum(unica.cargasContrato)} cargas.</div>
             )}
-            <div className="h-1.5 rounded-full bg-slate-800 overflow-hidden mt-2 flex">
+            <div className="h-1.5 rounded-full bg-mx-s2 overflow-hidden mt-2 flex">
               <div className="h-full bg-emerald-500" style={{ width: `${unica.restante.pesoCadastrado ? (unica.restante.enviado / unica.restante.pesoCadastrado) * 100 : 0}%` }} />
               <div className="h-full bg-orange-500" style={{ width: `${unica.restante.pesoCadastrado ? (unica.restante.fila / unica.restante.pesoCadastrado) * 100 : 0}%` }} />
               <div className="h-full bg-blue-500" style={{ width: `${unica.restante.pesoCadastrado ? (unica.restante.emFabrica / unica.restante.pesoCadastrado) * 100 : 0}%` }} />
             </div>
-            <div className="text-[10px] text-slate-500 mt-1">{fmtNum(unica.restante.pctEnviado)}% enviado · {fmtNum(unica.historico.n)} romaneio(s) · média geral {fmtPeso(unica.historico.mediaGeral)}</div>
+            <div className="text-[10px] text-mx-text3 mt-1">{fmtNum(unica.restante.pctEnviado)}% enviado · {fmtNum(unica.historico.n)} romaneio(s) · média geral {fmtPeso(unica.historico.mediaGeral)}</div>
           </div>
         )
       )}
 
       {aberto && todas && (
         <div className="px-3.5 pb-3.5 space-y-1.5">
-          {todas.ativas.length === 0 && <div className="text-[12px] text-slate-400">Nenhuma obra com carga pendente.</div>}
+          {todas.ativas.length === 0 && <div className="text-[12px] text-mx-text2">Nenhuma obra com carga pendente.</div>}
           {todas.ativas.slice(0, 8).map((l) => (
             <button
               key={l.obraId}
               onClick={() => onSelectObra?.(l.obraId)}
-              className="w-full flex items-center gap-2 text-left bg-slate-800/60 rounded-xl px-3 py-2 active:scale-[.99] transition"
+              className="w-full flex items-center gap-2 text-left bg-mx-s2/60 rounded-xl px-3 py-2 active:scale-[.99] transition"
             >
               <div className="flex-1 min-w-0">
                 <div className="text-[12px] font-semibold truncate">{l.obra?.nome || l.obraId}</div>
-                <div className="text-[10px] text-slate-400 truncate">
+                <div className="text-[10px] text-mx-text2 truncate">
                   {fmtPeso(l.restante.restante)} a enviar · {l.volume.restante.carretas.toLocaleString('pt-BR')} carretas ({l.volume.restante.gargalo || '—'}){l.volume.nHist ? ` · ${fmtNum(l.volume.ocupacaoMediaHist * 100)}% cheias` : ''}{l.previsaoTermino ? ` · ~${fmtData(l.previsaoTermino)}` : ''}
                 </div>
               </div>
               <div className="text-base font-black text-blue-300">≈ {fmtNum(l.volume.cargasCalibradas)}</div>
-              <ChevronRight className="w-4 h-4 text-slate-500" />
+              <ChevronRight className="w-4 h-4 text-mx-text3" />
             </button>
           ))}
-          <div className="text-[10px] text-slate-500">{fmtPeso(todas.totais.restante)} a transportar em {fmtNum(todas.ativas.length)} obra(s) · toque para filtrar</div>
+          <div className="text-[10px] text-mx-text3">{fmtPeso(todas.totais.restante)} a transportar em {fmtNum(todas.ativas.length)} obra(s) · toque para filtrar</div>
         </div>
       )}
     </div>
   );
 }
 
-function Mini({ label, value, sub, tone = 'text-slate-100' }) {
+function Mini({ label, value, sub, tone = 'text-mx-text' }) {
   return (
-    <div className="bg-slate-800/60 rounded-xl px-2.5 py-2">
-      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
+    <div className="bg-mx-s2/60 rounded-xl px-2.5 py-2">
+      <div className="text-[9px] uppercase tracking-wider text-mx-text2 font-semibold">{label}</div>
       <div className={`text-[13px] font-black ${tone}`}>{value}</div>
-      {sub && <div className="text-[9px] text-slate-500 truncate">{sub}</div>}
+      {sub && <div className="text-[9px] text-mx-text3 truncate">{sub}</div>}
     </div>
   );
 }

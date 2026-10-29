@@ -15,9 +15,9 @@ export default function PhotoInput({ foto, onChange, label = 'EvidÃªncia fotogrÃ
   };
   return (
     <div>
-      {label && <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">{label}</div>}
+      {label && <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">{label}</div>}
       {foto ? (
-        <div className="relative rounded-xl overflow-hidden border border-slate-700">
+        <div className="relative rounded-xl overflow-hidden border border-mx-line">
           <img src={foto.url} alt="evidÃªncia" className="w-full h-40 object-cover" />
           <button
             onClick={() => onChange?.(null)}
@@ -28,8 +28,8 @@ export default function PhotoInput({ foto, onChange, label = 'EvidÃªncia fotogrÃ
           </button>
         </div>
       ) : (
-        <label className="flex items-center justify-center gap-2 py-3 rounded-xl bg-slate-800 border border-dashed border-slate-600 text-sm text-slate-300 active:bg-slate-700 cursor-pointer">
-          <Camera className="w-5 h-5 text-amber-400" /> Tirar foto / anexar
+        <label className="flex items-center justify-center gap-2 py-3 rounded-xl bg-mx-s2 border border-dashed border-mx-line text-sm text-mx-text2 active:bg-mx-s3 cursor-pointer">
+          <Camera className="w-5 h-5 text-mx-tealhi" /> Tirar foto / anexar
           <input type="file" accept="image/*" capture="environment" onChange={escolher} className="hidden" />
         </label>
       )}

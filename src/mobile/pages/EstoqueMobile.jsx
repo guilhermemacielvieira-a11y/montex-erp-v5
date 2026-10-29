@@ -41,11 +41,11 @@ const fmt = (n) => (Number(n) || 0).toLocaleString('pt-BR', { maximumFractionDig
 // Barra: cor da saúde. "Alerta" = zerado/crítico/baixo (mesmo critério do KPI
 // "Alertas" da página desktop).
 const ALERTA = new Set(['zerado', 'critico', 'baixo']);
-const BAR = { zerado: 'bg-slate-500', critico: 'bg-red-500', baixo: 'bg-amber-500', atencao: 'bg-yellow-500', excesso: 'bg-blue-500', saudavel: 'bg-emerald-500', entregue: 'bg-green-500', sem_minimo: 'bg-slate-600' };
+const BAR = { zerado: 'bg-mx-text3', critico: 'bg-red-500', baixo: 'bg-mx-teal', atencao: 'bg-yellow-500', excesso: 'bg-blue-500', saudavel: 'bg-emerald-500', entregue: 'bg-green-500', sem_minimo: 'bg-mx-s3' };
 function nivel(item) {
   const key = saudeItem(item);
   const s = SAUDE[key] || SAUDE.sem_minimo;
-  return { key, label: s.label, cls: s.badge, bar: BAR[key] || 'bg-slate-600', alerta: ALERTA.has(key) };
+  return { key, label: s.label, cls: s.badge, bar: BAR[key] || 'bg-mx-s3', alerta: ALERTA.has(key) };
 }
 
 export default function EstoqueMobile() {
@@ -156,11 +156,11 @@ export default function EstoqueMobile() {
   return (
     <MobileLayout title="Estoque" obraFilter>
       {/* Busca + filtro */}
-      <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2 sticky top-0 z-20">
+      <div className="bg-mx-bg/95 backdrop-blur-md border-b border-mx-line px-4 py-3 space-y-2 sticky top-0 z-20">
         <SearchBar value={q} onChange={setQ} placeholder="Buscar material, perfil, código..." />
         <button
           onClick={() => setSoAlertas(s => !s)}
-          className={`w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition border ${soAlertas ? 'bg-amber-500 text-slate-950 border-amber-500' : 'bg-slate-900 border-slate-800 text-slate-400'}`}
+          className={`w-full flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-bold transition border ${soAlertas ? 'bg-mx-teal text-white border-mx-teal' : 'bg-mx-s1 border-mx-line text-mx-text2'}`}
         >
           <AlertTriangle className="w-4 h-4" /> {soAlertas ? 'Mostrando alertas' : `Só alertas (${nAlertas})`}
         </button>
@@ -170,23 +170,23 @@ export default function EstoqueMobile() {
       <div className="px-4 pt-3 grid grid-cols-3 gap-2">
         <Kpi label="Itens" value={fmtNum(kpis.nItens)} sub={`${fmtNum(kpis.alertas)} alerta(s)`} />
         <Kpi label="Peso em estoque" value={fmtPeso(kpis.pesoTotal)} sub={isTodas ? 'todas as obras' : 'escopo da obra'} />
-        <Kpi label="Valor" value={'R$ ' + fmtNum(kpis.valorTotal)} sub={kpis.semPreco ? `${fmtNum(kpis.semPreco)} sem preço` : 'itens c/ preço'} tone="text-amber-300" />
+        <Kpi label="Valor" value={'R$ ' + fmtNum(kpis.valorTotal)} sub={kpis.semPreco ? `${fmtNum(kpis.semPreco)} sem preço` : 'itens c/ preço'} tone="text-mx-tealhi" />
       </div>
       {!isTodas && kpis.itensComNecessidade > 0 && (
-        <div className="mx-4 mt-2 bg-slate-900 border border-slate-800 rounded-2xl p-3">
+        <div className="mx-4 mt-2 bg-mx-s1 border border-mx-line rounded-2xl p-3">
           <div className="flex items-center justify-between text-[11px]">
-            <span className="uppercase tracking-wider text-slate-400 font-semibold flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Material da obra (necessário × chegou)</span>
-            <span className="font-black text-slate-100">{kpis.coberturaPct != null ? fmtNum(kpis.coberturaPct, 0) : 0}%</span>
+            <span className="uppercase tracking-wider text-mx-text2 font-semibold flex items-center gap-1.5"><Truck className="w-3.5 h-3.5" /> Material da obra (necessário × chegou)</span>
+            <span className="font-black text-mx-text">{kpis.coberturaPct != null ? fmtNum(kpis.coberturaPct, 0) : 0}%</span>
           </div>
-          <div className="h-2 rounded-full bg-slate-800 overflow-hidden mt-2">
+          <div className="h-2 rounded-full bg-mx-s2 overflow-hidden mt-2">
             <div className="h-full bg-emerald-500" style={{ width: `${Math.min(100, kpis.coberturaPct || 0)}%` }} />
           </div>
           <div className="grid grid-cols-3 gap-2 mt-2 text-center">
             <MiniStat label="Necessário" value={fmtPeso(kpis.totalNecessario)} />
             <MiniStat label="Já chegou" value={fmtPeso(kpis.totalChegou)} tone="text-emerald-300" />
-            <MiniStat label="Falta" value={fmtPeso(kpis.totalFalta)} tone={kpis.totalFalta > 0 ? 'text-red-300' : 'text-slate-300'} sub={`${fmtNum(kpis.itensComFalta)} item(ns)`} />
+            <MiniStat label="Falta" value={fmtPeso(kpis.totalFalta)} tone={kpis.totalFalta > 0 ? 'text-red-300' : 'text-mx-text2'} sub={`${fmtNum(kpis.itensComFalta)} item(ns)`} />
           </div>
-          {kpis.totalExcedente > 0 && <div className="text-[10px] text-slate-500 mt-1.5">Excedente (acima do necessário): {fmtPeso(kpis.totalExcedente)}</div>}
+          {kpis.totalExcedente > 0 && <div className="text-[10px] text-mx-text3 mt-1.5">Excedente (acima do necessário): {fmtPeso(kpis.totalExcedente)}</div>}
         </div>
       )}
 
@@ -213,26 +213,26 @@ export default function EstoqueMobile() {
             <button
               key={item.id}
               onClick={() => abrir(item)}
-              className="w-full text-left rounded-2xl border border-slate-800 bg-slate-900 p-3 active:scale-[.99] transition"
+              className="w-full text-left rounded-2xl border border-mx-line bg-mx-s1 p-3 active:scale-[.99] transition"
             >
               <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center"><Package className="w-5 h-5 text-amber-400" /></div>
+                <div className="w-11 h-11 rounded-xl bg-mx-s2 flex items-center justify-center"><Package className="w-5 h-5 text-mx-tealhi" /></div>
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm truncate">{item.descricao || item.codigo || item.id}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{item.categoria || item.tipo || '—'}{item.codigo ? ` · ${item.codigo}` : ''}</div>
+                  <div className="text-[11px] text-mx-text2 truncate">{item.categoria || item.tipo || '—'}{item.codigo ? ` · ${item.codigo}` : ''}</div>
                   {nec > 0 && (
-                    <div className="text-[10px] text-slate-500 truncate">
+                    <div className="text-[10px] text-mx-text3 truncate">
                       nec. {fmtPeso(nec)} · chegou {fmtPeso(chegouItem(item))}{faltaItem(item) > 0 ? <span className="text-red-300"> · falta {fmtPeso(faltaItem(item))}</span> : <span className="text-emerald-300"> · completo</span>}
                     </div>
                   )}
                 </div>
                 <div className="text-right flex-shrink-0">
-                  <div className="text-sm font-black">{fmt(item.quantidade)}<span className="text-[10px] text-slate-400 ml-0.5">{item.unidade || ''}</span></div>
+                  <div className="text-sm font-black">{fmt(item.quantidade)}<span className="text-[10px] text-mx-text2 ml-0.5">{item.unidade || ''}</span></div>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${nvl.cls}`}>{nvl.label}</span>
                 </div>
-                <ChevronRight className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                <ChevronRight className="w-4 h-4 text-mx-text3 flex-shrink-0" />
               </div>
-              <div className="h-1 bg-slate-800 rounded-full overflow-hidden mt-2.5">
+              <div className="h-1 bg-mx-s2 rounded-full overflow-hidden mt-2.5">
                 <div className={`h-full ${nvl.bar} transition-all duration-300`} style={{ width: pct + '%' }} />
               </div>
             </button>
@@ -244,7 +244,7 @@ export default function EstoqueMobile() {
       {/* FAB Escanear material */}
       <button
         onClick={() => { tap('light'); setScanOpen(true); }}
-        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
         style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
       >
         <ScanLine className="w-5 h-5" /> Escanear
@@ -262,7 +262,7 @@ export default function EstoqueMobile() {
             <button
               onClick={registrar}
               disabled={saving || qtd <= 0}
-              className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-50 ${modo === 'saida' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-slate-950'}`}
+              className={`w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-50 ${modo === 'saida' ? 'bg-red-500 text-white' : 'bg-emerald-500 text-mx-bg'}`}
             >
               {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : (modo === 'saida' ? <ArrowUpFromLine className="w-5 h-5" /> : <ArrowDownToLine className="w-5 h-5" />)}
               {saving ? 'Registrando…' : `Registrar ${modo === 'saida' ? 'saída' : 'entrada'}`}
@@ -273,12 +273,12 @@ export default function EstoqueMobile() {
         {itemSel && (
           <div className="space-y-4">
             {/* Saldo atual */}
-            <div className="flex items-center justify-between bg-slate-800/60 rounded-xl p-3">
+            <div className="flex items-center justify-between bg-mx-s2/60 rounded-xl p-3">
               <div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">Saldo atual</div>
-                <div className="text-xl font-black mt-0.5">{fmt(itemSel.quantidade)} <span className="text-xs text-slate-400">{itemSel.unidade || ''}</span></div>
+                <div className="text-[10px] uppercase tracking-wider text-mx-text2 font-semibold">Saldo atual</div>
+                <div className="text-xl font-black mt-0.5">{fmt(itemSel.quantidade)} <span className="text-xs text-mx-text2">{itemSel.unidade || ''}</span></div>
               </div>
-              <div className="text-right text-[11px] text-slate-400">
+              <div className="text-right text-[11px] text-mx-text2">
                 <div>Mín: {fmt(itemSel.minimo)}</div>
                 <div>Reserv: {fmt(itemSel.reservado)}</div>
                 <span className={`inline-block mt-1 text-[9px] font-bold px-2 py-0.5 rounded-full border ${nv.cls}`}>{nv.label}</span>
@@ -289,30 +289,30 @@ export default function EstoqueMobile() {
             <div className="flex gap-2">
               <button
                 onClick={() => setModo('entrada')}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition ${modo === 'entrada' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition ${modo === 'entrada' ? 'bg-emerald-500 text-mx-bg' : 'bg-mx-s2 text-mx-text2'}`}
               ><ArrowDownToLine className="w-4 h-4" /> Entrada</button>
               <button
                 onClick={() => setModo('saida')}
-                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition ${modo === 'saida' ? 'bg-red-500 text-white' : 'bg-slate-800 text-slate-400'}`}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition ${modo === 'saida' ? 'bg-red-500 text-white' : 'bg-mx-s2 text-mx-text2'}`}
               ><ArrowUpFromLine className="w-4 h-4" /> Saída</button>
             </div>
 
             {/* Stepper de quantidade */}
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Quantidade ({itemSel.unidade || 'un'})</div>
+              <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">Quantidade ({itemSel.unidade || 'un'})</div>
               <div className="flex items-center gap-2">
-                <button onClick={() => setQtdSafe(qtd - 1)} className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center active:scale-95"><Minus className="w-5 h-5" /></button>
+                <button onClick={() => setQtdSafe(qtd - 1)} className="w-12 h-12 rounded-xl bg-mx-s2 flex items-center justify-center active:scale-95"><Minus className="w-5 h-5" /></button>
                 <input
                   type="number" inputMode="decimal" value={qtd}
                   onChange={e => setQtdSafe(e.target.value)}
-                  className="flex-1 text-center bg-slate-800 border border-slate-700 rounded-xl py-3 text-lg font-black focus:outline-none focus:border-amber-500/50"
+                  className="flex-1 text-center bg-mx-s2 border border-mx-line rounded-xl py-3 text-lg font-black focus:outline-none focus:border-mx-teal/50"
                 />
-                <button onClick={() => setQtdSafe(qtd + 1)} className="w-12 h-12 rounded-xl bg-slate-800 flex items-center justify-center active:scale-95"><Plus className="w-5 h-5" /></button>
+                <button onClick={() => setQtdSafe(qtd + 1)} className="w-12 h-12 rounded-xl bg-mx-s2 flex items-center justify-center active:scale-95"><Plus className="w-5 h-5" /></button>
               </div>
             </div>
 
             {/* Novo saldo previsto */}
-            <div className={`rounded-xl px-3 py-2.5 text-sm font-semibold flex items-center justify-between ${novoSaldo < 0 ? 'bg-red-500/10 text-red-300' : 'bg-slate-800/60 text-slate-200'}`}>
+            <div className={`rounded-xl px-3 py-2.5 text-sm font-semibold flex items-center justify-between ${novoSaldo < 0 ? 'bg-red-500/10 text-red-300' : 'bg-mx-s2/60 text-mx-text'}`}>
               <span>Novo saldo</span>
               <span className="font-black">{fmt(novoSaldo)} {itemSel.unidade || ''}</span>
             </div>
@@ -323,22 +323,22 @@ export default function EstoqueMobile() {
   );
 }
 
-function Kpi({ label, value, sub, tone = 'text-slate-100' }) {
+function Kpi({ label, value, sub, tone = 'text-mx-text' }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-2.5">
-      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
+    <div className="bg-mx-s1 border border-mx-line rounded-2xl p-2.5">
+      <div className="text-[9px] uppercase tracking-wider text-mx-text2 font-semibold">{label}</div>
       <div className={`text-[13px] font-black mt-0.5 truncate ${tone}`}>{value}</div>
-      {sub && <div className="text-[9px] text-slate-500 truncate">{sub}</div>}
+      {sub && <div className="text-[9px] text-mx-text3 truncate">{sub}</div>}
     </div>
   );
 }
 
-function MiniStat({ label, value, sub, tone = 'text-slate-200' }) {
+function MiniStat({ label, value, sub, tone = 'text-mx-text' }) {
   return (
-    <div className="bg-slate-800/50 rounded-lg py-1.5 px-1">
-      <div className="text-[8px] uppercase tracking-wide text-slate-500">{label}</div>
+    <div className="bg-mx-s2/50 rounded-lg py-1.5 px-1">
+      <div className="text-[8px] uppercase tracking-wide text-mx-text3">{label}</div>
       <div className={`text-[11px] font-bold truncate ${tone}`}>{value}</div>
-      {sub && <div className="text-[8px] text-slate-500">{sub}</div>}
+      {sub && <div className="text-[8px] text-mx-text3">{sub}</div>}
     </div>
   );
 }

@@ -208,22 +208,22 @@ export default function MontagemMobile() {
         <span className="text-[10px] font-bold text-teal-400 border border-teal-500/40 rounded px-1.5 py-0.5">QR</span>
       </Link>
       {/* Tabs + busca */}
-      <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 space-y-2">
+      <div className="bg-mx-bg/95 backdrop-blur-md border-b border-mx-line px-4 py-3 space-y-2">
         <div className="flex gap-2">
           <button
             onClick={() => setTab('aguardando')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab === 'aguardando' ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 border border-slate-800 text-slate-400'}`}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab === 'aguardando' ? 'bg-mx-teal text-white' : 'bg-mx-s1 border border-mx-line text-mx-text2'}`}
           >Aguardando ({aguardando.length})</button>
           <button
             onClick={() => setTab('montadas')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab === 'montadas' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-900 border border-slate-800 text-slate-400'}`}
+            className={`flex-1 py-2 rounded-xl text-xs font-bold transition ${tab === 'montadas' ? 'bg-emerald-500 text-mx-bg' : 'bg-mx-s1 border border-mx-line text-mx-text2'}`}
           >Montadas ({montadas.length})</button>
         </div>
         <SearchBar value={q} onChange={setQ} placeholder="Buscar marca..." />
         {tab === 'montadas' && montadas.length > 0 && (
           <button
             onClick={exportarMontadas}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs font-bold text-amber-400 active:scale-[.99] transition"
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-mx-s1 border border-mx-line text-xs font-bold text-mx-tealhi active:scale-[.99] transition"
           >
             <Download className="w-4 h-4" /> Exportar relatório (CSV)
           </button>
@@ -253,14 +253,14 @@ export default function MontagemMobile() {
                 setUnidadesMont(atual > 0 ? atual : qtdT); // default: completar tudo
               }}
               whileTap={{ scale: 0.97 }}
-              className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${isOk ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800 hover:border-amber-500/30'}`}
+              className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${isOk ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-mx-s1 border-mx-line hover:border-mx-teal/30'}`}
             >
-              <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-sm ${isOk ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-amber-400'}`}>
+              <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-black text-sm ${isOk ? 'bg-emerald-500 text-mx-bg' : 'bg-mx-s2 text-mx-tealhi'}`}>
                 {isOk ? <CheckCircle2 className="w-6 h-6" /> : <Hammer className="w-5 h-5" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-sm">{p.marca || '—'}</div>
-                <div className="text-[11px] text-slate-400 truncate">
+                <div className="text-[11px] text-mx-text2 truncate">
                   {p.tipo || ''} · qtd {p.quantidade || 1} · {fmtPeso(pesoPeca(p))}
                 </div>
               </div>
@@ -268,7 +268,7 @@ export default function MontagemMobile() {
                 {isOk ? (
                   <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded-full">MONTADA</span>
                 ) : (
-                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded-full">TOCAR</span>
+                  <span className="text-[10px] font-bold text-mx-tealhi bg-mx-teal/20 px-2 py-0.5 rounded-full">TOCAR</span>
                 )}
               </div>
             </motion.button>
@@ -281,7 +281,7 @@ export default function MontagemMobile() {
       {podeMontar && (
         <button
           onClick={() => { tap('light'); setScanOpen(true); }}
-          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
         >
           <ScanLine className="w-5 h-5" /> Escanear
@@ -299,13 +299,13 @@ export default function MontagemMobile() {
         footer={
           pecaSel && (
             !podeMontar ? (
-              <div className="w-full text-center py-3 text-xs text-slate-400 font-semibold">Somente visualização — você não tem permissão para registrar montagem</div>
+              <div className="w-full text-center py-3 text-xs text-mx-text2 font-semibold">Somente visualização — você não tem permissão para registrar montagem</div>
             ) : (
             <div className="space-y-2">
               <button
                 onClick={() => confirmarSheet(false)}
                 disabled={salvandoMont}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-60 bg-emerald-500 text-slate-950"
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-60 bg-emerald-500 text-mx-bg"
               >
                 {!salvandoMont && <CheckCircle2 className="w-5 h-5" />}
                 {salvandoMont
@@ -318,7 +318,7 @@ export default function MontagemMobile() {
                 <button
                   onClick={() => confirmarSheet(true)}
                   disabled={salvandoMont}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-[.99] transition disabled:opacity-60 bg-slate-800 text-slate-300 border border-slate-700"
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-[.99] transition disabled:opacity-60 bg-mx-s2 text-mx-text2 border border-mx-line"
                 >
                   <RotateCcw className="w-4 h-4" /> Desmarcar montagem
                 </button>
@@ -334,7 +334,7 @@ export default function MontagemMobile() {
           const parcial = pecaMontada && montadasAtual > 0 && montadasAtual < qtdTotal;
           return (
           <div className="space-y-4">
-            <div className={`rounded-xl px-3 py-2.5 text-sm font-bold flex items-center gap-2 ${pecaMontada ? (parcial ? 'bg-teal-500/15 text-teal-300' : 'bg-emerald-500/15 text-emerald-300') : 'bg-amber-500/15 text-amber-300'}`}>
+            <div className={`rounded-xl px-3 py-2.5 text-sm font-bold flex items-center gap-2 ${pecaMontada ? (parcial ? 'bg-teal-500/15 text-teal-300' : 'bg-emerald-500/15 text-emerald-300') : 'bg-mx-teal/15 text-mx-tealhi'}`}>
               {pecaMontada ? <CheckCircle2 className="w-4 h-4" /> : <Hammer className="w-4 h-4" />}
               {pecaMontada
                 ? (parcial ? `Montagem parcial — ${montadasAtual}/${qtdTotal}` : 'Montada')
@@ -348,23 +348,23 @@ export default function MontagemMobile() {
             </div>
             {/* EDIÇÃO: unidades montadas (peças com mais de 1 unidade) */}
             {qtdTotal > 1 && (
-              <div className="bg-slate-800/60 rounded-xl p-3">
-                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">
+              <div className="bg-mx-s2/60 rounded-xl p-3">
+                <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-2">
                   Unidades montadas
                 </div>
                 <div className="flex items-center gap-3">
                   <button
                     onClick={() => { tap('light'); setUnidadesMont(u => Math.max(1, u - 1)); }}
-                    className="w-12 h-12 rounded-xl bg-slate-700 text-slate-100 font-black text-xl active:scale-95 transition"
+                    className="w-12 h-12 rounded-xl bg-mx-s3 text-mx-text font-black text-xl active:scale-95 transition"
                     aria-label="Diminuir"
                   >−</button>
                   <div className="flex-1 text-center">
-                    <span className="text-2xl font-black text-slate-100">{unidadesMont}</span>
-                    <span className="text-sm text-slate-400 font-bold"> / {qtdTotal}</span>
+                    <span className="text-2xl font-black text-mx-text">{unidadesMont}</span>
+                    <span className="text-sm text-mx-text2 font-bold"> / {qtdTotal}</span>
                   </div>
                   <button
                     onClick={() => { tap('light'); setUnidadesMont(u => Math.min(qtdTotal, u + 1)); }}
-                    className="w-12 h-12 rounded-xl bg-slate-700 text-slate-100 font-black text-xl active:scale-95 transition"
+                    className="w-12 h-12 rounded-xl bg-mx-s3 text-mx-text font-black text-xl active:scale-95 transition"
                     aria-label="Aumentar"
                   >+</button>
                   <button
@@ -382,8 +382,8 @@ export default function MontagemMobile() {
             {/* Foto: evidência existente (se montada) ou anexar nova (ao marcar) */}
             {fotoExistente ? (
               <div>
-                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Evidência</div>
-                <img src={fotoExistente} alt="evidência da montagem" className="w-full h-40 object-cover rounded-xl border border-slate-700" />
+                <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">Evidência</div>
+                <img src={fotoExistente} alt="evidência da montagem" className="w-full h-40 object-cover rounded-xl border border-mx-line" />
               </div>
             ) : (
               <PhotoInput foto={fotoMont} onChange={setFotoMont} label="Foto da peça montada (opcional)" />
@@ -398,9 +398,9 @@ export default function MontagemMobile() {
 
 function Info({ label, value }) {
   return (
-    <div className="bg-slate-800/60 rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
-      <div className="text-sm font-bold text-slate-100 mt-0.5 truncate">{value}</div>
+    <div className="bg-mx-s2/60 rounded-xl p-3">
+      <div className="text-[10px] uppercase tracking-wider text-mx-text2 font-semibold">{label}</div>
+      <div className="text-sm font-bold text-mx-text mt-0.5 truncate">{value}</div>
     </div>
   );
 }

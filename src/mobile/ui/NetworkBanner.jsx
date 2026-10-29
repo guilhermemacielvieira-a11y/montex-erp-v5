@@ -27,7 +27,7 @@ export default function NetworkBanner({ erro = false }) {
 
   if (!online) {
     return (
-      <div className="flex-shrink-0 bg-amber-500/15 border-b border-amber-500/30 text-amber-200 text-[12px] px-4 py-2 flex items-center gap-2">
+      <div className="flex-shrink-0 bg-mx-teal/15 border-b border-mx-teal/30 text-mx-tealhi text-[12px] px-4 py-2 flex items-center gap-2">
         <WifiOff className="w-4 h-4 flex-shrink-0" /> Sem conexão — mostrando dados salvos
       </div>
     );

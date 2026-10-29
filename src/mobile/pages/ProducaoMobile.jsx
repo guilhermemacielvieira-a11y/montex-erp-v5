@@ -57,8 +57,8 @@ const ORDEM = ETAPAS.map(e => e.key);
 const proximaEtapa = (etapa) => proximaEtapaProducao(etapa);
 const labelDe = (key) => ETAPAS.find(e => e.key === key)?.label || key;
 
-const C_BG = { slate: 'bg-slate-700/30 border-slate-600', blue: 'bg-blue-500/15 border-blue-500/30', amber: 'bg-amber-500/15 border-amber-500/30', purple: 'bg-violet-500/15 border-violet-500/30', orange: 'bg-orange-500/15 border-orange-500/30', yellow: 'bg-yellow-500/15 border-yellow-500/30', emerald: 'bg-emerald-500/15 border-emerald-500/30', green: 'bg-green-500/15 border-green-500/30' };
-const C_TXT = { slate: 'text-slate-300', blue: 'text-blue-300', amber: 'text-amber-300', purple: 'text-violet-300', orange: 'text-orange-300', yellow: 'text-yellow-300', emerald: 'text-emerald-300', green: 'text-green-300' };
+const C_BG = { slate: 'bg-mx-s3/30 border-mx-line', blue: 'bg-blue-500/15 border-blue-500/30', amber: 'bg-mx-teal/15 border-mx-teal/30', purple: 'bg-violet-500/15 border-violet-500/30', orange: 'bg-orange-500/15 border-orange-500/30', yellow: 'bg-yellow-500/15 border-yellow-500/30', emerald: 'bg-emerald-500/15 border-emerald-500/30', green: 'bg-green-500/15 border-green-500/30' };
+const C_TXT = { slate: 'text-mx-text2', blue: 'text-blue-300', amber: 'text-mx-tealhi', purple: 'text-violet-300', orange: 'text-orange-300', yellow: 'text-yellow-300', emerald: 'text-emerald-300', green: 'text-green-300' };
 
 export default function ProducaoMobile() {
   const erp = useERP?.() || {};
@@ -237,7 +237,7 @@ export default function ProducaoMobile() {
   return (
     <MobileLayout title="Produção" obraFilter>
       {/* Busca */}
-      <div className="bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3">
+      <div className="bg-mx-bg/95 backdrop-blur-md border-b border-mx-line px-4 py-3">
         <SearchBar value={q} onChange={setQ} placeholder="Buscar marca ou ID..." />
       </div>
 
@@ -250,12 +250,12 @@ export default function ProducaoMobile() {
       </div>
       {/* Estado da produção (barra empilhada = mesma do desktop/PDF) */}
       <div className="px-4 mt-2">
-        <div className="flex h-2 rounded-full overflow-hidden bg-slate-800">
+        <div className="flex h-2 rounded-full overflow-hidden bg-mx-s2">
           {estado.estados.map(e => (
             <div key={e.key} title={`${e.label}: ${fmtPeso(e.peso)} (${e.pct}%)`} style={{ width: `${estado.totalPeso > 0 ? (e.peso / estado.totalPeso) * 100 : 0}%`, background: e.cor }} />
           ))}
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-slate-400">
+        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-[10px] text-mx-text2">
           {estado.estados.filter(e => e.peso > 0).map(e => (
             <span key={e.key} className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{ background: e.cor }} />{e.label} {fmtNum(e.pct, 0)}%</span>
           ))}
@@ -264,11 +264,11 @@ export default function ProducaoMobile() {
 
       {/* Resumo */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between">
-        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+        <div className="text-[11px] text-mx-text2 uppercase tracking-wider font-semibold">
           {fmtNum(totalConjuntos)} conjuntos · {fmtNum(totalUnidades)} un · {fmtPeso(porEtapa.pesoTotal)}{qd.trim() ? ' (busca)' : ''}
         </div>
         {etapaSel && (
-          <button onClick={() => setEtapaSel(null)} className="text-[11px] font-bold text-amber-400">Limpar filtro</button>
+          <button onClick={() => setEtapaSel(null)} className="text-[11px] font-bold text-mx-tealhi">Limpar filtro</button>
         )}
       </div>
 
@@ -286,7 +286,7 @@ export default function ProducaoMobile() {
               onClick={() => { setEtapaSel(sel ? null : e.key); tap('light'); }}
               whileTap={{ scale: 0.98 }}
               initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}
-              className={`w-full text-left relative rounded-2xl border ${C_BG[e.color]} overflow-hidden ${sel ? 'ring-2 ring-amber-500/70' : ''}`}
+              className={`w-full text-left relative rounded-2xl border ${C_BG[e.color]} overflow-hidden ${sel ? 'ring-2 ring-mx-teal/70' : ''}`}
             >
               <div className="p-3 flex items-center gap-3">
                 <div className={`w-11 h-11 rounded-xl ${C_BG[e.color]} border-2 flex items-center justify-center`}>
@@ -294,16 +294,16 @@ export default function ProducaoMobile() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold">{e.label}</div>
-                  <div className="text-[11px] text-slate-400">
+                  <div className="text-[11px] text-mx-text2">
                     {fmtNum(d.conjuntos)} conjuntos · {fmtNum(d.unidades)} un · {fmtPeso(d.peso)}
                   </div>
                 </div>
                 <div className="text-right flex items-center gap-2">
                   <div className={`text-2xl font-black ${C_TXT[e.color]}`}>{pct}%</div>
-                  <ChevronRight className={`w-4 h-4 transition ${sel ? 'rotate-90 text-amber-400' : 'text-slate-500'}`} />
+                  <ChevronRight className={`w-4 h-4 transition ${sel ? 'rotate-90 text-mx-tealhi' : 'text-mx-text3'}`} />
                 </div>
               </div>
-              <div className="h-1 bg-slate-800">
+              <div className="h-1 bg-mx-s2">
                 <div className={`h-full ${C_TXT[e.color].replace('text-', 'bg-')}`} style={{ width: pct + '%' }} />
               </div>
             </motion.button>
@@ -314,7 +314,7 @@ export default function ProducaoMobile() {
       {/* Lista de peças (drill-down) */}
       {(etapaSel || qd.trim()) && (
         <div className="px-4 mt-4">
-          <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">
+          <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-2">
             {etapaSel ? `Peças em ${labelDe(etapaSel)}` : 'Resultado da busca'} · {listaPecas.length}
           </div>
           <div className="space-y-2">
@@ -333,19 +333,19 @@ export default function ProducaoMobile() {
                 <button
                   key={p.id}
                   onClick={() => abrirPeca(p)}
-                  className="w-full text-left rounded-2xl border border-slate-800 bg-slate-900 p-3 flex items-center gap-3 active:scale-[.99] transition"
+                  className="w-full text-left rounded-2xl border border-mx-line bg-mx-s1 p-3 flex items-center gap-3 active:scale-[.99] transition"
                 >
-                  <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center font-black text-amber-400 text-xs">
+                  <div className="w-11 h-11 rounded-xl bg-mx-s2 flex items-center justify-center font-black text-mx-tealhi text-xs">
                     {(p.marca || '?').slice(0, 4)}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-bold truncate">{p.marca || p.id}</div>
-                    <div className="text-[11px] text-slate-400 truncate">
+                    <div className="text-[11px] text-mx-text2 truncate">
                       {p.tipo || '—'} · qtd {qtdPeca(p) || 1} · {fmtPeso(pesoPeca(p))}
                     </div>
                   </div>
                   {np ? (
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/15 px-2 py-1 rounded-lg">
+                    <div className="flex items-center gap-1 text-[10px] font-bold text-mx-tealhi bg-mx-teal/15 px-2 py-1 rounded-lg">
                       {labelDe(np)} <ArrowRight className="w-3 h-3" />
                     </div>
                   ) : (
@@ -365,13 +365,13 @@ export default function ProducaoMobile() {
           <>
             <button
               onClick={() => { setRelatorioOpen(o => !o); tap('light'); }}
-              className="w-full flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl active:scale-[.99] transition"
+              className="w-full flex items-center justify-between p-4 bg-mx-s1 border border-mx-line rounded-2xl active:scale-[.99] transition"
             >
               <div className="text-left">
-                <div className="text-sm font-semibold flex items-center gap-2"><FileText className="w-4 h-4 text-amber-400" /> Relatórios e fabricabilidade</div>
-                <div className="text-[11px] text-slate-400">PDF de produção · fabricabilidade × estoque · {obraSelecionada.codigo || obraSelecionada.nome}</div>
+                <div className="text-sm font-semibold flex items-center gap-2"><FileText className="w-4 h-4 text-mx-tealhi" /> Relatórios e fabricabilidade</div>
+                <div className="text-[11px] text-mx-text2">PDF de produção · fabricabilidade × estoque · {obraSelecionada.codigo || obraSelecionada.nome}</div>
               </div>
-              <ChevronRight className={`w-5 h-5 text-amber-400 transition ${relatorioOpen ? 'rotate-90' : ''}`} />
+              <ChevronRight className={`w-5 h-5 text-mx-tealhi transition ${relatorioOpen ? 'rotate-90' : ''}`} />
             </button>
             {relatorioOpen && (
               <div className="mt-2 text-sm">
@@ -380,7 +380,7 @@ export default function ProducaoMobile() {
             )}
           </>
         ) : (
-          <div className="p-4 bg-slate-900/60 border border-dashed border-slate-800 rounded-2xl text-[11px] text-slate-400">
+          <div className="p-4 bg-mx-s1/60 border border-dashed border-mx-line rounded-2xl text-[11px] text-mx-text2">
             Selecione uma obra no filtro acima para gerar o <b>Relatório de Produção</b> e a <b>Fabricabilidade</b> (necessário × entregue) desta obra — mesmos PDFs do Kanban desktop.
           </div>
         )}
@@ -388,12 +388,12 @@ export default function ProducaoMobile() {
 
       {/* Link para kanban completo */}
       <div className="px-4 mt-3">
-        <Link to="/m/kanban" className="flex items-center justify-between p-4 bg-slate-900 border border-slate-800 rounded-2xl active:scale-[.99] transition">
+        <Link to="/m/kanban" className="flex items-center justify-between p-4 bg-mx-s1 border border-mx-line rounded-2xl active:scale-[.99] transition">
           <div>
             <div className="text-sm font-semibold">Ver Kanban completo</div>
-            <div className="text-[11px] text-slate-400">Versão desktop (rolagem lateral) · abre na obra selecionada</div>
+            <div className="text-[11px] text-mx-text2">Versão desktop (rolagem lateral) · abre na obra selecionada</div>
           </div>
-          <ChevronRight className="w-5 h-5 text-amber-400" />
+          <ChevronRight className="w-5 h-5 text-mx-tealhi" />
         </Link>
       </div>
 
@@ -401,7 +401,7 @@ export default function ProducaoMobile() {
       {podeApontar && (
         <button
           onClick={() => { tap('light'); setApontarOpen(true); }}
-          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
         >
           <ScanLine className="w-5 h-5" /> Apontar
@@ -416,7 +416,7 @@ export default function ProducaoMobile() {
         footer={
           <button
             onClick={iniciarBipagem}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-sm active:scale-[.99] transition"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-mx-teal text-white font-black text-sm active:scale-[.99] transition"
           >
             <ScanLine className="w-5 h-5" /> Iniciar bipagem · {labelDe(destino)}
           </button>
@@ -424,7 +424,7 @@ export default function ProducaoMobile() {
       >
         <div className="space-y-4">
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Minha estação (etapa de destino)</div>
+            <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">Minha estação (etapa de destino)</div>
             <div className="grid grid-cols-2 gap-2">
               {DESTINOS.map(e => {
                 const Icon = e.icon;
@@ -433,24 +433,24 @@ export default function ProducaoMobile() {
                   <button
                     key={e.key}
                     onClick={() => { setDestino(e.key); tap('light'); }}
-                    className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-bold transition active:scale-[.98] ${sel ? 'bg-amber-500/20 border-amber-500/60 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+                    className={`flex items-center gap-2 p-3 rounded-xl border text-sm font-bold transition active:scale-[.98] ${sel ? 'bg-mx-teal/20 border-mx-teal/60 text-mx-tealhi' : 'bg-mx-s2 border-mx-line text-mx-text2'}`}
                   >
                     <Icon className="w-4 h-4" /> {e.label}
                   </button>
                 );
               })}
             </div>
-            <div className="text-[11px] text-slate-400 mt-2">
+            <div className="text-[11px] text-mx-text2 mt-2">
               Só avança peças que estão em <b>{labelDe(etapaAnterior)}</b>. Bipe errado não pula etapa.
             </div>
           </div>
           {funcionarios.length > 0 && (
             <div>
-              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Responsável (opcional, vale p/ toda a sessão)</div>
+              <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">Responsável (opcional, vale p/ toda a sessão)</div>
               <select
                 value={apontFunc}
                 onChange={e => setApontFunc(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50"
               >
                 <option value="">Sem responsável</option>
                 {funcionarios.map(f => (
@@ -480,12 +480,12 @@ export default function ProducaoMobile() {
           pecaSel && (
             !podeApontar ? (
               // Sem permissão de lançar avanço: somente visualização (viewer/financeiro).
-              <div className="w-full text-center py-3 text-xs text-slate-400 font-semibold">Somente visualização — você não tem permissão para avançar etapas</div>
+              <div className="w-full text-center py-3 text-xs text-mx-text2 font-semibold">Somente visualização — você não tem permissão para avançar etapas</div>
             ) : prox ? (
               <button
                 onClick={avancar}
                 disabled={saving}
-                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-amber-500 text-slate-950 font-black text-sm active:scale-[.99] transition disabled:opacity-60"
+                className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-mx-teal text-white font-black text-sm active:scale-[.99] transition disabled:opacity-60"
               >
                 {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <ArrowRight className="w-5 h-5" />}
                 {saving ? 'Salvando…' : `Avançar para ${labelDe(prox)}`}
@@ -506,11 +506,11 @@ export default function ProducaoMobile() {
             </div>
             {prox && funcionarios.length > 0 && (
               <div>
-                <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">Responsável (opcional)</div>
+                <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">Responsável (opcional)</div>
                 <select
                   value={funcId}
                   onChange={e => setFuncId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                  className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50"
                 >
                   <option value="">Sem responsável</option>
                   {funcionarios.map(f => (
@@ -526,21 +526,21 @@ export default function ProducaoMobile() {
   );
 }
 
-function Kpi({ icon: Icon, label, value, sub, tone = 'text-slate-100' }) {
+function Kpi({ icon: Icon, label, value, sub, tone = 'text-mx-text' }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-3">
-      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-400 font-semibold"><Icon className="w-3.5 h-3.5" /> {label}</div>
+    <div className="bg-mx-s1 border border-mx-line rounded-2xl p-3">
+      <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-mx-text2 font-semibold"><Icon className="w-3.5 h-3.5" /> {label}</div>
       <div className={`text-base font-black mt-0.5 ${tone}`}>{value}</div>
-      {sub && <div className="text-[10px] text-slate-500">{sub}</div>}
+      {sub && <div className="text-[10px] text-mx-text3">{sub}</div>}
     </div>
   );
 }
 
 function Info({ label, value }) {
   return (
-    <div className="bg-slate-800/60 rounded-xl p-3">
-      <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{label}</div>
-      <div className="text-sm font-bold text-slate-100 mt-0.5 truncate">{value}</div>
+    <div className="bg-mx-s2/60 rounded-xl p-3">
+      <div className="text-[10px] uppercase tracking-wider text-mx-text2 font-semibold">{label}</div>
+      <div className="text-sm font-bold text-mx-text mt-0.5 truncate">{value}</div>
     </div>
   );
 }

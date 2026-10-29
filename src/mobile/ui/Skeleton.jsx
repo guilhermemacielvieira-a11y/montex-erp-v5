@@ -7,7 +7,7 @@
 import React from 'react';
 
 export function SkeletonBox({ className = '' }) {
-  return <div className={`animate-pulse bg-slate-800 rounded-xl ${className}`} />;
+  return <div className={`animate-pulse bg-mx-s2 rounded-xl ${className}`} />;
 }
 
 // Esqueleto genérico de página: barra + grade de cards + linhas de lista.
