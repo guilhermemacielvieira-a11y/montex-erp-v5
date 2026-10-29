@@ -11,7 +11,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  BarChart3, RefreshCw, Siren, Filter, AlertOctagon, LayoutDashboard, Building2, Factory, Wallet, Boxes,
+  BarChart3, RefreshCw, Siren, Filter, AlertOctagon, LayoutDashboard, Building2, Factory, Wallet, Boxes, Calculator,
 } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -26,6 +26,7 @@ import AbaObras from '@/components/bi/abas/AbaObras';
 import AbaProducao from '@/components/bi/abas/AbaProducao';
 import AbaFinanceiro from '@/components/bi/abas/AbaFinanceiro';
 import AbaSuprimentos from '@/components/bi/abas/AbaSuprimentos';
+import AbaCustoKg from '@/components/bi/abas/AbaCustoKg';
 
 const ABAS = [
   { id: 'executivo', rotulo: 'Executivo', icone: LayoutDashboard },
@@ -33,6 +34,7 @@ const ABAS = [
   { id: 'producao', rotulo: 'Produção', icone: Factory },
   { id: 'financeiro', rotulo: 'Financeiro', icone: Wallet },
   { id: 'suprimentos', rotulo: 'Suprimentos', icone: Boxes },
+  { id: 'custo', rotulo: 'Custo/kg', icone: Calculator },
 ];
 const ABA_PADRAO = 'executivo';
 
@@ -179,6 +181,9 @@ export default function BI360Page() {
             </TabsContent>
             <TabsContent value="suprimentos" className="mt-4">
               <AbaSuprimentos dados={dados} />
+            </TabsContent>
+            <TabsContent value="custo" className="mt-4">
+              <AbaCustoKg dados={dados} />
             </TabsContent>
           </>
         )}

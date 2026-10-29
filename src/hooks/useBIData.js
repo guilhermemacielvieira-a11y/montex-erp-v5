@@ -14,7 +14,7 @@ import { useObras, useProducao, useMedicoes, useLancamentos, useEstoque } from '
 import { useReceitasManuais } from '../utils/receitasSync';
 import { noEscopo, obraDe } from '../services/bi/biCore';
 import {
-  transicoesComPeca, ritmoSemanal, tendenciaRitmo, leadTimeEtapas, wipAtual, gargalo,
+  normalizarHistorico, ritmoSemanal, tendenciaRitmo, leadTimeEtapas, wipAtual, gargalo,
   produtividadeFuncionarios, funilProducao,
 } from '../services/bi/biProducao';
 import { indicadoresObras, curvaS, kpisExecutivos } from '../services/bi/biObras';
@@ -83,7 +83,7 @@ export function useBIData() {
     const nomeObra = (id) => obras.find((o) => o.id === id)?.nome || id || '—';
 
     // ---- Produção ----
-    const todasTransicoes = transicoesComPeca(historico, pecas);
+    const { transicoes: todasTransicoes, passagensNA } = normalizarHistorico(historico, pecas);
     const transicoes = obraIds ? todasTransicoes.filter((t) => obraIds.includes(t.obraId)) : todasTransicoes;
     const pecasEscopo = noEscopo(pecas, obraIds);
     const ritmo = ritmoSemanal(transicoes, { hoje, semanas: 12 });
@@ -128,7 +128,7 @@ export function useBIData() {
       suprimentos: { kpis: estoqueKpis, abc: estoqueABC, itens: estoqueEscopo },
       alertas,
       // Dados brutos (Copiloto MONTEX consulta com o mesmo motor)
-      bruto: { obras, pecas, medicoes, lancamentos: lancamentosDespesas, receitasManuais, estoque, transicoes: todasTransicoes },
+      bruto: { obras, pecas, medicoes, lancamentos: lancamentosDespesas, receitasManuais, estoque, transicoes: todasTransicoes, passagensNA },
     };
   }, [obras, obraIdsEscopo, escopoObra, pecas, medicoes, lancamentosDespesas, estoque, receitasManuais, historico, hoje, carregando, erro, atualizadoEm, recarregar]);
 }
