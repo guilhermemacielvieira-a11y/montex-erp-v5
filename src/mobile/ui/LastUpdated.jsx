@@ -20,6 +20,6 @@ export default function LastUpdated({ tick = 0 }) {
   // `tick` participa do render (releitura imediata após refresh)
   void tick;
   return (
-    <span className="text-[10px] text-slate-400 whitespace-nowrap leading-none">{formatRelative(ts)}</span>
+    <span className="text-[10px] text-mx-text2 whitespace-nowrap leading-none">{formatRelative(ts)}</span>
   );
 }

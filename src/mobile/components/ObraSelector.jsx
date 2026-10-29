@@ -7,6 +7,7 @@
 //  - Cada obra mostra código, nome, status e nº de peças.
 // ============================================================
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, ChevronDown, Check, X, Layers, Search } from 'lucide-react';
 import { useERP } from '@/contexts/ERPContext';
@@ -15,8 +16,8 @@ import { useObraFiltro, OBRA_TODAS } from '../ObraContext';
 const STATUS_DOT = {
   concluida: 'bg-emerald-500',
   cancelada: 'bg-red-500',
-  em_andamento: 'bg-amber-500',
-  ativa: 'bg-amber-500',
+  em_andamento: 'bg-mx-teal',
+  ativa: 'bg-mx-teal',
 };
 
 export default function ObraSelector() {
@@ -63,21 +64,23 @@ export default function ObraSelector() {
       {/* Barra sticky */}
       <button
         onClick={() => setOpen(true)}
-        className="w-full flex items-center gap-3 px-4 py-2.5 bg-slate-900/90 backdrop-blur-md border-b border-slate-800 active:bg-slate-800/80 transition"
+        className="w-full flex items-center gap-3 px-4 py-2.5 bg-mx-s1/90 backdrop-blur-md border-b border-mx-line active:bg-mx-s2/80 transition"
       >
-        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isTodas ? 'bg-slate-800 text-slate-300' : 'bg-amber-500/20 text-amber-400'}`}>
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${isTodas ? 'bg-mx-s2 text-mx-text2' : 'bg-mx-teal/20 text-mx-tealhi'}`}>
           {isTodas ? <Layers className="w-5 h-5" /> : <Building2 className="w-5 h-5" />}
         </div>
         <div className="flex-1 min-w-0 text-left">
-          <div className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold leading-none mb-0.5">Filtrar por obra</div>
+          <div className="text-[10px] uppercase tracking-wider text-mx-text2 font-semibold leading-none mb-0.5">Filtrar por obra</div>
           <div className="text-sm font-bold truncate">{rotulo}</div>
-          <div className="text-[10px] text-slate-400 truncate">{sub}</div>
+          <div className="text-[10px] text-mx-text2 truncate">{sub}</div>
         </div>
-        <ChevronDown className="w-5 h-5 text-slate-400 flex-shrink-0" />
+        <ChevronDown className="w-5 h-5 text-mx-text2 flex-shrink-0" />
       </button>
 
       {/* Bottom sheet — filhos keyed diretos (sem Fragment, p/ AnimatePresence
           rastrear o exit e desmontar corretamente ao fechar) */}
+      {/* Portal: o cabeçalho tem backdrop-filter, que prenderia o `fixed` da folha. */}
+      {typeof document !== 'undefined' ? createPortal(<div className="mx-app">
       <AnimatePresence>
         {open && (
           <motion.div
@@ -93,26 +96,26 @@ export default function ObraSelector() {
             key="obra-sheet"
             initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
             transition={{ type: 'tween', duration: 0.26, ease: 'easeOut' }}
-            className="fixed left-0 right-0 bottom-0 z-[61] bg-slate-900 border-t border-slate-800 rounded-t-3xl flex flex-col max-h-[80vh]"
+            className="fixed left-0 right-0 bottom-0 z-[61] bg-mx-s1 border-t border-mx-line rounded-t-3xl flex flex-col max-h-[80vh]"
             style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
           >
               {/* Handle + header */}
               <div className="flex-shrink-0 px-4 pt-3 pb-2">
-                <div className="w-10 h-1 rounded-full bg-slate-700 mx-auto mb-3" />
+                <div className="w-10 h-1 rounded-full bg-mx-s3 mx-auto mb-3" />
                 <div className="flex items-center justify-between">
                   <div className="font-bold text-base">Selecionar obra</div>
-                  <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-slate-800 active:bg-slate-700">
-                    <X className="w-5 h-5 text-slate-400" />
+                  <button onClick={() => setOpen(false)} className="p-1.5 rounded-lg hover:bg-mx-s2 active:bg-mx-s3">
+                    <X className="w-5 h-5 text-mx-text2" />
                   </button>
                 </div>
                 {obras.length > 6 && (
                   <div className="relative mt-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-mx-text2" />
                     <input
                       autoFocus={false}
                       value={q} onChange={e => setQ(e.target.value)}
                       placeholder="Buscar obra..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:border-amber-500/50"
+                      className="w-full bg-mx-bg border border-mx-line rounded-xl pl-10 pr-3 py-2 text-sm placeholder:text-mx-text2 focus:outline-none focus:border-mx-teal/50"
                     />
                   </div>
                 )}
@@ -123,49 +126,50 @@ export default function ObraSelector() {
                 {/* Opção: Todas */}
                 <button
                   onClick={() => escolher(OBRA_TODAS)}
-                  className={`w-full flex items-center gap-3 p-3 rounded-2xl mb-1.5 transition ${isTodas ? 'bg-amber-500/15 border border-amber-500/40' : 'bg-slate-800/40 border border-transparent active:bg-slate-800'}`}
+                  className={`w-full flex items-center gap-3 p-3 rounded-2xl mb-1.5 transition ${isTodas ? 'bg-mx-teal/15 border border-mx-teal/40' : 'bg-mx-s2/40 border border-transparent active:bg-mx-s2'}`}
                 >
-                  <div className="w-10 h-10 rounded-xl bg-slate-800 text-slate-300 flex items-center justify-center flex-shrink-0">
+                  <div className="w-10 h-10 rounded-xl bg-mx-s2 text-mx-text2 flex items-center justify-center flex-shrink-0">
                     <Layers className="w-5 h-5" />
                   </div>
                   <div className="flex-1 min-w-0 text-left">
-                    <div className={`text-sm font-bold ${isTodas ? 'text-amber-400' : 'text-slate-100'}`}>Todas as obras</div>
-                    <div className="text-[11px] text-slate-400">{obras.length} obras · {totalPecas.toLocaleString('pt-BR')} peças</div>
+                    <div className={`text-sm font-bold ${isTodas ? 'text-mx-tealhi' : 'text-mx-text'}`}>Todas as obras</div>
+                    <div className="text-[11px] text-mx-text2">{obras.length} obras · {totalPecas.toLocaleString('pt-BR')} peças</div>
                   </div>
-                  {isTodas && <Check className="w-5 h-5 text-amber-400 flex-shrink-0" />}
+                  {isTodas && <Check className="w-5 h-5 text-mx-tealhi flex-shrink-0" />}
                 </button>
 
                 {obrasFiltradas.map(o => {
                   const sel = o.id === obraFiltro;
-                  const dot = STATUS_DOT[o.status] || 'bg-slate-500';
+                  const dot = STATUS_DOT[o.status] || 'bg-mx-text3';
                   return (
                     <button
                       key={o.id}
                       onClick={() => escolher(o.id)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-2xl mb-1.5 transition ${sel ? 'bg-amber-500/15 border border-amber-500/40' : 'bg-slate-800/40 border border-transparent active:bg-slate-800'}`}
+                      className={`w-full flex items-center gap-3 p-3 rounded-2xl mb-1.5 transition ${sel ? 'bg-mx-teal/15 border border-mx-teal/40' : 'bg-mx-s2/40 border border-transparent active:bg-mx-s2'}`}
                     >
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-xs ${sel ? 'bg-amber-500 text-slate-950' : 'bg-slate-800 text-amber-400'}`}>
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 font-black text-xs ${sel ? 'bg-mx-teal text-white' : 'bg-mx-s2 text-mx-tealhi'}`}>
                         {(o.codigo || o.nome || '?').slice(0, 3).toUpperCase()}
                       </div>
                       <div className="flex-1 min-w-0 text-left">
-                        <div className={`text-sm font-bold truncate ${sel ? 'text-amber-400' : 'text-slate-100'}`}>{o.nome || o.codigo}</div>
-                        <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                        <div className={`text-sm font-bold truncate ${sel ? 'text-mx-tealhi' : 'text-mx-text'}`}>{o.nome || o.codigo}</div>
+                        <div className="text-[11px] text-mx-text2 flex items-center gap-1.5">
                           <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
                           {o.codigo ? o.codigo + ' · ' : ''}{(contagem[o.id] || 0).toLocaleString('pt-BR')} peças
                         </div>
                       </div>
-                      {sel && <Check className="w-5 h-5 text-amber-400 flex-shrink-0" />}
+                      {sel && <Check className="w-5 h-5 text-mx-tealhi flex-shrink-0" />}
                     </button>
                   );
                 })}
 
                 {obrasFiltradas.length === 0 && (
-                  <div className="text-center py-8 text-slate-400 text-sm">Nenhuma obra encontrada</div>
+                  <div className="text-center py-8 text-mx-text2 text-sm">Nenhuma obra encontrada</div>
                 )}
               </div>
           </motion.div>
         )}
       </AnimatePresence>
+      </div>, document.body) : null}
     </>
   );
 }

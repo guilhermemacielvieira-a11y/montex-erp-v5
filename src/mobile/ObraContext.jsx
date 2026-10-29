@@ -50,7 +50,8 @@ export function ObraMobileProvider({ children }) {
     setObraFiltroState(valor);
     try { localStorage.setItem(LS_KEY, valor); } catch { /* noop */ }
     // Focar a obra também no ERP global (beneficia páginas desktop em wrapper)
-    if (valor !== OBRA_TODAS) setObraAtual?.(valor);
+    // "Todas" volta o ERP para Geral (antes ficava preso na última obra).
+    setObraAtual?.(valor === OBRA_TODAS ? 'geral' : valor);
   }, [setObraAtual]);
 
   // Helper de filtragem reutilizável (peças, despesas, receitas, medições…)

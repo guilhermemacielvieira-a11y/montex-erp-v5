@@ -24,7 +24,7 @@ export default function PendingBadge() {
   if (!n) return null;
   return (
     <span
-      className="flex items-center gap-1 text-[10px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-full px-2 py-0.5 whitespace-nowrap"
+      className="flex items-center gap-1 text-[10px] font-bold text-mx-tealhi bg-mx-teal/15 border border-mx-teal/30 rounded-full px-2 py-0.5 whitespace-nowrap"
       title={`${n} ação(ões) aguardando sincronização`}
     >
       <CloudOff className="w-3 h-3" /> {n}

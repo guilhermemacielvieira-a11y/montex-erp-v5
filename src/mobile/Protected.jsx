@@ -21,13 +21,13 @@ export default function Protected({ perm, children }) {
   return (
     <MobileLayout title="Acesso restrito" back>
       <div className="px-6 py-20 text-center">
-        <Lock className="w-14 h-14 mx-auto mb-4 text-slate-600" />
-        <div className="text-base font-bold">Acesso restrito</div>
-        <div className="text-sm text-slate-400 mt-1.5 max-w-xs mx-auto">
-          Você não tem permissão para acessar este módulo. Fale com o gestor se precisar.
+        <Lock className="mx-auto mb-4 h-12 w-12 text-mx-text3" aria-hidden />
+        <div className="text-[17px] font-semibold text-mx-text">Seu perfil não tem acesso a este módulo</div>
+        <div className="mx-auto mt-1.5 max-w-xs text-[14px] text-mx-text2">
+          Peça ao administrador para liberar a permissão em Usuários.
         </div>
-        <Link to="/m" className="inline-block mt-6 px-5 py-3 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm active:scale-95 transition">
-          Voltar ao Início
+        <Link to="/m" className="mt-6 inline-flex h-12 items-center rounded-xl bg-mx-teal px-5 text-[15px] font-semibold text-white active:bg-mx-teal/80">
+          Voltar ao início
         </Link>
       </div>
     </MobileLayout>

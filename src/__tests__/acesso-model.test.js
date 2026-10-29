@@ -49,14 +49,15 @@ describe('Seleção restrita: Montagem (ver+editar) + 3D (ver)', () => {
   it('abre SOMENTE Montagem, 3D e rotas neutras', () => {
     const r = raioX(perms);
     expect(r.rotasAbertas.sort()).toEqual(
-      ['/m', '/m/3d', '/m/config', '/m/mais', '/m/montagem', '/m/notificacoes', '/m/perfil'].sort()
+      ['/m', '/m/3d', '/m/alertas', '/m/campo/montagem', '/m/config', '/m/mais', '/m/parede-pronta', '/m/perfil'].sort()
     );
   });
 
   it('bloqueia produção, financeiro, expedição, kanban, medição, obras, usuários', () => {
-    for (const rota of ['/m/producao', '/m/financeiro', '/m/expedicao', '/m/kanban',
-      '/m/medicao', '/m/obras', '/m/usuarios', '/m/estoque', '/m/dashboard',
-      '/m/analise-producao', '/m/diario', '/m/evidencias']) {
+    for (const rota of ['/m/campo/producao', '/m/fabrica', '/m/financeiro', '/m/campo/expedicao', '/m/kanban',
+      '/m/medicao', '/m/obras', '/m/usuarios', '/m/estoque', '/m/aprovacoes',
+      '/m/comercial', '/m/evidencias']) {
+      expect(rota in ROTAS).toBe(true);
       expect(can(perms, ROTAS[rota])).toBe(false);
     }
   });
@@ -82,7 +83,7 @@ describe('Gating de edição por papel', () => {
 
   it('operador edita Montagem/3D e Produção, mas NÃO despacha nem lança medição', () => {
     const perms = permsDoRole('operador');
-    expect(can(perms, ROTAS['/m/montagem'])).toBe(true);
+    expect(can(perms, ROTAS['/m/campo/montagem'])).toBe(true);
     expect(can(perms, ['montagem.edit', 'producao.lancar_avanco'])).toBe(true); // monta
     expect(can(perms, 'expedicao.edit')).toBe(false);                            // não despacha
     expect(can(perms, 'medicao.edit')).toBe(false);                              // não lança medição
@@ -100,7 +101,7 @@ describe('OR-fallback: papéis antigos não regridem em Montagem/3D', () => {
   for (const role of ['operador', 'supervisor', 'gerente', 'viewer']) {
     it(`${role} continua vendo Montagem e 3D`, () => {
       const perms = permsDoRole(role);
-      expect(can(perms, ROTAS['/m/montagem'])).toBe(true);
+      expect(can(perms, ROTAS['/m/campo/montagem'])).toBe(true);
       expect(can(perms, ROTAS['/m/3d'])).toBe(true);
     });
   }

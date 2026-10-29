@@ -63,7 +63,7 @@ export default function PullToRefresh({ onRefresh, children }) {
         aria-hidden={pull === 0 && !refreshing}
       >
         <RefreshCw
-          className={`w-5 h-5 text-amber-400 ${refreshing ? 'animate-spin' : ''}`}
+          className={`w-5 h-5 text-mx-tealhi ${refreshing ? 'animate-spin' : ''}`}
           style={{ opacity: Math.min((refreshing ? THRESHOLD : pull) / THRESHOLD, 1), transform: refreshing ? 'none' : `rotate(${pull * 3}deg)` }}
         />
       </div>

@@ -46,7 +46,8 @@ export function useAlertas() {
         title: `${aprovacoes} aprovação(ões) pendente(s)`, sub: partes.join(' · '), to: '/m/aprovacoes' });
     }
 
-    const despObra = lancamentosDespesas.filter(matchObra);
+    // Só despesas da fábrica (sem obra): é o que a tela A pagar lista (regra 1).
+    const despObra = lancamentosDespesas.filter((d) => !(d.obraId ?? d.obra_id));
     const venc = (d) => d.dataVencimento || d.data_vencimento || '';
     const atrasadas = despObra.filter(d => d.status !== 'pago' && d.status !== 'cancelado' && venc(d) && String(venc(d)).slice(0, 10) < hoje);
     if (atrasadas.length) {

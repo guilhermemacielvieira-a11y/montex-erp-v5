@@ -153,12 +153,12 @@ export default function DiarioObraMobile() {
     <MobileLayout title="Diário de Obra" back obraFilter>
       {/* Data */}
       <div className="px-4 pt-3 pb-2 flex items-center justify-between gap-3">
-        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+        <div className="text-[11px] text-mx-text2 uppercase tracking-wider font-semibold">
           {loading ? 'Carregando…' : `${registros.length} registro(s) · Montagem`}
         </div>
         <input
           type="date" value={data} onChange={e => setData(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500/50"
+          className="bg-mx-s2 border border-mx-line rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-mx-teal/50"
         />
       </div>
 
@@ -171,23 +171,23 @@ export default function DiarioObraMobile() {
           const urls = String(r.observacoes || '').match(URL_RE) || [];
           const texto = String(r.observacoes || '').replace(URL_RE, '').replace(/📷/g, '').trim();
           return (
-            <div key={r.id} className="rounded-2xl border border-slate-800 bg-slate-900 p-3.5">
+            <div key={r.id} className="rounded-2xl border border-mx-line bg-mx-s1 p-3.5">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-sm truncate flex-1">{r.obra || 'Obra'}</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-amber-500/15 text-amber-300 border-amber-500/30">{r.turno || '—'}</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border bg-mx-teal/15 text-mx-tealhi border-mx-teal/30">{r.turno || '—'}</span>
               </div>
-              <div className="text-[11px] text-slate-400 mt-1">
+              <div className="text-[11px] text-mx-text2 mt-1">
                 {(r.equipe_nome || r.funcionario_nome) ? `${r.equipe_nome || ''}${r.equipe_nome && r.funcionario_nome ? ' · ' : ''}${r.funcionario_nome || ''}` : 'Sem equipe vinculada'}
               </div>
               <div className="flex items-center gap-3 mt-2">
                 <span className="text-sm font-black text-emerald-300">{r.unidades_produzidas || 0} un</span>
                 <span className="text-sm font-black text-blue-300">{fmtKg(r.kg_processados)}</span>
               </div>
-              {texto && <div className="text-[12px] text-slate-300 mt-2 whitespace-pre-line">{texto}</div>}
+              {texto && <div className="text-[12px] text-mx-text2 mt-2 whitespace-pre-line">{texto}</div>}
               {urls.length > 0 && (
                 <div className="flex gap-2 mt-2">
                   {urls.map((u, i) => (
-                    <a key={i} href={u} target="_blank" rel="noreferrer" className="block w-16 h-16 rounded-lg overflow-hidden border border-slate-700 active:scale-95 transition">
+                    <a key={i} href={u} target="_blank" rel="noreferrer" className="block w-16 h-16 rounded-lg overflow-hidden border border-mx-line active:scale-95 transition">
                       <img src={u} alt={`foto ${i + 1} do diário`} className="w-full h-full object-cover" loading="lazy" />
                     </a>
                   ))}
@@ -201,7 +201,7 @@ export default function DiarioObraMobile() {
       {/* FAB */}
       <button
         onClick={abrirForm}
-        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+        className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
         style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
       >
         <Plus className="w-5 h-5" /> Registrar dia
@@ -216,7 +216,7 @@ export default function DiarioObraMobile() {
           <button
             onClick={salvar}
             disabled={saving}
-            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500 text-slate-950 font-black text-sm active:scale-[.99] transition disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl bg-emerald-500 text-mx-bg font-black text-sm active:scale-[.99] transition disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-5 h-5 animate-spin" /> : <CheckCircle2 className="w-5 h-5" />}
             {saving ? 'Salvando…' : 'Salvar registro'}
@@ -228,10 +228,10 @@ export default function DiarioObraMobile() {
           <div>
             <Label>Obra</Label>
             <div className="relative">
-              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-mx-text2 pointer-events-none" />
               <select
                 value={obraNome} onChange={e => setObraNome(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl pl-10 pr-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50"
               >
                 <option value="">Selecione a obra…</option>
                 {obrasOrdenadas.map(o => <option key={o.id} value={o.nome || o.id}>{o.nome || o.codigo || o.id}</option>)}
@@ -250,7 +250,7 @@ export default function DiarioObraMobile() {
                   <button
                     key={t.v}
                     onClick={() => { setTurno(t.v); tap('light'); }}
-                    className={`flex items-center justify-center gap-1.5 py-3 rounded-xl border text-sm font-bold transition active:scale-[.98] ${sel ? 'bg-amber-500/20 border-amber-500/60 text-amber-300' : 'bg-slate-800 border-slate-700 text-slate-300'}`}
+                    className={`flex items-center justify-center gap-1.5 py-3 rounded-xl border text-sm font-bold transition active:scale-[.98] ${sel ? 'bg-mx-teal/20 border-mx-teal/60 text-mx-tealhi' : 'bg-mx-s2 border-mx-line text-mx-text2'}`}
                   >
                     <Icon className="w-4 h-4" /> {t.v}
                   </button>
@@ -264,7 +264,7 @@ export default function DiarioObraMobile() {
             <div>
               <Label>Equipe (opcional)</Label>
               <select value={equipeId} onChange={e => setEquipeId(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50">
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50">
                 <option value="">—</option>
                 {equipes.map(eq => <option key={eq.id} value={eq.id}>{eq.nome || eq.id}</option>)}
               </select>
@@ -272,7 +272,7 @@ export default function DiarioObraMobile() {
             <div>
               <Label>Responsável (opcional)</Label>
               <select value={funcId} onChange={e => setFuncId(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50">
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50">
                 <option value="">—</option>
                 {funcionarios.map(f => <option key={f.id} value={f.id}>{f.nome || f.id}</option>)}
               </select>
@@ -284,12 +284,12 @@ export default function DiarioObraMobile() {
             <div>
               <Label>Unidades montadas</Label>
               <input type="number" inputMode="numeric" value={unidades} onChange={e => setUnidades(e.target.value)} placeholder="0"
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-amber-500/50" />
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-mx-teal/50" />
             </div>
             <div>
               <Label>Kg montados</Label>
               <input type="number" inputMode="decimal" value={kg} onChange={e => setKg(e.target.value)} placeholder="0"
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-amber-500/50" />
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-3 text-sm font-bold focus:outline-none focus:border-mx-teal/50" />
             </div>
           </div>
 
@@ -297,7 +297,7 @@ export default function DiarioObraMobile() {
           <div>
             <Label>Observações (opcional)</Label>
             <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} placeholder="Frentes de trabalho, intercorrências, clima…"
-              className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50 resize-none" />
+              className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-mx-teal/50 resize-none" />
           </div>
 
           {/* Fotos (até 3) */}
@@ -305,7 +305,7 @@ export default function DiarioObraMobile() {
             <Label>Fotos do dia ({fotos.length}/{MAX_FOTOS})</Label>
             <div className="grid grid-cols-3 gap-2">
               {fotos.map((f, i) => (
-                <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-slate-700">
+                <div key={i} className="relative aspect-square rounded-xl overflow-hidden border border-mx-line">
                   <img src={f.url} alt={`foto ${i + 1}`} className="w-full h-full object-cover" />
                   <button
                     onClick={() => setFotos(prev => prev.filter((_, j) => j !== i))}
@@ -315,8 +315,8 @@ export default function DiarioObraMobile() {
                 </div>
               ))}
               {fotos.length < MAX_FOTOS && (
-                <label className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl bg-slate-800 border border-dashed border-slate-600 text-[11px] text-slate-300 active:bg-slate-700 cursor-pointer">
-                  <Camera className="w-5 h-5 text-amber-400" /> Adicionar
+                <label className="flex flex-col items-center justify-center gap-1 aspect-square rounded-xl bg-mx-s2 border border-dashed border-mx-line text-[11px] text-mx-text2 active:bg-mx-s3 cursor-pointer">
+                  <Camera className="w-5 h-5 text-mx-tealhi" /> Adicionar
                   <input type="file" accept="image/*" capture="environment" multiple onChange={addFotos} className="hidden" />
                 </label>
               )}
@@ -329,5 +329,5 @@ export default function DiarioObraMobile() {
 }
 
 function Label({ children }) {
-  return <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1.5">{children}</div>;
+  return <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-1.5">{children}</div>;
 }

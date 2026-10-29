@@ -44,16 +44,16 @@ export default function InstallPrompt() {
 
   if (!show) return null;
   return (
-    <div className="fixed left-0 right-0 z-40 px-3" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 72px)' }}>
-      <div className="bg-slate-800 border border-slate-700 rounded-2xl p-3 shadow-xl shadow-black/40 flex items-start gap-3">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 flex-shrink-0">M</div>
+    <div className="fixed left-0 right-0 z-40 px-3" style={{ bottom: 'calc(env(safe-area-inset-bottom) + 76px)' }}>
+      <div className="flex items-start gap-3 rounded-[18px] border border-mx-line bg-mx-s2 p-3 shadow-xl shadow-black/40">
+        <img src="/logo-montex.png" alt="" className="h-10 w-10 flex-shrink-0 object-contain" />
         <div className="flex-1 min-w-0">
-          <div className="font-bold text-sm">Instale o MONTEX</div>
-          <div className="text-[12px] text-slate-300 mt-0.5 leading-snug">
-            Toque em <Share className="inline w-3.5 h-3.5 -mt-0.5 text-blue-400" /> Compartilhar e em <span className="font-semibold text-slate-100">"Adicionar à Tela de Início"</span> <Plus className="inline w-3.5 h-3.5 -mt-0.5" />.
+          <div className="text-[15px] font-semibold text-mx-text">Instale o Montex no iPhone</div>
+          <div className="mt-0.5 text-[13px] leading-snug text-mx-text2">
+            Toque em <Share className="inline w-3.5 h-3.5 -mt-0.5 text-mx-tealhi" /> Compartilhar e em <span className="font-semibold text-mx-text">"Adicionar à Tela de Início"</span> <Plus className="inline w-3.5 h-3.5 -mt-0.5" />.
           </div>
         </div>
-        <button onClick={dismiss} aria-label="Dispensar" className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 active:bg-slate-700 flex-shrink-0">
+        <button onClick={dismiss} aria-label="Dispensar" className="w-8 h-8 flex items-center justify-center rounded-lg text-mx-text3 active:bg-mx-s3 flex-shrink-0">
           <X className="w-4 h-4" />
         </button>
       </div>

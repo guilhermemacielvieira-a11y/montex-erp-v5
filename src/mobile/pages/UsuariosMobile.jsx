@@ -120,16 +120,16 @@ function MatrizPermissoes({ perms, onToggle, disabled }) {
       {Object.entries(GRUPOS_PERM).map(([grupo, itens]) => {
         const marcados = itens.filter(p => perms.includes(p.key)).length;
         return (
-          <div key={grupo} className="bg-slate-800/40 rounded-xl p-3">
+          <div key={grupo} className="bg-mx-s2/40 rounded-xl p-3">
             <div className="flex items-center justify-between mb-2">
-              <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">{grupo}</div>
-              <span className={`text-[10px] font-bold ${marcados ? 'text-amber-400' : 'text-slate-600'}`}>{marcados}/{itens.length}</span>
+              <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-bold">{grupo}</div>
+              <span className={`text-[10px] font-bold ${marcados ? 'text-mx-tealhi' : 'text-mx-text3'}`}>{marcados}/{itens.length}</span>
             </div>
             <div className="space-y-1.5">
               {itens.map(p => (
                 <label key={p.key} className="flex items-center gap-2.5 py-1 active:opacity-70">
                   <CheckBox checked={perms.includes(p.key)} disabled={disabled} onChange={() => onToggle(p.key)} />
-                  <span className="text-[13px] text-slate-200 flex-1">{p.label}</span>
+                  <span className="text-[13px] text-mx-text flex-1">{p.label}</span>
                 </label>
               ))}
             </div>
@@ -210,9 +210,9 @@ export default function UsuariosMobile() {
       {/* Stats */}
       <div className="px-4 pt-3">
         <div className="grid grid-cols-4 gap-2">
-          <Stat label="Total" value={stats.total} color="text-slate-100" />
+          <Stat label="Total" value={stats.total} color="text-mx-text" />
           <Stat label="Ativos" value={stats.ativos} color="text-emerald-400" />
-          <Stat label="Inativos" value={stats.inativos} color="text-slate-400" />
+          <Stat label="Inativos" value={stats.inativos} color="text-mx-text2" />
           <Stat label="Admins" value={stats.admins} color="text-orange-400" />
         </div>
       </div>
@@ -232,7 +232,7 @@ export default function UsuariosMobile() {
 
       {/* Lista */}
       <div className="px-4 pt-3 space-y-2 pb-4">
-        {loading && <div className="text-center py-10 text-slate-400 text-sm">Carregando usuários…</div>}
+        {loading && <div className="text-center py-10 text-mx-text2 text-sm">Carregando usuários…</div>}
 
         {!loading && erro && (
           <EmptyState
@@ -268,7 +268,7 @@ export default function UsuariosMobile() {
       {podeGerenciar && !loading && (
         <button
           onClick={() => { tap('light'); setSheet({ mode: 'novo' }); }}
-          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+          className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
           style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
         >
           <UserPlus className="w-5 h-5" /> Novo usuário
@@ -305,17 +305,17 @@ function UserCard({ u, ehVoce, onTap }) {
     <motion.button
       onClick={onTap}
       whileTap={{ scale: 0.98 }}
-      className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${inativo ? 'bg-slate-900/50 border-slate-800 opacity-60' : 'bg-slate-900 border-slate-800 active:border-amber-500/40'}`}
+      className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${inativo ? 'bg-mx-s1/50 border-mx-line opacity-60' : 'bg-mx-s1 border-mx-line active:border-mx-teal/40'}`}
     >
-      <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-black text-base flex-shrink-0 ${inativo ? 'bg-slate-800 text-slate-500' : 'bg-gradient-to-br from-amber-500 to-orange-600 text-slate-950'}`}>
+      <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-black text-base flex-shrink-0 ${inativo ? 'bg-mx-s2 text-mx-text3' : 'bg-gradient-to-br from-mx-teal to-mx-teal text-mx-bg'}`}>
         {inicial}
       </div>
       <div className="flex-1 min-w-0">
         <div className="font-bold text-sm truncate flex items-center gap-1.5">
           {u.nome || '—'}
-          {ehVoce && <span className="text-[9px] font-bold text-amber-400 bg-amber-500/15 px-1.5 py-0.5 rounded">VOCÊ</span>}
+          {ehVoce && <span className="text-[9px] font-bold text-mx-tealhi bg-mx-teal/15 px-1.5 py-0.5 rounded">VOCÊ</span>}
         </div>
-        <div className="text-[11px] text-slate-400 truncate flex items-center gap-1">
+        <div className="text-[11px] text-mx-text2 truncate flex items-center gap-1">
           <Mail className="w-3 h-3 flex-shrink-0" /> {u.email || '—'}
         </div>
       </div>
@@ -324,7 +324,7 @@ function UserCard({ u, ehVoce, onTap }) {
           {roleLabel(u.role)}
         </span>
         {inativo
-          ? <span className="text-[9px] font-bold text-slate-500">INATIVO</span>
+          ? <span className="text-[9px] font-bold text-mx-text3">INATIVO</span>
           : Array.isArray(u.permissoes) && u.permissoes.length > 0
             ? <span className="text-[9px] font-bold text-cyan-400">PERSONALIZADO</span>
             : null}
@@ -395,13 +395,13 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
           <div className="space-y-2">
             <button
               onClick={() => enviarAcessoUI(criado)}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition bg-emerald-500 text-slate-950"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition bg-emerald-500 text-mx-bg"
             >
               <Share2 className="w-5 h-5" /> Enviar acesso ao usuário
             </button>
             <button
               onClick={onClose}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-[.99] transition bg-slate-800 text-slate-300 border border-slate-700"
+              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold text-xs active:scale-[.99] transition bg-mx-s2 text-mx-text2 border border-mx-line"
             >
               Concluir
             </button>
@@ -423,7 +423,7 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
         <button
           onClick={criar}
           disabled={!valido || salvando}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-50 bg-amber-500 text-slate-950"
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-50 bg-mx-teal text-white"
         >
           {!salvando && <UserPlus className="w-5 h-5" />}
           {salvando ? 'Criando…' : 'Criar usuário'}
@@ -433,28 +433,28 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
       <div className="space-y-4">
         <Campo label="Nome completo">
           <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Ex.: João da Silva"
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50" />
+            className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-mx-teal/50" />
         </Campo>
         <Campo label="Email" hint={!email || emailValido(email) ? null : 'Email inválido'}>
           <input value={email} onChange={e => setEmail(e.target.value)} type="email" inputMode="email" autoCapitalize="none" placeholder="usuario@empresa.com"
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50" />
+            className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-mx-teal/50" />
         </Campo>
         <Campo label="Cargo (opcional)">
           <input value={cargo} onChange={e => setCargo(e.target.value)} placeholder="Ex.: Encarregado de montagem"
-            className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-amber-500/50" />
+            className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-mx-teal/50" />
         </Campo>
         <Campo label="Senha inicial" hint={senha.length < 6 ? 'Mínimo 6 caracteres' : 'Entregue esta senha ao usuário'}>
           <div className="flex items-center gap-2">
             <div className="relative flex-1">
               <input value={senha} onChange={e => setSenha(e.target.value)} type={verSenha ? 'text' : 'password'}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 pr-10 text-sm font-mono focus:outline-none focus:border-amber-500/50" />
+                className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 pr-10 text-sm font-mono focus:outline-none focus:border-mx-teal/50" />
               <button type="button" onClick={() => setVerSenha(v => !v)} aria-label={verSenha ? 'Ocultar' : 'Mostrar'}
-                className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-slate-400">
+                className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-mx-text2">
                 {verSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
             <button type="button" onClick={() => { setSenha(gerarSenha()); setVerSenha(true); }} aria-label="Gerar senha"
-              className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-amber-400 active:scale-95 transition">
+              className="w-11 h-11 flex items-center justify-center rounded-xl bg-mx-s2 border border-mx-line text-mx-tealhi active:scale-95 transition">
               <Wand2 className="w-4 h-4" />
             </button>
           </div>
@@ -465,8 +465,8 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
 
         {/* Módulos liberados — a SELEÇÃO é o que vale para o acesso */}
         <div>
-          <div className="text-[13px] font-bold text-slate-200 flex items-center gap-1.5 mb-1">
-            <Shield className="w-3.5 h-3.5 text-amber-400" /> Módulos liberados
+          <div className="text-[13px] font-bold text-mx-text flex items-center gap-1.5 mb-1">
+            <Shield className="w-3.5 h-3.5 text-mx-tealhi" /> Módulos liberados
           </div>
           {ehAdmin ? (
             <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2.5 text-[12px] text-orange-300">
@@ -474,12 +474,12 @@ function NovoUsuarioSheet({ open, onClose, onCriado }) {
             </div>
           ) : (
             <>
-              <p className="text-[11px] text-slate-400 mb-1">
+              <p className="text-[11px] text-mx-text2 mb-1">
                 O usuário verá e editará <strong>somente</strong> os módulos marcados. A função acima apenas pré-seleciona — ajuste à vontade.
               </p>
               <MatrizPermissoes perms={perms} onToggle={togglePerm} />
               {permissoesSalvar.length === 0 && (
-                <div className="text-[11px] text-amber-400/90 mt-1">Marque ao menos um módulo para liberar o acesso.</div>
+                <div className="text-[11px] text-mx-tealhi/90 mt-1">Marque ao menos um módulo para liberar o acesso.</div>
               )}
             </>
           )}
@@ -593,7 +593,7 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
         <button
           onClick={salvar}
           disabled={salvando}
-          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-50 bg-emerald-500 text-slate-950"
+          className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-sm active:scale-[.99] transition disabled:opacity-50 bg-emerald-500 text-mx-bg"
         >
           {!salvando && <Check className="w-5 h-5" />}
           {salvando ? 'Salvando…' : 'Salvar alterações'}
@@ -603,20 +603,20 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
       <div className="space-y-5">
         {/* Identificação */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center font-black text-slate-950 text-lg flex-shrink-0">
+          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-mx-teal to-mx-teal flex items-center justify-center font-black text-mx-bg text-lg flex-shrink-0">
             {(user.nome || user.email || 'U').trim().charAt(0).toUpperCase()}
           </div>
           <div className="min-w-0">
-            <div className="text-[11px] text-slate-400 flex items-center gap-1 truncate"><Mail className="w-3 h-3" /> {user.email}</div>
-            {user.cargo && <div className="text-[11px] text-slate-500 truncate">{user.cargo}</div>}
-            <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${inativo ? 'bg-slate-700 text-slate-300' : 'bg-emerald-500/15 text-emerald-300'}`}>
+            <div className="text-[11px] text-mx-text2 flex items-center gap-1 truncate"><Mail className="w-3 h-3" /> {user.email}</div>
+            {user.cargo && <div className="text-[11px] text-mx-text3 truncate">{user.cargo}</div>}
+            <span className={`inline-block mt-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${inativo ? 'bg-mx-s3 text-mx-text2' : 'bg-emerald-500/15 text-emerald-300'}`}>
               {inativo ? 'Inativo' : 'Ativo'}
             </span>
           </div>
         </div>
 
         {!podeGerenciar && (
-          <div className="bg-slate-800/60 rounded-xl px-3 py-2.5 text-[12px] text-slate-300">
+          <div className="bg-mx-s2/60 rounded-xl px-3 py-2.5 text-[12px] text-mx-text2">
             Você tem acesso de leitura. Apenas administradores podem editar.
           </div>
         )}
@@ -630,8 +630,8 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <div>
-              <div className="text-[13px] font-bold text-slate-200 flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-amber-400" /> Módulos liberados</div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[13px] font-bold text-mx-text flex items-center gap-1.5"><Shield className="w-3.5 h-3.5 text-mx-tealhi" /> Módulos liberados</div>
+              <div className="text-[11px] text-mx-text2">
                 {ehAdmin ? 'Acesso total' : `O usuário vê/edita somente o marcado · ${permissoesSalvar.length} ativo(s)`}
               </div>
             </div>
@@ -639,7 +639,7 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
               <button
                 type="button"
                 onClick={() => setPerms(presetFuncao(role))}
-                className="text-[11px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
+                className="text-[11px] font-bold text-mx-tealhi bg-mx-teal/10 border border-mx-teal/30 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
               >
                 Preset {roleLabel(role)}
               </button>
@@ -662,11 +662,11 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
               <button
                 type="button"
                 onClick={enviarSoLink}
-                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-slate-200 font-bold text-sm active:scale-[.99] transition"
+                className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-mx-s2 border border-mx-line text-mx-text font-bold text-sm active:scale-[.99] transition"
               >
-                <Share2 className="w-4 h-4 text-amber-400" /> Enviar link de acesso
+                <Share2 className="w-4 h-4 text-mx-tealhi" /> Enviar link de acesso
               </button>
-              <p className="text-[11px] text-slate-500 mt-1.5">Envia o link + email. Para incluir uma nova senha, use “Redefinir e enviar” abaixo.</p>
+              <p className="text-[11px] text-mx-text3 mt-1.5">Envia o link + email. Para incluir uma nova senha, use “Redefinir e enviar” abaixo.</p>
             </Campo>
 
             {/* Redefinir senha */}
@@ -674,20 +674,20 @@ function EditarUsuarioSheet({ open, user, ehVoce, podeGerenciar, onClose, onPatc
               <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                   <input value={novaSenha} onChange={e => setNovaSenha(e.target.value)} type={verSenha ? 'text' : 'password'} placeholder="Nova senha (mín. 6)"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 pr-10 text-sm font-mono focus:outline-none focus:border-amber-500/50" />
+                    className="w-full bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 pr-10 text-sm font-mono focus:outline-none focus:border-mx-teal/50" />
                   <button type="button" onClick={() => setVerSenha(v => !v)} aria-label={verSenha ? 'Ocultar' : 'Mostrar'}
-                    className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-slate-400">
+                    className="absolute right-1 top-1/2 -translate-y-1/2 w-9 h-9 flex items-center justify-center text-mx-text2">
                     {verSenha ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
                 <button type="button" onClick={() => { setNovaSenha(gerarSenha()); setVerSenha(true); }} aria-label="Gerar senha"
-                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-amber-400 active:scale-95 transition">
+                  className="w-11 h-11 flex items-center justify-center rounded-xl bg-mx-s2 border border-mx-line text-mx-tealhi active:scale-95 transition">
                   <Wand2 className="w-4 h-4" />
                 </button>
               </div>
               <div className="flex items-center gap-2 mt-2">
                 <button type="button" onClick={() => redefinirSenha(false)} disabled={resetando || novaSenha.length < 6}
-                  className="flex-1 h-10 flex items-center justify-center gap-1.5 rounded-xl bg-amber-500/20 text-amber-300 font-bold text-xs active:scale-95 transition disabled:opacity-40">
+                  className="flex-1 h-10 flex items-center justify-center gap-1.5 rounded-xl bg-mx-teal/20 text-mx-tealhi font-bold text-xs active:scale-95 transition disabled:opacity-40">
                   <KeyRound className="w-4 h-4" /> {resetando ? '…' : 'Aplicar'}
                 </button>
                 <button type="button" onClick={() => redefinirSenha(true)} disabled={resetando || novaSenha.length < 6}
@@ -728,16 +728,16 @@ function CartaoAcesso({ dados }) {
         <CheckCircle2 className="w-5 h-5" />
         <span className="text-sm font-bold">Usuário criado com sucesso</span>
       </div>
-      <p className="text-[12px] text-slate-400 leading-relaxed">
+      <p className="text-[12px] text-mx-text2 leading-relaxed">
         Envie estes dados para o usuário. A senha aparece <strong>só agora</strong> —
         depois não é mais possível visualizá-la (apenas redefinir).
       </p>
       <CopyRow icon={Link2} label="Link de acesso" valor={url} onCopy={() => copiar(url, 'Link')} mono />
       <CopyRow icon={Mail} label="Email" valor={dados.email} onCopy={() => copiar(dados.email, 'Email')} />
       <CopyRow icon={KeyRound} label="Senha inicial" valor={dados.senha} onCopy={() => copiar(dados.senha, 'Senha')} mono />
-      <div className="flex items-center gap-2 bg-slate-800/60 rounded-xl px-3 py-2">
-        <Shield className="w-4 h-4 text-amber-400 flex-shrink-0" />
-        <span className="text-[12px] text-slate-300">Função: <strong>{roleLabel(dados.role)}</strong></span>
+      <div className="flex items-center gap-2 bg-mx-s2/60 rounded-xl px-3 py-2">
+        <Shield className="w-4 h-4 text-mx-tealhi flex-shrink-0" />
+        <span className="text-[12px] text-mx-text2">Função: <strong>{roleLabel(dados.role)}</strong></span>
       </div>
     </div>
   );
@@ -746,15 +746,15 @@ function CartaoAcesso({ dados }) {
 function CopyRow({ icon: Icon, label, valor, onCopy, mono }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wider text-slate-400 font-bold mb-1 flex items-center gap-1.5">
+      <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-bold mb-1 flex items-center gap-1.5">
         {Icon && <Icon className="w-3 h-3" />} {label}
       </div>
       <div className="flex items-center gap-2">
-        <div className={`flex-1 min-w-0 bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-sm truncate ${mono ? 'font-mono' : ''}`}>
+        <div className={`flex-1 min-w-0 bg-mx-s2 border border-mx-line rounded-xl px-3 py-2.5 text-sm truncate ${mono ? 'font-mono' : ''}`}>
           {valor}
         </div>
         <button type="button" onClick={onCopy} aria-label={`Copiar ${label}`}
-          className="w-11 h-11 flex items-center justify-center rounded-xl bg-slate-800 border border-slate-700 text-amber-400 active:scale-95 transition flex-shrink-0">
+          className="w-11 h-11 flex items-center justify-center rounded-xl bg-mx-s2 border border-mx-line text-mx-tealhi active:scale-95 transition flex-shrink-0">
           <Copy className="w-4 h-4" />
         </button>
       </div>
@@ -767,9 +767,9 @@ function CopyRow({ icon: Icon, label, valor, onCopy, mono }) {
 // ============================================================
 function Stat({ label, value, color }) {
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-2.5 text-center">
+    <div className="bg-mx-s1 border border-mx-line rounded-xl p-2.5 text-center">
       <div className={`text-xl font-black tabular-nums ${color}`}>{value}</div>
-      <div className="text-[10px] uppercase tracking-wider text-slate-500 font-bold mt-0.5">{label}</div>
+      <div className="text-[10px] uppercase tracking-wider text-mx-text3 font-bold mt-0.5">{label}</div>
     </div>
   );
 }
@@ -778,7 +778,7 @@ function Chip({ ativo, onClick, children }) {
   return (
     <button
       onClick={onClick}
-      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition ${ativo ? 'bg-amber-500 text-slate-950' : 'bg-slate-900 border border-slate-800 text-slate-400'}`}
+      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-bold transition ${ativo ? 'bg-mx-teal text-white' : 'bg-mx-s1 border border-mx-line text-mx-text2'}`}
     >
       {children}
     </button>
@@ -789,8 +789,8 @@ function Campo({ label, hint, children }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-1.5">
-        <label className="text-[11px] uppercase tracking-wider text-slate-400 font-bold">{label}</label>
-        {hint && <span className="text-[11px] text-amber-400/80">{hint}</span>}
+        <label className="text-[11px] uppercase tracking-wider text-mx-text2 font-bold">{label}</label>
+        {hint && <span className="text-[11px] text-mx-tealhi/80">{hint}</span>}
       </div>
       {children}
     </div>
@@ -808,14 +808,14 @@ function RoleSelector({ value, onChange, disabled }) {
             type="button"
             onClick={() => !disabled && onChange(r)}
             disabled={disabled}
-            className={`w-full text-left rounded-xl border p-2.5 flex items-center gap-2.5 transition ${sel ? 'bg-amber-500/10 border-amber-500/40' : 'bg-slate-800 border-slate-700'} ${disabled ? 'opacity-60' : 'active:scale-[.99]'}`}
+            className={`w-full text-left rounded-xl border p-2.5 flex items-center gap-2.5 transition ${sel ? 'bg-mx-teal/10 border-mx-teal/40' : 'bg-mx-s2 border-mx-line'} ${disabled ? 'opacity-60' : 'active:scale-[.99]'}`}
           >
-            <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${sel ? 'border-amber-400' : 'border-slate-500'}`}>
-              {sel && <span className="w-2 h-2 rounded-full bg-amber-400" />}
+            <span className={`w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${sel ? 'border-mx-tealhi' : 'border-mx-line'}`}>
+              {sel && <span className="w-2 h-2 rounded-full bg-mx-teal" />}
             </span>
             <span className="flex-1 min-w-0">
-              <span className="text-sm font-bold text-slate-100">{ROLE_META[r].label}</span>
-              <span className="block text-[11px] text-slate-400 truncate">{ROLE_META[r].desc}</span>
+              <span className="text-sm font-bold text-mx-text">{ROLE_META[r].label}</span>
+              <span className="block text-[11px] text-mx-text2 truncate">{ROLE_META[r].desc}</span>
             </span>
           </button>
         );
@@ -832,9 +832,9 @@ function CheckBox({ checked, onChange, disabled }) {
       aria-checked={checked}
       disabled={disabled}
       onClick={onChange}
-      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition ${checked ? 'bg-amber-500 border-amber-500' : 'bg-slate-800 border-slate-600'} ${disabled ? 'opacity-50' : ''}`}
+      className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition ${checked ? 'bg-mx-teal border-mx-teal' : 'bg-mx-s2 border-mx-line'} ${disabled ? 'opacity-50' : ''}`}
     >
-      {checked && <Check className="w-3.5 h-3.5 text-slate-950" strokeWidth={3} />}
+      {checked && <Check className="w-3.5 h-3.5 text-mx-bg" strokeWidth={3} />}
     </button>
   );
 }

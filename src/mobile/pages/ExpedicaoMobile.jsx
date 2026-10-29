@@ -30,7 +30,7 @@ import PrevisaoCargasMobile from '../components/PrevisaoCargasMobile';
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
 const STATUS = {
-  preparando: { label: 'Preparando', cls: 'bg-amber-500/15 text-amber-300 border-amber-500/30' },
+  preparando: { label: 'Preparando', cls: 'bg-mx-teal/15 text-mx-tealhi border-mx-teal/30' },
   aguardando_transporte: { label: 'Aguardando transporte', cls: 'bg-orange-500/15 text-orange-300 border-orange-500/30' },
   em_transito: { label: 'Em trânsito', cls: 'bg-blue-500/15 text-blue-300 border-blue-500/30' },
   entregue: { label: 'Entregue', cls: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30' },
@@ -173,15 +173,15 @@ export default function ExpedicaoMobile() {
       <MobileLayout title={`Romaneio ${romaneio.numeroRomaneio || romaneio.id}`} back onBack={voltar}>
         {/* Cabeçalho do romaneio */}
         <div className="px-4 pt-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4">
+          <div className="bg-mx-s1 border border-mx-line rounded-2xl p-4">
             <div className="flex items-center justify-between">
               <span className={`text-[11px] font-bold px-2.5 py-1 rounded-full border ${si.cls}`}>{si.label}</span>
-              <button onClick={voltar} className="text-[11px] text-slate-400 flex items-center gap-1"><ChevronLeft className="w-3.5 h-3.5" /> Lista</button>
+              <button onClick={voltar} className="text-[11px] text-mx-text2 flex items-center gap-1"><ChevronLeft className="w-3.5 h-3.5" /> Lista</button>
             </div>
             {romaneio.destino && (
-              <div className="flex items-center gap-1.5 text-sm text-slate-300 mt-3"><MapPin className="w-4 h-4 text-amber-400" /> {romaneio.destino}</div>
+              <div className="flex items-center gap-1.5 text-sm text-mx-text2 mt-3"><MapPin className="w-4 h-4 text-mx-tealhi" /> {romaneio.destino}</div>
             )}
-            <div className="text-[11px] text-slate-400 mt-1">
+            <div className="text-[11px] text-mx-text2 mt-1">
               {romaneio.transportadora || 'Transportadora —'} {romaneio.placa ? `· ${romaneio.placa}` : ''}
             </div>
           </div>
@@ -190,29 +190,29 @@ export default function ExpedicaoMobile() {
         {/* Progresso de conferência */}
         <div className="px-4 mt-4">
           <div className="flex items-center justify-between mb-1.5">
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold">Conferência de carga</div>
-            <div className="text-sm font-black text-amber-400">{conferidas}/{total}</div>
+            <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold">Conferência de carga</div>
+            <div className="text-sm font-black text-mx-tealhi">{conferidas}/{total}</div>
           </div>
-          <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-amber-500 transition-all duration-300" style={{ width: pct + '%' }} />
+          <div className="h-2 bg-mx-s2 rounded-full overflow-hidden">
+            <div className="h-full bg-mx-teal transition-all duration-300" style={{ width: pct + '%' }} />
           </div>
         </div>
 
         {/* Itens */}
         <div className="px-4 mt-3 space-y-2">
-          {itens.length === 0 && <div className="text-center py-10 text-slate-400 text-sm">Romaneio sem peças vinculadas.</div>}
+          {itens.length === 0 && <div className="text-center py-10 text-mx-text2 text-sm">Romaneio sem peças vinculadas.</div>}
           {itens.map(i => {
             const ok = !!conf[i.id];
             return (
               <button
                 key={i.id}
                 onClick={() => toggleConf(i.id)}
-                className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${ok ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-slate-800'}`}
+                className={`w-full text-left rounded-2xl border p-3 flex items-center gap-3 transition ${ok ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-mx-s1 border-mx-line'}`}
               >
-                {ok ? <CheckCircle2 className="w-7 h-7 text-emerald-400 flex-shrink-0" /> : <Circle className="w-7 h-7 text-slate-500 flex-shrink-0" />}
+                {ok ? <CheckCircle2 className="w-7 h-7 text-emerald-400 flex-shrink-0" /> : <Circle className="w-7 h-7 text-mx-text3 flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm">{i.marca}</div>
-                  <div className="text-[11px] text-slate-400 truncate">{i.tipo || '—'} · {fmtPeso(i.peso)}</div>
+                  <div className="text-[11px] text-mx-text2 truncate">{i.tipo || '—'} · {fmtPeso(i.peso)}</div>
                 </div>
                 {ok && <span className="text-[10px] font-bold text-emerald-400">CONFERIDA</span>}
               </button>
@@ -224,7 +224,7 @@ export default function ExpedicaoMobile() {
         {podeDespacharExp && total > 0 && (
           <button
             onClick={() => { tap('light'); setScanOpen(true); }}
-            className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-amber-500 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/30 active:scale-95 transition"
+            className="fixed right-4 z-30 flex items-center gap-2 px-5 py-3.5 rounded-full bg-mx-teal text-white font-black text-sm shadow-lg shadow-black/40 active:scale-95 transition"
             style={{ bottom: 'calc(env(safe-area-inset-bottom) + 80px)' }}
           >
             <ScanLine className="w-5 h-5" /> Bipar peça
@@ -261,13 +261,13 @@ export default function ExpedicaoMobile() {
           }
         >
           <div className="space-y-3 text-sm">
-            <p className="text-slate-300">
+            <p className="text-mx-text2">
               O romaneio <b>{romaneio.numeroRomaneio || romaneio.id}</b> será marcado como
               <b className="text-blue-300"> Em trânsito</b> e suas <b>{total}</b> peças irão para
-              <b className="text-amber-300"> Aguardando Montagem</b> em campo.
+              <b className="text-mx-tealhi"> Aguardando Montagem</b> em campo.
             </p>
             {conferidas < total && (
-              <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 px-3 py-2.5 text-amber-300 text-[13px]">
+              <div className="rounded-xl bg-mx-teal/10 border border-mx-teal/30 px-3 py-2.5 text-mx-tealhi text-[13px]">
                 Atenção: {total - conferidas} peça(s) ainda não conferida(s).
               </div>
             )}
@@ -291,13 +291,13 @@ export default function ExpedicaoMobile() {
         onSelectObra={(id) => { tap('light'); setObraFiltro(id); }}
       />
       <div className="px-4 pt-3 pb-2">
-        <div className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+        <div className="text-[11px] text-mx-text2 uppercase tracking-wider font-semibold">
           {romaneios.length} romaneio(s)
         </div>
       </div>
       <div className="px-4 space-y-2">
         {romaneios.length === 0 && (
-          <div className="text-center py-12 text-slate-400">
+          <div className="text-center py-12 text-mx-text2">
             <Truck className="w-10 h-10 mx-auto mb-2 opacity-40" />
             <div className="text-sm">Nenhum romaneio para esta obra</div>
           </div>
@@ -311,19 +311,19 @@ export default function ExpedicaoMobile() {
             <button
               key={r.id}
               onClick={() => abrirRomaneio(r)}
-              className="w-full text-left rounded-2xl border border-slate-800 bg-slate-900 p-3.5 flex items-center gap-3 active:scale-[.99] transition"
+              className="w-full text-left rounded-2xl border border-mx-line bg-mx-s1 p-3.5 flex items-center gap-3 active:scale-[.99] transition"
             >
-              <div className="w-11 h-11 rounded-xl bg-slate-800 flex items-center justify-center"><Package className="w-5 h-5 text-amber-400" /></div>
+              <div className="w-11 h-11 rounded-xl bg-mx-s2 flex items-center justify-center"><Package className="w-5 h-5 text-mx-tealhi" /></div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm truncate">{r.numeroRomaneio || r.id}</span>
                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${si.cls}`}>{si.label}</span>
                 </div>
-                <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                <div className="text-[11px] text-mx-text2 truncate mt-0.5">
                   {nIds} peça(s){nConf > 0 ? ` · ${nConf} conferida(s)` : ''}{r.destino ? ` · ${r.destino}` : ''}
                 </div>
               </div>
-              <ChevronRight className="w-5 h-5 text-slate-500" />
+              <ChevronRight className="w-5 h-5 text-mx-text3" />
             </button>
           );
         })}

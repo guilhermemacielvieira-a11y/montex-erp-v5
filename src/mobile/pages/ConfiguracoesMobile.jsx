@@ -56,12 +56,12 @@ export default function ConfiguracoesMobile() {
               <button
                 onClick={ativarPush}
                 disabled={pushStatus === 'denied'}
-                className="text-[12px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 rounded-lg px-3 py-1.5 active:scale-95 transition disabled:opacity-50"
+                className="text-[12px] font-bold text-mx-tealhi bg-mx-teal/15 border border-mx-teal/30 rounded-lg px-3 py-1.5 active:scale-95 transition disabled:opacity-50"
               >Ativar</button>
             )}
           </Row>
           {!isPushAvailable() && (
-            <div className="px-1 pt-1 text-[11px] text-slate-400">
+            <div className="px-1 pt-1 text-[11px] text-mx-text2">
               Disponível no app instalado (iOS). Veja Perfil → "Instale o MONTEX".
             </div>
           )}
@@ -72,11 +72,11 @@ export default function ConfiguracoesMobile() {
           <Row icon={CloudOff} label="Ações pendentes" sub={pendentes ? `${pendentes} aguardando rede` : 'Tudo sincronizado'}>
             <button
               onClick={sincronizarAgora}
-              className="flex items-center gap-1 text-[12px] font-bold text-amber-400 bg-amber-500/15 border border-amber-500/30 rounded-lg px-3 py-1.5 active:scale-95 transition"
+              className="flex items-center gap-1 text-[12px] font-bold text-mx-tealhi bg-mx-teal/15 border border-mx-teal/30 rounded-lg px-3 py-1.5 active:scale-95 transition"
             ><RefreshCw className="w-3.5 h-3.5" /> Sincronizar</button>
           </Row>
           {lastTs > 0 && (
-            <div className="px-1 pt-1 text-[11px] text-slate-400">Dados atualizados {formatRelative(lastTs)}.</div>
+            <div className="px-1 pt-1 text-[11px] text-mx-text2">Dados atualizados {formatRelative(lastTs)}.</div>
           )}
         </Secao>
 
@@ -84,29 +84,29 @@ export default function ConfiguracoesMobile() {
         {mortas.length > 0 && (
           <div>
             <div className="text-[11px] uppercase tracking-wider text-red-400 font-semibold mb-2">Falhas de sincronização</div>
-            <div className="bg-slate-900 border border-red-500/30 rounded-2xl divide-y divide-slate-800">
+            <div className="bg-mx-s1 border border-red-500/30 rounded-2xl divide-y divide-mx-line">
               {mortas.map(op => (
                 <div key={op.id} className="px-3.5 py-3">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0" />
                     <span className="flex-1 min-w-0 text-[13px] font-semibold truncate">{op.label}</span>
-                    <span className="text-[10px] text-slate-400 whitespace-nowrap">{op.attempts || MAX_ATTEMPTS} tentativas</span>
+                    <span className="text-[10px] text-mx-text2 whitespace-nowrap">{op.attempts || MAX_ATTEMPTS} tentativas</span>
                   </div>
                   {op.lastError && <div className="text-[11px] text-red-300/80 mt-1 ml-6 break-words">{op.lastError}</div>}
                   <div className="flex gap-2 mt-2 ml-6">
                     <button
                       onClick={() => { retryDead(op.id); toast('Reenfileirada — sincronizando…', { icon: '🔁' }); }}
-                      className="flex items-center gap-1 text-[11px] font-bold text-amber-300 bg-amber-500/15 border border-amber-500/30 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
+                      className="flex items-center gap-1 text-[11px] font-bold text-mx-tealhi bg-mx-teal/15 border border-mx-teal/30 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
                     ><RotateCcw className="w-3 h-3" /> Tentar de novo</button>
                     <button
                       onClick={() => { discardDead(op.id); toast('Ação descartada', { icon: '🗑️' }); }}
-                      className="flex items-center gap-1 text-[11px] font-bold text-slate-300 bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 active:scale-95 transition"
+                      className="flex items-center gap-1 text-[11px] font-bold text-mx-text2 bg-mx-s2 border border-mx-line rounded-lg px-2.5 py-1.5 active:scale-95 transition"
                     ><Trash2 className="w-3 h-3" /> Descartar</button>
                   </div>
                 </div>
               ))}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1.5 px-1">
+            <div className="text-[11px] text-mx-text2 mt-1.5 px-1">
               Ações que falharam {MAX_ATTEMPTS}x online (ex.: registro alterado/removido). Confira o dado antes de tentar de novo.
             </div>
           </div>
@@ -115,13 +115,13 @@ export default function ConfiguracoesMobile() {
         {/* Atividade recente (histórico de sincronização) */}
         {historico.length > 0 && (
           <div>
-            <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">Atividade recente</div>
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl divide-y divide-slate-800">
+            <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-2">Atividade recente</div>
+            <div className="bg-mx-s1 border border-mx-line rounded-2xl divide-y divide-mx-line">
               {historico.slice(0, 8).map((h, i) => (
                 <div key={i} className="flex items-center gap-3 px-3.5 py-2.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
                   <span className="flex-1 min-w-0 text-[13px] truncate">{h.label}</span>
-                  <span className="text-[11px] text-slate-400 whitespace-nowrap">sincronizado {formatRelative(h.ts)}</span>
+                  <span className="text-[11px] text-mx-text2 whitespace-nowrap">sincronizado {formatRelative(h.ts)}</span>
                 </div>
               ))}
             </div>
@@ -147,8 +147,8 @@ function pushSubtitle(status) {
 function Secao({ titulo, children }) {
   return (
     <div>
-      <div className="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-2">{titulo}</div>
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl divide-y divide-slate-800">{children}</div>
+      <div className="text-[11px] uppercase tracking-wider text-mx-text2 font-semibold mb-2">{titulo}</div>
+      <div className="bg-mx-s1 border border-mx-line rounded-2xl divide-y divide-mx-line">{children}</div>
     </div>
   );
 }
@@ -156,12 +156,12 @@ function Secao({ titulo, children }) {
 function Row({ icon: Icon, label, sub, children }) {
   return (
     <div className="flex items-center gap-3 p-3.5">
-      <div className="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center flex-shrink-0"><Icon className="w-5 h-5 text-amber-400" /></div>
+      <div className="w-10 h-10 rounded-lg bg-mx-s2 flex items-center justify-center flex-shrink-0"><Icon className="w-5 h-5 text-mx-tealhi" /></div>
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold">{label}</div>
-        {sub && <div className="text-[11px] text-slate-400 leading-snug">{sub}</div>}
+        {sub && <div className="text-[11px] text-mx-text2 leading-snug">{sub}</div>}
       </div>
-      {children || <ChevronRight className="w-5 h-5 text-slate-500" />}
+      {children || <ChevronRight className="w-5 h-5 text-mx-text3" />}
     </div>
   );
 }

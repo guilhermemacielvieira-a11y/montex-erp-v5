@@ -2,15 +2,15 @@
   "appId": "com.montex.erp",
   "appName": "MONTEX",
   "webDir": "dist",
-  "backgroundColor": "#020617",
+  "backgroundColor": "#101416",
   "ios": {
     "contentInset": "always",
-    "backgroundColor": "#020617",
+    "backgroundColor": "#101416",
     "preferredContentMode": "mobile"
   },
   "plugins": {
     "SplashScreen": {
-      "backgroundColor": "#020617",
+      "backgroundColor": "#101416",
       "showSpinner": false,
       "launchAutoHide": true
     },

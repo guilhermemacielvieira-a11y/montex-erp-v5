@@ -41,7 +41,7 @@ export default function Sheet({ open, onClose, title, children, footer }) {
           // max-h-[85vh] = fallback CSS real (className) p/ browsers sem `dvh`;
           // a inline `maxHeight` em dvh sobrepõe onde houver suporte. dvh =
           // viewport dinâmica real do iOS Safari (desconta a barra do navegador).
-          className="fixed left-0 right-0 bottom-0 z-[76] bg-slate-900 border-t border-slate-700 rounded-t-3xl flex flex-col max-h-[85vh]"
+          className="fixed left-0 right-0 bottom-0 z-[76] bg-mx-s1 border-t border-mx-line rounded-t-3xl flex flex-col max-h-[85vh]"
           style={{
             paddingBottom: 'max(env(safe-area-inset-bottom), 12px)',
             maxHeight: 'min(85dvh, calc(100dvh - 56px))',
@@ -49,13 +49,13 @@ export default function Sheet({ open, onClose, title, children, footer }) {
         >
           {/* handle */}
           <div className="flex-shrink-0 pt-2 pb-1 flex justify-center">
-            <div className="w-10 h-1.5 rounded-full bg-slate-700" />
+            <div className="w-10 h-1.5 rounded-full bg-mx-s3" />
           </div>
           {title && (
-            <div className="flex-shrink-0 flex items-center gap-3 px-5 pb-3 pt-1 border-b border-slate-800">
+            <div className="flex-shrink-0 flex items-center gap-3 px-5 pb-3 pt-1 border-b border-mx-line">
               <h2 className="flex-1 font-bold text-base truncate">{title}</h2>
-              <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar">
-                <X className="w-5 h-5 text-slate-400" />
+              <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-mx-s2 active:bg-mx-s3" aria-label="Fechar">
+                <X className="w-5 h-5 text-mx-text2" />
               </button>
             </div>
           )}
@@ -63,7 +63,7 @@ export default function Sheet({ open, onClose, title, children, footer }) {
             {children}
           </div>
           {footer && (
-            <div className="flex-shrink-0 px-5 pt-3 border-t border-slate-800">{footer}</div>
+            <div className="flex-shrink-0 px-5 pt-3 border-t border-mx-line">{footer}</div>
           )}
         </motion.div>
       )}

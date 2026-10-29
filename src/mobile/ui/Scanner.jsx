@@ -135,19 +135,19 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe√
         <motion.div
           key="scan-overlay"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[70] bg-slate-950 flex flex-col"
+          className="fixed inset-0 z-[70] bg-mx-bg flex flex-col"
           style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: 'max(env(safe-area-inset-bottom), 12px)' }}
         >
           {/* Header */}
-          <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
-            <ScanLine className="w-5 h-5 text-amber-400" />
+          <div className="flex items-center gap-3 px-4 py-3 border-b border-mx-line">
+            <ScanLine className="w-5 h-5 text-mx-tealhi" />
             <h2 className="flex-1 font-bold text-base truncate">{title}</h2>
             {continuous && lidos > 0 && (
               <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 rounded-full px-2 py-0.5">
                 <CheckCircle2 className="w-3.5 h-3.5" /> {lidos}
               </span>
             )}
-            <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-slate-800 active:bg-slate-700" aria-label="Fechar scanner">
+            <button onClick={onClose} className="w-11 h-11 -mr-2 flex items-center justify-center rounded-lg hover:bg-mx-s2 active:bg-mx-s3" aria-label="Fechar scanner">
               <X className="w-5 h-5" />
             </button>
           </div>
@@ -156,9 +156,9 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe√
           <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
             <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" muted playsInline />
             {camState === 'live' && (
-              <div className="relative z-10 w-60 h-60 border-2 border-amber-400/80 rounded-2xl">
+              <div className="relative z-10 w-60 h-60 border-2 border-mx-tealhi/80 rounded-2xl">
                 <motion.div
-                  className="absolute left-0 right-0 h-0.5 bg-amber-400 shadow-[0_0_12px_2px_rgba(251,191,36,0.8)]"
+                  className="absolute left-0 right-0 h-0.5 bg-mx-teal shadow-[0_0_12px_2px_rgba(251,191,36,0.8)]"
                   initial={{ top: 0 }} animate={{ top: '100%' }}
                   transition={{ duration: 1.6, repeat: Infinity, ease: 'linear' }}
                 />
@@ -166,8 +166,8 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe√
             )}
             {(camState === 'unsupported' || camState === 'denied' || camState === 'idle' || camState === 'starting') && (
               <div className="relative z-10 text-center px-8">
-                <CameraOff className="w-10 h-10 mx-auto mb-3 text-slate-500" />
-                <div className="text-sm text-slate-400">
+                <CameraOff className="w-10 h-10 mx-auto mb-3 text-mx-text3" />
+                <div className="text-sm text-mx-text2">
                   {camState === 'starting' ? 'Abrindo c√¢mera‚Ä¶' : (hint || 'C√¢mera indispon√≠vel ‚Äî use a entrada manual abaixo')}
                 </div>
               </div>
@@ -181,8 +181,8 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe√
           </div>
 
           {/* Entrada manual (sempre dispon√≠vel) */}
-          <div className="px-4 pt-3 space-y-2 border-t border-slate-800">
-            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-slate-400 font-semibold">
+          <div className="px-4 pt-3 space-y-2 border-t border-mx-line">
+            <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-mx-text2 font-semibold">
               <Keyboard className="w-3.5 h-3.5" /> Ou digite a marca da pe√ßa
             </div>
             <div className="flex gap-2">
@@ -192,18 +192,18 @@ export default function Scanner({ open, onClose, onResult, title = 'Escanear pe√
                 onKeyDown={e => { if (e.key === 'Enter') confirmarManual(); }}
                 placeholder="Ex.: TS59A"
                 autoCapitalize="characters"
-                className="flex-1 bg-slate-900 border border-slate-800 rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-amber-500/50"
+                className="flex-1 bg-mx-s1 border border-mx-line rounded-xl px-3 py-3 text-sm focus:outline-none focus:border-mx-teal/50"
               />
               <button
                 onClick={confirmarManual}
                 disabled={!manual.trim()}
-                className="px-5 rounded-xl bg-amber-500 text-slate-950 font-bold text-sm active:scale-95 transition disabled:opacity-50"
+                className="px-5 rounded-xl bg-mx-teal text-white font-bold text-sm active:scale-95 transition disabled:opacity-50"
               >{continuous ? 'Bipar' : 'Buscar'}</button>
             </div>
             {continuous && (
               <button
                 onClick={onClose}
-                className="w-full mt-1 py-3 rounded-xl bg-slate-800 border border-slate-700 text-sm font-bold text-slate-100 active:scale-[.99] transition"
+                className="w-full mt-1 py-3 rounded-xl bg-mx-s2 border border-mx-line text-sm font-bold text-mx-text active:scale-[.99] transition"
               >Concluir{lidos > 0 ? ` (${lidos} bipado${lidos !== 1 ? 's' : ''})` : ''}</button>
             )}
           </div>

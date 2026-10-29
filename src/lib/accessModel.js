@@ -3,9 +3,10 @@
 // ============================================================
 // Espelha as superfícies reais do app mobile:
 //   • ROTAS  → MobileApp.jsx (<Protected perm=...>)
-//   • TABS   → MobileLayout BOTTOM_TABS
-//   • MAIS   → MaisMobile MODULOS
-//   • HOME   → HomeMobile (KPIs/atalhos/seções)
+//   • REDIRECTS → rotas antigas que redirecionam (MobileApp.jsx)
+//   • TABS   → app/Shell.jsx ABAS
+//   • MAIS   → telas/Mais.jsx GRUPOS
+//   • HOME   → telas/Inicio.jsx (atalhos e métricas com link)
 //   • ACOES  → travas de escrita das páginas (edição)
 //
 // Usado por scripts/simular-acesso.mjs (CLI) E pelos testes (vitest), para que
@@ -14,92 +15,95 @@
 // ============================================================
 import { ROLE_PERMISSIONS_MAP, ROLE_ORDER } from './permissions.js';
 
+const PERM_OBRAS = ['obras.view', 'projetos.view', 'bi.view'];
+const PERM_APROVAR = ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'];
+const PERM_MONTAGEM = ['montagem.view', 'producao.view'];
+
 export const ROTAS = {
   '/m': null,
-  '/m/producao': 'producao.view',
-  '/m/montagem': ['montagem.view', 'producao.view'],
+  '/m/obras': PERM_OBRAS,
+  '/m/obras/:id': PERM_OBRAS,
   '/m/financeiro': 'financeiro.view',
-  '/m/expedicao': 'expedicao.view',
+  '/m/fabrica': 'producao.view',
   '/m/mais': null,
-  '/m/3d': ['viewer3d.view', 'producao.view'],
-  '/m/kanban': 'kanban.view',
-  '/m/kanban-corte': 'kanban.view',
-  '/m/expedicao-desktop': 'expedicao.view',
+  '/m/aprovacoes': PERM_APROVAR,
+  '/m/alertas': null,
+  '/m/comercial': ['orcamentos.view', 'comercial.view', 'clientes.view'],
+  '/m/perfil': null,
   '/m/estoque': 'estoque.view',
   '/m/medicao': 'medicao.view',
-  '/m/aprovacoes': ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'],
   '/m/evidencias': 'producao.view',
   '/m/diario-obra': 'producao.lancar_avanco',
-  '/m/estoque-desktop': 'estoque.view',
-  '/m/despesas': 'financeiro.view',
-  '/m/receitas': 'financeiro.view',
-  '/m/obras-gfo': 'financeiro.view',
-  '/m/painel-global': 'financeiro.view',
-  '/m/painel-global-desktop': 'financeiro.view',
-  '/m/dre': 'financeiro.view',
-  '/m/obras': ['obras.view', 'projetos.view'],
-  '/m/clientes': 'clientes.view',
-  '/m/equipes': 'equipes.view',
-  '/m/orcamentos': 'orcamentos.view',
-  '/m/relatorios': 'relatorios.view',
-  '/m/dashboard': 'bi.view',
-  '/m/dashboard-bi': 'bi.view',
-  '/m/analise-producao': 'producao.view',
-  '/m/diario': 'producao.view',
   '/m/usuarios': 'usuarios.manage',
-  '/m/notificacoes': null,
-  '/m/perfil': null,
   '/m/config': null,
+  '/m/campo/producao': 'producao.view',
+  '/m/campo/montagem': PERM_MONTAGEM,
+  '/m/campo/expedicao': 'expedicao.view',
+  '/m/3d': ['viewer3d.view', 'producao.view'],
+  '/m/parede-pronta': PERM_MONTAGEM,
+  '/m/kanban': 'kanban.view',
+  '/m/kanban-corte': 'kanban.view',
+  '/m/relatorios': 'relatorios.view',
+};
+
+// Rotas antigas (links salvos, push, atalhos do PWA) → rota nova.
+export const REDIRECTS = {
+  producao: '/m/campo/producao',
+  montagem: '/m/campo/montagem',
+  expedicao: '/m/campo/expedicao',
+  'expedicao-desktop': '/m/campo/expedicao',
+  'estoque-desktop': '/m/estoque',
+  dashboard: '/m',
+  'dashboard-bi': '/m',
+  'analise-producao': '/m/fabrica',
+  diario: '/m/fabrica',
+  'painel-global': '/m/financeiro',
+  'painel-global-desktop': '/m/financeiro',
+  dre: '/m/financeiro?aba=dre',
+  despesas: '/m/financeiro?aba=pagar',
+  receitas: '/m/financeiro?aba=receber',
+  custo: '/m/financeiro?aba=custo',
+  'obras-gfo': '/m/obras',
+  notificacoes: '/m/alertas',
+  orcamentos: '/m/comercial',
+  clientes: '/m/comercial',
+  equipes: '/m/fabrica',
 };
 
 export const TABS = [
   { to: '/m', label: 'Início' },
-  { to: '/m/producao', label: 'Produção', perm: 'producao.view' },
-  { to: '/m/montagem', label: 'Montagem', perm: ['montagem.view', 'producao.view'] },
-  { to: '/m/expedicao', label: 'Expedição', perm: 'expedicao.view' },
+  { to: '/m/obras', label: 'Obras', perm: PERM_OBRAS },
+  { to: '/m/financeiro', label: 'Financeiro', perm: 'financeiro.view' },
+  { to: '/m/fabrica', label: 'Fábrica', perm: 'producao.view' },
   { to: '/m/mais', label: 'Mais' },
 ];
 
 export const MAIS = [
-  { to: '/m/diario-obra', label: 'Diário de Obra', perm: 'producao.lancar_avanco' },
+  { to: '/m/aprovacoes', label: 'Aprovações', perm: PERM_APROVAR },
+  { to: '/m/alertas', label: 'Alertas' },
+  { to: '/m/comercial', label: 'Comercial', perm: ['orcamentos.view', 'comercial.view', 'clientes.view'] },
+  { to: '/m/campo/producao', label: 'Lançar produção', perm: 'producao.lancar_avanco' },
+  { to: '/m/campo/montagem', label: 'Marcar montagem', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+  { to: '/m/campo/expedicao', label: 'Conferir e despachar carga', perm: 'expedicao.edit' },
+  { to: '/m/diario-obra', label: 'Diário de obra', perm: 'producao.lancar_avanco' },
+  { to: '/m/evidencias', label: 'Evidências', perm: 'producao.view' },
+  { to: '/m/medicao', label: 'Medição', perm: 'medicao.view' },
+  { to: '/m/estoque', label: 'Estoque detalhado', perm: 'estoque.view' },
   { to: '/m/3d', label: 'Visualizador 3D', perm: ['viewer3d.view', 'producao.view'] },
-  { to: '/m/kanban', label: 'Kanban Produção', perm: 'kanban.view' },
-  { to: '/m/kanban-corte', label: 'Kanban Corte', perm: 'kanban.view' },
-  { to: '/m/expedicao', label: 'Expedição', perm: 'expedicao.view' },
-  { to: '/m/estoque', label: 'Estoque', perm: 'estoque.view' },
-  { to: '/m/aprovacoes', label: 'Aprovações', perm: ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'] },
-  { to: '/m/obras', label: 'Obras', perm: ['obras.view', 'projetos.view'] },
-  { to: '/m/clientes', label: 'Clientes', perm: 'clientes.view' },
-  { to: '/m/equipes', label: 'Equipes', perm: 'equipes.view' },
-  { to: '/m/orcamentos', label: 'Orçamentos', perm: 'orcamentos.view' },
-  { to: '/m/painel-global', label: 'Painel Global', perm: 'financeiro.view' },
-  { to: '/m/dre', label: 'DRE', perm: 'financeiro.view' },
-  { to: '/m/receitas', label: 'Receitas', perm: 'financeiro.view' },
-  { to: '/m/despesas', label: 'Despesas', perm: 'financeiro.view' },
-  { to: '/m/financeiro', label: 'Financeiro da Obra', perm: 'financeiro.view' },
-  { to: '/m/obras-gfo', label: 'GFO', perm: 'financeiro.view' },
-  { to: '/m/dashboard', label: 'Dashboard', perm: 'bi.view' },
-  { to: '/m/analise-producao', label: 'Análise Produção', perm: 'producao.view' },
-  { to: '/m/diario', label: 'Diário Produção', perm: 'producao.view' },
-  { to: '/m/dashboard-bi', label: 'Dashboard BI', perm: 'bi.view' },
+  { to: '/m/kanban', label: 'Kanban de produção', perm: 'kanban.view' },
   { to: '/m/relatorios', label: 'Relatórios', perm: 'relatorios.view' },
   { to: '/m/usuarios', label: 'Usuários', perm: 'usuarios.manage' },
-  { to: '/m/notificacoes', label: 'Notificações' },
   { to: '/m/perfil', label: 'Perfil' },
   { to: '/m/config', label: 'Configurações' },
 ];
 
 export const HOME = [
-  { to: '/m/obras', label: 'KPI Obras ativas', perm: ['obras.view', 'projetos.view'] },
-  { to: '/m/montagem', label: 'KPI Peças montadas', perm: ['montagem.view', 'producao.view'] },
-  { to: '/m/producao', label: 'KPI Em produção', perm: 'producao.view' },
-  { to: '/m/despesas', label: 'KPI A pagar', perm: 'financeiro.view' },
-  { to: '/m/dashboard', label: 'Análise Estratégica', perm: 'bi.view' },
-  { to: '/m/expedicao', label: 'Atalho Expedição', perm: 'expedicao.view' },
-  { to: '/m/estoque', label: 'Atalho Estoque', perm: 'estoque.view' },
-  { to: '/m/medicao', label: 'Atalho Medição', perm: 'medicao.view' },
-  { to: '/m/3d', label: 'Atalho 3D', perm: ['viewer3d.view', 'producao.view'] },
-  { to: '/m/financeiro', label: 'Seção Financeiro', perm: 'financeiro.view' },
+  { to: '/m/aprovacoes', label: 'Aprovações pendentes', perm: PERM_APROVAR },
+  { to: '/m/alertas', label: 'Alertas' },
+  { to: '/m/financeiro', label: 'Caixa no mês', perm: 'financeiro.view' },
+  { to: '/m/obras', label: 'Obras ativas', perm: PERM_OBRAS },
+  { to: '/m/fabrica', label: 'Semana na fábrica', perm: 'producao.view' },
+  { to: '/m/campo/montagem', label: 'Atalho Marcar montagem', perm: ['montagem.edit', 'producao.lancar_avanco'] },
 ];
 
 export const ACOES = [
