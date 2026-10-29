@@ -50,6 +50,7 @@ import { cn } from '@/lib/utils';
 import NotificationCenter from '@/components/NotificationCenter';
 import { motion, AnimatePresence } from 'framer-motion';
 import CommandPalette from '@/components/desktop/CommandPalette';
+import { podeAcessarPagina } from '@/lib/acessoPaginas';
 import KeyboardShortcuts from '@/components/desktop/KeyboardShortcuts';
 import ShortcutsHelp from '@/components/desktop/ShortcutsHelp';
 import { toast } from 'sonner';
@@ -265,23 +266,7 @@ const navigationCategories = [
   },
 ];
 
-// ====== PERMISSÕES POR CATEGORIA ======
-const CATEGORY_PERMISSIONS = {
-  // Uma permissao de ACESSO unica por modulo -> cada modulo pode ser liberado/bloqueado
-  // por usuario de forma independente (catalogo espelhado em GestaoUsuariosPage e AuthContext).
-  'dashboard': 'dashboard.view',
-  'comercial': 'comercial.view',
-  'suprimentos': 'suprimentos.view',
-  'producao': 'producao.view',
-  'expedicao': 'expedicao.view',
-  'obras': 'obras.view',
-  'medicao': 'medicao.view',
-  'financeiro': 'financeiro.view',
-  'bi': 'bi.view',
-  'command': 'command.view',
-  'colaboracao': 'colaboracao.view',
-  'sistema': 'usuarios.manage',
-};
+// Permissões do menu: ver src/lib/acessoPaginas.js (módulo + permissão por página).
 
 // ====== SIDEBAR NAV ITEM (COLLAPSED) ======
 function CollapsedNavItem({ category, currentPageName, onNavigate }) {
@@ -571,13 +556,12 @@ function LayoutContent({ children, currentPageName }) {
     });
   }, [currentPageName]);
 
+  // Menu = só as páginas liberadas ao usuário (módulo + permissão da tela,
+  // src/lib/acessoPaginas.js). Categoria sem nenhuma página liberada some.
   const filteredCategoriesByRole = useMemo(() => {
-    return navigationCategories.filter(cat => {
-      const requiredPerm = CATEGORY_PERMISSIONS[cat.id];
-      if (requiredPerm === null) return user?.role === 'admin';
-      if (!requiredPerm) return true;
-      return hasPermission(requiredPerm);
-    });
+    return navigationCategories
+      .map(cat => ({ ...cat, items: cat.items.filter(item => podeAcessarPagina(item.href, hasPermission)) }))
+      .filter(cat => cat.items.length > 0);
   }, [user, hasPermission]);
 
   useEffect(() => {
@@ -678,7 +662,7 @@ function LayoutContent({ children, currentPageName }) {
     { id: 'financeiro', name: 'Financeiro', icon: Wallet, href: 'GestaoFinanceiraObra' },
     { id: 'expedicao', name: 'Expedição', icon: Truck, href: 'EnviosExpedicaoPage' },
     { id: 'mais', name: 'Mais', icon: MoreHorizontal, href: null },
-  ], []);
+  ].filter(item => !item.href || podeAcessarPagina(item.href, hasPermission)), [hasPermission]);
 
   return (
     <>

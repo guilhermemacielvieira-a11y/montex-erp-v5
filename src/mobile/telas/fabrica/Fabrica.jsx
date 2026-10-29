@@ -6,9 +6,10 @@
 // Escopo = seletor do topo (CLAUDE.md 1c). Produção vem do motor do BI
 // (histórico normalizado — CLAUDE.md 1e), nunca do histórico bruto.
 // ============================================================
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useERP, useProducao, useEstoque } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
 import { useBIData } from '@/hooks/useBIData';
 import { Tela, Abas, Erro } from '../../kit';
 import { useEstadoERP } from './comum';
@@ -18,18 +19,25 @@ import AbaExpedicao from './AbaExpedicao';
 import AbaMontagem from './AbaMontagem';
 import AbaEstoque from './AbaEstoque';
 
+// Cada aba só aparece para quem tem o módulo liberado.
 const ABAS = [
-  { id: 'producao', rotulo: 'Produção' },
-  { id: 'pecas', rotulo: 'Peças' },
-  { id: 'expedicao', rotulo: 'Expedição' },
-  { id: 'montagem', rotulo: 'Montagem' },
-  { id: 'estoque', rotulo: 'Estoque' },
+  { id: 'producao', rotulo: 'Produção', perm: 'producao.view' },
+  { id: 'pecas', rotulo: 'Peças', perm: 'producao.view' },
+  { id: 'expedicao', rotulo: 'Expedição', perm: 'expedicao.view' },
+  { id: 'montagem', rotulo: 'Montagem', perm: ['montagem.view', 'obras.view'] },
+  { id: 'estoque', rotulo: 'Estoque', perm: 'estoque.view' },
 ];
 
 export default function Fabrica() {
   const [params, setParams] = useSearchParams();
-  const aba = ABAS.some((a) => a.id === params.get('aba')) ? params.get('aba') : 'producao';
-  const trocar = (id) => setParams(id === 'producao' ? {} : { aba: id }, { replace: true });
+  const { hasPermission } = useAuth() || {};
+  const abas = useMemo(
+    () => ABAS.filter((a) => !hasPermission || (Array.isArray(a.perm) ? a.perm : [a.perm]).some((p) => hasPermission(p))),
+    [hasPermission],
+  );
+  const padrao = abas[0]?.id || 'producao';
+  const aba = abas.some((a) => a.id === params.get('aba')) ? params.get('aba') : padrao;
+  const trocar = (id) => setParams(id === padrao ? {} : { aba: id }, { replace: true });
 
   // reloadExpedicoes não sai em useExpedicao(); vem do agregado useERP().
   const { funcionarios = [], reloadExpedicoes } = useERP() || {};
@@ -51,7 +59,7 @@ export default function Fabrica() {
       titulo="Fábrica"
       subtitulo="Acompanhamento, somente leitura"
       onRefresh={atualizar}
-      cabecalhoExtra={<Abas itens={ABAS} valor={aba} onChange={trocar} />}
+      cabecalhoExtra={<Abas itens={abas} valor={aba} onChange={trocar} />}
     >
       {erro && <Erro texto={erro} onTentar={() => window.location.reload()} />}
       {aba === 'producao' && <AbaProducao bi={bi} />}

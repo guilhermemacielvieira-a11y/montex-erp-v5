@@ -14,11 +14,12 @@ import React, { useMemo, useState, useCallback, useRef, useLayoutEffect } from '
 import { toast } from 'react-hot-toast';
 import {
   Truck, Package, ScanLine, ChevronRight, ChevronLeft, CheckCircle2,
-  Circle, MapPin, Loader2, Send,
+  Circle, MapPin, Loader2, Send, FileText, FileCode2,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import Scanner from '../ui/Scanner';
 import Sheet from '../ui/Sheet';
+import Folha from '../kit/Folha';
 import PhotoInput from '../ui/PhotoInput';
 import { uploadFoto } from '../ui/upload';
 import { tap, success } from '../ui/haptics';
@@ -31,6 +32,7 @@ import { fmtPeso } from '../ui/format';
 import PrevisaoCargasMobile from '../components/PrevisaoCargasMobile';
 import NovoRomaneioMobile from '../components/NovoRomaneioMobile';
 import { montarFilaEmbarque } from '@/services/romaneio';
+import { dadosRelatorioRomaneio, htmlRelatorioRomaneio, pdfRelatorioRomaneio, nomeArquivoRomaneio } from '@/services/relatorioRomaneio';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
@@ -47,6 +49,25 @@ const podeDespachar = (s) => ['preparando', 'aguardando_transporte'].includes(St
 const confKey = (id) => `montex_exped_conf_${id}`;
 const loadConf = (id) => { try { return JSON.parse(localStorage.getItem(confKey(id)) || '{}'); } catch { return {}; } };
 const saveConf = (id, obj) => { try { localStorage.setItem(confKey(id), JSON.stringify(obj)); } catch { /* noop */ } };
+
+// Entrega o arquivo: compartilhar (celular) ou baixar (navegador).
+async function entregarArquivo(blob, nome) {
+  const arquivo = typeof File !== 'undefined' ? new File([blob], nome, { type: blob.type }) : null;
+  try {
+    if (arquivo && navigator.canShare?.({ files: [arquivo] })) {
+      await navigator.share({ files: [arquivo], title: nome });
+      return 'compartilhado';
+    }
+  } catch (e) {
+    if (e?.name === 'AbortError') return 'cancelado';
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nome; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+  return 'baixado';
+}
 
 const idsDoRomaneio = (rom) => {
   const arr = rom?.pecas || rom?.pecasIds || rom?.pecas_ids || [];
@@ -70,6 +91,8 @@ export default function ExpedicaoMobile() {
   const [saving, setSaving] = useState(false);
   const [fotoCarga, setFotoCarga] = useState(null); // { file, url } evidência da carga
   const [montando, setMontando] = useState(false); // tela de novo romaneio (fila de embarque)
+  const [relatorio, setRelatorio] = useState(false); // folha PDF/HTML do romaneio aberto
+  const [gerando, setGerando] = useState(null);      // 'pdf' | 'html' em andamento
   const listScroll = useRef(0); // posição do scroll da lista, p/ restaurar ao voltar do detalhe
 
   // Ao voltar do detalhe para a lista, restaura a posição de scroll anterior.
@@ -143,6 +166,30 @@ export default function ExpedicaoMobile() {
     toast.success(`${item.marca} conferida (${conferidas + 1}/${total})`);
   };
 
+  const gerarRelatorio = async (formato) => {
+    if (!romaneio || gerando) return;
+    setGerando(formato);
+    try {
+      const obraId = romaneio.obraId ?? romaneio.obra_id;
+      const obra = obras.find((o) => String(o.id) === String(obraId));
+      const dados = dadosRelatorioRomaneio(romaneio, pecasById, obra?.nome || romaneio.destino);
+      const blob = formato === 'pdf'
+        ? await pdfRelatorioRomaneio(dados)
+        : new Blob([htmlRelatorioRomaneio(dados)], { type: 'text/html;charset=utf-8' });
+      const r = await entregarArquivo(blob, nomeArquivoRomaneio(dados, formato));
+      if (r !== 'cancelado') {
+        success();
+        toast.success(r === 'compartilhado' ? 'Relatório pronto para enviar' : `Relatório ${formato.toUpperCase()} baixado`);
+        setRelatorio(false);
+      }
+    } catch (err) {
+      console.error('[ExpedicaoMobile] relatório falhou:', err);
+      toast.error(`Não foi possível gerar o relatório: ${err?.message || err}`);
+    } finally {
+      setGerando(null);
+    }
+  };
+
   const confirmarDespacho = async () => {
     if (!romaneio || !updateExpedicao) return;
     if (!podeDespacharExp) { toast.error('Sem permissão para despachar romaneio'); return; }
@@ -209,6 +256,14 @@ export default function ExpedicaoMobile() {
             <div className="text-[11px] text-mx-text2 mt-1">
               {romaneio.transportadora || 'Transportadora —'} {romaneio.placa ? `· ${romaneio.placa}` : ''}
             </div>
+            {total > 0 && (
+              <button
+                onClick={() => { tap('light'); setRelatorio(true); }}
+                className="mt-3 w-full flex items-center justify-center gap-2 h-11 rounded-xl border border-mx-line bg-mx-s2 text-[14px] font-semibold text-mx-text active:scale-[.99] transition"
+              >
+                <FileText className="w-4 h-4 text-mx-tealhi" /> Relatório do envio (PDF ou HTML)
+              </button>
+            )}
           </div>
         </div>
 
@@ -269,6 +324,40 @@ export default function ExpedicaoMobile() {
         )}
 
         <Scanner open={scanOpen} onClose={() => setScanOpen(false)} onResult={onScan} title="Bipar peças do romaneio" continuous />
+
+        <Folha
+          open={relatorio}
+          onClose={() => !gerando && setRelatorio(false)}
+          title="Relatório do envio"
+        >
+          <div className="space-y-3 text-sm">
+            <p className="text-mx-text2">
+              Romaneio <b>{romaneio.numeroRomaneio || romaneio.id}</b> · {total} peça(s), com quantidades, pesos, conferência e assinaturas.
+            </p>
+            <button
+              onClick={() => gerarRelatorio('pdf')}
+              disabled={!!gerando}
+              className="w-full flex items-center gap-3 rounded-2xl border border-mx-line bg-mx-s1 p-3.5 text-left active:scale-[.99] transition disabled:opacity-60"
+            >
+              {gerando === 'pdf' ? <Loader2 className="w-6 h-6 animate-spin text-mx-tealhi" /> : <FileText className="w-6 h-6 text-mx-tealhi" />}
+              <span className="flex-1">
+                <span className="block font-semibold text-[15px] text-mx-text">PDF</span>
+                <span className="block text-[12px] text-mx-text2">Para enviar ao motorista, ao cliente ou imprimir</span>
+              </span>
+            </button>
+            <button
+              onClick={() => gerarRelatorio('html')}
+              disabled={!!gerando}
+              className="w-full flex items-center gap-3 rounded-2xl border border-mx-line bg-mx-s1 p-3.5 text-left active:scale-[.99] transition disabled:opacity-60"
+            >
+              {gerando === 'html' ? <Loader2 className="w-6 h-6 animate-spin text-mx-tealhi" /> : <FileCode2 className="w-6 h-6 text-mx-tealhi" />}
+              <span className="flex-1">
+                <span className="block font-semibold text-[15px] text-mx-text">HTML</span>
+                <span className="block text-[12px] text-mx-text2">Abre em qualquer navegador, com botão de imprimir</span>
+              </span>
+            </button>
+          </div>
+        </Folha>
 
         <Sheet
           open={despachar}

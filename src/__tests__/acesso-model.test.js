@@ -106,3 +106,22 @@ describe('OR-fallback: papéis antigos não regridem em Montagem/3D', () => {
     });
   }
 });
+
+describe('Perfil logística (David): só os módulos liberados no app', () => {
+  const perms = ['producao.view', 'producao.lancar_avanco', 'kanban.view', 'kanban.edit', 'materiais.view',
+    'suprimentos.view', 'estoque.view', 'estoque.edit', 'estoque.movimentar', 'compras.view', 'compras.edit',
+    'materiais.edit', 'expedicao.view', 'expedicao.edit', 'expedicao.aprovar'];
+
+  it('não vê 3D, Montagem, Diário de obra, Financeiro nem Obras', () => {
+    for (const rota of ['/m/3d', '/m/campo/montagem', '/m/parede-pronta', '/m/diario-obra', '/m/financeiro', '/m/obras', '/m/medicao', '/m/usuarios']) {
+      expect(can(perms, ROTAS[rota]), rota).toBe(false);
+    }
+  });
+
+  it('abre produção, kanban, expedição e estoque', () => {
+    for (const rota of ['/m/fabrica', '/m/campo/producao', '/m/campo/expedicao', '/m/kanban', '/m/estoque']) {
+      expect(can(perms, ROTAS[rota]), rota).toBe(true);
+    }
+    expect(MAIS.filter((m) => can(perms, m.perm)).map((m) => m.to)).not.toContain('/m/3d');
+  });
+});

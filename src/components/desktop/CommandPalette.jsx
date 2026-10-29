@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPageUrl } from '@/utils';
+import { useAuth } from '@/lib/AuthContext';
+import { podeAcessarPagina } from '@/lib/acessoPaginas';
 import {
   CommandDialog,
   CommandEmpty,
@@ -27,12 +29,12 @@ import {
 } from 'lucide-react';
 
 const pages = [
-  { name: 'Dashboard', href: 'Dashboard', icon: LayoutDashboard, keywords: ['início', 'home', 'principal'] },
+  { name: 'Dashboard', href: 'DashboardPremium', icon: LayoutDashboard, keywords: ['início', 'home', 'principal'] },
   { name: 'Projetos', href: 'Projetos', icon: Building2, keywords: ['obras', 'construção'] },
   { name: 'Central de Tarefas', href: 'CentralTarefas', icon: CheckSquare, keywords: ['atividades', 'todo', 'tarefas', 'colaboração', 'mural', 'equipe'] },
   { name: 'Central de Relatórios', href: 'CentralRelatorios', icon: FileSearch, keywords: ['relatórios', 'pdf', 'agendamento', 'exportar'] },
   { name: 'Produção', href: 'AtualizacaoProducaoIndependente', icon: Package, keywords: ['fabricação', 'montagem'] },
-  { name: 'Orçamentos', href: 'Orcamentos', icon: Calculator, keywords: ['propostas', 'cotações'] },
+  { name: 'Orçamentos', href: 'OrcamentosPage', icon: Calculator, keywords: ['propostas', 'cotações'] },
   { name: 'Insights IA', href: 'InsightsIA', icon: FileSearch, keywords: ['análises', 'reports', 'sugestões', 'ia'] },
   { name: 'Financeiro', href: 'RelatoriosFinanceiros', icon: DollarSign, keywords: ['contas', 'despesas'] },
   { name: 'Automações', href: 'Automacoes', icon: Zap, keywords: ['workflows', 'regras'] },
@@ -51,6 +53,9 @@ const actions = [
 export default function CommandPalette({ onAction }) {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
+  const { hasPermission } = useAuth() || {};
+  // Só páginas liberadas ao usuário (mesma regra do menu e da rota).
+  const paginas = pages.filter((p) => podeAcessarPagina(p.href, hasPermission));
 
   useEffect(() => {
     const down = (e) => {
@@ -76,7 +81,7 @@ export default function CommandPalette({ onAction }) {
         <CommandEmpty>Nenhum resultado encontrado.</CommandEmpty>
         
         <CommandGroup heading="Navegação">
-          {pages.map((page) => (
+          {paginas.map((page) => (
             <CommandItem
               key={page.href}
               onSelect={() => handleSelect(() => navigate(createPageUrl(page.href)))}

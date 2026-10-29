@@ -17,6 +17,9 @@ import LoginPage from './pages/LoginPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import MobileApp from './mobile/MobileApp';
+import SemAcesso from '@/components/SemAcesso';
+import { podeAcessarPagina, primeiraPaginaPermitida } from '@/lib/acessoPaginas';
+import { createPageUrl } from '@/utils';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -25,6 +28,24 @@ const MainPage = mainPageKey ? Pages[mainPageKey] : <></>;
 const LayoutWrapper = ({ children, currentPageName }) => Layout ?
   <Layout currentPageName={currentPageName}>{children}</Layout>
   : <>{children}</>;
+
+// Trava por módulo: página não liberada ao usuário mostra "Sem acesso"
+// (vale para link direto/URL digitada, não só para o menu).
+const PaginaProtegida = ({ pagina, children }) => {
+  const { hasPermission } = useAuth();
+  return podeAcessarPagina(pagina, hasPermission) ? children : <SemAcesso />;
+};
+
+// Página inicial: a padrão se liberada; senão a primeira liberada do usuário.
+const Inicio = () => {
+  const { hasPermission } = useAuth();
+  const destino = primeiraPaginaPermitida(hasPermission, mainPageKey);
+  if (destino === mainPageKey) {
+    return <LayoutWrapper currentPageName={mainPageKey}><MainPage /></LayoutWrapper>;
+  }
+  if (destino) return <Navigate to={createPageUrl(destino)} replace />;
+  return <LayoutWrapper currentPageName={mainPageKey}><SemAcesso /></LayoutWrapper>;
+};
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, isAuthenticated, logout } = useAuth();
@@ -158,18 +179,16 @@ const AuthenticatedApp = () => {
         {/* ROTAS MOBILE — /m/* — Layout próprio, sem sidebar desktop */}
         <Route path="/m/*" element={<MobileApp />} />
 
-        <Route path="/" element={
-          <LayoutWrapper currentPageName={mainPageKey}>
-            <MainPage />
-          </LayoutWrapper>
-        } />
+        <Route path="/" element={<Inicio />} />
         {Object.entries(Pages).map(([path, Page]) => (
           <Route
             key={path}
             path={`/${path}`}
             element={
               <LayoutWrapper currentPageName={path}>
-                <Page />
+                <PaginaProtegida pagina={path}>
+                  <Page />
+                </PaginaProtegida>
               </LayoutWrapper>
             }
           />

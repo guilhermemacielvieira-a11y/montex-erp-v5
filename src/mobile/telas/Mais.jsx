@@ -6,6 +6,7 @@
 // ============================================================
 import React, { useMemo } from 'react';
 import { abrirNoComputador } from '../kit/fmt';
+import { modulosLiberados } from '@/lib/acessoPaginas';
 import {
   CheckCircle2, Bell, Briefcase, ClipboardList, Camera, Ruler, Package,
   Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight, ScanLine, Hammer, Truck,
@@ -28,9 +29,9 @@ const GRUPOS = [
     titulo: 'Operação no campo',
     itens: [
       { to: '/m/campo/producao', icone: ScanLine, titulo: 'Lançar produção', sub: 'Avançar etapa por leitura de código', perm: 'producao.lancar_avanco' },
-      { to: '/m/campo/montagem', icone: Hammer, titulo: 'Marcar montagem', sub: 'Peças montadas na obra, com foto', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+      { to: '/m/campo/montagem', icone: Hammer, titulo: 'Marcar montagem', sub: 'Peças montadas na obra, com foto', perm: 'montagem.edit' },
       { to: '/m/campo/expedicao', icone: Truck, titulo: 'Conferir e despachar carga', sub: 'Romaneios do dia', perm: 'expedicao.edit' },
-      { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: 'producao.lancar_avanco' },
+      { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: ['obras.edit', 'obras.view'] },
       { to: '/m/evidencias', icone: Camera, titulo: 'Evidências', sub: 'Fotos de obra e carga', perm: 'producao.view' },
       { to: '/m/medicao', icone: Ruler, titulo: 'Medição', perm: 'medicao.view' },
       { to: '/m/estoque', icone: Package, titulo: 'Estoque detalhado', perm: 'estoque.view' },
@@ -39,7 +40,7 @@ const GRUPOS = [
   {
     titulo: 'No computador',
     itens: [
-      { to: '/m/3d', icone: Box, titulo: 'Visualizador 3D', sub: 'Abre a versão completa', perm: ['viewer3d.view', 'producao.view'] },
+      { to: '/m/3d', icone: Box, titulo: 'Visualizador 3D', sub: 'Abre a versão completa', perm: 'viewer3d.view' },
       { to: '/m/kanban', icone: Columns3, titulo: 'Kanban de produção', sub: 'Abre a versão completa', perm: 'kanban.view' },
       { to: '/m/relatorios', icone: FileText, titulo: 'Relatórios', sub: 'Abre a versão completa', perm: 'relatorios.view' },
     ],
@@ -49,7 +50,7 @@ const GRUPOS = [
     itens: [
       { to: '/m/usuarios', icone: Shield, titulo: 'Usuários', sub: 'Acessos e permissões', perm: 'usuarios.manage' },
       { to: '/m/config', icone: Settings, titulo: 'Configurações', sub: 'Notificações e sincronização' },
-      { href: '/', icone: Monitor, titulo: 'Abrir versão desktop', sub: 'ERP completo neste aparelho' },
+      { href: '/', icone: Monitor, titulo: 'Abrir versão desktop' },
       { acao: 'sair', icone: LogOut, titulo: 'Sair', tom: 'bad' },
     ],
   },
@@ -78,6 +79,12 @@ export default function Mais() {
     .filter((g) => g.itens.length > 0), [hasPermission, nativo]);
 
   const abrirDesktop = () => abrirNoComputador('/');
+  // O desktop abre só com os módulos liberados (src/lib/acessoPaginas.js).
+  const admin = !!hasPermission?.('*');
+  const modulos = useMemo(() => modulosLiberados(hasPermission), [hasPermission]);
+  const subDesktop = admin
+    ? 'ERP completo neste aparelho'
+    : (modulos.length ? `Só seus módulos: ${modulos.join(', ')}` : 'Nenhum módulo do computador liberado');
 
   return (
     <Tela
@@ -106,7 +113,7 @@ export default function Mais() {
                 return <Linha key="sair" icone={it.icone} iconeTom="bad" titulo={it.titulo} onClick={() => logout?.()} chevron={false} />;
               }
               if (it.href) {
-                return <Linha key={it.href} icone={it.icone} iconeTom="neutro" titulo={it.titulo} sub={it.sub} onClick={abrirDesktop} />;
+                return <Linha key={it.href} icone={it.icone} iconeTom="neutro" titulo={it.titulo} sub={subDesktop} onClick={abrirDesktop} />;
               }
               return <Linha key={it.to} to={it.to} icone={it.icone} iconeTom={it.tom || 'neutro'} titulo={it.titulo} sub={it.sub} />;
             })}
