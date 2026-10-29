@@ -67,7 +67,7 @@ export default function LoginPage() {
         }} />
       </div>
 
-      <Card className="w-full max-w-md relative z-10 shadow-2xl border-slate-700/50 bg-white/95 backdrop-blur">
+      <Card className="w-full max-w-md relative z-10 shadow-2xl border-slate-700/50 bg-white/95 text-slate-900 backdrop-blur">
         <CardHeader className="text-center pb-2">
           {/* Logo */}
           <div className="flex justify-center mb-4">
@@ -84,6 +84,7 @@ export default function LoginPage() {
         </CardHeader>
 
         <CardContent>
+          {/* Tema escuro é o padrão do ERP: cores fixas aqui para o texto digitado não sumir no cartão branco */}
           <form onSubmit={handleSubmit} className="space-y-4">
             {/* Email */}
             <div className="space-y-2">
@@ -94,7 +95,7 @@ export default function LoginPage() {
                   id="email"
                   type="email"
                   placeholder="seu@email.com"
-                  className="pl-10"
+                  className="pl-10 bg-white text-slate-900 caret-slate-900 border-slate-300 placeholder:text-slate-400 [-webkit-text-fill-color:#0f172a] focus-visible:ring-blue-500"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   disabled={isLoading}
@@ -113,7 +114,7 @@ export default function LoginPage() {
                   id="password"
                   type={showPassword ? 'text' : 'password'}
                   placeholder="••••••••"
-                  className="pl-10 pr-10"
+                  className="pl-10 pr-10 bg-white text-slate-900 caret-slate-900 border-slate-300 placeholder:text-slate-400 [-webkit-text-fill-color:#0f172a] focus-visible:ring-blue-500"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   disabled={isLoading}
@@ -162,7 +163,7 @@ export default function LoginPage() {
           </form>
 
           {/* Footer */}
-          <div className="mt-6 pt-4 border-t text-center">
+          <div className="mt-6 pt-4 border-t border-slate-200 text-center">
             <p className="text-xs text-slate-400">
               MONTEX ERP Premium v5.0
             </p>
