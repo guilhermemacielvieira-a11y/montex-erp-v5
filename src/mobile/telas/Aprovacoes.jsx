@@ -16,7 +16,6 @@ import { toast } from 'react-hot-toast';
 import { CheckCheck, Check, X, Ruler, Calculator, ShoppingCart } from 'lucide-react';
 import { useERP, useMedicoes, useOrcamentos, useCompras } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
-import { useObraFiltro } from '../ObraContext';
 import { valorMedicao } from '../dados';
 import { hojeLocalISO } from '../ui/format';
 import { tap, success } from '../ui/haptics';
@@ -40,26 +39,25 @@ const ROTULO_ORC = { enviado: 'Enviado', em_analise: 'Em análise', negociacao: 
 const valorOrc = (o) => o.valor_total ?? o.valorTotal ?? o.valor;
 const valorCmp = (c) => c.valor ?? c.valor_total;
 
-/** Pendências de aprovação visíveis para o usuário (respeita permissões e filtro de obra). */
+/** Pendências de aprovação do usuário (permissões; empresa toda — o app da diretoria não filtra obra). */
 export function usePendenciasAprovacao() {
   const { medicoes = [] } = useMedicoes?.() || {};
   const { orcamentos = [] } = useOrcamentos?.() || {};
   const { compras = [] } = useCompras?.() || {};
-  const { matchObra } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   const podeMed = !!hasPermission && hasPermission('medicao.aprovar');
   const podeOrc = !!hasPermission && hasPermission('orcamentos.aprovar');
   const podeCmp = !!hasPermission && hasPermission('compras.aprovar');
 
   return useMemo(() => {
-    const meds = (podeMed ? medicoes.filter(medPendente).filter(matchObra) : [])
+    const meds = (podeMed ? medicoes.filter(medPendente) : [])
       .slice().sort(porDataDesc(['dataMedicao', 'data']));
-    const orcs = (podeOrc ? orcamentos.filter(orcPendente).filter((o) => !(o.obraId ?? o.obra_id) || matchObra(o)) : [])
+    const orcs = (podeOrc ? orcamentos.filter(orcPendente) : [])
       .slice().sort(porDataDesc(['created_at', 'data']));
-    const cmps = (podeCmp ? compras.filter(cmpPendente).filter((c) => !(c.obraId ?? c.obra_id) || matchObra(c)) : [])
+    const cmps = (podeCmp ? compras.filter(cmpPendente) : [])
       .slice().sort(porDataDesc(['created_at', 'data']));
     return { meds, orcs, cmps, total: meds.length + orcs.length + cmps.length, podeMed, podeOrc, podeCmp };
-  }, [medicoes, orcamentos, compras, matchObra, podeMed, podeOrc, podeCmp]);
+  }, [medicoes, orcamentos, compras, podeMed, podeOrc, podeCmp]);
 }
 
 export default function Aprovacoes() {
@@ -89,10 +87,11 @@ export default function Aprovacoes() {
 
   // ---- ações (todas: online + biometria + haptic + toast) ----
   const executar = async (key, reason, fn, okMsg, errMsg) => {
+    if (busy) return; // evita dupla submissão (dois toques rápidos)
     if (!ensureOnline()) return;
-    const ok = await confirmarBiometria(reason);
-    if (!ok) { toast.error('Autenticação não confirmada'); return; }
     setBusy(key);
+    const ok = await confirmarBiometria(reason);
+    if (!ok) { setBusy(null); toast.error('Autenticação não confirmada'); return; }
     try {
       await fn();
       await success();
@@ -206,7 +205,7 @@ export default function Aprovacoes() {
     <Tela
       titulo="Aprovações"
       subtitulo={subtitulo}
-      voltar
+      voltar="/m"
       cabecalhoExtra={abas.length > 1 ? <Abas itens={abas} valor={aba} onChange={(v) => { tap('light'); setAba(v); }} /> : null}
     >
       {carregando ? (

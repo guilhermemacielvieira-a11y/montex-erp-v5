@@ -13,13 +13,14 @@ import Folha from '../../kit/Folha';
 import { Campo, Botao, classeInput } from '../../kit';
 import { cn } from '@/lib/utils';
 import { ensureOnline } from '../../ui/online';
+import { confirmarBiometria } from '../../ui/biometric';
 import { success, tap } from '../../ui/haptics';
 import { hojeLocalISO } from '../../ui/format';
 
 const vazio = () => ({ descricao: '', fornecedor: '', categoria: '', valor: '', dataVencimento: hojeLocalISO(), status: 'pendente' });
 
 export default function NovaDespesa({ open, onClose }) {
-  const { lancamentosDespesas = [], addLancamento } = useLancamentos();
+  const { lancamentosDespesas = [], addLancamento, deleteLancamento } = useLancamentos();
   const [form, setForm] = useState(vazio);
   const [erros, setErros] = useState({});
   const [salvando, setSalvando] = useState(false);
@@ -42,14 +43,20 @@ export default function NovaDespesa({ open, onClose }) {
     if (!form.dataVencimento) e.dataVencimento = 'Informe o vencimento';
     setErros(e);
     if (Object.keys(e).length) return;
-    if (!ensureOnline()) return;
+    if (salvando || !ensureOnline()) return;
     tap();
     setSalvando(true);
+    if (!(await confirmarBiometria('Confirmar cadastro da despesa'))) {
+      setSalvando(false);
+      toast.error('Autenticação não confirmada');
+      return;
+    }
     const hoje = hojeLocalISO();
     const status = form.status || 'pendente';
+    const id = `desp-${Date.now()}`;
     try {
       await addLancamento({
-        id: `desp-${Date.now()}`,
+        id,
         tipo: 'despesa',
         obraId: null,
         descricao: form.descricao.trim(),
@@ -67,7 +74,9 @@ export default function NovaDespesa({ open, onClose }) {
       setErros({});
       onClose?.();
     } catch (err) {
-      toast.error(`Não foi possível salvar: ${err?.message || 'erro'}`);
+      // O contexto mostra a despesa antes do banco confirmar: tira da tela.
+      deleteLancamento?.(id).catch(() => {});
+      toast.error(`A despesa não foi cadastrada: ${err?.message || 'erro de conexão'}`);
     } finally {
       setSalvando(false);
     }

@@ -5,6 +5,7 @@
 // sistema. Itens filtrados por permissão (array = qualquer uma).
 // ============================================================
 import React, { useMemo } from 'react';
+import { abrirNoComputador } from '../kit/fmt';
 import {
   CheckCircle2, Bell, Briefcase, ClipboardList, Camera, Ruler, Package,
   Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight, ScanLine, Hammer, Truck,
@@ -76,11 +77,7 @@ export default function Mais() {
     }))
     .filter((g) => g.itens.length > 0), [hasPermission, nativo]);
 
-  const abrirDesktop = () => {
-    // Sem isto o App.jsx devolve o celular para /m (auto-detecção de mobile).
-    try { localStorage.setItem('force_desktop', '1'); } catch { /* noop */ }
-    window.location.href = '/';
-  };
+  const abrirDesktop = () => abrirNoComputador('/');
 
   return (
     <Tela

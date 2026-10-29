@@ -41,7 +41,12 @@ export function Tela({ titulo, subtitulo, voltar = false, acoes, onRefresh, chil
           {voltar && (
             <button
               type="button"
-              onClick={() => (typeof voltar === 'string' ? navigate(voltar) : navigate(-1))}
+              onClick={() => {
+                if (typeof voltar === 'function') voltar();
+                else if (typeof voltar === 'string') navigate(voltar);
+                else if (window.history.length > 1) navigate(-1);
+                else navigate('/m');
+              }}
               className="-ml-2 flex h-11 w-11 items-center justify-center rounded-xl text-mx-text2 active:bg-mx-s2"
               aria-label="Voltar"
             >
@@ -245,6 +250,7 @@ export function Busca({ valor, onChange, placeholder = 'Buscar', className }) {
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         className="min-w-0 flex-1 bg-transparent text-[15px] text-mx-text placeholder:text-mx-text3 outline-none"
+        aria-label={placeholder}
         type="search"
         enterKeyHint="search"
       />
@@ -349,5 +355,28 @@ export function Monograma({ tamanho = 32, className }) {
       className={cn('object-contain', className)}
       style={{ width: tamanho, height: Math.round(tamanho * 0.75) }}
     />
+  );
+}
+
+/**
+ * Ação que grava dinheiro em dois toques: o primeiro mostra o que vai
+ * acontecer ("Confirmar pagamento de R$ 3.120"), o segundo executa.
+ * Evita baixa por toque acidental (no navegador não há Face ID).
+ */
+export function BotaoConfirmar({ rotulo, confirmacao, onConfirmar, carregando, icone, className }) {
+  const [armado, setArmado] = React.useState(false);
+  React.useEffect(() => {
+    if (!armado) return undefined;
+    const t = setTimeout(() => setArmado(false), 6000);
+    return () => clearTimeout(t);
+  }, [armado]);
+  if (!armado) {
+    return <Botao className={cn('w-full', className)} icone={icone} carregando={carregando} onClick={() => setArmado(true)}>{rotulo}</Botao>;
+  }
+  return (
+    <div className={cn('flex gap-2', className)}>
+      <Botao variante="secundario" className="flex-1" onClick={() => setArmado(false)} disabled={carregando}>Cancelar</Botao>
+      <Botao className="flex-[2]" icone={icone} carregando={carregando} onClick={async () => { await onConfirmar?.(); setArmado(false); }}>{confirmacao}</Botao>
+    </div>
   );
 }

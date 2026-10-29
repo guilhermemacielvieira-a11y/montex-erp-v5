@@ -11,9 +11,10 @@ import { useLancamentos } from '@/contexts/ERPContext';
 import { aplicarOverridesNaLista } from '@/utils/despesasOverrides';
 import { normalizeStatusDespesa, STATUS_DESPESA_LABELS } from '@/utils/financeiroStatus';
 import Folha from '../../kit/Folha';
-import { Secao, Grupo, Linha, Metrica, Grade, Status, Botao, Vazio, Erro, Esqueleto } from '../../kit';
-import { brl2, brlc, data as fmtData, quando } from '../../kit/fmt';
+import { Secao, Grupo, Linha, Metrica, Grade, Status, BotaoConfirmar, Vazio, Erro, Esqueleto } from '../../kit';
+import { brl, brl2, brlc, data as fmtData, quando } from '../../kit/fmt';
 import { ensureOnline } from '../../ui/online';
+import { confirmarBiometria } from '../../ui/biometric';
 import { success, tap } from '../../ui/haptics';
 import { hojeLocalISO } from '../../ui/format';
 import { useEstadoERP, usePodeEditar, diaISO, isoDe } from './comum';
@@ -52,16 +53,26 @@ export default function AbaPagar() {
   const marcarPaga = async () => {
     if (!sel) return;
     if (!podeEditar) { toast.error('Sem permissão para editar o financeiro'); return; }
-    if (!ensureOnline()) return;
+    if (salvando || !ensureOnline()) return;
     tap();
     setSalvando(true);
+    if (!(await confirmarBiometria('Confirmar pagamento da despesa'))) {
+      setSalvando(false);
+      toast.error('Autenticação não confirmada');
+      return;
+    }
+    const antes = lancamentosDespesas.find((d) => d.id === sel.id);
     try {
       await updateLancamento(sel.id, { status: 'pago', dataPagamento: hojeLocalISO() });
       success();
       toast.success('Despesa marcada como paga');
       setSel(null);
     } catch (e) {
-      toast.error(`Não foi possível salvar: ${e?.message || 'erro'}`);
+      // O contexto atualiza a tela antes do banco: desfaz o "pago" local.
+      if (antes) {
+        updateLancamento(sel.id, { status: antes.status || 'pendente', dataPagamento: antes.dataPagamento ?? antes.data_pagamento ?? null }).catch(() => {});
+      }
+      toast.error(`A despesa não foi marcada como paga: ${e?.message || 'erro de conexão'}`);
     } finally {
       setSalvando(false);
     }
@@ -108,7 +119,7 @@ export default function AbaPagar() {
         onClose={() => setSel(null)}
         title="Despesa a pagar"
         footer={sel && (podeEditar ? (
-          <Botao className="mb-1 w-full" icone={CheckCircle2} carregando={salvando} onClick={marcarPaga}>Marcar como paga</Botao>
+          <BotaoConfirmar key={sel.id} className="mb-1" icone={CheckCircle2} carregando={salvando} rotulo="Marcar como paga" confirmacao={`Confirmar pagamento de ${brl(sel.valor, 2)}`} onConfirmar={marcarPaga} />
         ) : (
           <p className="pb-2 text-center text-[13px] text-mx-text3">Sem permissão para editar o financeiro.</p>
         ))}

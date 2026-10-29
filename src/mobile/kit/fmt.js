@@ -78,3 +78,18 @@ export function primeiroNome(user) {
   if (n.includes('@')) return n.split('@')[0];
   return n.split(/\s+/)[0];
 }
+
+/**
+ * Abre uma tela da versão do computador a partir do app. Sem a marca
+ * `force_desktop`, o App.jsx devolveria o celular para /m. A marca é
+ * limpa sempre que o app (/m) abre de novo (MobileApp.jsx).
+ */
+export function abrirNoComputador(caminho = '/') {
+  try { localStorage.setItem('force_desktop', '1'); } catch { /* noop */ }
+  window.location.href = caminho;
+}
+
+/** No app nativo (Capacitor) a versão do computador não abre. */
+export const temVersaoComputador = () => {
+  try { return !window.Capacitor?.isNativePlatform?.(); } catch { return true; }
+};

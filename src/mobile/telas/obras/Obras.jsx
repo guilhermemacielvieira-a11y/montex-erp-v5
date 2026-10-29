@@ -93,7 +93,7 @@ export default function Obras() {
 
   const { obras = [], clientes = [] } = useObras();
   const { loading } = useERP();
-  const dados = useBIData();
+  const dados = useBIData({ empresa: true });
   const indicadores = dados.obras.indicadores;
   const executivo = dados.obras.executivo;
 

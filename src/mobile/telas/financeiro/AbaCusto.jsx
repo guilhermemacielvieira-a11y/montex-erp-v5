@@ -30,7 +30,7 @@ function periodoMeses(meses = []) {
 }
 
 export default function AbaCusto() {
-  const dados = useBIData();
+  const dados = useBIData({ empresa: true });
   const { analise: a, config } = useCustoKg(dados);
   const primeiraCarga = (dados.carregando && !dados.atualizadoEm) || !config.carregado;
 

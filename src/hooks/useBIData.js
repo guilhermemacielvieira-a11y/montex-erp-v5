@@ -45,8 +45,13 @@ export async function buscarHistorico({ forcar = false } = {}) {
   return linhas;
 }
 
-export function useBIData() {
-  const { obras = [], escopoObra, obraIdsEscopo } = useObras();
+export function useBIData({ empresa = false } = {}) {
+  const ctxObras = useObras();
+  const { obras = [] } = ctxObras;
+  // `empresa: true` = sempre a empresa toda (app da diretoria, sem seletor do
+  // topo). Sem isso, segue o seletor único do topo (CLAUDE.md 1c).
+  const escopoObra = empresa ? 'geral' : ctxObras.escopoObra;
+  const obraIdsEscopo = empresa ? null : ctxObras.obraIdsEscopo;
   const { pecas = [] } = useProducao();
   const { medicoes = [] } = useMedicoes();
   const { lancamentosDespesas = [] } = useLancamentos();

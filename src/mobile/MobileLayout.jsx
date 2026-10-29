@@ -23,7 +23,7 @@ export default function MobileLayout({ children, title = 'Montex', back = false,
   return (
     <Tela
       titulo={title}
-      voltar={onBack ? undefined : (back || '/m/mais')}
+      voltar={onBack || (typeof back === 'string' ? back : (back ? true : '/m/mais'))}
       onRefresh={atualizar}
       semRecuo
       cabecalhoExtra={obraFilter && !carregando ? <ObraSelector /> : null}

@@ -23,6 +23,7 @@ import { ObraMobileProvider } from './ObraContext';
 import MobileLayout from './MobileLayout';
 import Shell from './app/Shell';
 import { Esqueleto } from './kit';
+import { ROTAS, REDIRECTS } from '@/lib/accessModel';
 import Inicio from './telas/Inicio';
 import './kit/tema.css';
 
@@ -122,64 +123,41 @@ function DesktopHintBanner() {
   );
 }
 
-const PERM_OBRAS = ['obras.view', 'projetos.view', 'bi.view'];
-const PERM_APROVAR = ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'];
-
-// Rotas antigas → telas novas (links salvos, push e atalhos do PWA)
-const REDIRECTS = {
-  producao: '/m/fabrica',
-  montagem: '/m/fabrica?aba=montagem',
-  expedicao: '/m/fabrica?aba=expedicao',
-  'expedicao-desktop': '/m/fabrica?aba=expedicao',
-  'estoque-desktop': '/m/estoque',
-  dashboard: '/m',
-  'dashboard-bi': '/m',
-  'analise-producao': '/m/fabrica',
-  diario: '/m/fabrica',
-  'painel-global': '/m/financeiro',
-  'painel-global-desktop': '/m/financeiro',
-  dre: '/m/financeiro?aba=dre',
-  despesas: '/m/financeiro?aba=pagar',
-  receitas: '/m/financeiro?aba=receber',
-  custo: '/m/financeiro?aba=custo',
-  'obras-gfo': '/m/obras',
-  notificacoes: '/m/alertas',
-  orcamentos: '/m/comercial',
-  clientes: '/m/comercial',
-  equipes: '/m/fabrica',
-};
+// Permissões e redirecionamentos vêm do modelo de acesso (fonte única,
+// testado em src/__tests__/acesso-model.test.js).
+const P = ROTAS;
 
 function MobileRoutes() {
   return (
     <Routes>
       <Route index element={<Inicio />} />
-      <Route path="obras" element={<Protected perm={PERM_OBRAS}><Obras /></Protected>} />
-      <Route path="obras/:id" element={<Protected perm={PERM_OBRAS}><ObraDetalhe /></Protected>} />
-      <Route path="financeiro" element={<Protected perm="financeiro.view"><Financeiro /></Protected>} />
-      <Route path="fabrica" element={<Protected perm="producao.view"><Fabrica /></Protected>} />
+      <Route path="obras" element={<Protected perm={P['/m/obras']}><Obras /></Protected>} />
+      <Route path="obras/:id" element={<Protected perm={P['/m/obras/:id']}><ObraDetalhe /></Protected>} />
+      <Route path="financeiro" element={<Protected perm={P['/m/financeiro']}><Financeiro /></Protected>} />
+      <Route path="fabrica" element={<Protected perm={P['/m/fabrica']}><Fabrica /></Protected>} />
       <Route path="mais" element={<Mais />} />
-      <Route path="aprovacoes" element={<Protected perm={PERM_APROVAR}><Aprovacoes /></Protected>} />
+      <Route path="aprovacoes" element={<Protected perm={P['/m/aprovacoes']}><Aprovacoes /></Protected>} />
       <Route path="alertas" element={<Alertas />} />
-      <Route path="comercial" element={<Protected perm={['orcamentos.view', 'comercial.view', 'clientes.view']}><Comercial /></Protected>} />
+      <Route path="comercial" element={<Protected perm={P['/m/comercial']}><Comercial /></Protected>} />
       <Route path="perfil" element={<Perfil />} />
 
       {/* Campo / operação (telas existentes com o cabeçalho novo) */}
-      <Route path="estoque" element={<Protected perm="estoque.view"><EstoqueMobile /></Protected>} />
-      <Route path="medicao" element={<Protected perm="medicao.view"><MedicaoMobile /></Protected>} />
-      <Route path="evidencias" element={<Protected perm="producao.view"><GaleriaMobile /></Protected>} />
-      <Route path="diario-obra" element={<Protected perm="producao.lancar_avanco"><DiarioObraMobile /></Protected>} />
-      <Route path="usuarios" element={<Protected perm="usuarios.manage"><UsuariosMobile /></Protected>} />
+      <Route path="estoque" element={<Protected perm={P['/m/estoque']}><EstoqueMobile /></Protected>} />
+      <Route path="medicao" element={<Protected perm={P['/m/medicao']}><MedicaoMobile /></Protected>} />
+      <Route path="evidencias" element={<Protected perm={P['/m/evidencias']}><GaleriaMobile /></Protected>} />
+      <Route path="diario-obra" element={<Protected perm={P['/m/diario-obra']}><DiarioObraMobile /></Protected>} />
+      <Route path="usuarios" element={<Protected perm={P['/m/usuarios']}><UsuariosMobile /></Protected>} />
       <Route path="config" element={<ConfiguracoesMobile />} />
-      <Route path="campo/producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
-      <Route path="campo/montagem" element={<Protected perm={['montagem.view', 'producao.view']}><MontagemMobile /></Protected>} />
-      <Route path="campo/expedicao" element={<Protected perm="expedicao.view"><ExpedicaoMobile /></Protected>} />
+      <Route path="campo/producao" element={<Protected perm={P['/m/campo/producao']}><ProducaoMobile /></Protected>} />
+      <Route path="campo/montagem" element={<Protected perm={P['/m/campo/montagem']}><MontagemMobile /></Protected>} />
+      <Route path="campo/expedicao" element={<Protected perm={P['/m/campo/expedicao']}><ExpedicaoMobile /></Protected>} />
 
       {/* Versão completa do computador */}
-      <Route path="3d" element={<Protected perm={['viewer3d.view', 'producao.view']}><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
-      <Route path="parede-pronta" element={<Protected perm={['montagem.view', 'producao.view']}><DesktopWrap title="Parede-Pronta R5"><ParedeProntaPage /></DesktopWrap></Protected>} />
-      <Route path="kanban" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban de produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
-      <Route path="kanban-corte" element={<Protected perm="kanban.view"><DesktopWrap title="Kanban de corte"><KanbanCortePage /></DesktopWrap></Protected>} />
-      <Route path="relatorios" element={<Protected perm="relatorios.view"><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
+      <Route path="3d" element={<Protected perm={P['/m/3d']}><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />
+      <Route path="parede-pronta" element={<Protected perm={P['/m/parede-pronta']}><DesktopWrap title="Parede-Pronta R5"><ParedeProntaPage /></DesktopWrap></Protected>} />
+      <Route path="kanban" element={<Protected perm={P['/m/kanban']}><DesktopWrap title="Kanban de produção"><KanbanProducaoIntegrado /></DesktopWrap></Protected>} />
+      <Route path="kanban-corte" element={<Protected perm={P['/m/kanban-corte']}><DesktopWrap title="Kanban de corte"><KanbanCortePage /></DesktopWrap></Protected>} />
+      <Route path="relatorios" element={<Protected perm={P['/m/relatorios']}><DesktopWrap title="Relatórios"><Relatorios /></DesktopWrap></Protected>} />
 
       {Object.entries(REDIRECTS).map(([de, para]) => (
         <Route key={de} path={de} element={<Navigate to={para} replace />} />
@@ -201,7 +179,12 @@ function Conteudo() {
 }
 
 export default function MobileApp() {
-  useEffect(() => { initLastRefresh(); }, []);
+  useEffect(() => {
+    initLastRefresh();
+    // Abriu o app: desfaz o "abrir no computador" de uma visita anterior,
+    // senão o celular ficaria preso na versão do computador.
+    try { localStorage.removeItem('force_desktop'); } catch { /* noop */ }
+  }, []);
   // Barra de status / tema do PWA no grafite da marca
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]');

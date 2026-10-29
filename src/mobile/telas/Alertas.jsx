@@ -20,7 +20,7 @@ import { ensureOnline } from '../ui/online';
 import { tap, success } from '../ui/haptics';
 import { Tela, Secao, Grupo, Linha, Status, Botao, Vazio, Erro, Esqueleto, Etiqueta } from '../kit';
 import Folha from '../kit/Folha';
-import { brl, num } from '../kit/fmt';
+import { brl, num, abrirNoComputador, temVersaoComputador } from '../kit/fmt';
 
 export const TOM_SEVERIDADE = { critico: 'bad', alto: 'warn', medio: 'teal', baixo: 'neutro' };
 const ORDEM = ['critico', 'alto', 'medio', 'baixo'];
@@ -63,7 +63,7 @@ const urlDesktop = (link) => {
 };
 
 export default function Alertas() {
-  const dados = useBIData();
+  const dados = useBIData({ empresa: true });
   const { ativos, statusDe, definir } = useRadarAtivo(dados);
   const operacao = useAlertas();
   const { user } = useAuth() || {};
@@ -99,7 +99,7 @@ export default function Alertas() {
     <Tela
       titulo="Alertas"
       subtitulo={total ? `${total} ${total === 1 ? 'aviso ativo' : 'avisos ativos'}` : 'Nenhum aviso ativo'}
-      voltar
+      voltar="/m"
       onRefresh={() => dados.recarregar()}
     >
       {/* ---------- Radar ---------- */}
@@ -190,16 +190,18 @@ export default function Alertas() {
                 <Linha titulo={dados.nomeObra(aberto.obraId)} sub="Ver a obra" to={`/m/obras/${aberto.obraId}`} />
               </Grupo>
             )}
-            {href && (
-              <a
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
+            {href && temVersaoComputador() && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (aberto.obraId) { try { localStorage.setItem('montex_obra_atual', aberto.obraId); } catch { /* noop */ } }
+                  abrirNoComputador(href);
+                }}
                 className="mt-4 inline-flex items-center gap-2 py-2 text-[15px] font-medium text-mx-tealhi active:opacity-70"
               >
                 <Monitor className="h-[18px] w-[18px]" aria-hidden />
                 Abrir no computador
-              </a>
+              </button>
             )}
           </div>
         )}

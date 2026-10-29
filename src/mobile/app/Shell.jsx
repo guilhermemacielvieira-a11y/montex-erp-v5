@@ -10,6 +10,8 @@ import { Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Gauge, Building2, Wallet, Factory, LayoutGrid } from 'lucide-react';
 import { useERP } from '@/contexts/ERPContext';
+import { useAuth } from '@/lib/AuthContext';
+import { TABS } from '@/lib/accessModel';
 import { cn } from '@/lib/utils';
 import NetworkBanner from '../ui/NetworkBanner';
 import { tap } from '../ui/haptics';
@@ -29,6 +31,13 @@ const indiceDe = (p) => ABAS.findIndex((a) => ativa(a, p));
 export default function Shell({ children }) {
   const { pathname } = useLocation();
   const { dataSource } = useERP() || {};
+  const { hasPermission } = useAuth() || {};
+  // Abas por permissão (mesma regra do <Protected/>: array = basta uma).
+  const abas = ABAS.filter((a) => {
+    const spec = TABS.find((t) => t.to === a.to)?.perm;
+    if (!spec || !hasPermission) return true;
+    return (Array.isArray(spec) ? spec : [spec]).some((k) => hasPermission(k));
+  });
   const anterior = useRef(indiceDe(pathname));
   const atual = indiceDe(pathname);
   const dir = atual < 0 || anterior.current < 0 || atual === anterior.current ? 0 : atual > anterior.current ? 1 : -1;
@@ -53,7 +62,7 @@ export default function Shell({ children }) {
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 6px)' }}
       >
         <div className="flex h-[60px] items-stretch">
-          {ABAS.map((a) => {
+          {abas.map((a) => {
             const on = ativa(a, pathname);
             const Icone = a.icone;
             return (

@@ -7,6 +7,7 @@
 //  - Cada obra mostra código, nome, status e nº de peças.
 // ============================================================
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, ChevronDown, Check, X, Layers, Search } from 'lucide-react';
 import { useERP } from '@/contexts/ERPContext';
@@ -78,6 +79,8 @@ export default function ObraSelector() {
 
       {/* Bottom sheet — filhos keyed diretos (sem Fragment, p/ AnimatePresence
           rastrear o exit e desmontar corretamente ao fechar) */}
+      {/* Portal: o cabeçalho tem backdrop-filter, que prenderia o `fixed` da folha. */}
+      {typeof document !== 'undefined' ? createPortal(<div className="mx-app">
       <AnimatePresence>
         {open && (
           <motion.div
@@ -166,6 +169,7 @@ export default function ObraSelector() {
           </motion.div>
         )}
       </AnimatePresence>
+      </div>, document.body) : null}
     </>
   );
 }

@@ -11,7 +11,7 @@
 // Somente leitura.
 // ============================================================
 import React, { useCallback, useMemo } from 'react';
-import { Inbox, Bell, ShieldAlert, Gauge, Hourglass, Layers } from 'lucide-react';
+import { Inbox, Bell, ShieldAlert, Gauge, Hourglass, Layers, ScanLine, Hammer, Truck, ClipboardList, Ruler, Package } from 'lucide-react';
 import { useERP } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useBIData } from '@/hooks/useBIData';
@@ -34,13 +34,55 @@ function dataPorExtenso(d = new Date()) {
 
 const chaveMesAtual = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
+// Quem não tem visão de gestão (bi.view / financeiro.view / obras) vê um
+// início de campo com os atalhos de trabalho — o cockpit é da diretoria.
+const ATALHOS_CAMPO = [
+  { to: '/m/campo/producao', icone: ScanLine, titulo: 'Lançar produção', sub: 'Avançar etapa por leitura de código', perm: 'producao.lancar_avanco' },
+  { to: '/m/campo/montagem', icone: Hammer, titulo: 'Marcar montagem', sub: 'Peças montadas na obra, com foto', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+  { to: '/m/campo/expedicao', icone: Truck, titulo: 'Conferir e despachar carga', sub: 'Romaneios do dia', perm: 'expedicao.edit' },
+  { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: 'producao.lancar_avanco' },
+  { to: '/m/medicao', icone: Ruler, titulo: 'Medição', perm: 'medicao.view' },
+  { to: '/m/estoque', icone: Package, titulo: 'Estoque', perm: 'estoque.view' },
+  { to: '/m/campo/montagem', icone: Hammer, titulo: 'Montagem', sub: 'Peças em obra', perm: 'montagem.view', soLeitura: true },
+];
+
+function InicioCampo({ user, hasPermission }) {
+  const vistos = new Set();
+  const itens = ATALHOS_CAMPO.filter((a) => {
+    const ok = (Array.isArray(a.perm) ? a.perm : [a.perm]).some((k) => hasPermission(k));
+    if (!ok || vistos.has(a.to)) return false;
+    vistos.add(a.to);
+    return true;
+  });
+  return (
+    <Tela titulo={`${saudacao()}, ${primeiroNome(user) || 'equipe'}`} subtitulo={dataPorExtenso()}>
+      <Secao titulo="Seu trabalho">
+        {itens.length ? (
+          <Grupo>
+            {itens.map((a) => <Linha key={a.to + a.titulo} icone={a.icone} iconeTom="teal" titulo={a.titulo} sub={a.sub} to={a.to} />)}
+          </Grupo>
+        ) : (
+          <Vazio icone={Gauge} titulo="Nenhum módulo liberado" texto="Peça ao administrador para liberar o acesso em Usuários." />
+        )}
+      </Secao>
+    </Tela>
+  );
+}
+
 export default function Inicio() {
+  const { user, hasPermission } = useAuth() || {};
+  const gestao = !hasPermission || ['bi.view', 'financeiro.view', 'obras.view', 'projetos.view'].some((k) => hasPermission(k));
+  if (!gestao) return <InicioCampo user={user} hasPermission={hasPermission} />;
+  return <InicioDiretoria />;
+}
+
+function InicioDiretoria() {
   const { user, hasPermission } = useAuth() || {};
   const pode = (k) => !!hasPermission && hasPermission(k);
   const verFinanceiro = pode('financeiro.view');
 
   const { reloadPecas } = useERP?.() || {};
-  const dados = useBIData();
+  const dados = useBIData({ empresa: true });
   const { analise } = useCustoKg(dados);
   const fin = useFinanceiroGlobal();
   const pend = usePendenciasAprovacao();

@@ -29,6 +29,7 @@ import {
   Tela, Secao, Grupo, Linha, Metrica, Grade, Barra, Status, Botao, Vazio, Esqueleto, Erro,
 } from '../../kit';
 import { brl, brlc, num, peso, pct, data, quando } from '../../kit/fmt';
+import { abrirNoComputador, temVersaoComputador } from '../../kit/fmt';
 import { clienteDaObra, situacaoObra } from './Obras';
 
 const n = (v) => { const x = Number(v); return Number.isFinite(x) ? x : 0; };
@@ -94,7 +95,7 @@ export default function ObraDetalhe() {
   const { lancamentosDespesas = [] } = useLancamentos();
   const { expedicoes = [] } = useExpedicao();
   const { receitas: receitasManuais = [] } = useReceitasManuais();
-  const dados = useBIData();
+  const dados = useBIData({ empresa: true });
   const { analise } = useCustoKg(dados);
 
   // Montagem: estado independente da etapa (regra 6) — cache local + entity_store
@@ -444,19 +445,23 @@ export default function ObraDetalhe() {
         )}
       </Secao>
 
-      {/* h) GFO no computador */}
-      <div className="mt-6">
-        <a
-          href={`${window.location.origin}/GestaoFinanceiraObra`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-mx-line bg-mx-s1 px-4 text-[15px] font-semibold text-mx-text active:bg-mx-s2"
-        >
-          <ExternalLink className="h-[18px] w-[18px]" aria-hidden />
-          Abrir Gestão Financeira no computador
-        </a>
-        <p className="mt-2 px-1 text-center text-[12px] text-mx-text3">No computador, escolha esta obra no seletor do topo.</p>
-      </div>
+      {/* h) GFO no computador — já abre com esta obra selecionada no topo */}
+      {temVersaoComputador() && (
+        <div className="mt-6">
+          <button
+            type="button"
+            onClick={() => {
+              try { localStorage.setItem('montex_obra_atual', id); } catch { /* noop */ }
+              abrirNoComputador('/GestaoFinanceiraObra');
+            }}
+            className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-mx-line bg-mx-s1 px-4 text-[15px] font-semibold text-mx-text active:bg-mx-s2"
+          >
+            <ExternalLink className="h-[18px] w-[18px]" aria-hidden />
+            Abrir Gestão Financeira da obra
+          </button>
+          <p className="mt-2 px-1 text-center text-[12px] text-mx-text3">Abre a versão do computador já nesta obra. Para voltar ao app, abra o Montex de novo.</p>
+        </div>
+      )}
     </Tela>
   );
 }

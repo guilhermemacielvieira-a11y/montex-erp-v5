@@ -22,9 +22,10 @@ export const obraIdDe = (x) => x?.obraId ?? x?.obra_id ?? x?.obra?.id ?? null;
 
 /** Filtro do escopo do topo + nome de obra. */
 export function useEscopoFabrica() {
-  const { obras = [], obraIdsEscopo } = useObras();
+  // App da diretoria: sempre a empresa toda (não há seletor do topo no app).
+  const { obras = [] } = useObras();
   return useMemo(() => {
-    const ids = obraIdsEscopo ? new Set(obraIdsEscopo) : null;
+    const ids = null;
     const porId = new Map(obras.map((o) => [o.id, o]));
     return {
       obras,
@@ -36,7 +37,7 @@ export function useEscopoFabrica() {
       },
       geral: !ids,
     };
-  }, [obras, obraIdsEscopo]);
+  }, [obras]);
 }
 
 export const obraAtiva = (o) => !['concluido', 'concluida', 'cancelado', 'cancelada'].includes(String(o?.status || '').toLowerCase());

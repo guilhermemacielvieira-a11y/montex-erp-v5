@@ -36,7 +36,7 @@ export default function Fabrica() {
   const { reloadPecas } = useProducao();
   const { reloadEstoque } = useEstoque();
   const { carregando, erro } = useEstadoERP();
-  const bi = useBIData();
+  const bi = useBIData({ empresa: true });
 
   const atualizar = useCallback(async () => {
     const tarefas = [bi.recarregar(true)];

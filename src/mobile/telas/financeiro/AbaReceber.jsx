@@ -16,9 +16,10 @@ import { useMedicoes, useObras } from '@/contexts/ERPContext';
 import { useReceitasManuais, atualizarReceitaManual } from '@/utils/receitasSync';
 import { medicaoReconhecida, medicaoRecebida, normalizeStatusReceita, STATUS_RECEITA_LABELS } from '@/utils/financeiroStatus';
 import Folha from '../../kit/Folha';
-import { Secao, Grupo, Linha, Metrica, Grade, Status, Abas, Botao, Vazio, Erro, Esqueleto } from '../../kit';
-import { brl2, brlc, data as fmtData, quando } from '../../kit/fmt';
+import { Secao, Grupo, Linha, Metrica, Grade, Status, Abas, BotaoConfirmar, Vazio, Erro, Esqueleto } from '../../kit';
+import { brl, brl2, brlc, data as fmtData, quando } from '../../kit/fmt';
 import { ensureOnline } from '../../ui/online';
+import { confirmarBiometria } from '../../ui/biometric';
 import { success, tap } from '../../ui/haptics';
 import { hojeLocalISO } from '../../ui/format';
 import { useEstadoERP, usePodeEditar, diaISO, isoDe } from './comum';
@@ -108,9 +109,14 @@ export default function AbaReceber() {
   const marcarRecebida = async () => {
     if (!sel || sel.tipo !== 'manual') return;
     if (!podeEditar) { toast.error('Sem permissão para editar o financeiro'); return; }
-    if (!ensureOnline()) return;
+    if (salvando || !ensureOnline()) return;
     tap();
     setSalvando(true);
+    if (!(await confirmarBiometria('Confirmar recebimento'))) {
+      setSalvando(false);
+      toast.error('Autenticação não confirmada');
+      return;
+    }
     try {
       await atualizarReceitaManual(sel.id, { ...sel.original, status: 'recebido' });
       success();
@@ -166,7 +172,7 @@ export default function AbaReceber() {
         footer={sel && (
           sel.tipo === 'manual' ? (
             podeEditar ? (
-              <Botao className="mb-1 w-full" icone={CheckCircle2} carregando={salvando} onClick={marcarRecebida}>Marcar como recebida</Botao>
+              <BotaoConfirmar key={sel.id} className="mb-1" icone={CheckCircle2} carregando={salvando} rotulo="Marcar como recebida" confirmacao={`Confirmar recebimento de ${brl(sel.valor, 2)}`} onConfirmar={marcarRecebida} />
             ) : (
               <p className="pb-2 text-center text-[13px] text-mx-text3">Sem permissão para editar o financeiro.</p>
             )
