@@ -262,7 +262,7 @@ export default function ObraDetalhe() {
         <div className="mt-2.5">
           <Metrica
             rotulo="Resultado"
-            valor={brl(fin.resultadoCaixa)}
+            valor={brlc(fin.resultadoCaixa)}
             sub={`Recebido ${brlc(fin.totalRecebido)} − despesas pagas ${brlc(fin.despesasPagas)}`}
             tom={fin.resultadoCaixa >= 0 ? 'ok' : 'bad'}
           />

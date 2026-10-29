@@ -10,16 +10,17 @@ import { parseLocalDate } from '@/utils/financeiroCalc';
 const nf = (dec = 0) => new Intl.NumberFormat('pt-BR', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
 export const num = (n, dec = 0) => nf(dec).format(Number(n) || 0);
-export const brl = (n, dec = 0) => `R$ ${num(n, dec)}`;
+export const brl = (n, dec = 0) => `${Number(n) < 0 ? '−' : ''}R$ ${num(Math.abs(Number(n) || 0), dec)}`;
 export const brl2 = (n) => (n === null || n === undefined || Number.isNaN(Number(n)) ? '—' : `R$ ${num(n, 2)}`);
 
 /** R$ compacto: "R$ 1,24 mi", "R$ 318 mil", "R$ 940". */
 export function brlc(n) {
   const v = Number(n) || 0;
   const a = Math.abs(v);
-  if (a >= 1e6) return `R$ ${num(v / 1e6, a >= 1e7 ? 1 : 2)} mi`;
-  if (a >= 1e3) return `R$ ${num(v / 1e3, a >= 1e5 ? 0 : 1)} mil`;
-  return `R$ ${num(v)}`;
+  const s = v < 0 ? '−' : '';
+  if (a >= 1e6) return `${s}R$ ${num(a / 1e6, a >= 1e7 ? 1 : 2)} mi`;
+  if (a >= 1e3) return `${s}R$ ${num(a / 1e3, a >= 1e5 ? 0 : 1)} mil`;
+  return `${s}R$ ${num(a)}`;
 }
 
 /** kg inteiro (operacional). */

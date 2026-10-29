@@ -44,6 +44,10 @@ const ConfiguracoesMobile = lazy(() => import('./pages/ConfiguracoesMobile'));
 const GaleriaMobile = lazy(() => import('./pages/GaleriaMobile'));
 const DiarioObraMobile = lazy(() => import('./pages/DiarioObraMobile'));
 const UsuariosMobile = lazy(() => import('./pages/UsuariosMobile'));
+// Ferramentas de campo (leitor de código, foto, despacho) para quem opera
+const ProducaoMobile = lazy(() => import('./pages/ProducaoMobile'));
+const MontagemMobile = lazy(() => import('./pages/MontagemMobile'));
+const ExpedicaoMobile = lazy(() => import('./pages/ExpedicaoMobile'));
 
 // Versão completa do desktop dentro do app (uso raro)
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -166,6 +170,9 @@ function MobileRoutes() {
       <Route path="diario-obra" element={<Protected perm="producao.lancar_avanco"><DiarioObraMobile /></Protected>} />
       <Route path="usuarios" element={<Protected perm="usuarios.manage"><UsuariosMobile /></Protected>} />
       <Route path="config" element={<ConfiguracoesMobile />} />
+      <Route path="campo/producao" element={<Protected perm="producao.view"><ProducaoMobile /></Protected>} />
+      <Route path="campo/montagem" element={<Protected perm={['montagem.view', 'producao.view']}><MontagemMobile /></Protected>} />
+      <Route path="campo/expedicao" element={<Protected perm="expedicao.view"><ExpedicaoMobile /></Protected>} />
 
       {/* Versão completa do computador */}
       <Route path="3d" element={<Protected perm={['viewer3d.view', 'producao.view']}><Fullscreen3D><MontexERP3DPage /></Fullscreen3D></Protected>} />

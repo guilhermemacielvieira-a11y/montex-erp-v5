@@ -7,7 +7,7 @@
 import React, { useMemo } from 'react';
 import {
   CheckCircle2, Bell, Briefcase, ClipboardList, Camera, Ruler, Package,
-  Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight,
+  Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight, ScanLine, Hammer, Truck,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
@@ -26,6 +26,9 @@ const GRUPOS = [
   {
     titulo: 'Operação no campo',
     itens: [
+      { to: '/m/campo/producao', icone: ScanLine, titulo: 'Lançar produção', sub: 'Avançar etapa por leitura de código', perm: 'producao.lancar_avanco' },
+      { to: '/m/campo/montagem', icone: Hammer, titulo: 'Marcar montagem', sub: 'Peças montadas na obra, com foto', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+      { to: '/m/campo/expedicao', icone: Truck, titulo: 'Conferir e despachar carga', sub: 'Romaneios do dia', perm: 'expedicao.edit' },
       { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: 'producao.lancar_avanco' },
       { to: '/m/evidencias', icone: Camera, titulo: 'Evidências', sub: 'Fotos de obra e carga', perm: 'producao.view' },
       { to: '/m/medicao', icone: Ruler, titulo: 'Medição', perm: 'medicao.view' },

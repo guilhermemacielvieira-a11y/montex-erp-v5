@@ -127,12 +127,12 @@ export default function AbaPecas({ carregando, funcionarios = [] }) {
 
   return (
     <>
-      <div className="mt-4 flex gap-2">
-        <Busca valor={busca} onChange={mudar(setBusca)} placeholder="Buscar marca ou nome" className="flex-1" />
+      <div className="mt-4 space-y-2">
+        <Busca valor={busca} onChange={mudar(setBusca)} placeholder="Buscar marca ou nome" />
         <button
           type="button"
           onClick={() => setFolhaObra(true)}
-          className="flex h-11 max-w-[44%] shrink-0 items-center gap-1.5 rounded-xl border border-mx-line bg-mx-s1 px-3 text-[14px] text-mx-text active:bg-mx-s2"
+          className="flex h-11 w-full items-center gap-2 rounded-xl border border-mx-line bg-mx-s1 px-3 text-left text-[14px] text-mx-text active:bg-mx-s2"
           aria-label="Filtrar por obra"
         >
           <Building2 className="h-4 w-4 shrink-0 text-mx-text3" aria-hidden />

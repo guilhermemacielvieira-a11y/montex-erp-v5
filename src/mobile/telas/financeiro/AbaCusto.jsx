@@ -11,6 +11,7 @@ import { useBIData } from '@/hooks/useBIData';
 import { useCustoKg } from '@/hooks/useCustoKg';
 import { Secao, Grupo, Linha, Metrica, Grade, Barra, Status, Vazio, Erro, Esqueleto } from '../../kit';
 import { brl2, brlc, num, peso, pct } from '../../kit/fmt';
+import { rotuloMes } from './comum';
 
 const SITUACAO = {
   negativa: { tom: 'bad', rotulo: 'Negativa' },
@@ -21,6 +22,12 @@ const SITUACAO = {
 
 const kgR = (v) => (v === null || v === undefined ? '—' : `${brl2(v)}/kg`);
 const tMes = (v) => (v === null || v === undefined ? '—' : `${num(v, 1)} t/mês`);
+
+function periodoMeses(meses = []) {
+  if (!meses.length) return undefined;
+  const rot = (k) => rotuloMes(Number(k.slice(0, 4)), Number(k.slice(5, 7)) - 1, true).replace('.', '');
+  return meses.length === 1 ? `Média de ${rot(meses[0])}` : `Média de ${rot(meses[0])} a ${rot(meses[meses.length - 1])}`;
+}
 
 export default function AbaCusto() {
   const dados = useBIData();
@@ -38,7 +45,7 @@ export default function AbaCusto() {
     <>
       {dados.erro && <Erro texto={`Histórico de produção não atualizado: ${dados.erro}`} onTentar={() => dados.recarregar()} />}
 
-      <Secao titulo="Custo da fábrica" descricao={a.base.meses.length ? `Média de ${a.base.meses.join(', ')}` : undefined}>
+      <Secao titulo="Custo da fábrica" descricao={periodoMeses(a.base.meses)}>
         <Grade>
           <Metrica
             rotulo="Custo/kg hoje"

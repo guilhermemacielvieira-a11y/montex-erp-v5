@@ -33,7 +33,7 @@ export function clienteDaObra(obra, clientes = []) {
 }
 
 /** Situação de prazo da obra (ponto + texto). */
-const dias = (n) => (n > 365 ? 'mais de 1 ano' : `${n} ${n === 1 ? 'dia' : 'dias'}`);
+const dias = (n) => (n > 365 ? '+1 ano' : `${n} ${n === 1 ? 'dia' : 'dias'}`);
 
 export function situacaoObra(ind, hoje = new Date()) {
   if (!ind) return { tom: 'neutro', texto: '—' };
@@ -43,9 +43,9 @@ export function situacaoObra(ind, hoje = new Date()) {
   const prazo = parseLocalDate(ind.prazo);
   const base = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
   if (prazo && prazo < base && (ind.kgRestante ?? 0) > 0) {
-    return { tom: 'bad', texto: `Prazo vencido há ${dias(Math.round((base - prazo) / 86400000))}` };
+    return { tom: 'bad', texto: `Prazo vencido · ${dias(Math.round((base - prazo) / 86400000))}` };
   }
-  if (ind.atrasoDias > 0) return { tom: 'warn', texto: `Previsão ${dias(ind.atrasoDias)} após o prazo` };
+  if (ind.atrasoDias > 0) return { tom: 'warn', texto: `Atraso previsto · ${dias(ind.atrasoDias)}` };
   return { tom: 'ok', texto: 'No prazo' };
 }
 

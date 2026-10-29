@@ -130,7 +130,7 @@ export function Linha({ icone: Icone, iconeTom = 'neutro', titulo, sub, valor, v
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <div className={cn('truncate text-[15px] text-mx-text', destaque && 'font-semibold')}>{titulo}</div>
+        <div className={cn('line-clamp-2 text-[15px] leading-snug text-mx-text', destaque && 'font-semibold')}>{titulo}</div>
         {sub && <div className="truncate text-[13px] text-mx-text2">{sub}</div>}
       </div>
       {(valor !== undefined || valorSub) && (
@@ -204,8 +204,14 @@ export function Etiqueta({ tom = 'neutro', children }) {
 
 /* ---------- Abas segmentadas ---------- */
 export function Abas({ itens, valor, onChange, className }) {
+  const ref = React.useRef(null);
+  // A aba ativa sempre visível (ex.: abriu direto em ?aba=estoque, a última).
+  React.useEffect(() => {
+    const el = ref.current?.querySelector('[aria-selected="true"]');
+    if (el?.scrollIntoView) el.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [valor]);
   return (
-    <div className={cn('mx-scroll-x flex gap-1.5 px-4 pb-2.5', className)} role="tablist">
+    <div ref={ref} className={cn('mx-scroll-x flex gap-1.5 px-4 pb-2.5', className)} role="tablist">
       {itens.map((i) => {
         const ativo = i.id === valor;
         return (

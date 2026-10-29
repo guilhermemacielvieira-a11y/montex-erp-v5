@@ -158,7 +158,7 @@ export default function Comercial() {
             <Grade>
               <Metrica rotulo="Em aberto" valor={brlc(funil.abertos.valor)} sub={`${num(funil.abertos.n)} ${funil.abertos.n === 1 ? 'orçamento' : 'orçamentos'}`} />
               <Metrica rotulo="Ponderado" valor={brlc(funil.ponderado)} sub="pela probabilidade" />
-              <Metrica rotulo="Aprovado" valor={brlc(funil.por.aprovado.valor)} sub={`${num(funil.por.aprovado.n)} fechados`} tom="ok" />
+              <Metrica rotulo="Aprovado" valor={brlc(funil.por.aprovado.valor)} sub={`${num(funil.por.aprovado.n)} ${funil.por.aprovado.n === 1 ? "fechado" : "fechados"}`} tom="ok" />
               <Metrica
                 rotulo="Conversão"
                 valor={funil.conversao === null ? '—' : pct(funil.conversao)}

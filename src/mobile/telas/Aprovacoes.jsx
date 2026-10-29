@@ -67,7 +67,8 @@ export default function Aprovacoes() {
   const { aprovarOrcamento, updateOrcamento } = useOrcamentos?.() || {};
   const comprasCtx = useCompras?.() || {};
   const { meds, orcs, cmps, total, podeMed, podeOrc, podeCmp } = usePendenciasAprovacao();
-  const { dataSource } = useERP?.() || {};
+  const { dataSource, obras = [] } = useERP?.() || {};
+  const nomeObra = (id) => obras.find((o) => o.id === id)?.nome || null;
 
   const abas = useMemo(() => [
     podeMed && { id: 'med', rotulo: 'Medições', badge: meds.length },
@@ -154,8 +155,8 @@ export default function Aprovacoes() {
             key={m.id}
             icone={Ruler}
             iconeTom="teal"
-            titulo={m.numero || m.descricao || m.id}
-            sub={[m.obra, m.pesoMedido ? kg(m.pesoMedido) : null, fmtData(m.dataMedicao || m.data)].filter(Boolean).join(' · ')}
+            titulo={m.numero ? `Medição ${m.numero}${nomeObra(m.obraId ?? m.obra_id) ? ` · ${nomeObra(m.obraId ?? m.obra_id)}` : ''}` : (m.descricao || m.id)}
+            sub={[m.descricao && m.numero ? m.descricao : null, m.pesoMedido ? kg(m.pesoMedido) : null, fmtData(m.dataMedicao || m.data)].filter(Boolean).join(' · ')}
             valor={brl2(valorMedicao(m))}
             onClick={() => abrir('med', m)}
           />
@@ -285,10 +286,13 @@ function Destaque({ valor, sub }) {
 }
 
 function DetalheMedicao({ m }) {
+  const { obras = [] } = useERP?.() || {};
+  const obraId = m.obraId ?? m.obra_id;
+  const nome = obras.find((o) => o.id === obraId)?.nome || m.obra || obraId;
   const fotoUrl = m.detalhamento?.fotoUrl;
   return (
     <div>
-      <Destaque valor={brl2(valorMedicao(m))} sub={m.obra || m.obraId || m.obra_id} />
+      <Destaque valor={brl2(valorMedicao(m))} sub={nome} />
       <Campos itens={[
         ['Número', m.numero || m.id],
         ['Peso medido', m.pesoMedido ? kg(m.pesoMedido) : '—'],
