@@ -5,6 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Label } from '@/components/ui/label';
 import { Download, FileJson, File } from 'lucide-react';
 import jsPDF from 'jspdf';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const EXPORT_OPTIONS = [
   { id: 'stats', label: 'Estatísticas Gerais', default: true },
@@ -52,7 +53,7 @@ export default function DashboardExporter({ open, onOpenChange, dashboardData })
       const link = document.createElement('a');
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
-      link.setAttribute('download', `dashboard_${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `dashboard_${hojeLocalISO()}.csv`);
       link.click();
       URL.revokeObjectURL(url);
     } finally {
@@ -113,7 +114,7 @@ export default function DashboardExporter({ open, onOpenChange, dashboardData })
         });
       }
 
-      doc.save(`dashboard_${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`dashboard_${hojeLocalISO()}.pdf`);
     } finally {
       setExporting(false);
       onOpenChange(false);

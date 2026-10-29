@@ -21,6 +21,7 @@ import {
 import { useObras } from '@/contexts/ERPContext';
 import { obrasApi, pecasApi, lancamentosApi, medicoesApi } from '@/api/supabaseClient';
 import { STATUS_OBRA } from '@/data/database';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // ===== CONSTANTES =====
 const STATUS_CONFIG = {
@@ -356,7 +357,7 @@ function ModalExportar({ open, onClose, obra, allObras }) {
 
       if (scope === 'todas') {
         dataToExport = allObras;
-        filename = `montex_obras_${new Date().toISOString().slice(0, 10)}`;
+        filename = `montex_obras_${hojeLocalISO()}`;
       } else if (scope === 'completo' && obra) {
         // Export obra + associated data
         const [pecas, lancamentos, medicoes] = await Promise.all([
@@ -370,10 +371,10 @@ function ModalExportar({ open, onClose, obra, allObras }) {
           lancamentos_despesas: lancamentos,
           medicoes
         };
-        filename = `montex_${obra.codigo || 'obra'}_completo_${new Date().toISOString().slice(0, 10)}`;
+        filename = `montex_${obra.codigo || 'obra'}_completo_${hojeLocalISO()}`;
       } else {
         dataToExport = obra;
-        filename = `montex_${obra?.codigo || 'obra'}_${new Date().toISOString().slice(0, 10)}`;
+        filename = `montex_${obra?.codigo || 'obra'}_${hojeLocalISO()}`;
       }
 
       if (exportType === 'json') {

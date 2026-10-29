@@ -8,6 +8,7 @@ import {
   parseLocalDate, formatDate, diasAteVencimento, ehCheque, ehPago, STATUS_QUITADO,
   calcChequeOp, calcOpFin, calcScoreSaude, calcAlertaVencimento,
   hojeLocalISO, toLocalISO, parseDataBR, parseValorBR,
+  diaLocal, agoraLocalTexto, limitesDiaLocal,
 } from '@/utils/financeiroCalc';
 
 const HOJE = new Date(2026, 5, 8); // 2026-06-08 (mês 5 = junho), local
@@ -73,6 +74,31 @@ describe('hojeLocalISO / toLocalISO', () => {
   });
   it('aceita string ISO', () => expect(toLocalISO('2026-05-15')).toBe('2026-05-15'));
   it('inválido → vazio', () => expect(toLocalISO('xx')).toBe(''));
+});
+
+describe('diaLocal / agoraLocalTexto / limitesDiaLocal', () => {
+  it('timestamp com fuso vira o dia LOCAL (fim da noite não pula de dia)', () => {
+    const noite = new Date(2026, 9, 28, 22, 40); // 28/10 22:40 local
+    expect(diaLocal(noite.toISOString())).toBe('2026-10-28');
+    expect(diaLocal(noite.toISOString().replace('Z', '+00:00'))).toBe('2026-10-28');
+  });
+  it('data pura e texto sem fuso ficam como estão', () => {
+    expect(diaLocal('2026-10-28')).toBe('2026-10-28');
+    expect(diaLocal('2026-10-28 23:10')).toBe('2026-10-28');
+  });
+  it('Date, vazio e inválido', () => {
+    expect(diaLocal(new Date(2026, 0, 2, 23, 59))).toBe('2026-01-02');
+    expect(diaLocal(null)).toBe('');
+    expect(diaLocal('abc')).toBe('');
+  });
+  it('agoraLocalTexto usa hora local', () => {
+    expect(agoraLocalTexto(new Date(2026, 9, 28, 21, 5))).toBe('2026-10-28 21:05');
+  });
+  it('limitesDiaLocal cobre exatamente o dia local', () => {
+    const { inicio, fim } = limitesDiaLocal(new Date(2026, 9, 28, 22, 0));
+    expect(new Date(inicio).getTime()).toBe(new Date(2026, 9, 28).getTime());
+    expect(new Date(fim).getTime()).toBe(new Date(2026, 9, 29).getTime());
+  });
 });
 
 describe('parseDataBR', () => {

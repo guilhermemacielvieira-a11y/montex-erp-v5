@@ -75,6 +75,38 @@ export const toLocalISO = (date = new Date()) => {
 export const hojeLocalISO = (hoje = new Date()) => toLocalISO(hoje);
 
 /**
+ * Dia LOCAL ('YYYY-MM-DD') de uma data ou timestamp, para comparar com
+ * hojeLocalISO(). Timestamp com fuso (Z ou ±hh:mm, como o Supabase devolve
+ * created_at/updated_at) é convertido para o fuso local; data pura ou texto
+ * sem fuso é tomado como já local. Vazio/ inválido → ''.
+ */
+export const diaLocal = (valor) => {
+  if (!valor) return '';
+  if (valor instanceof Date) return isNaN(valor.getTime()) ? '' : toLocalISO(valor);
+  const s = String(valor).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s) && /(Z|[+-]\d{2}:?\d{2})$/i.test(s)) {
+    const d = new Date(s);
+    return isNaN(d.getTime()) ? '' : toLocalISO(d);
+  }
+  return /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : '';
+};
+
+/** Data e hora LOCAIS no formato 'YYYY-MM-DD HH:MM' (registros exibidos ao usuário). */
+export const agoraLocalTexto = (agora = new Date()) => {
+  const hh = String(agora.getHours()).padStart(2, '0');
+  const mi = String(agora.getMinutes()).padStart(2, '0');
+  return `${toLocalISO(agora)} ${hh}:${mi}`;
+};
+
+/** Início e fim (exclusivo) do dia LOCAL como ISO UTC, para filtrar timestamptz no banco. */
+export const limitesDiaLocal = (dia = new Date()) => {
+  const inicio = new Date(dia.getFullYear(), dia.getMonth(), dia.getDate());
+  const fim = new Date(dia.getFullYear(), dia.getMonth(), dia.getDate() + 1);
+  return { inicio: inicio.toISOString(), fim: fim.toISOString() };
+};
+
+/**
  * Converte data brasileira 'dd/mm/yyyy' (ou 'dd/mm/yy', 'dd-mm-yyyy') em ISO
  * 'YYYY-MM-DD'. Strings já em ISO são devolvidas (só a parte da data).
  * Retorna '' quando inválida.

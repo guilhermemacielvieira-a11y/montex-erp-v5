@@ -3,6 +3,7 @@
  * Gera planilhas profissionais com cores, formatação automática e destaque de valores
  */
 import * as XLSX from 'xlsx';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Cores do tema MONTEX
 const CORES = {
@@ -68,7 +69,7 @@ export function exportarXLSXFormatado(config) {
   ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: colunas.length - 1 } }];
 
   XLSX.utils.book_append_sheet(wb, ws, titulo.substring(0, 31));
-  XLSX.writeFile(wb, `${nomeArquivo}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  XLSX.writeFile(wb, `${nomeArquivo}_${hojeLocalISO()}.xlsx`);
 
   return true;
 }

@@ -48,6 +48,7 @@ import { getCroquiByMarca } from '@/data/croquiDatabase';
 import { useFluxoIntegrado } from '@/hooks/useFluxoIntegrado';
 import { podeIniciarFabricacao } from '@/services/fluxoIntegrado';
 import FluxoObraPainel from '@/components/fluxo/FluxoObraPainel';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Colunas do Kanban de Produção
 // 1ª coluna = marcas ainda não iniciadas (etapa 'aguardando'): o corte das
@@ -1059,7 +1060,7 @@ export default function KanbanProducaoIntegrado() {
                 { header: 'Prioridade', key: 'prioridade' },
                 { header: 'Obra', key: 'obraNome' }
               ];
-              const timestamp = new Date().toISOString().split('T')[0];
+              const timestamp = hojeLocalISO();
               exportToExcel(producaoFabrica, columns, `producao-integrada-${timestamp}`);
               toast.success('Produção exportada para Excel com sucesso!');
             }}

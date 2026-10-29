@@ -419,24 +419,40 @@ export function ERPProvider({ children }) {
   }, []);
 
   // ===== AÇÕES - ORÇAMENTOS =====
+  // Orçamento pode ser aprovado SEM obra vinculada (proposta ainda sem
+  // cadastro de obra). Nesse caso só o orçamento muda; a obra não é tocada
+  // (antes chamava obrasApi.update(undefined) e acusava falha com o
+  // orçamento já aprovado no banco). Falha ao marcar a obra não desfaz a
+  // aprovação: avisa e segue.
   const aprovarOrcamento = useCallback(async (orcamentoId, obraId) => {
-    dispatch({ type: ACTIONS.APROVAR_ORCAMENTO, payload: { orcamentoId, obraId } });
+    const temObra = obraId != null && obraId !== '';
+    dispatch({ type: ACTIONS.APROVAR_ORCAMENTO, payload: { orcamentoId, obraId: temObra ? obraId : null } });
     dispatch({
       type: ACTIONS.ADD_NOTIFICACAO,
-      payload: { tipo: 'sucesso', mensagem: 'Orçamento aprovado! Obra iniciada.' }
+      payload: {
+        tipo: 'sucesso',
+        mensagem: temObra ? 'Orçamento aprovado! Obra iniciada.' : 'Orçamento aprovado. Vincule uma obra para iniciar a produção.'
+      }
     });
 
     if (dataSource === 'supabase') {
       try {
         await orcamentosApi.update(orcamentoId, {
           status: 'aprovado',
-          data_aprovacao: new Date().toISOString().split('T')[0]
+          data_aprovacao: hojeLocalISO()
         });
-        await obrasApi.update(obraId, { status: 'aprovada' });
         console.log(`✅ Orçamento ${orcamentoId} aprovado no Supabase`);
       } catch (err) {
         console.error('❌ Erro ao aprovar orçamento no Supabase:', err.message);
         throw err;
+      }
+      if (temObra) {
+        try {
+          await obrasApi.update(obraId, { status: 'aprovada' });
+        } catch (err) {
+          console.error(`❌ Orçamento aprovado, mas a obra ${obraId} não foi atualizada:`, err.message);
+          toast.warning('Orçamento aprovado, mas o status da obra não foi atualizado. Ajuste a obra manualmente.');
+        }
       }
     }
 
@@ -445,7 +461,9 @@ export function ERPProvider({ children }) {
       window.__notificationDispatch({
         type: 'success',
         title: `Orçamento ${orcamentoId} aprovado`,
-        message: `A obra ${obraId} foi iniciada com sucesso e está pronta para produção.`,
+        message: temObra
+          ? `A obra ${obraId} foi iniciada com sucesso e está pronta para produção.`
+          : 'Orçamento aprovado sem obra vinculada. Cadastre ou vincule a obra para iniciar a produção.',
         icon: 'CheckCircle'
       });
     }
@@ -972,7 +990,7 @@ export function ERPProvider({ children }) {
       try {
         await comprasApi.update(compraId, {
           status: 'entregue',
-          data_entrega: new Date().toISOString().split('T')[0]
+          data_entrega: hojeLocalISO()
         });
         console.log(`✅ Compra ${compraId} recebida no Supabase`);
       } catch (err) {
@@ -994,7 +1012,7 @@ export function ERPProvider({ children }) {
           : (Array.isArray(compra?.itens) ? compra.itens : []);
         const estoqueAtual = await estoqueApi.getAll().catch(() => []);
         const now = new Date().toISOString();
-        const hoje = now.split('T')[0];
+        const hoje = hojeLocalISO();
 
         for (const item of itens) {
           const perfil = item.perfil || item.material_perfil || '';
@@ -1443,7 +1461,7 @@ export function ERPProvider({ children }) {
         entregaData.material_id = materialId;
         await pedidosMaterialApi.update(materialId, {
           peso_entregue: entrega.pesoKg,
-          data_entrega: entrega.data || new Date().toISOString(),
+          data_entrega: entrega.data || hojeLocalISO(),
           status: 'entregue'
         });
         console.log(`✅ Entrega material ${materialId} salva no Supabase`);

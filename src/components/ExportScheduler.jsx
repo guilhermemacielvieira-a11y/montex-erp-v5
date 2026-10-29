@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { cn } from '@/lib/utils';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const STORAGE_KEY = 'montex_export_schedules';
 
@@ -164,7 +165,7 @@ export default function ExportScheduler() {
           : s
       );
       saveSchedules(updated);
-      toast.success(`Exportação concluída: ${getRelatorioNome(schedule.relatorio)}_${new Date().toISOString().split('T')[0]}${getFormatoExt(schedule.formato)}`);
+      toast.success(`Exportação concluída: ${getRelatorioNome(schedule.relatorio)}_${hojeLocalISO()}${getFormatoExt(schedule.formato)}`);
     }, 1000);
   };
 

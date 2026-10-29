@@ -8,6 +8,7 @@
  */
 
 import { ACTIONS } from '../actions';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export function comprasReducer(state, action) {
   switch (action.type) {
@@ -36,7 +37,7 @@ export function comprasReducer(state, action) {
             ? {
                 ...c,
                 status: 'entregue',
-                dataEntrega: action.payload.dataRecebimento || new Date().toISOString().split('T')[0]
+                dataEntrega: action.payload.dataRecebimento || hojeLocalISO()
               }
             : c
         )

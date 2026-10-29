@@ -11,6 +11,7 @@
 
 import { ACTIONS } from '../actions';
 import { ETAPAS_PRODUCAO, STATUS_CORTE } from '../../data/constants';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export function producaoReducer(state, action) {
   switch (action.type) {
@@ -62,7 +63,7 @@ export function producaoReducer(state, action) {
                 statusCorte: novoStatus,
                 maquinaCorte: maquinaId || p.maquinaCorte,
                 funcionarioCorte: funcionarioId || p.funcionarioCorte,
-                dataCorte: novoStatus === STATUS_CORTE.LIBERADO ? new Date().toISOString().split('T')[0] : p.dataCorte
+                dataCorte: novoStatus === STATUS_CORTE.LIBERADO ? hojeLocalISO() : p.dataCorte
               }
             : p
         )

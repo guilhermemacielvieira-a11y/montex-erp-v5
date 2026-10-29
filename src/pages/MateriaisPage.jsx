@@ -44,6 +44,7 @@ import {
   CATEGORIAS_DISPONIVEIS, classificarCategoria,
   itemQtd, itemValorUnit, itemValorTotal, itemUnidade,
 } from '@/services/nfPipeline';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // ── Helpers ─────────────────────────────────────────────────
 const fmtMoney = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
@@ -251,7 +252,7 @@ export default function MateriaisPage() {
     const blob = new Blob(['\ufeff' + [header.join(';'), ...rows].join('\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
-    a.href = url; a.download = `materiais_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.href = url; a.download = `materiais_${hojeLocalISO()}.csv`;
     document.body.appendChild(a); a.click(); document.body.removeChild(a);
     URL.revokeObjectURL(url);
     toast.success(`${catalogo.length} materiais exportados!`);

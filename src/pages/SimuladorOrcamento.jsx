@@ -43,6 +43,7 @@ import { useFinancialIntelligence } from '../hooks/useFinancialIntelligence';
 import { openPropostaHTML, generatePropostaPDF, generatePropostaDOCX } from '../utils/propostaPDFGenerator';
 
 
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Color palette for charts
 const CHART_COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#6366f1'];
@@ -77,7 +78,7 @@ const StepDadosProjeto = ({ project, setProject }) => {
       setProject({ ...project, numeroPropostas: generateProposalNumber() });
     }
     if (!project.dataEmissao) {
-      setProject({ ...project, dataEmissao: new Date().toISOString().split('T')[0] });
+      setProject({ ...project, dataEmissao: hojeLocalISO() });
     }
     if (!project.dataValidade) {
       const validadeDate = new Date();
@@ -2704,7 +2705,7 @@ export default function SimuladorOrcamento() {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `Proposta_${project.nome.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.doc`;
+      a.download = `Proposta_${project.nome.replace(/\s+/g, '_')}_${hojeLocalISO()}.doc`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);

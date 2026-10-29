@@ -15,6 +15,7 @@ import {
   extrairMateriaisDaNF,
 } from '../services/nfPipeline';
 import { reverseTransformRecord } from '../contexts/transforms';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // ============================================
 // PARSER XML NFe (usa DOMParser nativo)
@@ -511,7 +512,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
         tipo: 'entrada',
         valor: valorTotal,
         data_emissao: dataEmissao,
-        data_entrada: new Date().toISOString().split('T')[0],
+        data_entrada: hojeLocalISO(),
         status: 'importada',
         itens: itensParaImportar,
         observacoes: `Natureza: ${naturezaSelecionada} | ${nfData.naturezaOp} | Venc: ${dataVencimento} | Pgto: ${formaPagamentoSelecionada}`,
@@ -528,7 +529,7 @@ export default function ImportarNFModal({ open, onOpenChange, onImportar, obraId
         numero: nfData.numero,
         fornecedor: nfData.fornecedor,
         dataEmissao,
-        dataEntrada: new Date().toISOString().split('T')[0],
+        dataEntrada: hojeLocalISO(),
         itens: itensParaImportar,
         obraId: lancamento.obra_id || null,
       });

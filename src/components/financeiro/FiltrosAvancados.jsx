@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { X, Filter } from 'lucide-react';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const tiposMovimentacao = [
   { id: 'entrada', label: 'Receita' },
@@ -65,7 +66,7 @@ export default function FiltrosAvancados({
   const handleLimparTodos = () => {
     onFiltrosChange({
       dataInicio: new Date(new Date().setMonth(new Date().getMonth() - 3)).toISOString().split('T')[0],
-      dataFim: new Date().toISOString().split('T')[0],
+      dataFim: hojeLocalISO(),
       tipos: [],
       categorias: [],
       status: [],

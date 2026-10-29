@@ -40,6 +40,7 @@ import {
   XCircle,
   Handshake
 } from 'lucide-react';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Mock data
 const mockPedidosVenda = [
@@ -172,7 +173,7 @@ function NovoPedidoDialog({ onSave, clientes, vendedores }) {
       id: `PV-${String(Date.now()).slice(-3)}`,
       cliente: cliente?.nome || formData.cliente,
       vendedor: vendedor?.nome || formData.vendedor,
-      data: new Date().toISOString().split('T')[0],
+      data: hojeLocalISO(),
       valor: valor,
       status: 'pendente',
       projeto: formData.projeto,
@@ -315,7 +316,7 @@ function NovoClienteDialog({ onSave, vendedores }) {
       email: formData.email,
       cidade: formData.cidade,
       totalCompras: 0,
-      ultimaCompra: new Date().toISOString().split('T')[0],
+      ultimaCompra: hojeLocalISO(),
       status: 'ativo',
       rating: 4
     };
@@ -472,7 +473,7 @@ function NovaOportunidadeDialog({ onSave, vendedores }) {
       probabilidade: parseInt(formData.probabilidade) || 50,
       etapa: formData.etapa,
       vendedor: vendedor?.nome || formData.vendedor,
-      previsaoFechamento: formData.previsaoFechamento || new Date().toISOString().split('T')[0]
+      previsaoFechamento: formData.previsaoFechamento || hojeLocalISO()
     };
 
     onSave(novaOportunidade);

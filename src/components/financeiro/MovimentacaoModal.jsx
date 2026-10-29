@@ -14,6 +14,7 @@ import {
 import { Loader2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export default function MovimentacaoModal({ open, onClose, projetos }) {
   const [formData, setFormData] = useState({
@@ -21,7 +22,7 @@ export default function MovimentacaoModal({ open, onClose, projetos }) {
     categoria: '',
     descricao: '',
     valor: '',
-    data_movimentacao: new Date().toISOString().split('T')[0],
+    data_movimentacao: hojeLocalISO(),
     projeto_id: '',
     forma_pagamento: 'transferencia',
     status: 'realizado',
@@ -46,7 +47,7 @@ export default function MovimentacaoModal({ open, onClose, projetos }) {
       categoria: '',
       descricao: '',
       valor: '',
-      data_movimentacao: new Date().toISOString().split('T')[0],
+      data_movimentacao: hojeLocalISO(),
       projeto_id: '',
       forma_pagamento: 'transferencia',
       status: 'realizado',
