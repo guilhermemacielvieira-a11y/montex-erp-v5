@@ -79,8 +79,14 @@ export default function AbaExpedicao({ carregando }) {
   }, [ativos, filtro]);
 
   const previsao = useMemo(
-    () => previsaoCargasTodas({ pecas: pecasEscopo, expedicoes: ativos, obras: obras.filter(obraNoEscopo) }),
-    [pecasEscopo, ativos, obras, obraNoEscopo],
+    // Romaneios de todas as obras: a média global de carga é o fallback de
+    // obra sem histórico; o histórico por obra é filtrado lá dentro.
+    () => previsaoCargasTodas({
+      pecas: pecasEscopo,
+      expedicoes: expedicoes.filter((e) => e && !e.deletedAt && !e.deleted_at),
+      obras: obras.filter(obraNoEscopo),
+    }),
+    [pecasEscopo, expedicoes, obras, obraNoEscopo],
   );
 
   const pecasById = useMemo(() => new Map(pecas.map((p) => [String(p.id), p])), [pecas]);

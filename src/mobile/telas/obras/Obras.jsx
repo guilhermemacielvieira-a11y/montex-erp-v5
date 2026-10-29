@@ -6,6 +6,7 @@
 // useObras() só para o nome do cliente. O app da diretoria olha a empresa
 // toda: NÃO chama setObraAtual (o detalhe filtra pelo id da URL).
 // ============================================================
+import { parseLocalDate } from '@/utils/financeiroCalc';
 import React, { useMemo, useState, useCallback } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Building2 } from 'lucide-react';
@@ -32,13 +33,20 @@ export function clienteDaObra(obra, clientes = []) {
 }
 
 /** Situação de prazo da obra (ponto + texto). */
-export function situacaoObra(ind) {
+const dias = (n) => (n > 365 ? 'mais de 1 ano' : `${n} ${n === 1 ? 'dia' : 'dias'}`);
+
+export function situacaoObra(ind, hoje = new Date()) {
   if (!ind) return { tom: 'neutro', texto: '—' };
   if (!ind.ativa) return { tom: 'ok', texto: 'Concluída' };
   if (ind.semContrato) return { tom: 'neutro', texto: 'Sem contrato' };
-  if (ind.atrasoDias > 0) return { tom: 'bad', texto: `Atrasada ${ind.atrasoDias} ${ind.atrasoDias === 1 ? 'dia' : 'dias'}` };
   if (!ind.prazo) return { tom: 'neutro', texto: 'Sem prazo' };
-  return { tom: 'ok', texto: 'Em dia' };
+  const prazo = parseLocalDate(ind.prazo);
+  const base = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+  if (prazo && prazo < base && (ind.kgRestante ?? 0) > 0) {
+    return { tom: 'bad', texto: `Prazo vencido há ${dias(Math.round((base - prazo) / 86400000))}` };
+  }
+  if (ind.atrasoDias > 0) return { tom: 'warn', texto: `Previsão ${dias(ind.atrasoDias)} após o prazo` };
+  return { tom: 'ok', texto: 'No prazo' };
 }
 
 const normal = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -48,29 +56,30 @@ function LinhaObra({ ind, cliente }) {
   const sub = [cliente, ind.codigo].filter(Boolean).join(' · ');
   return (
     <Link to={`/m/obras/${encodeURIComponent(ind.id)}`} className="block">
-      <div className="flex items-center gap-3 px-4 py-3.5 active:bg-mx-s2">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[15px] font-semibold text-mx-text">{ind.nome}</div>
-          {sub && <div className="truncate text-[13px] text-mx-text2">{sub}</div>}
-          <div className="mt-2.5 space-y-1.5">
-            <div className="flex items-center gap-2">
-              <div className="flex-1"><Barra valor={ind.fisicoPct ?? 0} tom="teal" altura={4} rotulo="Avanço físico" /></div>
-              <span className="mx-tab w-[64px] shrink-0 text-right text-[12px] text-mx-tealhi">físico {pct(ind.fisicoPct)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="flex-1"><Barra valor={ind.financeiroPct ?? 0} tom="neutro" altura={4} rotulo="Avanço financeiro (medido)" /></div>
-              <span className="mx-tab w-[64px] shrink-0 text-right text-[12px] text-mx-text2">medido {pct(ind.financeiroPct)}</span>
-            </div>
+      <div className="px-4 py-3.5 active:bg-mx-s2">
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <div className="line-clamp-2 text-[15px] font-semibold leading-snug text-mx-text">{ind.nome}</div>
+            {sub && <div className="truncate text-[13px] text-mx-text2">{sub}</div>}
+          </div>
+          <ChevronRight className="mt-0.5 h-4 w-4 shrink-0 text-mx-text3" aria-hidden />
+        </div>
+        <div className="mt-3 space-y-1.5">
+          <div className="flex items-center gap-3">
+            <div className="flex-1"><Barra valor={ind.fisicoPct ?? 0} tom="teal" altura={5} rotulo="Avanço físico" /></div>
+            <span className="mx-tab w-[92px] shrink-0 text-right text-[12px] text-mx-tealhi">fabricado {pct(ind.fisicoPct)}</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1"><Barra valor={ind.financeiroPct ?? 0} tom="neutro" altura={5} rotulo="Avanço financeiro (medido)" /></div>
+            <span className="mx-tab w-[92px] shrink-0 text-right text-[12px] text-mx-text2">medido {pct(ind.financeiroPct)}</span>
           </div>
         </div>
-        <div className="flex shrink-0 flex-col items-end gap-1 pl-1">
-          <div className="mx-tab text-[15px] font-semibold text-mx-text">
-            {ind.saldoAMedir === null ? '—' : brlc(ind.saldoAMedir)}
-          </div>
-          <div className="text-[11px] text-mx-text3">a medir</div>
-          <Status tom={sit.tom} className="text-[12px]">{sit.texto}</Status>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <Status tom={sit.tom} className="min-w-0 truncate text-[13px]">{sit.texto}</Status>
+          <span className="shrink-0 text-[13px] text-mx-text2">
+            a medir <span className="mx-tab font-semibold text-mx-text">{ind.saldoAMedir === null ? '—' : brlc(ind.saldoAMedir)}</span>
+          </span>
         </div>
-        <ChevronRight className="h-4 w-4 shrink-0 text-mx-text3" aria-hidden />
       </div>
     </Link>
   );

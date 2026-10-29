@@ -49,7 +49,7 @@ export default function Shell({ children }) {
 
       <nav
         aria-label="Navegação principal"
-        className="absolute inset-x-0 bottom-0 z-40 border-t border-mx-line/80 bg-mx-bg/92 backdrop-blur-xl"
+        className="absolute inset-x-0 bottom-0 z-40 border-t border-mx-line bg-mx-bg"
         style={{ paddingBottom: 'max(env(safe-area-inset-bottom), 6px)' }}
       >
         <div className="flex h-[60px] items-stretch">

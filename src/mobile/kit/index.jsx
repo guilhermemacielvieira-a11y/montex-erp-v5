@@ -16,9 +16,9 @@ import { cn } from '@/lib/utils';
 import PullToRefresh from '../ui/PullToRefresh';
 
 export const TOM = {
-  ok: { txt: 'text-mx-ok', bg: 'bg-mx-ok', soft: 'bg-mx-ok/12', borda: 'border-mx-ok/30' },
-  warn: { txt: 'text-mx-warn', bg: 'bg-mx-warn', soft: 'bg-mx-warn/12', borda: 'border-mx-warn/30' },
-  bad: { txt: 'text-mx-bad', bg: 'bg-mx-bad', soft: 'bg-mx-bad/12', borda: 'border-mx-bad/30' },
+  ok: { txt: 'text-mx-ok', bg: 'bg-mx-ok', soft: 'bg-mx-ok/10', borda: 'border-mx-ok/30' },
+  warn: { txt: 'text-mx-warn', bg: 'bg-mx-warn', soft: 'bg-mx-warn/10', borda: 'border-mx-warn/30' },
+  bad: { txt: 'text-mx-bad', bg: 'bg-mx-bad', soft: 'bg-mx-bad/10', borda: 'border-mx-bad/30' },
   teal: { txt: 'text-mx-tealhi', bg: 'bg-mx-tealhi', soft: 'bg-mx-teal/20', borda: 'border-mx-teal/40' },
   neutro: { txt: 'text-mx-text2', bg: 'bg-mx-text3', soft: 'bg-mx-s2', borda: 'border-mx-line' },
 };
