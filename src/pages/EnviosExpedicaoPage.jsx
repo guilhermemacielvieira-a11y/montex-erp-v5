@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import toast from 'react-hot-toast';
-import { exportToExcel, exportRomaneioPDF, exportFilaEmbarquePDF } from '@/utils/exportUtils';
+import { exportToExcel, exportFilaEmbarquePDF } from '@/utils/exportUtils';
 import { useExpedicao, useObras, useERP } from '../contexts/ERPContext';
 import PrevisaoCargasCard from '../components/expedicao/PrevisaoCargasCard';
 import { isEscopoGeral, rotuloEscopo } from '../lib/escopoObra';
@@ -24,9 +24,11 @@ import {
   AlertDialogTitle, AlertDialogDescription, AlertDialogCancel, AlertDialogAction,
 } from '@/components/ui/alert-dialog';
 import {
-  normalizarStatusRomaneio, hojeLocalISO, escapeHtml, planejarRomaneio,
-  calcularReservasRomaneios, isRomaneioDespachado,
+  normalizarStatusRomaneio, hojeLocalISO, planejarRomaneio,
+  calcularReservasRomaneios, isRomaneioDespachado, itensDoRomaneio,
 } from '@/services/romaneio';
+import { dadosRelatorioRomaneio, htmlRelatorioRomaneio, pdfRelatorioRomaneio, nomeArquivoRomaneio } from '@/services/relatorioRomaneio';
+import { abrirJanelaRelatorio, mostrarHtmlRelatorio, fecharJanelaRelatorio, carregarLogoMontex } from '@/utils/abrirRelatorio';
 
 // ========================================
 // CONSTANTES
@@ -360,116 +362,51 @@ export default function EnviosExpedicaoPage() {
     }
   }, [envioExcluir, excluindo, deleteExpedicao]);
 
-  // ==== GERAR ROMANEIO ====
+  // ==== GERAR ROMANEIO (HTML no navegador / PDF) ====
+  // Mesmo gerador do app (services/relatorioRomaneio.js): logo e identidade
+  // Montex, quantidades do envio (parciais), conferência e assinaturas.
+  const dadosDoEnvio = useCallback(async (envio) => {
+    const todas = transformPecaArray(await pecasApi.getAll('id', true));
+    const porId = new Map(todas.map((p) => [String(p.id), p]));
+    const romaneio = itensDoRomaneio(envio).length
+      ? envio
+      : { ...envio, pecas: (envio.pecas_ids || envio.pecasIds || []).map((id) => ({ id })) };
+    const primeira = itensDoRomaneio(romaneio).map((it) => porId.get(String(it.id))).find(Boolean);
+    const obraId = envio.obra_id || envio.obraId || primeira?.obraId || primeira?.obra_id;
+    const obra = obras.find((o) => o.id === obraId);
+    return dadosRelatorioRomaneio(romaneio, porId, obra?.nome || envio.obra_nome || envio.obraNome || envio.destino);
+  }, [obras]);
+
   const gerarRomaneio = useCallback(async (envio) => {
+    const janela = abrirJanelaRelatorio(); // no clique, antes do await (evita bloqueio de pop-up)
     try {
-      toast.loading('Gerando Romaneio...', { id: 'romaneio-loading' });
-      const numero = envio.numero || envio.numeroRomaneio || envio.numero_romaneio || 'Envio';
-      const dataEnvio = envio.data_envio || envio.dataExpedicao || envio.data_expedicao;
-      const dataFormatada = dataEnvio ? new Date(dataEnvio + 'T12:00:00').toLocaleDateString('pt-BR') : '-';
-      const obraNome = envio.obra_nome || envio.obraNome || envio.destino || '-';
-
-      // Buscar peças completas
-      let pecasCompletas = [];
-      const pecasRaw = envio.pecas_ids || envio.pecasIds || envio.pecas || [];
-      const ids = pecasRaw.map(p => typeof p === 'object' ? (p.id || p) : p);
-      const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || (Array.isArray(envio.pecas) ? envio.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
-      if (ids.length > 0) {
-        const todasPecasRaw = await pecasApi.getAll('id', true);
-        const todasPecas = transformPecaArray(todasPecasRaw);
-        const idsSet = new Set(ids.map(String));
-        pecasCompletas = todasPecas.filter(p => idsSet.has(String(p.id)));
-        pecasCompletas = pecasCompletas.map(p => {
-          const det = detalhes.find(d => String(d.id) === String(p.id));
-          return { ...p, qtdEnviada: det?.qtd_enviada || det?.qtdEnviada || parseInt(p.quantidade) || 1 };
-        });
-      }
-
-      // Calcular peso total real
-      const pesoTotal = pecasCompletas.reduce((sum, p) => {
-        const qtyOrig = parseInt(p.quantidade) || 1;
-        const qtyEnv = p.qtdEnviada || qtyOrig;
-        const pesoUnit = qtyOrig > 0 ? (parseFloat(p.peso) || 0) / qtyOrig : 0;
-        return sum + (pesoUnit * qtyEnv);
-      }, 0);
-
-      // Gerar linhas da tabela
-      const linhasTabela = pecasCompletas.map((p, idx) => {
-        const qtyOrig = parseInt(p.quantidade) || 1;
-        const qtyEnv = p.qtdEnviada || qtyOrig;
-        const pesoUnit = qtyOrig > 0 ? (parseFloat(p.peso) || 0) / qtyOrig : 0;
-        const pesoTot = pesoUnit * qtyEnv;
-        return `<tr>
-          <td style="text-align:center">${idx + 1}</td>
-          <td><strong>${escapeHtml(p.marca || p.nome || p.codigo || '-')}</strong></td>
-          <td>${escapeHtml(String(p.tipo || p.perfil || p.descricao || '-').toUpperCase())}</td>
-          <td style="text-align:center">${qtyEnv}</td>
-          <td style="text-align:right">${pesoUnit.toFixed(1)}</td>
-          <td style="text-align:right"><strong>${pesoTot.toFixed(1)}</strong></td>
-        </tr>`;
-      }).join('');
-
-      const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-      <title>Romaneio - ${escapeHtml(numero)}</title>
-      <style>
-        body{font-family:Arial,sans-serif;margin:20px;color:#333}
-        h1{color:#1a56db;border-bottom:2px solid #1a56db;padding-bottom:8px;font-size:22px}
-        table{width:100%;border-collapse:collapse;margin-top:16px}
-        th{background:#1a56db;color:white;padding:8px;text-align:left;font-size:12px}
-        td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:12px}
-        tr:nth-child(even){background:#f9f9f9}
-        .info{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;background:#f5f5f5;padding:16px;border-radius:8px}
-        .info p{margin:4px 0;font-size:13px}
-        .totais{margin-top:12px;font-size:14px;padding:12px;background:#e8f4fd;border-radius:8px;border-left:4px solid #1a56db}
-        .footer{margin-top:40px;display:grid;grid-template-columns:1fr 1fr;gap:40px;font-size:12px;color:#666}
-        .footer div{border-top:1px solid #999;padding-top:8px;text-align:center}
-        @media print{button{display:none !important}}
-      </style></head><body>
-      <h1>🚛 Romaneio de Embarque</h1>
-      <div class="info">
-        <div>
-          <p><strong>Número:</strong> ${escapeHtml(numero)}</p>
-          <p><strong>Data:</strong> ${escapeHtml(dataFormatada)}</p>
-          <p><strong>Transportadora:</strong> ${escapeHtml(envio.transportadora || '-')}</p>
-        </div>
-        <div>
-          <p><strong>Motorista:</strong> ${escapeHtml(envio.motorista || '-')}</p>
-          <p><strong>Placa:</strong> ${escapeHtml(envio.placa || '-')}</p>
-          <p><strong>Obra:</strong> ${escapeHtml(obraNome)}</p>
-        </div>
-      </div>
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px;text-align:center">#</th>
-            <th>Marca/Peça</th>
-            <th>Tipo/Perfil</th>
-            <th style="width:60px;text-align:center">Qtd</th>
-            <th style="width:90px;text-align:right">Peso Unit (kg)</th>
-            <th style="width:100px;text-align:right">Peso Total (kg)</th>
-          </tr>
-        </thead>
-        <tbody>${linhasTabela}</tbody>
-      </table>
-      <div class="totais">
-        <strong>Total de Peças:</strong> ${pecasCompletas.length} conjunto(s) &nbsp;|&nbsp; <strong>Peso Total:</strong> ${pesoTotal.toFixed(2)} kg
-      </div>
-      ${envio.observacoes ? `<p style="margin-top:12px"><strong>Obs:</strong> ${escapeHtml(envio.observacoes)}</p>` : ''}
-      <div class="footer">
-        <div>Assinatura do Motorista</div>
-        <div>Assinatura do Responsável</div>
-      </div>
-      <button onclick="window.print()" style="margin-top:24px;padding:10px 20px;background:#1a56db;color:white;border:none;border-radius:6px;cursor:pointer;font-size:14px">🖨️ Imprimir</button>
-      </body></html>`;
-      const blob = new Blob([html], { type: 'text/html' });
-      window.open(URL.createObjectURL(blob));
-      toast.dismiss('romaneio-loading');
+      toast.loading('Gerando romaneio...', { id: 'romaneio-loading' });
+      const [dados, logo] = await Promise.all([dadosDoEnvio(envio), carregarLogoMontex()]);
+      const r = await mostrarHtmlRelatorio(janela, htmlRelatorioRomaneio(dados, { logo }), nomeArquivoRomaneio(dados, 'html'));
+      toast.success(r === 'aberto' ? 'Romaneio aberto no navegador' : 'Romaneio baixado', { id: 'romaneio-loading' });
     } catch (err) {
-      toast.dismiss('romaneio-loading');
+      fecharJanelaRelatorio(janela);
       console.error('Erro romaneio:', err);
-      toast.error('Erro ao gerar romaneio: ' + err.message);
+      toast.error('Erro ao gerar romaneio: ' + err.message, { id: 'romaneio-loading' });
     }
-  }, []);
+  }, [dadosDoEnvio]);
+
+  const gerarRomaneioPDF = useCallback(async (envio) => {
+    try {
+      toast.loading('Gerando romaneio PDF...', { id: 'pdf-loading' });
+      const [dados, logo] = await Promise.all([dadosDoEnvio(envio), carregarLogoMontex()]);
+      const blob = await pdfRelatorioRomaneio(dados, { logo });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = nomeArquivoRomaneio(dados, 'pdf');
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      toast.success('Romaneio PDF gerado', { id: 'pdf-loading' });
+    } catch (err) {
+      console.error('Erro PDF:', err);
+      toast.error('Erro ao gerar PDF: ' + err.message, { id: 'pdf-loading' });
+    }
+  }, [dadosDoEnvio]);
 
   // ==== RENDER ====
   return (
@@ -600,17 +537,18 @@ export default function EnviosExpedicaoPage() {
                     size="sm"
                     variant="outline"
                     className="border-rose-700/60 text-rose-300 hover:bg-rose-500/10"
-                    onClick={() => {
+                    onClick={async () => {
                       if (!pecasFiltradas.length) {
                         toast.error('Nenhuma peça para exportar');
                         return;
                       }
+                      const logo = await import('@/utils/montexLogos').then((m) => m.LOGO_M_LIGHT_B64).catch(() => null);
                       const obrasMap = {};
                       (obras || []).forEach(o => { obrasMap[o.id] = o.nome || o.codigo || o.id; });
                       const obraNome = escopoGeral
                         ? 'Todas as obras'
                         : rotuloEscopo(escopoObra, obras);
-                      const r = exportFilaEmbarquePDF(pecasFiltradas, obrasMap, obraNome);
+                      const r = exportFilaEmbarquePDF(pecasFiltradas, obrasMap, obraNome, { logo });
                       if (r.success) {
                         toast.success(`Relatório gerado: ${r.filename}`);
                       } else {
@@ -739,43 +677,7 @@ export default function EnviosExpedicaoPage() {
                           className="border-gray-700 text-gray-300 hover:text-white" title="Imprimir Romaneio">
                           <Printer className="w-4 h-4" />
                         </Button>
-                        <Button variant="outline" size="sm" onClick={async () => {
-                          try {
-                            toast.loading('Gerando Romaneio PDF...', { id: 'pdf-loading' });
-                            // Buscar peças completas pelos IDs salvos na expedição
-                            let pecasCompletas = [];
-                            // pecas pode ser array de IDs (local) ou array de objetos {id, qtd_enviada, qtd_total} (Supabase JSONB)
-                            const pecasRaw = envio.pecas_ids || envio.pecasIds || envio.pecas || [];
-                            const ids = pecasRaw.map(p => typeof p === 'object' ? (p.id || p) : p);
-                            // Detalhes de quantidade (do envio local ou do JSONB do Supabase)
-                            const detalhes = envio.pecas_detalhes || envio.pecasDetalhes || (Array.isArray(envio.pecas) ? envio.pecas.filter(p => typeof p === 'object' && p.qtd_enviada) : []);
-                            if (ids.length > 0) {
-                              const todasPecasRaw = await pecasApi.getAll('id', true);
-                              const todasPecas = transformPecaArray(todasPecasRaw);
-                              const idsSet = new Set(ids.map(String));
-                              pecasCompletas = todasPecas.filter(p => idsSet.has(String(p.id)));
-                              // Enriquecer com quantidades dos detalhes do envio
-                              pecasCompletas = pecasCompletas.map(p => {
-                                const det = detalhes.find(d => String(d.id) === String(p.id));
-                                return { ...p, qtdEnviada: det?.qtd_enviada || det?.qtdEnviada || parseInt(p.quantidade) || 1 };
-                              });
-                            }
-                            // Buscar obra pela obra_id do envio, OU pela obraId da primeira peça
-                            let obraRelacionada = obras.find(o => o.id === (envio.obra_id || envio.obraId)) || {};
-                            if ((!obraRelacionada.id) && pecasCompletas.length > 0) {
-                              const pecaObraId = pecasCompletas[0].obraId || pecasCompletas[0].obra_id;
-                              if (pecaObraId) obraRelacionada = obras.find(o => o.id === pecaObraId) || {};
-                            }
-                            const success = exportRomaneioPDF(envio, obraRelacionada, pecasCompletas);
-                            toast.dismiss('pdf-loading');
-                            if (success) toast.success('Romaneio PDF gerado com sucesso!');
-                            else toast.error('Erro ao gerar Romaneio PDF');
-                          } catch (err) {
-                            toast.dismiss('pdf-loading');
-                            console.error('Erro PDF:', err);
-                            toast.error('Erro ao gerar PDF: ' + err.message);
-                          }
-                        }} className="border-teal-700 text-teal-400 hover:text-teal-300 hover:bg-teal-900/30" title="Gerar Romaneio PDF">
+                        <Button variant="outline" size="sm" onClick={() => gerarRomaneioPDF(envio)} className="border-teal-700 text-teal-400 hover:text-teal-300 hover:bg-teal-900/30" title="Gerar Romaneio PDF">
                           <FileDown className="w-4 h-4" />
                         </Button>
                         <Select.Root value={statusDe(envio)} onValueChange={(val) => mudarStatusEnvio(envio, val)}>
