@@ -1,0 +1,123 @@
+// ============================================================
+// MAIS — app da diretoria (/m/mais)
+// ============================================================
+// Usuário, atalhos de gestão, operação de campo, telas do computador e
+// sistema. Itens filtrados por permissão (array = qualquer uma).
+// ============================================================
+import React, { useMemo } from 'react';
+import {
+  CheckCircle2, Bell, Briefcase, ClipboardList, Camera, Ruler, Package,
+  Box, Columns3, FileText, Shield, Settings, Monitor, LogOut, ChevronRight,
+} from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '@/lib/AuthContext';
+import versao from '@/version.json';
+import { Tela, Secao, Grupo, Linha, Monograma } from '../kit';
+
+const GRUPOS = [
+  {
+    titulo: 'Gestão',
+    itens: [
+      { to: '/m/aprovacoes', icone: CheckCircle2, titulo: 'Aprovações', sub: 'Medições, orçamentos e compras', tom: 'ok', perm: ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'] },
+      { to: '/m/alertas', icone: Bell, titulo: 'Alertas', sub: 'Radar de riscos e avisos', tom: 'warn' },
+      { to: '/m/comercial', icone: Briefcase, titulo: 'Comercial', sub: 'Funil de orçamentos e clientes', tom: 'teal', perm: ['orcamentos.view', 'comercial.view', 'clientes.view'] },
+    ],
+  },
+  {
+    titulo: 'Operação no campo',
+    itens: [
+      { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: 'producao.lancar_avanco' },
+      { to: '/m/evidencias', icone: Camera, titulo: 'Evidências', sub: 'Fotos de obra e carga', perm: 'producao.view' },
+      { to: '/m/medicao', icone: Ruler, titulo: 'Medição', perm: 'medicao.view' },
+      { to: '/m/estoque', icone: Package, titulo: 'Estoque detalhado', perm: 'estoque.view' },
+    ],
+  },
+  {
+    titulo: 'No computador',
+    itens: [
+      { to: '/m/3d', icone: Box, titulo: 'Visualizador 3D', sub: 'Abre a versão completa', perm: ['viewer3d.view', 'producao.view'] },
+      { to: '/m/kanban', icone: Columns3, titulo: 'Kanban de produção', sub: 'Abre a versão completa', perm: 'kanban.view' },
+      { to: '/m/relatorios', icone: FileText, titulo: 'Relatórios', sub: 'Abre a versão completa', perm: 'relatorios.view' },
+    ],
+  },
+  {
+    titulo: 'Sistema',
+    itens: [
+      { to: '/m/usuarios', icone: Shield, titulo: 'Usuários', sub: 'Acessos e permissões', perm: 'usuarios.manage' },
+      { to: '/m/config', icone: Settings, titulo: 'Configurações', sub: 'Notificações e sincronização' },
+      { href: '/', icone: Monitor, titulo: 'Abrir versão desktop', sub: 'ERP completo neste aparelho' },
+      { acao: 'sair', icone: LogOut, titulo: 'Sair', tom: 'bad' },
+    ],
+  },
+];
+
+const iniciais = (nome) => String(nome || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || 'M';
+
+export default function Mais() {
+  const { user, hasPermission, logout, ROLE_LABELS } = useAuth() || {};
+  const nome = user?.nome || user?.name || user?.full_name || user?.email || 'Usuário';
+  const papel = (ROLE_LABELS && user?.role && ROLE_LABELS[user.role]) || user?.role || '';
+  const cargo = [user?.cargo, papel].filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join(' · ');
+
+  // App nativo (Capacitor) nunca mostra o desktop (App.jsx) — esconde o atalho.
+  const nativo = typeof window !== 'undefined' && !!window.Capacitor?.isNativePlatform?.();
+
+  const grupos = useMemo(() => GRUPOS
+    .map((g) => ({
+      ...g,
+      itens: g.itens.filter((it) => {
+        if (it.href && nativo) return false;
+        if (!it.perm || !hasPermission) return true;
+        return (Array.isArray(it.perm) ? it.perm : [it.perm]).some((p) => hasPermission(p));
+      }),
+    }))
+    .filter((g) => g.itens.length > 0), [hasPermission, nativo]);
+
+  const abrirDesktop = () => {
+    // Sem isto o App.jsx devolve o celular para /m (auto-detecção de mobile).
+    try { localStorage.setItem('force_desktop', '1'); } catch { /* noop */ }
+    window.location.href = '/';
+  };
+
+  return (
+    <Tela
+      titulo="Mais"
+      acoes={<Monograma tamanho={36} className="mr-1" />}
+    >
+      <Grupo className="mt-4">
+        <Link to="/m/perfil" className="flex items-center gap-3.5 px-4 py-3.5 active:bg-mx-s2" aria-label={`Perfil de ${nome}`}>
+          <span className="mx-num flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-mx-teal text-[17px] text-white" aria-hidden>
+            {iniciais(nome)}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-[16px] font-semibold text-mx-text">{nome}</span>
+            {cargo && <span className="block truncate text-[13px] text-mx-text2">{cargo}</span>}
+            {user?.email && user.email !== nome && <span className="block truncate text-[13px] text-mx-text3">{user.email}</span>}
+          </span>
+          <ChevronRight className="h-4 w-4 shrink-0 text-mx-text3" aria-hidden />
+        </Link>
+      </Grupo>
+
+      {grupos.map((g) => (
+        <Secao key={g.titulo} titulo={g.titulo}>
+          <Grupo>
+            {g.itens.map((it) => {
+              if (it.acao === 'sair') {
+                return <Linha key="sair" icone={it.icone} iconeTom="bad" titulo={it.titulo} onClick={() => logout?.()} chevron={false} />;
+              }
+              if (it.href) {
+                return <Linha key={it.href} icone={it.icone} iconeTom="neutro" titulo={it.titulo} sub={it.sub} onClick={abrirDesktop} />;
+              }
+              return <Linha key={it.to} to={it.to} icone={it.icone} iconeTom={it.tom || 'neutro'} titulo={it.titulo} sub={it.sub} />;
+            })}
+          </Grupo>
+        </Secao>
+      ))}
+
+      <p className="mt-8 text-center text-[12px] text-mx-text3">
+        Grupo Montex · soluções em aço
+        {versao?.versao ? <><br />Versão {versao.versao}{versao.data ? ` · ${versao.data.split('-').reverse().join('/')}` : ''}</> : null}
+      </p>
+    </Tela>
+  );
+}
