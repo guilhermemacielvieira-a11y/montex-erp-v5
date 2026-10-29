@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const COLORS = ['#ef4444', '#f97316', '#f59e0b', '#84cc16', '#10b981', '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'];
 
@@ -45,7 +46,7 @@ export default function DespesasReport({ movimentacoes, filtros }) {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `despesas_categorias_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `despesas_categorias_${hojeLocalISO()}.csv`;
     link.click();
   };
 
@@ -62,7 +63,7 @@ export default function DespesasReport({ movimentacoes, filtros }) {
     const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
     pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`despesas_categorias_${new Date().toISOString().split('T')[0]}.pdf`);
+    pdf.save(`despesas_categorias_${hojeLocalISO()}.pdf`);
   };
 
   return (

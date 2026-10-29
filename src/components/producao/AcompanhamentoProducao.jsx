@@ -36,13 +36,14 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import GestaoDetalhaCustos from './GestaoDetalhaCustos';
 import RelatorioCustos from './RelatorioCustos';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export default function AcompanhamentoProducao({ projetoId, projetoNome }) {
   const [showLancamento, setShowLancamento] = useState(false);
   const [itemSelecionado, setItemSelecionado] = useState(null);
   const [itemCustos, setItemCustos] = useState(null);
   const [formLancamento, setFormLancamento] = useState({
-    data_lancamento: new Date().toISOString().split('T')[0],
+    data_lancamento: hojeLocalISO(),
     quantidade_realizada: '',
     horas_trabalhadas: '',
     equipe: '',
@@ -123,7 +124,7 @@ export default function AcompanhamentoProducao({ projetoId, projetoNome }) {
   const abrirLancamento = (item) => {
     setItemSelecionado(item);
     setFormLancamento({
-      data_lancamento: new Date().toISOString().split('T')[0],
+      data_lancamento: hojeLocalISO(),
       quantidade_realizada: '',
       horas_trabalhadas: '',
       equipe: '',
@@ -171,7 +172,7 @@ export default function AcompanhamentoProducao({ projetoId, projetoNome }) {
         quantidade_produzida: novaQtdProduzida,
         percentual_conclusao: novoPercentual,
         status: novoStatus,
-        data_fim_real: novoPercentual >= 100 ? new Date().toISOString().split('T')[0] : null
+        data_fim_real: novoPercentual >= 100 ? hojeLocalISO() : null
       }
     });
 

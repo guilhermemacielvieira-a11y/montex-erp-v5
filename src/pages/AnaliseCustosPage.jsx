@@ -58,6 +58,7 @@ import {
   BarChart,
   Bar
 } from 'recharts';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Componente de Card de Custo
 function CustoCard({ item, formatCurrency }) {
@@ -342,7 +343,7 @@ export default function AnaliseCustosPage() {
                 { header: 'Data', key: 'data' },
                 { header: 'Fornecedor', key: 'fornecedor' }
               ];
-              const timestamp = new Date().toISOString().split('T')[0];
+              const timestamp = hojeLocalISO();
               exportToExcel(despesas, columns, `analise-custos-${timestamp}`);
               toast.success('Exportado!');
             }}

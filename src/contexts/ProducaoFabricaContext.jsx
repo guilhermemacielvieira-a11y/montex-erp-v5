@@ -9,6 +9,7 @@
  */
 
 import React, { createContext, useContext, useReducer, useCallback, useEffect, useMemo } from 'react';
+import { hojeLocalISO, diaLocal } from '@/utils/financeiroCalc';
 
 // ========================================
 // CONSTANTES E CONFIGURAÇÕES
@@ -413,8 +414,8 @@ export function ProducaoFabricaProvider({ children }) {
 
   // Histórico de hoje
   const movimentacoesHoje = useMemo(() => {
-    const hoje = new Date().toISOString().split('T')[0];
-    return state.historico.filter(h => h.data.startsWith(hoje));
+    const hoje = hojeLocalISO();
+    return state.historico.filter(h => diaLocal(h.data) === hoje);
   }, [state.historico]);
 
   // ========================================

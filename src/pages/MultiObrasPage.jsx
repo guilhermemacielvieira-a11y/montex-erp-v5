@@ -62,6 +62,7 @@ import {
 } from '@/contexts/ERPContext';
 
 import { STATUS_OBRA, ETAPAS_PRODUCAO } from '@/data/database';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Cores para obras
 const CORES_OBRAS = ['#10b981', '#3b82f6', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
@@ -481,7 +482,7 @@ export default function MultiObrasPage() {
                 { header: 'Expedição (%)', key: 'progressoExpedicao' },
                 { header: 'Montagem (%)', key: 'progressoMontagem' }
               ];
-              const timestamp = new Date().toISOString().split('T')[0];
+              const timestamp = hojeLocalISO();
               exportToExcel(exportData, columns, `multi-obras-${timestamp}`);
               toast.success('Obras exportadas para Excel com sucesso!');
             }}

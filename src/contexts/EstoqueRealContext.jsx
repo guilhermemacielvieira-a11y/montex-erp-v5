@@ -13,6 +13,7 @@
 
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useState, useEffect } from 'react';
 import { estoqueApi, movEstoqueApi, supabase, isSupabaseConfigured } from '../api/supabaseClient';
+import { hojeLocalISO, agoraLocalTexto, diaLocal } from '@/utils/financeiroCalc';
 
 // ========================================
 // DADOS INICIAIS DE ESTOQUE REAL
@@ -252,7 +253,7 @@ function estoqueRealReducer(state, action) {
             return {
               ...item,
               quantidade: Math.max(0, item.quantidade - peso),
-              ultimaSaida: agora.split('T')[0]
+              ultimaSaida: hojeLocalISO()
             };
           }
           return item;
@@ -262,7 +263,7 @@ function estoqueRealReducer(state, action) {
       // Criar movimentação de saída
       const novaMovimentacao = {
         id: `MOV-${Date.now()}`,
-        data: agora.replace('T', ' ').slice(0, 16),
+        data: agoraLocalTexto(),
         tipo: 'saida',
         materialId: itemEncontrado?.id || 'GENERICO',
         quantidade: peso,
@@ -288,7 +289,7 @@ function estoqueRealReducer(state, action) {
       };
 
       // Atualizar consumo do dia
-      const hoje = new Date().toISOString().split('T')[0];
+      const hoje = hojeLocalISO();
       const consumoHojeAtualizado = { ...state.consumoHoje };
 
       // Verificar se é do mesmo dia
@@ -315,21 +316,20 @@ function estoqueRealReducer(state, action) {
     // Adicionar peso ao estoque (entrada)
     case ACTIONS.ADICIONAR_ESTOQUE: {
       const { itemId, quantidade, nf, setor, usuario } = action.payload;
-      const agora = new Date().toISOString();
 
       const novoEstoque = state.estoqueReal.map(item =>
         item.id === itemId
           ? {
               ...item,
               quantidade: item.quantidade + quantidade,
-              ultimaEntrada: agora.split('T')[0]
+              ultimaEntrada: hojeLocalISO()
             }
           : item
       );
 
       const novaMovimentacao = {
         id: `MOV-${Date.now()}`,
-        data: agora.replace('T', ' ').slice(0, 16),
+        data: agoraLocalTexto(),
         tipo: 'entrada',
         materialId: itemId,
         quantidade: quantidade,
@@ -497,7 +497,7 @@ function estoqueRealReducer(state, action) {
               return {
                 ...item,
                 quantidade: Math.max(0, item.quantidade - peca.peso),
-                ultimaSaida: agora.split('T')[0]
+                ultimaSaida: hojeLocalISO()
               };
             }
             return item;
@@ -506,7 +506,7 @@ function estoqueRealReducer(state, action) {
 
         novasMovimentacoes.push({
           id: `MOV-RECONC-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          data: agora.replace('T', ' ').slice(0, 16),
+          data: agoraLocalTexto(),
           tipo: 'saida',
           materialId: itemEncontrado?.id || 'GENERICO',
           quantidade: peca.peso,
@@ -640,7 +640,7 @@ export function EstoqueRealProvider({ children }) {
           const novaQtd = Math.max(0, item.quantidade - peso);
           estoqueApi.update(supId, {
             quantidade: novaQtd,
-            ultima_saida: new Date().toISOString().split('T')[0]
+            ultima_saida: hojeLocalISO()
           }).catch(e => console.error('[EstoqueReal] Sync deduzir:', e.message));
 
           // Registrar movimentação no Supabase
@@ -676,7 +676,7 @@ export function EstoqueRealProvider({ children }) {
           const novaQtd = item.quantidade + quantidade;
           estoqueApi.update(supId, {
             quantidade: novaQtd,
-            ultima_entrada: new Date().toISOString().split('T')[0]
+            ultima_entrada: hojeLocalISO()
           }).catch(e => console.error('[EstoqueReal] Sync adicionar:', e.message));
 
           movEstoqueApi.create({
@@ -812,11 +812,11 @@ export function EstoqueRealProvider({ children }) {
     const totalSobra = estoque.filter(i => i.falta < 0 && i.unidade === 'kg').reduce((a, i) => a + Math.abs(i.falta), 0);
 
     // Movimentações de hoje
-    const hoje = new Date().toISOString().split('T')[0];
-    const entradasHoje = state.movimentacoes.filter(m => m.tipo === 'entrada' && m.data.startsWith(hoje)).length;
-    const saidasHoje = state.movimentacoes.filter(m => m.tipo === 'saida' && m.data.startsWith(hoje)).length;
+    const hoje = hojeLocalISO();
+    const entradasHoje = state.movimentacoes.filter(m => m.tipo === 'entrada' && diaLocal(m.data) === hoje).length;
+    const saidasHoje = state.movimentacoes.filter(m => m.tipo === 'saida' && diaLocal(m.data) === hoje).length;
     const pesoSaidaHoje = state.movimentacoes
-      .filter(m => m.tipo === 'saida' && m.data.startsWith(hoje))
+      .filter(m => m.tipo === 'saida' && diaLocal(m.data) === hoje)
       .reduce((a, m) => a + m.quantidade, 0);
 
     return {

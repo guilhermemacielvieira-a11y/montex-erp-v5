@@ -7,6 +7,7 @@
 // ============================================================
 
 import { supabase } from './supabaseClient';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const ok = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
@@ -48,7 +49,7 @@ export async function criarTarefa(t) {
 
 export async function atualizarTarefa(id, mudancas) {
   const m = { ...mudancas, updated_at: new Date().toISOString() };
-  if (m.status === 'concluida' && !m.data_conclusao) { m.data_conclusao = new Date().toISOString().slice(0, 10); m.percentual = 100; }
+  if (m.status === 'concluida' && !m.data_conclusao) { m.data_conclusao = hojeLocalISO(); m.percentual = 100; }
   if (m.status && m.status !== 'concluida') m.data_conclusao = null;
   return ok(await supabase.from('tarefas').update(m).eq('id', id).select().single());
 }

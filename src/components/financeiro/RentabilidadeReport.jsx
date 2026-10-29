@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Download, TrendingUp, TrendingDown } from 'lucide-react';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export default function RentabilidadeReport({ projetos, movimentacoes, orcamentos, filtros }) {
   const calcularRentabilidadeProjeto = (projeto) => {
@@ -78,7 +79,7 @@ export default function RentabilidadeReport({ projetos, movimentacoes, orcamento
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `rentabilidade_projetos_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `rentabilidade_projetos_${hojeLocalISO()}.csv`;
     link.click();
   };
 
@@ -95,7 +96,7 @@ export default function RentabilidadeReport({ projetos, movimentacoes, orcamento
     const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
     pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`rentabilidade_projetos_${new Date().toISOString().split('T')[0]}.pdf`);
+    pdf.save(`rentabilidade_projetos_${hojeLocalISO()}.pdf`);
   };
 
   return (

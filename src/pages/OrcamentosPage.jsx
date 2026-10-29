@@ -58,6 +58,7 @@ import {
 
 // ERPContext - dados reais (Supabase)
 import { useOrcamentos, useERP } from '../contexts/ERPContext';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Funções utilitárias
 const formatCurrency = (value) => {
@@ -427,7 +428,7 @@ export default function OrcamentosPage() {
       );
       try {
         if (novoStatus === 'aprovado') {
-          await aprovarOrcamento(item.id, item.obraId);
+          await aprovarOrcamento(item.id, item.obraId ?? item.obra_id);
         } else {
           // Persistir mudança de status no Supabase (antes só mudava localmente)
           await updateOrcamento(item.id, { status: novoStatus });
@@ -560,7 +561,7 @@ export default function OrcamentosPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `orcamentos_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `orcamentos_${hojeLocalISO()}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

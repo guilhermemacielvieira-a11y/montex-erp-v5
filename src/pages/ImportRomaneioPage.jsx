@@ -54,6 +54,7 @@ import { useObras, useProducao, useEstoque, useMateriais, useEnsureLoaded } from
 import ExigeObra from '@/components/erp/ExigeObra';
 import { ETAPAS_PRODUCAO } from '@/data/database';
 import toast from 'react-hot-toast';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Tipos de Lista
 const TIPO_LISTA = {
@@ -174,7 +175,7 @@ const parseResumoMaterial = (data) => {
         pesoFalta: pesoKg,         // Peso que falta receber (kg)
         percentualRecebido: 0,     // % recebido
         status: STATUS_MATERIAL.PENDENTE,
-        dataImportacao: new Date().toISOString().split('T')[0],
+        dataImportacao: hojeLocalISO(),
         dataPrevisaoChegada: null,
         entregas: []               // Histórico de entregas
       });
@@ -402,7 +403,7 @@ export default function ImportRomaneioPage() {
         peso: item.peso,
         etapa: ETAPAS_PRODUCAO.AGUARDANDO,
         statusCorte: 'PROGRAMACAO',
-        dataImportacao: new Date().toISOString().split('T')[0]
+        dataImportacao: hojeLocalISO()
       }));
 
       addPecas(novasPecas);
@@ -433,7 +434,7 @@ export default function ImportRomaneioPage() {
       id: Date.now(),
       arquivo: arquivoSelecionado.name,
       obra: obraAtualData?.nome || obraSelecionada,
-      data: new Date().toISOString().split('T')[0],
+      data: hojeLocalISO(),
       itens: totalItens,
       pesoTotal,
       tipo: tipoLista,
@@ -451,7 +452,7 @@ export default function ImportRomaneioPage() {
     // Usar função do ERPContext que já faz toda a lógica de atualização
     registrarEntregaMaterial(materialSelecionado.id, {
       pesoKg: novaEntrega.quantidade,
-      data: novaEntrega.data || new Date().toISOString().split('T')[0],
+      data: novaEntrega.data || hojeLocalISO(),
       notaFiscal: novaEntrega.notaFiscal
     });
 

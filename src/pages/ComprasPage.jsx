@@ -61,6 +61,7 @@ import {
   itemValorTotal,
   itemUnidade,
 } from '@/services/nfPipeline';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // Fallback local (usado apenas se a tabela `fornecedores` ainda não existir
 // no Supabase — ver supabase/migration_v16_suprimentos.sql)
@@ -226,7 +227,7 @@ function NovoPedidoDialog({ onSave, fornecedores = [], obras = [], obraAtual, es
     }
 
     const fornecedorNome = fornecedores.find(f => String(f.id) === formData.fornecedor)?.nome || formData.fornecedor;
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = hojeLocalISO();
     const obraDestino = formData.obraId === DESTINO_MONTEX
       ? null
       : (formData.obraId || obraAtual || null);
@@ -400,7 +401,7 @@ function NovaCotacaoDialog({ onSave, obras = [], obraAtual, escopo, historicoPre
       status: 'cotacao',
       statusFinanceiro: 'previsto',
       tipo: 'cotacao',
-      dataPedido: new Date().toISOString().split('T')[0],
+      dataPedido: hojeLocalISO(),
       dataValidade: formData.prazo,
       dataPrevisao: formData.prazo,
       obraId: obraDestino,
@@ -975,7 +976,7 @@ export default function ComprasPage() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `pedidos_compra_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `pedidos_compra_${hojeLocalISO()}.csv`;
     link.click();
     URL.revokeObjectURL(url);
     toast.success(`${filteredPedidos.length} pedidos exportados`);

@@ -8,6 +8,7 @@
 
 import { ACTIONS } from '../actions';
 import { STATUS_OBRA } from '../../data/constants';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export function orcamentosReducer(state, action) {
   switch (action.type) {
@@ -31,7 +32,7 @@ export function orcamentosReducer(state, action) {
         ...state,
         orcamentos: state.orcamentos.map(o =>
           o.id === orcamentoId
-            ? { ...o, status: 'aprovado', dataAprovacao: new Date().toISOString().split('T')[0] }
+            ? { ...o, status: 'aprovado', dataAprovacao: hojeLocalISO() }
             : o
         ),
         obras: state.obras.map(o =>

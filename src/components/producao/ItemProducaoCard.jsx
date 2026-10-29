@@ -13,6 +13,7 @@ import GerenciadorMidias from './GerenciadorMidias';
 import SeletorMaterialConsumido from './SeletorMaterialConsumido';
 import { gerarNotificacoes } from './GeradorNotificacoes';
 import { isAfter, parseISO } from 'date-fns';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export default function ItemProducaoCard({ item }) {
   const [quantidade, setQuantidade] = useState('');
@@ -56,7 +57,7 @@ export default function ItemProducaoCard({ item }) {
             unidade: material.unidade,
             valor_unitario: material.valor_unitario,
             valor_total: material.quantidade * material.valor_unitario,
-            data_consumo: new Date().toISOString().split('T')[0],
+            data_consumo: hojeLocalISO(),
             etapa: item.etapa
           });
 

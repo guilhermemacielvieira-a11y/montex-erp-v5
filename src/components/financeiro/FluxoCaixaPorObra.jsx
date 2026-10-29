@@ -30,6 +30,7 @@ import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import PrevisaoCustosCard from './PrevisaoCustosCard';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const tiposMovimentacao = [
   { id: 'entrada', label: 'Receita', icon: TrendingUp, color: 'text-emerald-600' },
@@ -79,7 +80,7 @@ export default function FluxoCaixaPorObra({ projetoId, projetos = [] }) {
     categoria: 'compra_material',
     descricao: '',
     valor: '',
-    data_movimentacao: new Date().toISOString().split('T')[0],
+    data_movimentacao: hojeLocalISO(),
     forma_pagamento: 'pix',
     status: 'previsto',
     documento_fiscal: '',
@@ -127,7 +128,7 @@ export default function FluxoCaixaPorObra({ projetoId, projetos = [] }) {
         categoria: 'compra_material',
         descricao: '',
         valor: '',
-        data_movimentacao: new Date().toISOString().split('T')[0],
+        data_movimentacao: hojeLocalISO(),
         forma_pagamento: 'pix',
         status: 'previsto',
         documento_fiscal: '',

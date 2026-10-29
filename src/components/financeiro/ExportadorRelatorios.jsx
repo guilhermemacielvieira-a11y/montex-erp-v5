@@ -17,6 +17,7 @@ import {
 import { Checkbox } from '@/components/ui/checkbox';
 import { Download, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export default function ExportadorRelatorios({ movimentacoes = [], filtros = {} }) {
   const [showDialog, setShowDialog] = useState(false);
@@ -49,7 +50,7 @@ export default function ExportadorRelatorios({ movimentacoes = [], filtros = {} 
       const blob = new Blob([conteudo], { type: 'text/csv;charset=utf-8;' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
-      link.download = `relatorio_financeiro_${new Date().toISOString().split('T')[0]}.csv`;
+      link.download = `relatorio_financeiro_${hojeLocalISO()}.csv`;
       link.click();
 
       toast.success('CSV exportado com sucesso!');
@@ -98,7 +99,7 @@ export default function ExportadorRelatorios({ movimentacoes = [], filtros = {} 
         posY -= pageHeight;
       }
 
-      pdf.save(`relatorio_financeiro_${new Date().toISOString().split('T')[0]}.pdf`);
+      pdf.save(`relatorio_financeiro_${hojeLocalISO()}.pdf`);
       toast.success('PDF exportado com sucesso!');
     } catch (error) {
       toast.error('Erro ao exportar PDF');
@@ -150,7 +151,7 @@ export default function ExportadorRelatorios({ movimentacoes = [], filtros = {} 
         XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
       }
 
-      XLSX.writeFile(wb, `relatorio_financeiro_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(wb, `relatorio_financeiro_${hojeLocalISO()}.xlsx`);
       toast.success('Excel exportado com sucesso!');
     } catch (error) {
       toast.error('Erro ao exportar Excel');

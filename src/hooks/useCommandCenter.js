@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabase } from '../api/supabaseClient';
+import { hojeLocalISO, diaLocal, limitesDiaLocal } from '@/utils/financeiroCalc';
 
 const SNAPSHOT_KEY = 'montex_daily_snapshot';
 
@@ -61,8 +62,8 @@ export function useCommandCenter(obraId) {
       const pesoTotal = items.reduce((s, i) => s + (parseFloat(i.peso_teorico) || 0), 0);
       const pesoFinalizado = finalizado.reduce((s, i) => s + (parseFloat(i.peso_teorico) || 0), 0);
 
-      const hoje = new Date().toISOString().slice(0, 10);
-      const cortadasHoje = finalizado.filter(i => (i.data_fim || i.updated_at || '').slice(0, 10) === hoje);
+      const hoje = hojeLocalISO();
+      const cortadasHoje = finalizado.filter(i => diaLocal(i.data_fim || i.updated_at) === hoje);
 
       // Por funcionário de corte
       const porFuncionario = {};
@@ -218,10 +219,10 @@ export function useCommandCenter(obraId) {
       }
 
       const items = data || [];
-      const hoje = new Date().toISOString().slice(0, 10);
+      const hoje = hojeLocalISO();
 
       // Movimentações de hoje
-      const movHoje = items.filter(i => (i.created_at || '').slice(0, 10) === hoje);
+      const movHoje = items.filter(i => diaLocal(i.created_at) === hoje);
 
       // Por funcionário (histórico real)
       const porFuncionario = {};
@@ -285,14 +286,14 @@ export function useCommandCenter(obraId) {
       const normal = totalItens - critico - baixo;
       const valorTotalCalc = items.reduce((s, i) => s + ((parseFloat(i.quantidade) || 0) * (parseFloat(i.preco) || 0)), 0);
 
-      const hoje = new Date().toISOString().slice(0, 10);
+      const dia = limitesDiaLocal();
       let entradas = 0, saidas = 0;
       try {
         const { data: movHoje } = await supabase
           .from('movimentacoes_estoque')
           .select('tipo, quantidade')
-          .gte('data', hoje + 'T00:00:00')
-          .lte('data', hoje + 'T23:59:59');
+          .gte('data', dia.inicio)
+          .lt('data', dia.fim);
         entradas = (movHoje || []).filter(m => m.tipo === 'entrada').length;
         saidas = (movHoje || []).filter(m => m.tipo === 'saida' || m.tipo === 'corte').length;
       } catch (movErr) { /* tabela pode não existir */ }
@@ -331,7 +332,7 @@ export function useCommandCenter(obraId) {
         porCategoria[cat] = (porCategoria[cat] || 0) + (parseFloat(l.valor) || 0);
       });
 
-      const hoje = new Date().toISOString().slice(0, 10);
+      const hoje = hojeLocalISO();
       const lancHoje = lancs.filter(l => l.data_emissao && l.data_emissao.slice(0, 10) === hoje);
 
       return {
@@ -382,8 +383,8 @@ export function useCommandCenter(obraId) {
         return s + (parseInt(i.pecas) || 0);
       }, 0);
 
-      const hoje = new Date().toISOString().slice(0, 10);
-      const enviosHoje = items.filter(i => (i.data_expedicao || i.created_at || '').slice(0, 10) === hoje);
+      const hoje = hojeLocalISO();
+      const enviosHoje = items.filter(i => diaLocal(i.data_expedicao || i.created_at) === hoje);
 
       // Lista detalhada de envios para o dashboard
       const enviosDetalhados = items
@@ -447,7 +448,7 @@ export function useCommandCenter(obraId) {
   // ===== SNAPSHOT =====
   const saveSnapshot = useCallback((data) => {
     try {
-      const hoje = new Date().toISOString().slice(0, 10);
+      const hoje = hojeLocalISO();
       const stored = JSON.parse(localStorage.getItem(SNAPSHOT_KEY) || '{}');
       stored[hoje] = { ...data, timestamp: new Date().toISOString() };
       const keys = Object.keys(stored).sort().reverse();

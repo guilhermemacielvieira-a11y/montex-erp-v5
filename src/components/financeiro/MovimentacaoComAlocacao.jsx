@@ -15,6 +15,7 @@ import { Plus, Trash2, Loader2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const labelsCategorias = {
   receita_projeto: 'Receita do Projeto',
@@ -53,7 +54,7 @@ export default function MovimentacaoComAlocacao({ open, onClose, projetos = [] }
     categoria: 'compra_material',
     descricao: '',
     valor: '',
-    data_movimentacao: new Date().toISOString().split('T')[0],
+    data_movimentacao: hojeLocalISO(),
     forma_pagamento: 'pix',
     status: 'previsto',
     documento_fiscal: '',
@@ -111,7 +112,7 @@ export default function MovimentacaoComAlocacao({ open, onClose, projetos = [] }
       categoria: 'compra_material',
       descricao: '',
       valor: '',
-      data_movimentacao: new Date().toISOString().split('T')[0],
+      data_movimentacao: hojeLocalISO(),
       forma_pagamento: 'pix',
       status: 'previsto',
       documento_fiscal: '',

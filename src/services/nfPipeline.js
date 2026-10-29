@@ -1,3 +1,4 @@
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 /**
  * MONTEX ERP — Pipeline automático de Notas Fiscais (Suprimentos)
  *
@@ -150,7 +151,7 @@ export function gerarLancamentoDaNF(nf, { categoria, centroCusto, origem }) {
     fornecedor: nf.fornecedor || '-',
     notaFiscal: String(nf.numero || ''),
     valor: nfValorTotal(nf),
-    dataEmissao: nf.dataEmissao || nf.dataEntrada || new Date().toISOString().split('T')[0],
+    dataEmissao: nf.dataEmissao || nf.dataEntrada || hojeLocalISO(),
     status: 'pendente',
     categoria,
     categoriaOrigem: origem === 'aprendido' ? 'mapping' : 'auto',
@@ -165,7 +166,7 @@ export function gerarLancamentoDaNF(nf, { categoria, centroCusto, origem }) {
 // ---------- 4. NF → materiais (aba Materiais / pedidos_material) ----------
 export function extrairMateriaisDaNF(nf) {
   const itens = Array.isArray(nf.itens) ? nf.itens : [];
-  const data = nf.dataEmissao || nf.dataEntrada || new Date().toISOString().split('T')[0];
+  const data = nf.dataEmissao || nf.dataEntrada || hojeLocalISO();
   const base = Date.now();
 
   return itens

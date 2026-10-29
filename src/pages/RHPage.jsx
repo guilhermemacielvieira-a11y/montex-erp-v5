@@ -35,6 +35,7 @@ import {
   Plane,
   Calendar as CalendarIcon
 } from 'lucide-react';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 // ==================== DADOS REAIS - FEVEREIRO/2026 ====================
 // Extraído dos Comprovantes de Pagamento Salarial MONTEX LTDA + M R MONTAGEM
@@ -216,7 +217,7 @@ function NovoFuncionarioDialog({ onSave }) {
       nome: formData.nome,
       cargo: formData.cargo,
       departamento: formData.departamento,
-      admissao: formData.admissao || new Date().toISOString().split('T')[0],
+      admissao: formData.admissao || hojeLocalISO(),
       salario: parseInt(formData.salario) || 0,
       status: 'ativo',
       foto: null,

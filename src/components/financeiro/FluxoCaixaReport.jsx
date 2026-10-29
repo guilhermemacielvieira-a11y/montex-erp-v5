@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 export default function FluxoCaixaReport({ movimentacoes, filtros }) {
   // Agrupar por mês
@@ -51,7 +52,7 @@ export default function FluxoCaixaReport({ movimentacoes, filtros }) {
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `fluxo_caixa_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = `fluxo_caixa_${hojeLocalISO()}.csv`;
     link.click();
   };
 
@@ -68,7 +69,7 @@ export default function FluxoCaixaReport({ movimentacoes, filtros }) {
     const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
     pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`fluxo_caixa_${new Date().toISOString().split('T')[0]}.pdf`);
+    pdf.save(`fluxo_caixa_${hojeLocalISO()}.pdf`);
   };
 
   return (

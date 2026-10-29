@@ -30,6 +30,7 @@ import { Plus, Trash2, DollarSign, Loader2 } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { hojeLocalISO } from '@/utils/financeiroCalc';
 
 const categoriasCusto = [
   { id: 'mao_obra', label: 'Mão de Obra', color: 'bg-blue-100 text-blue-700' },
@@ -45,7 +46,7 @@ export default function GestaoDetalhaCustos({ projetoId, projetoNome, itemSeleci
     categoria: 'mao_obra',
     descricao: '',
     valor: '',
-    data_lancamento: new Date().toISOString().split('T')[0],
+    data_lancamento: hojeLocalISO(),
     observacoes: ''
   });
 
@@ -70,7 +71,7 @@ export default function GestaoDetalhaCustos({ projetoId, projetoNome, itemSeleci
         categoria: 'mao_obra',
         descricao: '',
         valor: '',
-        data_lancamento: new Date().toISOString().split('T')[0],
+        data_lancamento: hojeLocalISO(),
         observacoes: ''
       });
     }

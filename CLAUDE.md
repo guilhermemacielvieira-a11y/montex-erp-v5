@@ -80,6 +80,8 @@ Bug recorrente: `status: STATUS_LANCAMENTO.PENDENTE` sobrescreve a escolha do us
 ### 3. Timezone das datas
 Datas tipo `'2026-05-15'` parseadas com `new Date(str)` viram `2026-05-14` em fuso UTC-3.
 **Use helper `parseLocalDate(str)`** que constroi via `new Date(ano, mes-1, dia)`.
+- "Hoje" = `hojeLocalISO()` (`src/utils/financeiroCalc.js`), NUNCA `new Date().toISOString().split('T')[0]` (após 21h vira o dia seguinte).
+- Comparar timestamp do banco (`created_at`, `data_fim`…) com hoje: `diaLocal(ts) === hojeLocalISO()`. Filtro de dia no banco: `limitesDiaLocal()` (`gte inicio`, `lt fim`).
 
 ### 4. PostgREST limite 1000 linhas
 A tabela `pecas_producao` tem >1000 registros. Sempre use paginação no `getAll/getByField`.
