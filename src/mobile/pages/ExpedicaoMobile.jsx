@@ -1,6 +1,9 @@
 // ============================================================
-// EXPEDIÇÃO MOBILE - Romaneios + conferência de carga por bipagem
+// EXPEDIÇÃO MOBILE - Fila de embarque → romaneio → conferência → despacho
 // ============================================================
+// MONTAR ROMANEIO: "Montar romaneio" abre a Fila de Embarque (peças
+// `expedido` com saldo) para selecionar peças e quantidades (remessa
+// parcial) e gerar o romaneio (NovoRomaneioMobile → RPC criar_romaneio).
 // Lista de romaneios (expedicoes) da obra → detalhe com as peças →
 // CONFERÊNCIA: bipa/escaneia cada peça ao carregar no caminhão →
 // quando conferido, CONFIRMA DESPACHO (updateExpedicao status=em_transito,
@@ -26,6 +29,8 @@ import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
 import { fmtPeso } from '../ui/format';
 import PrevisaoCargasMobile from '../components/PrevisaoCargasMobile';
+import NovoRomaneioMobile from '../components/NovoRomaneioMobile';
+import { montarFilaEmbarque } from '@/services/romaneio';
 
 const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, '');
 
@@ -64,6 +69,7 @@ export default function ExpedicaoMobile() {
   const [despachar, setDespachar] = useState(false); // sheet de confirmação
   const [saving, setSaving] = useState(false);
   const [fotoCarga, setFotoCarga] = useState(null); // { file, url } evidência da carga
+  const [montando, setMontando] = useState(false); // tela de novo romaneio (fila de embarque)
   const listScroll = useRef(0); // posição do scroll da lista, p/ restaurar ao voltar do detalhe
 
   // Ao voltar do detalhe para a lista, restaura a posição de scroll anterior.
@@ -88,13 +94,19 @@ export default function ExpedicaoMobile() {
     [expedicoes, matchObra]
   );
 
+  // Fila de embarque no escopo (mesma regra da tela de novo romaneio)
+  const fila = useMemo(() => {
+    const itens = montarFilaEmbarque(pecas, expedicoes).filter((f) => matchObra(f.peca));
+    return { marcas: itens.length, kg: itens.reduce((s, f) => s + f.pesoDisponivel, 0) };
+  }, [pecas, expedicoes, matchObra]);
+
   const romaneio = useMemo(() => romaneios.find(r => r.id === selId) || expedicoes.find(r => r.id === selId) || null, [romaneios, expedicoes, selId]);
 
   const itens = useMemo(() => {
     if (!romaneio) return [];
     return idsDoRomaneio(romaneio).map(id => {
       const p = pecasById.get(id);
-      return { id, marca: p?.marca || id, tipo: p?.tipo || '', peso: Number(p?.peso) || 0, quantidade: p?.quantidade || 1 };
+      return { id, marca: p?.marca || id, tipo: p?.tipo || '', peso: Number(p?.peso) || 0, quantidade: Number(p?.quantidade) || 1 };
     });
   }, [romaneio, pecasById]);
 
@@ -165,6 +177,19 @@ export default function ExpedicaoMobile() {
     }
   };
 
+  // ---------- NOVO ROMANEIO (fila de embarque) ----------
+  if (montando) {
+    return (
+      <NovoRomaneioMobile
+        onVoltar={() => setMontando(false)}
+        onCriado={(id) => {
+          setMontando(false);
+          if (id) { setSelId(id); setConf(loadConf(id)); }
+        }}
+      />
+    );
+  }
+
   // ---------- DETALHE ----------
   if (romaneio) {
     const si = statusInfo(romaneio.status);
@@ -212,7 +237,7 @@ export default function ExpedicaoMobile() {
                 {ok ? <CheckCircle2 className="w-7 h-7 text-emerald-400 flex-shrink-0" /> : <Circle className="w-7 h-7 text-mx-text3 flex-shrink-0" />}
                 <div className="flex-1 min-w-0">
                   <div className="font-bold text-sm">{i.marca}</div>
-                  <div className="text-[11px] text-mx-text2 truncate">{i.tipo || '—'} · {fmtPeso(i.peso)}</div>
+                  <div className="text-[11px] text-mx-text2 truncate">{i.tipo || '—'}{i.quantidade > 1 ? ` · ${i.quantidade} un` : ''} · {fmtPeso(i.peso)}</div>
                 </div>
                 {ok && <span className="text-[10px] font-bold text-emerald-400">CONFERIDA</span>}
               </button>
@@ -281,6 +306,28 @@ export default function ExpedicaoMobile() {
   // ---------- LISTA ----------
   return (
     <MobileLayout title="Expedição" obraFilter>
+      {/* Fila de embarque → montar romaneio (selecionar peças / remessa parcial) */}
+      <div className="px-4 pt-3">
+        <div className="rounded-2xl border border-mx-line bg-mx-s1 p-3.5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-mx-teal/15 flex items-center justify-center"><Truck className="w-5 h-5 text-mx-tealhi" /></div>
+            <div className="flex-1 min-w-0">
+              <div className="font-semibold text-[15px]">Fila de embarque</div>
+              <div className="text-[13px] text-mx-text2">
+                {fila.marcas > 0 ? `${fila.marcas} peça(s) sem romaneio · ${fmtPeso(fila.kg)}` : 'Nenhuma peça aguardando romaneio'}
+              </div>
+            </div>
+          </div>
+          {podeDespacharExp && fila.marcas > 0 && (
+            <button
+              onClick={() => { tap('light'); setMontando(true); }}
+              className="mt-3 w-full flex items-center justify-center gap-2 h-12 rounded-xl bg-mx-teal text-white font-semibold text-[15px] active:scale-[.99] transition"
+            >
+              <Package className="w-5 h-5" /> Montar romaneio
+            </button>
+          )}
+        </div>
+      </div>
       {/* Previsão de cargas de carreta (mesma lógica do desktop) */}
       <PrevisaoCargasMobile
         pecas={pecas}

@@ -142,3 +142,57 @@ export function montarPayloadCriarRomaneio({ id, numero, data, status, transport
     pecas: (itens || []).map((i) => ({ id: String(i.id), qtd: Number(i.qtd) })),
   };
 }
+
+// ----------------------------------------------------------------------------
+// FILA DE EMBARQUE (seleção para novo romaneio — app e desktop usam a mesma regra)
+// ----------------------------------------------------------------------------
+const numero = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const campo = (p, ...ks) => { for (const k of ks) if (p?.[k] != null && p[k] !== '') return p[k]; return undefined; };
+
+/**
+ * Peças disponíveis para embarque: etapa `expedido` com saldo > 0, onde
+ * saldo = quantidade da linha − unidades já reservadas em romaneio ativo
+ * (calcularReservasRomaneios). Peso proporcional ao saldo.
+ * @returns {Array<{id, marca, tipo, obraId, total, reservada, disponivel, pesoUnit, pesoDisponivel, peca}>}
+ */
+export function montarFilaEmbarque(pecas = [], expedicoes = []) {
+  const { reservada } = calcularReservasRomaneios(expedicoes);
+  const fila = [];
+  for (const p of pecas || []) {
+    if (!p || String(campo(p, 'etapa') || '').toLowerCase() !== 'expedido') continue;
+    const total = Math.max(1, parseInt(campo(p, 'quantidade', 'qtd'), 10) || 1);
+    const res = Math.min(total, reservada[String(p.id)] || 0);
+    const disponivel = total - res;
+    if (disponivel <= 0) continue;
+    const pesoTotal = numero(campo(p, 'pesoTotal', 'peso_total', 'peso'))
+      || numero(campo(p, 'pesoUnitario', 'peso_unitario')) * total;
+    const pesoUnit = total > 0 ? pesoTotal / total : 0;
+    fila.push({
+      id: String(p.id),
+      marca: campo(p, 'marca') || String(p.id),
+      tipo: campo(p, 'tipo') || '',
+      obraId: obraDe(p),
+      total,
+      reservada: res,
+      disponivel,
+      pesoUnit,
+      pesoDisponivel: pesoUnit * disponivel,
+      peca: p,
+    });
+  }
+  return fila.sort((a, b) => String(a.marca).localeCompare(String(b.marca), 'pt-BR', { numeric: true }));
+}
+
+/**
+ * Transforma a seleção ({id: qtd}) em plano de romaneio (planejarRomaneio),
+ * usando o SALDO da fila como disponível. Devolve também o peso e o nº de parciais.
+ */
+export function planejarSelecaoFila(fila = [], selecao = {}) {
+  const porId = new Map((fila || []).map((f) => [f.id, f]));
+  const escolhidas = Object.keys(selecao || {}).map((id) => porId.get(String(id))).filter(Boolean);
+  const pecas = escolhidas.map((f) => ({ id: f.id, marca: f.marca, obra_id: f.obraId, quantidade: f.disponivel }));
+  const plano = planejarRomaneio(pecas, selecao);
+  if (!plano.ok) return { ...plano, pesoKg: 0, parciais: 0 };
+  const pesoKg = plano.itens.reduce((s, i) => s + (porId.get(i.id)?.pesoUnit || 0) * i.qtd, 0);
+  return { ...plano, pesoKg, parciais: plano.itens.filter((i) => i.parcial).length };
+}
