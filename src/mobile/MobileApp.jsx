@@ -39,6 +39,7 @@ const DiarioObraMobile = lazy(() => import('./pages/DiarioObraMobile'));
 const PainelGlobalMobile = lazy(() => import('./pages/PainelGlobalMobile'));
 const UsuariosMobile = lazy(() => import('./pages/UsuariosMobile'));
 const MaisMobile = lazy(() => import('./pages/MaisMobile'));
+const CustoKgMobile = lazy(() => import('./pages/CustoKgMobile'));
 
 // Páginas desktop que abrem em wrapper "compacto" no mobile
 const MontexERP3DPage = lazy(() => import('../pages/MontexERP3DPage'));
@@ -220,6 +221,8 @@ function MobileRoutes() {
       {/* Dashboard estratégico NATIVO mobile (gráficos + KPIs). O BI desktop
           completo fica em /m/dashboard-bi (wrapper escalado). */}
       <Route path="dashboard" element={<Protected perm="bi.view"><DashboardMobile /></Protected>} />
+      {/* Custo/kg da fábrica, equilíbrio, 2027 e margem por obra (mesma aba do BI 360) */}
+      <Route path="custo" element={<Protected perm="financeiro.view"><CustoKgMobile /></Protected>} />
       <Route path="dashboard-bi" element={<Protected perm="bi.view"><DesktopWrap title="Dashboard BI"><DashboardPremium /></DesktopWrap></Protected>} />
       <Route path="analise-producao" element={<Protected perm="producao.view"><DesktopWrap title="Análise Produção"><AnaliseProducaoPage /></DesktopWrap></Protected>} />
       <Route path="diario" element={<Protected perm="producao.view"><DesktopWrap title="Diário Produção"><DiarioProducaoPage /></DesktopWrap></Protected>} />

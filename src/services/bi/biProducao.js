@@ -53,15 +53,32 @@ export function normalizarHistorico(historico = [], pecas = []) {
   base.sort((a, b) => a.data - b.data || a.i - b.i);
 
   const vistos = new Set();
+  const vistosNA = new Set();
   const usado = new Map(); // `${peca}|${etapaDe}` → unidades já concluídas
   const out = [];
+  // Movimentos físicos gravados como "não se aplica" (ex.: terça que passa
+  // da solda para a pintura sem soldar). Não são produção do setor, mas a
+  // peça MUDOU de etapa — quem mede entrada em pintura (custo/kg) usa isto.
+  const passagensNA = [];
   base.forEach(({ h, p, data }) => {
     const de = etapaCanonica(h.etapa_de ?? h.etapaDe);
     const para = etapaCanonica(h.etapa_para ?? h.etapaPara);
     const funcionario = (h.funcionario_nome ?? h.funcionarioNome ?? '').replace(/\s+/g, ' ').trim() || null;
     const funcionarioId = h.funcionario_id ?? h.funcionarioId ?? null;
     const obs = h.observacoes ?? h.observacao ?? '';
-    if (RE_NA.test(String(obs))) { naoAplica.add(`${pecaBase(p.id)}|${de}`); diag.naoAplica += 1; return; }
+    if (RE_NA.test(String(obs))) {
+      naoAplica.add(`${pecaBase(p.id)}|${de}`);
+      diag.naoAplica += 1;
+      const tokNA = String(obs).match(RE_QTD)?.[0] || '';
+      const chaveNA = `${p.id}|${de}|${para}|${data.getFullYear()}-${data.getMonth()}-${data.getDate()}|${tokNA}`;
+      if (ordemFluxo(para) > ordemFluxo(de) && !vistosNA.has(chaveNA)) {
+        vistosNA.add(chaveNA);
+        const qtdPecaNA = Math.max(1, num(p.quantidade) || 1);
+        const qtdNA = Math.min(qtdMovida(obs) ?? qtdPecaNA, qtdPecaNA);
+        passagensNA.push({ pecaId: p.id, obraId: obraDe(p), de, para, data, qtd: qtdNA, kg: qtdNA * (pesoPeca(p) / qtdPecaNA), naoAplica: true, kgFisico: qtdNA * (pesoPeca(p) / qtdPecaNA), qtdFisica: qtdNA });
+      }
+      return;
+    }
     const tok = String(obs).match(RE_QTD)?.[0] || '';
     // Conjunto lançado pela aba Lançamentos (id HIST-<peça>__cN-<etapa>) é um
     // registro próprio, não duplicata de outro conjunto da mesma peça.
@@ -104,12 +121,15 @@ export function normalizarHistorico(historico = [], pecas = []) {
   if (naoAplica.size) {
     out.forEach((t) => {
       if (ordemFluxo(t.para) > ordemFluxo(t.de) && naoAplica.has(`${pecaBase(t.pecaId)}|${t.de}`)) {
+        // Guarda o movimento físico: quem mede ENTRADA em pintura (custo/kg)
+        // precisa do peso mesmo quando a etapa de origem "não se aplica".
+        t.kgFisico = t.kg; t.qtdFisica = t.qtd;
         t.kg = 0; t.qtd = 0; t.naoAplica = true;
       }
     });
   }
   diag.kgExcedente = r1(diag.kgExcedente);
-  return { transicoes: out, diag, naoAplica };
+  return { transicoes: out, diag, naoAplica, passagensNA };
 }
 
 /** Peça original de uma peça dividida (PEC-1__split_... → PEC-1). */

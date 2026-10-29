@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import {
   Box, Truck, Package, Scissors, ClipboardList, Building2,
   Users, Calculator, FileText, BarChart3, Activity, PieChart,
-  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2, Landmark, Shield,
+  Wallet, Receipt, TrendingUp, Settings, User, Bell, CheckCircle2, Landmark, Shield, Scale,
 } from 'lucide-react';
 import MobileLayout from '../MobileLayout';
 import { useAuth } from '@/lib/AuthContext';
@@ -33,6 +33,7 @@ const MODULOS = [
   { group: 'Financeiro · Empresa', items: [
     { to: '/m/painel-global', icon: Landmark, label: 'Painel Global', cor: 'emerald', perm: 'financeiro.view' },
     { to: '/m/dre', icon: PieChart, label: 'DRE', cor: 'amber', perm: 'financeiro.view' },
+    { to: '/m/custo', icon: Scale, label: 'Custo por kg', cor: 'teal', perm: 'financeiro.view' },
     { to: '/m/receitas', icon: TrendingUp, label: 'Receitas', cor: 'emerald', perm: 'financeiro.view' },
     { to: '/m/despesas', icon: Receipt, label: 'Despesas', cor: 'red', perm: 'financeiro.view' },
   ]},
