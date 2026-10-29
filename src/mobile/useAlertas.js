@@ -2,8 +2,9 @@
 // useAlertas — alertas operacionais derivados dos dados do ERP
 // ============================================================
 // Fonte única (usada pela tela de Notificações e pelo badge do sino).
-// Respeita o filtro global por obra. Cada alerta: { id, count, title,
-// sub, to, icon, color }.
+// Respeita o filtro global por obra e as PERMISSÕES do usuário: cada aviso
+// só aparece para quem tem o módulo liberado (financeiro, estoque, expedição,
+// montagem). Cada alerta: { id, count, title, sub, to, icon, color }.
 // ============================================================
 import { useMemo } from 'react';
 import { AlertCircle, Package, PackageCheck, Truck, Hammer, CheckCircle2 } from 'lucide-react';
@@ -52,7 +53,7 @@ export function useAlertas() {
     const atrasadas = despObra.filter(d => d.status !== 'pago' && d.status !== 'cancelado' && venc(d) && String(venc(d)).slice(0, 10) < hoje);
     if (atrasadas.length) {
       const total = atrasadas.reduce((s, d) => s + (Number(d.valor) || 0), 0);
-      list.push({ id: 'desp', icon: AlertCircle, color: 'red', count: atrasadas.length,
+      list.push({ id: 'desp', perm: 'financeiro.view', icon: AlertCircle, color: 'red', count: atrasadas.length,
         title: `${atrasadas.length} despesa(s) em atraso`, sub: 'R$ ' + total.toLocaleString('pt-BR', { maximumFractionDigits: 0 }), to: '/m/despesas' });
     }
 
@@ -61,14 +62,14 @@ export function useAlertas() {
     // zerados por natureza — 70 de 117 no banco — e afogariam o badge).
     const estCrit = estoque.filter(i => ['critico', 'baixo'].includes(saudeItem(i)));
     if (estCrit.length) {
-      list.push({ id: 'est', icon: Package, color: 'amber', count: estCrit.length,
+      list.push({ id: 'est', perm: 'estoque.view', icon: Package, color: 'amber', count: estCrit.length,
         title: `${estCrit.length} item(ns) com estoque baixo`, sub: 'Repor materiais', to: '/m/estoque' });
     }
     // Material faltando p/ a OBRA selecionada (necessário × chegou — kpisEstoque)
     if (!isTodas && obraSelecionada) {
       const k = kpisEstoque(estoque.filter(i => (i.obraId || i.obra_id) === obraSelecionada.id));
       if (k.itensComFalta > 0) {
-        list.push({ id: 'falta', icon: Package, color: 'red', count: k.itensComFalta,
+        list.push({ id: 'falta', perm: 'estoque.view', icon: Package, color: 'red', count: k.itensComFalta,
           title: `${k.itensComFalta} material(is) faltando p/ a obra`,
           sub: `${(k.totalFalta || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} kg a chegar · cobertura ${k.coberturaPct != null ? Math.round(k.coberturaPct) : 0}%`, to: '/m/estoque' });
       }
@@ -77,22 +78,23 @@ export function useAlertas() {
     const pecasObra = pecas.filter(matchObra);
     const prontas = pecasObra.filter(p => (p.etapa || '').toLowerCase() === 'expedido');
     if (prontas.length) {
-      list.push({ id: 'exp', icon: PackageCheck, color: 'blue', count: prontas.length,
+      list.push({ id: 'exp', perm: 'expedicao.view', icon: PackageCheck, color: 'blue', count: prontas.length,
         title: `${prontas.length} peça(s) prontas para expedição`, sub: 'Fila de embarque', to: '/m/expedicao' });
     }
 
     const aConferir = expedicoes.filter(matchObra).filter(e => ['preparando', 'aguardando_transporte'].includes(String(e.status || '').toLowerCase()));
     if (aConferir.length) {
-      list.push({ id: 'rom', icon: Truck, color: 'amber', count: aConferir.length,
+      list.push({ id: 'rom', perm: 'expedicao.view', icon: Truck, color: 'amber', count: aConferir.length,
         title: `${aConferir.length} romaneio(s) a conferir`, sub: 'Conferência de carga', to: '/m/expedicao' });
     }
 
     const aMontar = pecasObra.filter(p => ['enviado', 'entregue'].includes((p.etapa || '').toLowerCase()));
     if (aMontar.length) {
-      list.push({ id: 'mont', icon: Hammer, color: 'emerald', count: aMontar.length,
+      list.push({ id: 'mont', perm: ['montagem.view', 'obras.view'], icon: Hammer, color: 'emerald', count: aMontar.length,
         title: `${aMontar.length} peça(s) aguardando montagem`, sub: 'Em obra', to: '/m/montagem' });
     }
 
-    return list;
-  }, [lancamentosDespesas, estoque, pecas, expedicoes, medicoes, orcamentos, compras, matchObra, podeMed, podeOrc, podeCmp, isTodas, obraSelecionada]);
+    // Só os avisos dos módulos liberados (sem hasPermission = modo local/legado: todos)
+    return list.filter((a) => !a.perm || !hasPermission || (Array.isArray(a.perm) ? a.perm : [a.perm]).some((p) => hasPermission(p)));
+  }, [lancamentosDespesas, estoque, pecas, expedicoes, medicoes, orcamentos, compras, matchObra, podeMed, podeOrc, podeCmp, isTodas, obraSelecionada, hasPermission]);
 }

@@ -66,7 +66,9 @@ export default function Alertas() {
   const dados = useBIData({ empresa: true });
   const { ativos, statusDe, definir } = useRadarAtivo(dados);
   const operacao = useAlertas();
-  const { user } = useAuth() || {};
+  const { user, hasPermission } = useAuth() || {};
+  // Radar = riscos da empresa calculados pelo BI: só para quem tem o BI liberado.
+  const veRadar = !hasPermission || hasPermission('bi.view');
   const [aberto, setAberto] = useState(null);
   const [gravando, setGravando] = useState(null);
 
@@ -90,7 +92,7 @@ export default function Alertas() {
     }
   }, [definir, user]);
 
-  const total = ativos.length + operacao.length;
+  const total = (veRadar ? ativos.length : 0) + operacao.length;
   const carregandoRadar = dados.carregando && !dados.atualizadoEm;
   const st = aberto ? statusDe(aberto.id) : null;
   const href = aberto ? urlDesktop(aberto.link) : null;
@@ -103,6 +105,7 @@ export default function Alertas() {
       onRefresh={() => dados.recarregar()}
     >
       {/* ---------- Radar ---------- */}
+      {veRadar && (
       <Secao titulo="Radar" descricao="Riscos da empresa calculados pelo BI">
         {dados.erro && <Erro texto="Não foi possível carregar o histórico de produção." onTentar={() => dados.recarregar()} />}
         {carregandoRadar ? (
@@ -131,6 +134,7 @@ export default function Alertas() {
           </div>
         )}
       </Secao>
+      )}
 
       {/* ---------- Operação ---------- */}
       <Secao titulo="Operação" descricao="Pendências do dia a dia">

@@ -38,9 +38,9 @@ const chaveMesAtual = (d = new Date()) => `${d.getFullYear()}-${String(d.getMont
 // início de campo com os atalhos de trabalho — o cockpit é da diretoria.
 const ATALHOS_CAMPO = [
   { to: '/m/campo/producao', icone: ScanLine, titulo: 'Lançar produção', sub: 'Avançar etapa por leitura de código', perm: 'producao.lancar_avanco' },
-  { to: '/m/campo/montagem', icone: Hammer, titulo: 'Marcar montagem', sub: 'Peças montadas na obra, com foto', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+  { to: '/m/campo/montagem', icone: Hammer, titulo: 'Marcar montagem', sub: 'Peças montadas na obra, com foto', perm: 'montagem.edit' },
   { to: '/m/campo/expedicao', icone: Truck, titulo: 'Conferir e despachar carga', sub: 'Romaneios do dia', perm: 'expedicao.edit' },
-  { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: 'producao.lancar_avanco' },
+  { to: '/m/diario-obra', icone: ClipboardList, titulo: 'Diário de obra', perm: ['obras.edit', 'obras.view'] },
   { to: '/m/medicao', icone: Ruler, titulo: 'Medição', perm: 'medicao.view' },
   { to: '/m/estoque', icone: Package, titulo: 'Estoque', perm: 'estoque.view' },
   { to: '/m/campo/montagem', icone: Hammer, titulo: 'Montagem', sub: 'Peças em obra', perm: 'montagem.view', soLeitura: true },

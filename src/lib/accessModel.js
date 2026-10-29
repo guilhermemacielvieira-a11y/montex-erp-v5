@@ -17,7 +17,9 @@ import { ROLE_PERMISSIONS_MAP, ROLE_ORDER } from './permissions.js';
 
 const PERM_OBRAS = ['obras.view', 'projetos.view', 'bi.view'];
 const PERM_APROVAR = ['medicao.aprovar', 'orcamentos.aprovar', 'compras.aprovar'];
-const PERM_MONTAGEM = ['montagem.view', 'producao.view'];
+// Montagem é módulo próprio: não vale mais por 'producao.view' (usuário com
+// produção mas sem Montagem liberada não vê a tela).
+const PERM_MONTAGEM = ['montagem.view', 'montagem.edit'];
 
 export const ROTAS = {
   '/m': null,
@@ -33,13 +35,13 @@ export const ROTAS = {
   '/m/estoque': 'estoque.view',
   '/m/medicao': 'medicao.view',
   '/m/evidencias': 'producao.view',
-  '/m/diario-obra': 'producao.lancar_avanco',
+  '/m/diario-obra': ['obras.edit', 'obras.view'],
   '/m/usuarios': 'usuarios.manage',
   '/m/config': null,
   '/m/campo/producao': 'producao.view',
   '/m/campo/montagem': PERM_MONTAGEM,
   '/m/campo/expedicao': 'expedicao.view',
-  '/m/3d': ['viewer3d.view', 'producao.view'],
+  '/m/3d': 'viewer3d.view',
   '/m/parede-pronta': PERM_MONTAGEM,
   '/m/kanban': 'kanban.view',
   '/m/kanban-corte': 'kanban.view',
@@ -83,13 +85,13 @@ export const MAIS = [
   { to: '/m/alertas', label: 'Alertas' },
   { to: '/m/comercial', label: 'Comercial', perm: ['orcamentos.view', 'comercial.view', 'clientes.view'] },
   { to: '/m/campo/producao', label: 'Lançar produção', perm: 'producao.lancar_avanco' },
-  { to: '/m/campo/montagem', label: 'Marcar montagem', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+  { to: '/m/campo/montagem', label: 'Marcar montagem', perm: 'montagem.edit' },
   { to: '/m/campo/expedicao', label: 'Conferir e despachar carga', perm: 'expedicao.edit' },
-  { to: '/m/diario-obra', label: 'Diário de obra', perm: 'producao.lancar_avanco' },
+  { to: '/m/diario-obra', label: 'Diário de obra', perm: ['obras.edit', 'obras.view'] },
   { to: '/m/evidencias', label: 'Evidências', perm: 'producao.view' },
   { to: '/m/medicao', label: 'Medição', perm: 'medicao.view' },
   { to: '/m/estoque', label: 'Estoque detalhado', perm: 'estoque.view' },
-  { to: '/m/3d', label: 'Visualizador 3D', perm: ['viewer3d.view', 'producao.view'] },
+  { to: '/m/3d', label: 'Visualizador 3D', perm: 'viewer3d.view' },
   { to: '/m/kanban', label: 'Kanban de produção', perm: 'kanban.view' },
   { to: '/m/relatorios', label: 'Relatórios', perm: 'relatorios.view' },
   { to: '/m/usuarios', label: 'Usuários', perm: 'usuarios.manage' },
@@ -103,7 +105,7 @@ export const HOME = [
   { to: '/m/financeiro', label: 'Caixa no mês', perm: 'financeiro.view' },
   { to: '/m/obras', label: 'Obras ativas', perm: PERM_OBRAS },
   { to: '/m/fabrica', label: 'Semana na fábrica', perm: 'producao.view' },
-  { to: '/m/campo/montagem', label: 'Atalho Marcar montagem', perm: ['montagem.edit', 'producao.lancar_avanco'] },
+  { to: '/m/campo/montagem', label: 'Atalho Marcar montagem', perm: 'montagem.edit' },
 ];
 
 export const ACOES = [
