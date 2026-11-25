@@ -29,6 +29,7 @@ import {
 import { useEstoque, useObras, useProducao, useEnsureLoaded } from '@/contexts/ERPContext';
 import { CATEGORIAS_MATERIAL } from '@/data/database';
 import { rotuloEscopo } from '@/lib/escopoObra';
+import { idsEstoqueDoEscopo } from '@/lib/gruposEstoque';
 import {
   SAUDE, saudeItem, valorItem, pesoItem, kpisEstoque, curvaABC,
   agregadoCategoria, filtrarEstoque, ordenarEstoque,
@@ -222,7 +223,10 @@ export default function EstoquePageV2() {
   // Contexto ERP
   const { estoque, movimentacoesEstoque, reloadEstoque } = useEstoque();
   useEnsureLoaded('movimentacoesEstoque'); // tabela fora do boot do ERPContext
-  const { obras, obraAtual, obraAtualData, escopoObra, obraIdsEscopo } = useObras();
+  const { obras, obraAtual, obraAtualData, escopoObra, obraIdsEscopo, gruposEstoque } = useObras();
+  // Donos de estoque do escopo: obras + grupos de estoque que as atendem
+  // (ex.: GRUPO AÇO — o estoque do grupo é o estoque das obras membro).
+  const idsEstoqueEscopo = useMemo(() => idsEstoqueDoEscopo(obraIdsEscopo, gruposEstoque), [obraIdsEscopo, gruposEstoque]);
   const { pecasObraAtual } = useProducao();
 
   // Estado local
@@ -262,16 +266,18 @@ export default function EstoquePageV2() {
   //    SÓ ELE (estrito); senão cai no fallback por BOM: itens de FÁBRICA (sem
   //    obra) cujo perfil está no BOM — nunca itens de outra obra.
   //  - Grupo (ex.: TEMEC): itens das obras do grupo + itens gerais (sem obra).
+  //  - Obra atendida por GRUPO DE ESTOQUE (ex.: GRUPO AÇO): os itens do grupo
+  //    contam como estoque próprio da obra.
   const aplicarEscopoEstoque = useCallback((base, bom) => {
     const semObra = (it) => !it.obraId && !it.obra_id;
     if (soEstoqueGeral) return base.filter(semObra);
     if (!obraIdsEscopo) return base; // Geral
+    const ids = idsEstoqueEscopo || obraIdsEscopo;
     if (!obraAtual) {
       // Grupo
-      return base.filter(it => semObra(it) || obraIdsEscopo.includes(it.obraId || it.obra_id));
+      return base.filter(it => semObra(it) || ids.includes(it.obraId || it.obra_id));
     }
-    const alvo = obraAtual;
-    const proprios = base.filter(it => it.obraId === alvo || it.obra_id === alvo);
+    const proprios = base.filter(it => ids.includes(it.obraId || it.obra_id));
     let escopo = proprios;
     if (!proprios.length) {
       const perfisBOM = new Set(
@@ -290,7 +296,7 @@ export default function EstoquePageV2() {
     // — para KPIs/lista/PDF/saúde baterem com a aba "Necessário p/ Obra". Só quando
     // há UMA obra escopada (o BOM carregado é o dela; evita casar entre obras).
     return enriquecerNecessarioBOM(escopo, bom || []);
-  }, [soEstoqueGeral, obraIdsEscopo, obraAtual]);
+  }, [soEstoqueGeral, obraIdsEscopo, idsEstoqueEscopo, obraAtual]);
 
   const estoquePorObra = useMemo(
     () => aplicarEscopoEstoque(estoque || [], materiaisNecessarios),
@@ -367,8 +373,9 @@ export default function EstoquePageV2() {
     // Chaparia da obra: no estoque, as chapas entram como 1 item agregado
     // "CHAPARIA" (não por perfil). Se essa chaparia está entregue, todas as
     // chapas (CH…) do BOM contam como COBERTAS.
+    const donos = idsEstoqueEscopo || [obraIdParaConsulta];
     const chapariaObra = (estoque || []).find(e =>
-      (e.obraId === obraIdParaConsulta || e.obra_id === obraIdParaConsulta) &&
+      donos.includes(e.obraId || e.obra_id) &&
       (String(e.categoria || '').toLowerCase() === 'chaparia' ||
        String(e.codigo || e.perfil || '').toUpperCase().includes('CHAPARIA'))
     );
@@ -406,7 +413,7 @@ export default function EstoquePageV2() {
       };
     });
     return lista.sort((a, b) => (a.status === 'falta' ? -1 : 0) - (b.status === 'falta' ? -1 : 0));
-  }, [materiaisNecessarios, estoque, obraIdParaConsulta]);
+  }, [materiaisNecessarios, estoque, obraIdParaConsulta, idsEstoqueEscopo]);
 
   // Paginação CLIENT-SIDE sobre o array já filtrado (estoqueFiltrado).
   // Antes usávamos useSmartPagination, mas em modo server-side ele faz query
@@ -473,7 +480,7 @@ export default function EstoquePageV2() {
     // Filtro GLOBAL por escopo (obra/grupo do topo ou "só estoque geral")
     if (obraIdsEscopo || soEstoqueGeral) {
       const idsEstoqueValidos = new Set((estoqueFiltrado || []).map(i => i.id));
-      const idsObra = soEstoqueGeral ? [] : (obraIdsEscopo || []);
+      const idsObra = soEstoqueGeral ? [] : (idsEstoqueEscopo || obraIdsEscopo || []);
       movs = movs.filter(m =>
         (m.obra_id && idsObra.includes(m.obra_id)) ||
         (m.obraId && idsObra.includes(m.obraId)) ||
@@ -523,7 +530,7 @@ export default function EstoquePageV2() {
     // Ordenar por data decrescente
     movs.sort((a, b) => new Date(b.data) - new Date(a.data));
     return movs;
-  }, [movimentacoesEstoque, obraIdsEscopo, soEstoqueGeral, busca, estoqueFiltrado, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
+  }, [movimentacoesEstoque, obraIdsEscopo, idsEstoqueEscopo, soEstoqueGeral, busca, estoqueFiltrado, filtroMovTipo, filtroMovMaterial, filtroMovPeriodo]);
 
   // Resumo das movimentações
   const resumoMovimentacoes = useMemo(() => {
@@ -1470,7 +1477,8 @@ export default function EstoquePageV2() {
               const itensVinculados = (estoque || []).filter(i => {
                 const oid = obraDoItem(i);
                 if (!oid) return false;
-                return !obraIdsEscopo || [i.obra_id, i.obraId, i.obraReservada].some(x => x && obraIdsEscopo.includes(x));
+                const ids = idsEstoqueEscopo || obraIdsEscopo;
+                return !ids || [i.obra_id, i.obraId, i.obraReservada].some(x => x && ids.includes(x));
               });
               return (
                 <div className="space-y-4">

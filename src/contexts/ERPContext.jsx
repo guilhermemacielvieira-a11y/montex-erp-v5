@@ -10,6 +10,7 @@
  */
 
 import { OBRA_GERAL, escopoValido, obraIdUnica, obraIdsDoEscopo } from '../lib/escopoObra';
+import { separarGruposEstoque } from '../lib/gruposEstoque';
 import React, { createContext, useContext, useReducer, useCallback, useMemo, useEffect, useState, useRef } from 'react';
 
 // Constantes de negócio (sempre importadas - não são mock data)
@@ -68,7 +69,8 @@ import {
   pedidosMaterialApi,
   expedicoesApi,
   configMedicaoApi,
-  checkConnection
+  checkConnection,
+  supabase
 } from '@/api/supabaseClient';
 import { matchEstoqueItem, montarNovoItemEstoque } from '@/services/abastecimento';
 import { validarTransicao } from '@/services/fluxoEtapas';
@@ -107,6 +109,7 @@ const IS_PRODUCTION = import.meta.env.PROD || import.meta.env.VITE_SUPABASE_URL?
 const emptyState = {
   clientes: [],
   obras: [],
+  gruposEstoque: [],
   orcamentos: [],
   listas: [],
   estoque: [],
@@ -253,7 +256,8 @@ export function ERPProvider({ children }) {
           medicoesData,
           expData,
           configMedData,
-          lancamentosData
+          lancamentosData,
+          vinculosEstoque
         ] = await Promise.all([
           retryWithBackoff(() => clientesApi.getAll(), { operationName: 'clientes' }).catch(() => []),
           retryWithBackoff(() => obrasApi.getAll(), { operationName: 'obras' }).catch(() => []),
@@ -267,20 +271,26 @@ export function ERPProvider({ children }) {
           retryWithBackoff(() => medicoesApi.getAll(), { operationName: 'medicoes' }).catch(() => []),
           retryWithBackoff(() => expedicoesApi.getAll(), { operationName: 'expedicoes' }).catch(() => []),
           retryWithBackoff(() => configMedicaoApi.getAll(), { operationName: 'configMedicao' }).catch(() => []),
-          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => [])
+          retryWithBackoff(() => lancamentosApi.getAll(), { operationName: 'lancamentos' }).catch(() => []),
+          // obra → grupo de estoque (ex.: GRUPO AÇO); mesma tabela da baixa de corte no banco
+          supabase.from('estoque_grupos').select('obra_id,grupo_obra_id')
+            .then(({ data, error }) => (error ? [] : data || []), () => [])
         ]);
 
         // Se tem dados no Supabase, usar eles
         if (obrasData.length > 0 || pecasData.length > 0) {
           // Transformar snake_case → camelCase
           const pecasTransformadas = transformPecaArray(pecasData);
-          const obrasTransformadas = transformObraArray(obrasData);
+          // Grupos de estoque (ex.: GRUPO AÇO) ficam na tabela `obras` mas NÃO
+          // são obras: saem da lista e vão para `gruposEstoque`.
+          const { obras: obrasReais, grupos: gruposEstoque } = separarGruposEstoque(transformObraArray(obrasData), vinculosEstoque);
           // Calcular progresso real baseado nas peças
-          const obrasComProgresso = calcularProgressoObra(obrasTransformadas, pecasTransformadas);
+          const obrasComProgresso = calcularProgressoObra(obrasReais, pecasTransformadas);
 
           const payload = {
             clientes: transformArray(clientesData),
             obras: obrasComProgresso,
+            gruposEstoque,
             orcamentos: transformOrcamentoArray(orcamentosData),
             // listas, materiaisEstoque, notasFiscais, movimentacoesEstoque:
             // fora do payload de boot (sob demanda) — o spread do
@@ -306,7 +316,8 @@ export function ERPProvider({ children }) {
           // os consumidores recebem obraAtual = id só quando é UMA obra.
           {
             const savedObra = localStorage.getItem('montex_obra_atual');
-            payload.obraAtual = escopoValido(savedObra, obrasData) && savedObra ? savedObra : OBRA_GERAL;
+            // grupo de estoque não é escopo válido (não é obra)
+            payload.obraAtual = escopoValido(savedObra, separarGruposEstoque(obrasData, vinculosEstoque).obras) && savedObra ? savedObra : OBRA_GERAL;
           }
 
           // Calcular progresso das obras baseado nas pecas
@@ -1624,6 +1635,7 @@ export function ERPProvider({ children }) {
   // 2. ObrasContext: obras + orcamentos + clientes
   const obrasValue = useMemo(() => ({
     obras: state.obras,
+    gruposEstoque: state.gruposEstoque,
     clientes: state.clientes,
     orcamentos: state.orcamentos,
     addObra,
@@ -1635,6 +1647,7 @@ export function ERPProvider({ children }) {
     deleteOrcamento
   }), [
     state.obras,
+    state.gruposEstoque,
     state.clientes,
     state.orcamentos,
     addObra,
@@ -2034,6 +2047,8 @@ export function useObras() {
   const core = useContext(ERPCoreContext);
   return {
     obras: context.obras,
+    // Grupos de estoque (ex.: GRUPO AÇO): não são obras — ver lib/gruposEstoque
+    gruposEstoque: context.gruposEstoque || [],
     clientes: context.clientes,
     orcamentos: context.orcamentos,
     obraAtual: core.obraAtual,
