@@ -32,6 +32,7 @@ import { enqueue } from '../ui/offlineQueue';
 import { useERP, useProducao, useEstoque } from '@/contexts/ERPContext';
 import { useAuth } from '@/lib/AuthContext';
 import { useObraFiltro } from '../ObraContext';
+import { idsEstoqueDoEscopo } from '@/lib/gruposEstoque';
 import { etapaPeca, pesoPeca, qtdPeca, resumoProducao, estadoProducao } from '@/services/relatorioProducao';
 import RelatorioProducaoCard from '@/components/kanban/RelatorioProducaoCard';
 import { fmtPeso, fmtNum } from '../ui/format';
@@ -65,6 +66,7 @@ export default function ProducaoMobile() {
   const { pecas = [], funcionarios = [] } = erp;
   const { moverPecaEtapa } = useProducao?.() || {};
   const { estoque = [] } = useEstoque?.() || {};
+  const gruposEstoque = erp.gruposEstoque || [];
   const { matchObra, isTodas, obraSelecionada } = useObraFiltro();
   const { hasPermission } = useAuth() || {};
   // Sem hasPermission (fallback) libera — mesmo critério do resto do app
@@ -126,8 +128,12 @@ export default function ProducaoMobile() {
   const estado = useMemo(() => estadoProducao(pecasObra), [pecasObra]);
   // Estoque da obra selecionada (mesmo recorte do Kanban desktop) p/ fabricabilidade
   const estoqueObra = useMemo(
-    () => (obraSelecionada ? estoque.filter(e => (e.obraId || e.obra_id) === obraSelecionada.id) : []),
-    [estoque, obraSelecionada]
+    () => {
+      if (!obraSelecionada) return [];
+      const ids = idsEstoqueDoEscopo([obraSelecionada.id], gruposEstoque); // grupo de estoque (ex.: GRUPO AÇO)
+      return estoque.filter(e => ids.includes(e.obraId || e.obra_id));
+    },
+    [estoque, obraSelecionada, gruposEstoque]
   );
 
   // Lista de peças do drill-down: só renderiza quando há etapa selecionada ou busca

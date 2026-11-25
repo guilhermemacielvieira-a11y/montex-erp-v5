@@ -49,6 +49,7 @@ import { useFluxoIntegrado } from '@/hooks/useFluxoIntegrado';
 import { podeIniciarFabricacao } from '@/services/fluxoIntegrado';
 import FluxoObraPainel from '@/components/fluxo/FluxoObraPainel';
 import { hojeLocalISO } from '@/utils/financeiroCalc';
+import { idsEstoqueDoEscopo } from '@/lib/gruposEstoque';
 
 // Colunas do Kanban de Produção
 // 1ª coluna = marcas ainda não iniciadas (etapa 'aguardando'): o corte das
@@ -106,7 +107,9 @@ const COLORS = ['#3b82f6', '#8b5cf6', '#ec4899', '#10b981'];
 
 export default function KanbanProducaoIntegrado() {
   // ERPContext - dados reais
-  const { obras, obraAtual, escopoObra, obraIdsEscopo } = useObras();
+  const { obras, obraAtual, escopoObra, obraIdsEscopo, gruposEstoque } = useObras();
+  // Estoque do escopo: obra membro de grupo de estoque (ex.: GRUPO AÇO) usa o saldo do grupo
+  const idsEstoqueEscopo = useMemo(() => idsEstoqueDoEscopo(obraIdsEscopo, gruposEstoque), [obraIdsEscopo, gruposEstoque]);
   const { moverPecaEtapa: moverPecaEtapaContext, pecasObraAtual: pecasSupabase, addPecas: addPecasContext, reloadPecas } = useProducao();
   const { estoque: estoqueGlobal } = useEstoque();
   const { funcionarios: funcionariosCtx } = useEquipes();
@@ -1099,7 +1102,7 @@ export default function KanbanProducaoIntegrado() {
       <RelatorioProducaoCard
         pecas={pecasSupabase || []}
         obra={(obras || []).find(o => o.id === obraAtual) || null}
-        estoque={(estoqueGlobal || []).filter(e => !obraIdsEscopo || obraIdsEscopo.includes(e.obraId || e.obra_id))}
+        estoque={(estoqueGlobal || []).filter(e => !idsEstoqueEscopo || idsEstoqueEscopo.includes(e.obraId || e.obra_id))}
       />
 
       {/* Ordem de Produção Atual */}

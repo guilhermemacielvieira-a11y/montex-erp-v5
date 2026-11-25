@@ -21,6 +21,7 @@ import { registrarRelatorio } from '@/api/colaboracaoApi';
 import { useAlertasStatus, STATUS_ALERTA } from '@/hooks/useAlertasStatus';
 import { obraDe, pesoPeca } from '@/services/bi/biCore';
 import { enriquecerNecessarioBOM } from '@/services/estoqueAnalytics';
+import { idsEstoqueDoEscopo } from '@/lib/gruposEstoque';
 import {
   CATALOGO, regraFinanceiro, planilhasFinanceiro, csvAlertas, contarAlertas, resumoExecutivo,
   promptLeituraIA, montarResumoExecutivoPDF, nomeArquivo,
@@ -54,7 +55,7 @@ function baixarBlob(conteudo, nome, tipo) {
 }
 
 export default function AbaGerar({ dados, tipoDestacado = null, onRegistrado }) {
-  const { obras = [], escopoObra, obraAtual, obraAtualData } = useObras();
+  const { obras = [], escopoObra, obraAtual, obraAtualData, gruposEstoque = [] } = useObras();
   const { pecas = [] } = useProducao();
   const { estoque = [] } = useEstoque();
   const { user } = useAuth() || {};
@@ -68,7 +69,12 @@ export default function AbaGerar({ dados, tipoDestacado = null, onRegistrado }) 
   const nomeUsuario = user?.nome || user?.name || user?.email || null;
 
   const pecasObra = useMemo(() => (obraAtual ? pecas.filter((p) => obraDe(p) === obraAtual) : []), [pecas, obraAtual]);
-  const estoqueObra = useMemo(() => (obraAtual ? estoque.filter((e) => (e.obraId || e.obra_id) === obraAtual) : []), [estoque, obraAtual]);
+  // Obra membro de grupo de estoque (ex.: GRUPO AÇO) usa o saldo do grupo
+  const estoqueObra = useMemo(() => {
+    if (!obraAtual) return [];
+    const ids = idsEstoqueDoEscopo([obraAtual], gruposEstoque);
+    return estoque.filter((e) => ids.includes(e.obraId || e.obra_id));
+  }, [estoque, obraAtual, gruposEstoque]);
   const alertas = useMemo(() => dados?.alertas || [], [dados?.alertas]);
 
   // Leva o card pré-selecionado (vindo do Histórico) para a vista.
