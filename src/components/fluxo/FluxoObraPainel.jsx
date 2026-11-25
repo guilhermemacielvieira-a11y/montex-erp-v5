@@ -110,7 +110,7 @@ export default function FluxoObraPainel({ abastecimento, liberacao, pecas = [], 
                   <td className="py-1.5 pr-2 text-right text-slate-300">{kg(c.necessario_kg)}</td>
                   <td className="py-1.5 pr-2 text-right text-violet-300">{kg(c.cortado_kg)}</td>
                   <td className="py-1.5 pr-2 text-right text-amber-300">{kg(c.a_cortar_kg)}</td>
-                  <td className="py-1.5 pr-2 text-right text-sky-300">{c.cobertura == null ? '—' : kg(c.disponivel_kg)} {c.cobertura != null && <span className="text-[10px] text-slate-500">{c.origem_estoque === 'obra' ? 'obra' : 'fábrica'}</span>}</td>
+                  <td className="py-1.5 pr-2 text-right text-sky-300">{c.cobertura == null ? '—' : kg(c.disponivel_kg)} {c.cobertura != null && <span className="text-[10px] text-slate-500">{c.origem_estoque === 'grupo' ? 'grupo' : c.origem_estoque === 'obra' ? 'obra' : 'fábrica'}</span>}</td>
                   <td className={`py-1.5 pr-2 text-right font-semibold ${c.falta_kg > 0.5 ? 'text-red-400' : 'text-emerald-400'}`}>{c.cobertura == null ? '—' : c.falta_kg > 0.5 ? kg(c.falta_kg) : 'ok'}</td>
                   <td className="py-1.5 pr-2">
                     {c.cobertura != null && (
