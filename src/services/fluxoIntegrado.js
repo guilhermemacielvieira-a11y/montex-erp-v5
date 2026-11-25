@@ -384,7 +384,7 @@ export function marcasPorPosicao(liberacao) {
  */
 export function podeIniciarFabricacao(info, qtd = 1) {
   if (!info) return { ok: true, aviso: null };
-  if (info.composicao === 'sem') return { ok: true, aviso: 'Marca sem composição de posições cadastrada — corte não conferido.' };
+  if (info.composicao === 'sem') return { ok: true, aviso: 'Marca sem composição de posições — o corte será baixado do estoque por estimativa da família.' };
   if (info.liberadasAguardando >= qtd) return { ok: true, aviso: null };
   const faltam = info.posicoes.filter((p) => !p.pronta).map((p) => p.pos);
   return {

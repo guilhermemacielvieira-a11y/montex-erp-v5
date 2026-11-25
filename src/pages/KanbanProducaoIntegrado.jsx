@@ -428,7 +428,7 @@ export default function KanbanProducaoIntegrado() {
       if (chk.aviso) toast(chk.aviso, { icon: '⚠️' });
       return true;
     }
-    return window.confirm(`${conjunto.conjunto}: ${chk.aviso}\n\nIniciar a fabricação mesmo assim?`);
+    return window.confirm(`${conjunto.conjunto}: ${chk.aviso}\n\nAo iniciar a fabricação, as posições pendentes desta marca são cortadas e baixadas do estoque AUTOMATICAMENTE (o saldo pode ficar negativo se faltar material).\n\nIniciar a fabricação?`);
   };
 
   const abrirLancamento = (conjunto, etapa) => {
@@ -724,7 +724,7 @@ export default function KanbanProducaoIntegrado() {
     if (conjunto.status === 'aguardando' && (distribuicao.aguardando || 0) < qtdTotal) {
       const info = infoMarca({ obraId: conjunto.obraId, marca: conjunto.marca || conjunto.conjunto });
       const chk = podeIniciarFabricacao(info, qtdTotal - (distribuicao.aguardando || 0));
-      if (!chk.ok && !window.confirm(`${conjunto.conjunto}: ${chk.aviso}\n\nSalvar mesmo assim?`)) return;
+      if (!chk.ok && !window.confirm(`${conjunto.conjunto}: ${chk.aviso}\n\nAs posições pendentes serão cortadas e baixadas do estoque AUTOMATICAMENTE.\n\nSalvar?`)) return;
     }
 
     // Verificar que soma bate
